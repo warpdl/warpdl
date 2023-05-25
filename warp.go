@@ -80,6 +80,10 @@ func main() {
 		os.Exit(1)
 	}
 	url := args[1]
+	if url == "version" {
+		fmt.Println("warp: version 1.0.2")
+		return
+	}
 	if (url == "yt" || url == "youtube") && len(args) > 2 {
 		url = args[2]
 		// url = strings.TrimPrefix(url, "http://")
@@ -132,7 +136,9 @@ func main() {
 		log.Fatalln(err)
 	}
 
-	d.SetMaxParts(15)
+	d.SetMaxParts(16)
+	d.SetFileName("video.mp4")
+	d.SetDownloadLocation("./")
 
 	fmt.Println("INFO:", d.GetParts(), d.GetFileName(), d.GetContentLengthAsString())
 
@@ -144,7 +150,10 @@ func main() {
 		RespawnPartHandler: respawnHandler(p),
 	}
 
-	d.Start()
+	err = d.Start()
+	if err != nil {
+		fmt.Println(err.Error())
+	}
 	p.Wait()
 	fmt.Println("TIME TAKEN:", time.Since(tn))
 	// "https://speed.hetzner.de/100MB.bin"
