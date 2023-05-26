@@ -13,6 +13,8 @@ import (
 	"github.com/warpdl/warplib"
 )
 
+// ffmpeg -hide_banner -loglevel error -i video.mp4 -i audio.webm -c:v copy -map 0:v -map 1:a -y output.mp4
+
 var barMap warplib.VMap[string, *mpb.Bar]
 
 func newPart(p *mpb.Progress) warplib.SpawnPartHandlerFunc {
@@ -73,6 +75,18 @@ func respawnHandler(p *mpb.Progress) warplib.RespawnPartHandlerFunc {
 	}
 }
 
+func findAudioByQuality(formats youtube.FormatList, ql string) *youtube.Format {
+	for _, f := range formats {
+		if f.QualityLabel != "" {
+			continue
+		}
+		if f.AudioQuality == ql {
+			return &f
+		}
+	}
+	return nil
+}
+
 func main() {
 	args := os.Args
 	if len(args) < 2 {
@@ -93,34 +107,59 @@ func main() {
 
 		client := youtube.Client{}
 
+		dlt := "video"
+
+		if len(args) > 3 {
+			dlt = args[3]
+		}
+
 		video, err := client.GetVideo(url)
 		if err != nil {
 			fmt.Println(err)
 			return
 		}
 		formats := video.Formats
-		// for _, x := range formats {
-		// 	fmt.Println(x.QualityLabel, x.AudioQuality)
-		// }
-		// return
-		format := formats.FindByQuality("2160p")
-		if format == nil {
-			format = formats.FindByQuality("1440p")
-		}
-		if format == nil {
-			format = formats.FindByQuality("1080p")
-		}
-		if format == nil {
-			format = formats.FindByQuality("720p")
-		}
-		if format == nil {
-			format = formats.FindByQuality("360p")
+		//for _, x := range formats {
+		//	if x.QualityLabel == "1080p" {
+		//		url =
+		//		break
+		//	}
+		//	fmt.Println("q:", x.Quality, "ql:", x.QualityLabel)
+		//	fmt.Println("ac:", x.AudioChannels, "aq:", x.AudioQuality, "asr:", x.AudioSampleRate)
+		//	fmt.Println("pt:", x.ProjectionType, "bt:", x.Bitrate, "abt:", x.AverageBitrate)
+		//	fmt.Println()
+		//}
+		//return
+		var format *youtube.Format
+		switch dlt {
+		case "audio":
+			format = findAudioByQuality(formats, "AUDIO_QUALITY_HIGH")
+			if format == nil {
+				format = findAudioByQuality(formats, "AUDIO_QUALITY_MEDIUM")
+			}
+			if format == nil {
+				format = findAudioByQuality(formats, "AUDIO_QUALITY_LOW")
+			}
+		default:
+			format = formats.FindByQuality("2160p")
+			if format == nil {
+				format = formats.FindByQuality("1440p")
+			}
+			if format == nil {
+				format = formats.FindByQuality("1080p")
+			}
+			if format == nil {
+				format = formats.FindByQuality("720p")
+			}
+			if format == nil {
+				format = formats.FindByQuality("360p")
+			}
 		}
 		if format == nil {
 			fmt.Println("fmt nil")
 			return
 		}
-		fmt.Println("downloading at", format.QualityLabel, format.MimeType)
+		fmt.Println("downloading at", format.QualityLabel, format.Bitrate, format.MimeType, "audio:", format.AudioQuality)
 		// return
 		url = format.URL
 		// return
