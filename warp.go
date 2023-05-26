@@ -40,16 +40,28 @@ func newPart(p *mpb.Progress) warplib.SpawnPartHandlerFunc {
 	}
 }
 
-func progressHandler(hash string, nread int) {
-	bar := barMap.Get(hash)
-	if bar == nil {
-		return
+var countMap = warplib.VMap[string, int64]{}
+
+func newPartNoOp(hash string, ioff, foff int64) {}
+
+func progressHandler(p *mpb.Progress) warplib.ProgressHandlerFunc {
+	return func(hash string, nread int64) {
+		bar := barMap.Get(hash)
+		if bar == nil {
+			return
+		}
+		bar.SetCurrent(nread)
 	}
-	bar.IncrBy(nread)
+}
+
+func progressHandlerNoOp(hash string, nread int64) {}
+
+func progressHandlerNoCount(hash string, nread int64) {
+	countMap.Set(hash, nread)
 }
 
 func respawnHandler(p *mpb.Progress) warplib.RespawnPartHandlerFunc {
-	return func(hash string, nread, ioff, foff int64) {
+	return func(hash string, ioff, foff int64) {
 		// fmt.Println("reused part with hash:", hash, "ioff:", ioff, "foff:", foff)
 		bar := barMap.Get(hash)
 		name := "Process " + hash
@@ -68,12 +80,13 @@ func respawnHandler(p *mpb.Progress) warplib.RespawnPartHandlerFunc {
 			mpb.AppendDecorators(decor.Percentage()),
 		)
 		bar.Abort(true)
-		nbar.SetTotal(foff-ioff+nread, false)
+		nbar.SetTotal(foff-ioff, false)
 		nbar.EnableTriggerComplete()
-		nbar.SetCurrent(nread)
 		barMap.Set(hash, nbar)
 	}
 }
+
+func respawnHandlerNoOp(hash string, ioff, foff int64) {}
 
 func findAudioByQuality(formats youtube.FormatList, ql string) *youtube.Format {
 	for _, f := range formats {
@@ -165,10 +178,17 @@ func main() {
 		// return
 	}
 	barMap.Make()
+	// countMap.Make()
 	// turl := "https://firebasestorage.googleapis.com/v0/b/skink-cdb44.appspot.com/o/skink.exe?alt=media&token=fa521a89-1a65-4fa9-a634-fee4bb4bdc71"
 	// turl := "https://sample-videos.com/video123/mp4/720/big_buck_bunny_720p_30mb.mp4"
 
 	tn := time.Now()
+	// req, err := http.NewRequest(http.MethodGet, url, nil)
+	// if err != nil {
+	// 	log.Fatalln(err)
+	// }
+	// req.Header.Set("User-Agent", "Warp/1.0")
+	// resp, err := http.DefaultClient.Do(req)
 
 	d, err := warplib.NewDownloader(&http.Client{}, url, true)
 	if err != nil {
@@ -183,10 +203,16 @@ func main() {
 
 	p := mpb.New(mpb.WithWidth(64))
 
+	// var rtotal int64 = 0
+
 	d.Handlers = warplib.Handlers{
 		SpawnPartHandler:   newPart(p),
-		ProgressHandler:    progressHandler,
+		ProgressHandler:    progressHandler(p),
 		RespawnPartHandler: respawnHandler(p),
+		OnCompleteHandler: func(hash string, tread int64) {
+			bar := barMap.Get(hash)
+			bar.SetCurrent(tread)
+		},
 		ErrorHandler: func(err error) {
 			panic(err)
 		},
@@ -196,7 +222,24 @@ func main() {
 	if err != nil {
 		fmt.Println(err.Error())
 	}
-	p.Wait()
+	// var tot int64 = 0
+	// for _, k := range countMap.Keys() {
+	// 	tot += countMap.GetUnsafe(k)
+	// }
+	// if tot != d.GetContentLengthAsInt() {
+	// 	fmt.Println("Diff L detected", "Expected:", d.GetContentLengthAsInt(), "Found:", tot, "Rtotal:", rtotal)
+	// 	fmt.Println("Diff L detected", "Expected:", d.GetContentLength(), "Found:", warplib.ContentLength(tot), "Rtotal:", warplib.ContentLength(rtotal))
+	// }
+	// p.Wait()
+	// f, err := os.Create("test")
+	// if err != nil {
+	// 	panic(err)
+	// }
+	// defer resp.Body.Close()
+	// _, err = io.Copy(f, resp.Body)
+	// if err != nil {
+	// 	panic(err)
+	// }
 	fmt.Println("TIME TAKEN:", time.Since(tn))
 	// "https://speed.hetzner.de/100MB.bin"
 }
