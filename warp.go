@@ -187,6 +187,9 @@ func main() {
 		SpawnPartHandler:   newPart(p),
 		ProgressHandler:    progressHandler,
 		RespawnPartHandler: respawnHandler(p),
+		ErrorHandler: func(err error) {
+			panic(err)
+		},
 	}
 
 	err = d.Start()
