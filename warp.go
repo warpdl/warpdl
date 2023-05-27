@@ -52,12 +52,12 @@ func newPartNoOp(hash string, ioff, foff int64) {}
 
 func progressHandler(b *mpb.Bar) warplib.ProgressHandlerFunc {
 	return func(hash string, nread int) {
-		bar := barMap.Get(hash)
-		if bar == nil {
-			return
-		}
+		// bar := barMap.Get(hash)
+		// if bar == nil {
+		// 	return
+		// }
 		// bar.EwmaSetCurrent(nread, dur)
-		bar.IncrBy(nread)
+		// bar.IncrBy(nread)
 		b.IncrBy(nread)
 	}
 }
@@ -122,6 +122,7 @@ func main() {
 		fmt.Println("warp: version 1.0.2")
 		return
 	}
+	fmt.Println("WarpDL v0.0.1")
 	var fName string
 	if (url == "yt" || url == "youtube") && len(args) > 2 {
 		url = args[2]
@@ -213,12 +214,17 @@ func main() {
 	d.SetFileName(fName)
 	d.SetDownloadLocation("./")
 
-	fmt.Println("INFO:", d.GetParts(), d.GetFileName(), d.GetContentLengthAsString())
+	fmt.Printf(`
+File Info:
+Name: %s
+Size: %s
+
+`, d.GetFileName(), d.GetContentLengthAsString())
 
 	p := mpb.New(mpb.WithWidth(64))
 	// var rtotal int64 = 0
 
-	name := "TOTAL"
+	name := "Progress: "
 
 	bar := p.New(0,
 		// BarFillerBuilder with custom style
@@ -234,15 +240,16 @@ func main() {
 		mpb.AppendDecorators(
 			// decor.Name(" ] "),
 			// decor.EwmaSpeed(decor.SizeB1024(0), "% .2f", 30),
-			decor.AverageSpeed(decor.SizeB1024(0), "% .2f")),
+			decor.AverageSpeed(decor.SizeB1024(0), "% .2f"),
+		),
 	)
 	bar.SetTotal(d.GetContentLengthAsInt(), false)
 	bar.EnableTriggerComplete()
 
 	d.Handlers = warplib.Handlers{
-		SpawnPartHandler:   newPart(p),
+		SpawnPartHandler:   newPartNoOp,
 		ProgressHandler:    progressHandler(bar),
-		RespawnPartHandler: respawnHandler(p),
+		RespawnPartHandler: respawnHandlerNoOp,
 		OnCompleteHandler: func(hash string, tread int64) {
 			// bar := barMap.Get(hash)
 			// bar.SetCurrent(tread)
