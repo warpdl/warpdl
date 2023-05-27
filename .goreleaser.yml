@@ -7,6 +7,9 @@ before:
   hooks:
     - go mod tidy
     - go mod download
+gomod:
+  env:
+    - GOPRIVATE=github.com/warpdl/warplib
 builds:
   - goos:
       - linux
