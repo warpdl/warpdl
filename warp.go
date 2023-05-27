@@ -8,36 +8,37 @@ import (
 	"time"
 
 	"github.com/kkdai/youtube/v2"
-	"github.com/pterm/pterm"
+	"github.com/vbauerster/mpb/v8"
+	"github.com/vbauerster/mpb/v8/decor"
 	"github.com/warpdl/warplib"
 )
 
 // ffmpeg -hide_banner -loglevel error -i video.mp4 -i audio.webm -c:v copy -map 0:v -map 1:a -y output.mp4
 
-// var barMap warplib.VMap[string, *mpb.Bar]
+var barMap = warplib.NewVMap[string, *mpb.Bar]()
 
-// func newPart(p *mpb.Progress) warplib.SpawnPartHandlerFunc {
-// 	return func(hash string, ioff, foff int64) {
-// 		// fmt.Println("created new part with hash:", hash, "ioff:", ioff, "foff:", foff)
-// 		name := "Process " + hash
-// 		bar := p.New(0,
-// 			// BarFillerBuilder with custom style
-// 			mpb.BarStyle().Lbound("╢").Filler("█").Tip("█").Padding("░").Rbound("╟"),
-// 			mpb.PrependDecorators(
-// 				// display our name with one space on the right
-// 				decor.Name(name, decor.WC{W: len(name) + 1, C: decor.DidentRight}),
-// 				// replace ETA decorator with "done" message, OnComplete event
-// 				decor.OnComplete(
-// 					decor.AverageETA(decor.ET_STYLE_GO, decor.WC{W: 4}), "Completed",
-// 				),
-// 			),
-// 			mpb.AppendDecorators(decor.Percentage()),
-// 		)
-// 		bar.SetTotal(foff-ioff, false)
-// 		bar.EnableTriggerComplete()
-// 		barMap.Set(hash, bar)
-// 	}
-// }
+func newPart(p *mpb.Progress) warplib.SpawnPartHandlerFunc {
+	return func(hash string, ioff, foff int64) {
+		// fmt.Println("created new part with hash:", hash, "ioff:", ioff, "foff:", foff)
+		name := "Process " + hash
+		bar := p.New(0,
+			// BarFillerBuilder with custom style
+			mpb.BarStyle().Lbound("╢").Filler("█").Tip("█").Padding("░").Rbound("╟"),
+			mpb.PrependDecorators(
+				// display our name with one space on the right
+				decor.Name(name, decor.WC{W: len(name) + 1, C: decor.DidentRight}),
+				// replace ETA decorator with "done" message, OnComplete event
+				decor.OnComplete(
+					decor.AverageETA(decor.ET_STYLE_GO, decor.WC{W: 4}), "Completed",
+				),
+			),
+			mpb.AppendDecorators(decor.Percentage()),
+		)
+		bar.SetTotal(foff-ioff, false)
+		bar.EnableTriggerComplete()
+		barMap.Set(hash, bar)
+	}
+}
 
 var countMap = warplib.VMap[string, int64]{}
 
@@ -45,15 +46,15 @@ func newPartNoOp(hash string, ioff, foff int64) {}
 
 // func newPartNoOp(hash string, ioff, foff int64) {}
 
-// func progressHandler(p *mpb.Progress) warplib.ProgressHandlerFunc {
-// 	return func(hash string, nread int64) {
-// 		bar := barMap.Get(hash)
-// 		if bar == nil {
-// 			return
-// 		}
-// 		bar.SetCurrent(nread)
-// 	}
-// }
+func progressHandler(p *mpb.Progress) warplib.ProgressHandlerFunc {
+	return func(hash string, nread int64) {
+		bar := barMap.Get(hash)
+		if bar == nil {
+			return
+		}
+		bar.SetCurrent(nread)
+	}
+}
 
 func progressHandlerNoOp(hash string, nread int64) {}
 
@@ -61,31 +62,31 @@ func progressHandlerNoCount(hash string, nread int64) {
 	countMap.Set(hash, nread)
 }
 
-// func respawnHandler(p *mpb.Progress) warplib.RespawnPartHandlerFunc {
-// 	return func(hash string, ioff, foff int64) {
-// 		// fmt.Println("reused part with hash:", hash, "ioff:", ioff, "foff:", foff)
-// 		bar := barMap.Get(hash)
-// 		name := "Process " + hash
-// 		nbar := p.New(0,
-// 			// BarFillerBuilder with custom style
-// 			mpb.BarStyle().Lbound("╢").Filler("█").Tip("█").Padding("░").Rbound("╟"),
-// 			mpb.BarQueueAfter(bar),
-// 			mpb.PrependDecorators(
-// 				// display our name with one space on the right
-// 				decor.Name(name, decor.WC{W: len(name) + 1, C: decor.DidentRight}),
-// 				// replace ETA decorator with "done" message, OnComplete event
-// 				decor.OnComplete(
-// 					decor.AverageETA(decor.ET_STYLE_GO, decor.WC{W: 4}), "Completed",
-// 				),
-// 			),
-// 			mpb.AppendDecorators(decor.Percentage()),
-// 		)
-// 		bar.Abort(true)
-// 		nbar.SetTotal(foff-ioff, false)
-// 		nbar.EnableTriggerComplete()
-// 		barMap.Set(hash, nbar)
-// 	}
-// }
+func respawnHandler(p *mpb.Progress) warplib.RespawnPartHandlerFunc {
+	return func(hash string, ioff, foff int64) {
+		// fmt.Println("reused part with hash:", hash, "ioff:", ioff, "foff:", foff)
+		bar := barMap.Get(hash)
+		name := "Process " + hash
+		nbar := p.New(0,
+			// BarFillerBuilder with custom style
+			mpb.BarStyle().Lbound("╢").Filler("█").Tip("█").Padding("░").Rbound("╟"),
+			mpb.BarQueueAfter(bar),
+			mpb.PrependDecorators(
+				// display our name with one space on the right
+				decor.Name(name, decor.WC{W: len(name) + 1, C: decor.DidentRight}),
+				// replace ETA decorator with "done" message, OnComplete event
+				decor.OnComplete(
+					decor.AverageETA(decor.ET_STYLE_GO, decor.WC{W: 4}), "Completed",
+				),
+			),
+			mpb.AppendDecorators(decor.Percentage()),
+		)
+		bar.Abort(true)
+		nbar.SetTotal(foff-ioff, false)
+		nbar.EnableTriggerComplete()
+		barMap.Set(hash, nbar)
+	}
+}
 
 func respawnHandlerNoOp(hash string, ioff, foff int64) {}
 
@@ -205,15 +206,13 @@ func main() {
 
 	fmt.Println("INFO:", d.GetParts(), d.GetFileName(), d.GetContentLengthAsString())
 
-	// p := mpb.New(mpb.WithWidth(64))
-	p, _ := pterm.DefaultProgressbar.WithTotal(int(d.GetContentLengthAsInt())).WithTitle("Downloading stuff").Start()
-
+	p := mpb.New(mpb.WithWidth(64))
 	// var rtotal int64 = 0
 
 	d.Handlers = warplib.Handlers{
-		SpawnPartHandler:   newPartNoOp,
-		ProgressHandler:    progressHandlerNoOp,
-		RespawnPartHandler: respawnHandlerNoOp,
+		SpawnPartHandler:   newPart(p),
+		ProgressHandler:    progressHandler(p),
+		RespawnPartHandler: respawnHandler(p),
 		OnCompleteHandler: func(hash string, tread int64) {
 			// bar := barMap.Get(hash)
 			// bar.SetCurrent(tread)
@@ -235,7 +234,7 @@ func main() {
 	// 	fmt.Println("Diff L detected", "Expected:", d.GetContentLengthAsInt(), "Found:", tot, "Rtotal:", rtotal)
 	// 	fmt.Println("Diff L detected", "Expected:", d.GetContentLength(), "Found:", warplib.ContentLength(tot), "Rtotal:", warplib.ContentLength(rtotal))
 	// }
-	// p.Wait()
+	p.Wait()
 	// f, err := os.Create("test")
 	// if err != nil {
 	// 	panic(err)
