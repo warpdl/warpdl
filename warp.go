@@ -13,6 +13,7 @@ import (
 	"github.com/warpdl/warplib"
 )
 
+// test
 // ffmpeg -hide_banner -loglevel error -i video.mp4 -i audio.webm -c:v copy -map 0:v -map 1:a -y output.mp4
 
 var barMap = warplib.NewVMap[string, *mpb.Bar]()
