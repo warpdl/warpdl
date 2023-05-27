@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/kkdai/youtube/v2"
+	"github.com/pterm/pterm"
 	"github.com/warpdl/warplib"
 )
 
@@ -111,6 +112,7 @@ func main() {
 		fmt.Println("warp: version 1.0.2")
 		return
 	}
+	var fName string
 	if (url == "yt" || url == "youtube") && len(args) > 2 {
 		url = args[2]
 		// url = strings.TrimPrefix(url, "http://")
@@ -153,6 +155,7 @@ func main() {
 			if format == nil {
 				format = findAudioByQuality(formats, "AUDIO_QUALITY_LOW")
 			}
+			fName = "audio.webm"
 		default:
 			format = formats.FindByQuality("2160p")
 			if format == nil {
@@ -167,6 +170,7 @@ func main() {
 			if format == nil {
 				format = formats.FindByQuality("360p")
 			}
+			fName = "video.mp4"
 		}
 		if format == nil {
 			fmt.Println("fmt nil")
@@ -196,12 +200,13 @@ func main() {
 	}
 
 	d.SetMaxParts(16)
-	d.SetFileName("video.mp4")
+	d.SetFileName(fName)
 	d.SetDownloadLocation("./")
 
 	fmt.Println("INFO:", d.GetParts(), d.GetFileName(), d.GetContentLengthAsString())
 
 	// p := mpb.New(mpb.WithWidth(64))
+	p, _ := pterm.DefaultProgressbar.WithTotal(int(d.GetContentLengthAsInt())).WithTitle("Downloading stuff").Start()
 
 	// var rtotal int64 = 0
 
