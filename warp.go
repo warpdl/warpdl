@@ -33,7 +33,10 @@ func newPart(p *mpb.Progress) warplib.SpawnPartHandlerFunc {
 					decor.AverageETA(decor.ET_STYLE_GO, decor.WC{W: 4}), "Completed",
 				),
 			),
-			mpb.AppendDecorators(decor.Percentage()),
+			mpb.AppendDecorators(
+				// decor.Name(" ] "),
+				// decor.EwmaSpeed(decor.SizeB1024(0), "% .2f", 30),
+				decor.AverageSpeed(decor.SizeB1024(0), "% .2f")),
 		)
 		bar.SetTotal(foff-ioff, false)
 		bar.EnableTriggerComplete()
@@ -47,13 +50,15 @@ func newPartNoOp(hash string, ioff, foff int64) {}
 
 // func newPartNoOp(hash string, ioff, foff int64) {}
 
-func progressHandler(p *mpb.Progress) warplib.ProgressHandlerFunc {
-	return func(hash string, nread int64) {
+func progressHandler(b *mpb.Bar) warplib.ProgressHandlerFunc {
+	return func(hash string, nread int) {
 		bar := barMap.Get(hash)
 		if bar == nil {
 			return
 		}
-		bar.SetCurrent(nread)
+		// bar.EwmaSetCurrent(nread, dur)
+		bar.IncrBy(nread)
+		b.IncrBy(nread)
 	}
 }
 
@@ -80,7 +85,10 @@ func respawnHandler(p *mpb.Progress) warplib.RespawnPartHandlerFunc {
 					decor.AverageETA(decor.ET_STYLE_GO, decor.WC{W: 4}), "Completed",
 				),
 			),
-			mpb.AppendDecorators(decor.Percentage()),
+			mpb.AppendDecorators(
+				// decor.Name(" ] "),
+				// decor.EwmaSpeed(decor.SizeB1024(0), "% .2f", 30),
+				decor.AverageSpeed(decor.SizeB1024(0), "% .2f")),
 		)
 		bar.Abort(true)
 		nbar.SetTotal(foff-ioff, false)
@@ -210,9 +218,30 @@ func main() {
 	p := mpb.New(mpb.WithWidth(64))
 	// var rtotal int64 = 0
 
+	name := "TOTAL"
+
+	bar := p.New(0,
+		// BarFillerBuilder with custom style
+		mpb.BarStyle().Lbound("╢").Filler("█").Tip("█").Padding("░").Rbound("╟"),
+		mpb.PrependDecorators(
+			// display our name with one space on the right
+			decor.Name(name, decor.WC{W: len(name) + 1, C: decor.DidentRight}),
+			// replace ETA decorator with "done" message, OnComplete event
+			decor.OnComplete(
+				decor.AverageETA(decor.ET_STYLE_GO, decor.WC{W: 4}), "Completed",
+			),
+		),
+		mpb.AppendDecorators(
+			// decor.Name(" ] "),
+			// decor.EwmaSpeed(decor.SizeB1024(0), "% .2f", 30),
+			decor.AverageSpeed(decor.SizeB1024(0), "% .2f")),
+	)
+	bar.SetTotal(d.GetContentLengthAsInt(), false)
+	bar.EnableTriggerComplete()
+
 	d.Handlers = warplib.Handlers{
 		SpawnPartHandler:   newPart(p),
-		ProgressHandler:    progressHandler(p),
+		ProgressHandler:    progressHandler(bar),
 		RespawnPartHandler: respawnHandler(p),
 		OnCompleteHandler: func(hash string, tread int64) {
 			// bar := barMap.Get(hash)
