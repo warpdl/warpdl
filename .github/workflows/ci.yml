@@ -19,7 +19,7 @@ jobs:
       - uses: actions/checkout@v3
       - uses: oleksiyrudenko/gha-git-credentials@v2-latest
         with:
-          token: '${{ secrets.GITHUB_TOKEN }}'
+          token: "${{ secrets.GITHUB_TOKEN }}"
       - uses: actions/setup-go@v4
         with:
           go-version: "stable"
@@ -30,6 +30,7 @@ jobs:
           # git config --global credential.helper store
           # git credential-store --file ~/.git-credentials store
           # echo "https://github.com/divkix:${secrets.GH_PAT}" >> ~/.git-credentials
+          git config --global --add url."git@github.com:".insteadOf "https://github.com/"
           go get github.com/warpdl/warplib
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v4
