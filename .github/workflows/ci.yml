@@ -34,14 +34,5 @@ jobs:
       - run: tar -cvf warp.tar dist/
       - uses: actions/upload-artifact@v3
         with:
-          name: warp-native
+          name: warp
           path: warp.tar
-
-      - name: Debug Binary
-        run: |
-          go build
-      - run: tar -cvf warp.tar warp
-      - uses: actions/upload-artifact@v3
-        with:
-          name: warp-debug
-          path: warp
