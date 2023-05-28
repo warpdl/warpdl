@@ -1,20 +1,12 @@
 project_name: warp
 release:
-  github:
-    owner: warpdl
-    name: warp
   replace_existing_draft: true
-  draft: false
-  skipValidate: true
   header: |
     Welcome to this new release!
 before:
   hooks:
     - go mod tidy
     - go mod download
-gomod:
-  env:
-    - GOPRIVATE=github.com/warpdl/warplib
 builds:
   - goos:
       - linux

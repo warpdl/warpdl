@@ -12,20 +12,16 @@ jobs:
   ci:
     name: CI
     runs-on: ubuntu-latest
-    env:
-      GOPRIVATE: github.com/warpdl/warplib
-      GH_ACCESS_TOKEN: ${{ secrets.GH_PAT }}
     steps:
       - uses: actions/checkout@v3
-      - uses: oleksiyrudenko/gha-git-credentials@v2-latest
-        with:
-          token: "${{ secrets.GH_PAT }}"
       - uses: actions/setup-go@v4
         with:
           go-version: "stable"
-      - run: |
-          git config --global --add url."git@github.com:".insteadOf "https://github.com/"
-          go get github.com/warpdl/warplib
+      - name: Install dependencies
+        run: go get github.com/warpdl/warplib@latest
+        env:
+          GOPRIVATE: github.com/warpdl/warplib@latest
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v4
         with:
