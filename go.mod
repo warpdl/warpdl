@@ -5,7 +5,7 @@ go 1.20
 require (
 	github.com/kkdai/youtube/v2 v2.8.0
 	github.com/vbauerster/mpb/v8 v8.4.0
-	github.com/warpdl/warplib v0.0.0-20230527135628-87e2538ac66c
+	github.com/warpdl/warplib v0.0.0-20230527193549-66c23ba7ec24
 )
 
 require (
