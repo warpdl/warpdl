@@ -21,9 +21,9 @@ jobs:
         with:
           go-version: "stable"
       - run: |
-          git config --global credential.helper store
-          git credential-store --file ~/.git-credentials store
-          echo "https://github.com/ username:${secrets.GH_PAT}" >> ~/.git-credentials
+          #git config --global credential.helper store
+          #git credential-store --file ~/.git-credentials store
+          #echo "https://github.com/divkix:${secrets.GH_PAT}" >> ~/.git-credentials
           go get github.com/warpdl/warplib
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v4
