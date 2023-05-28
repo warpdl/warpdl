@@ -32,5 +32,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
       - uses: actions/upload-artifact@v3
         with:
-          name: warp-binaries
+          name: warp-native
           path: dist/
+      - name: Debug Binary
+        run: |
+          go build
+      - uses: actions/upload-artifact@v3
+        with:
+          name: warp-debug
+          path: warp
