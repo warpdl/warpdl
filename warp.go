@@ -210,7 +210,7 @@ func main() {
 		log.Fatalln(err)
 	}
 
-	d.SetMaxParts(16)
+	d.SetMaxConnections(24)
 	d.SetFileName(fName)
 	d.SetDownloadLocation("./")
 
@@ -218,9 +218,8 @@ func main() {
 File Info:
 Name: %s
 Size: %s
-
-`, d.GetFileName(), d.GetContentLengthAsString())
-
+Len: %d
+`, d.GetFileName(), d.GetContentLengthAsString(), d.GetContentLengthAsInt())
 	p := mpb.New(mpb.WithWidth(64))
 	// var rtotal int64 = 0
 
@@ -246,7 +245,7 @@ Size: %s
 	bar.SetTotal(d.GetContentLengthAsInt(), false)
 	bar.EnableTriggerComplete()
 
-	d.Handlers = warplib.Handlers{
+	d.Handlers = &warplib.Handlers{
 		SpawnPartHandler:   newPartNoOp,
 		ProgressHandler:    progressHandler(bar),
 		RespawnPartHandler: respawnHandlerNoOp,
