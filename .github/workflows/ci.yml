@@ -17,19 +17,11 @@ jobs:
       - uses: actions/setup-go@v4
         with:
           go-version: "stable"
-      - name: Configure Git
-        run: git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf https://github.com/
-        # env:
-        #   GOPRIVATE: github.com/warpdl/warplib@latest
-        #   GITHUB_TOKEN: ${{ secrets.GH_PAT }}
-        #   GOPROXY: direct
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v4
         with:
           version: latest
           args: release --snapshot --skip-publish --clean
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
       - run: tar -cvf warp.tar dist/
       - uses: actions/upload-artifact@v3
         with:
