@@ -17,14 +17,12 @@ jobs:
       - uses: actions/setup-go@v4
         with:
           go-version: "stable"
-      - name: Install dependencies
-        run: |
-          export GOPRIVATE=github.com/warpdl/warplib
-          export GOPROXY=direct
-          git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf https://github.com/
+      - name: Configure Git
+        run: git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf https://github.com/
         env:
           GOPRIVATE: github.com/warpdl/warplib@latest
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+          GOPROXY: direct
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v4
         with:
@@ -34,5 +32,5 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
       - uses: actions/upload-artifact@v3
         with:
-          name: warp
+          name: warp-binaries
           path: dist/
