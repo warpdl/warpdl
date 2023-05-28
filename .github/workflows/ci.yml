@@ -17,13 +17,16 @@ jobs:
       GH_ACCESS_TOKEN: ${{ secrets.GH_PAT }}
     steps:
       - uses: actions/checkout@v3
+      - uses: oleksiyrudenko/gha-git-credentials@v2-latest
+        with:
+          token: '${{ secrets.GITHUB_TOKEN }}'
       - uses: actions/setup-go@v4
         with:
           go-version: "stable"
       - run: |
-          git config --global user.name "divkix"
-          git config --global user.email "social@anodite.co"
-          git config --global user.password ${{ secrets.GH_PAT }}
+          # git config --global user.name "divkix"
+          # git config --global user.email "social@anodite.co"
+          # git config --global user.password ${{ secrets.GH_PAT }}
           # git config --global credential.helper store
           # git credential-store --file ~/.git-credentials store
           # echo "https://github.com/divkix:${secrets.GH_PAT}" >> ~/.git-credentials
