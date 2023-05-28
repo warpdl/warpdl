@@ -1,6 +1,11 @@
 project_name: warp
 release:
+  github:
+    owner: warpdl
+    name: warp
   replace_existing_draft: true
+  draft: false
+  skipValidate: true
   header: |
     Welcome to this new release!
 before:
