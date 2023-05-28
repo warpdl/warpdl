@@ -23,8 +23,9 @@ jobs:
       - run: |
           git config --global user.name "divkix"
           git config --global user.email "social@anodite.co"
-          git config --global credential.helper store
-          git credential-store --file ~/.git-credentials store
+          git config --global user.password ${{ secrets.GH_PAT }}
+          #git config --global credential.helper store
+          #git credential-store --file ~/.git-credentials store
           echo "https://github.com/divkix:${secrets.GH_PAT}" >> ~/.git-credentials
           go get github.com/warpdl/warplib
       - name: Run GoReleaser
