@@ -19,8 +19,9 @@ jobs:
           go-version: "stable"
       - name: Install dependencies
         run: |
-          git config --global url.git@github.com:.insteadOf https://github.com/
-          go get github.com/warpdl/warplib@latest
+          export GOPRIVATE=github.com/warpdl/warplib
+          export GOPROXY=direct
+          git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf https://github.com/
         env:
           GOPRIVATE: github.com/warpdl/warplib@latest
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
