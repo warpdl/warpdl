@@ -23,6 +23,7 @@ jobs:
           GOPRIVATE: github.com/warpdl/warplib@latest
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
           GOPROXY: direct
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v4
         with:
@@ -30,13 +31,16 @@ jobs:
           args: release --snapshot --skip-publish --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+      - run: tar -cvf warp.tar dist/
       - uses: actions/upload-artifact@v3
         with:
           name: warp-native
-          path: dist/
+          path: warp.tar
+
       - name: Debug Binary
         run: |
           go build
+      - run: tar -cvf warp.tar warp
       - uses: actions/upload-artifact@v3
         with:
           name: warp-debug
