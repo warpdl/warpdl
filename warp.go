@@ -1,230 +1,97 @@
 package main
 
 import (
+	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
-	"time"
+	"runtime"
+	"strings"
 
-	"github.com/kkdai/youtube/v2"
+	"github.com/urfave/cli"
 	"github.com/vbauerster/mpb/v8"
 	"github.com/vbauerster/mpb/v8/decor"
 	"github.com/warpdl/warplib"
 )
 
-// test
-// ffmpeg -hide_banner -loglevel error -i video.mp4 -i audio.webm -c:v copy -map 0:v -map 1:a -y output.mp4
+const HELP_TEMPL = `Usage: {{if .UsageText}}{{.UsageText}}{{else}}{{.HelpName}} {{if .VisibleFlags}}[global options]{{end}}{{if .Commands}} command [command options]{{end}} {{if .ArgsUsage}}{{.ArgsUsage}}{{else}}[arguments...]{{end}}{{end}}
+{{.Description}}{{if .VisibleCommands}}
+Commands:{{range .VisibleCategories}}{{if .Name}}
 
-var barMap = warplib.NewVMap[string, *mpb.Bar]()
+{{.Name}}:{{range .VisibleCommands}}
+  {{join .Names ", "}}{{"\t"}}{{.Usage}}{{end}}{{else}}{{range .VisibleCommands}}
+{{"\t"}}{{index .Names 0}}{{"\t:\t"}}{{.Usage}}{{end}}{{end}}{{end}}{{end}}{{if .VisibleFlags}}{{end}}
 
-func newPart(p *mpb.Progress) warplib.SpawnPartHandlerFunc {
-	return func(hash string, ioff, foff int64) {
-		// fmt.Println("created new part with hash:", hash, "ioff:", ioff, "foff:", foff)
-		name := "Process " + hash
-		bar := p.New(0,
-			// BarFillerBuilder with custom style
-			mpb.BarStyle().Lbound("╢").Filler("█").Tip("█").Padding("░").Rbound("╟"),
-			mpb.PrependDecorators(
-				// display our name with one space on the right
-				decor.Name(name, decor.WC{W: len(name) + 1, C: decor.DidentRight}),
-				// replace ETA decorator with "done" message, OnComplete event
-				decor.OnComplete(
-					decor.AverageETA(decor.ET_STYLE_GO, decor.WC{W: 4}), "Completed",
-				),
-			),
-			mpb.AppendDecorators(
-				// decor.Name(" ] "),
-				// decor.EwmaSpeed(decor.SizeB1024(0), "% .2f", 30),
-				decor.AverageSpeed(decor.SizeB1024(0), "% .2f")),
+Use "{{.HelpName}} help <command>" for more information about any command.
+
+`
+
+const CMD_HELP_TEMPL = `{{.Description}}
+
+Usage:
+        {{.HelpName}} {{if .UsageText}}{{.UsageText}}{{else}}[arguments...]{{end}}{{if .VisibleFlags}}
+
+Supported Flags:{{range .VisibleFlags}}
+  {{.}}{{end}}{{end}}
+
+`
+
+var Description = `
+Warp is a powerful and versatile cross-platform download manager. 
+With its advanced technology, Warp has the ability to accelerate
+your download speeds by up to 10 times, revolutionizing the way
+you obtain files on any operating system.
+`
+
+var (
+	maxParts   int
+	maxConns   int
+	dlPath     string
+	fileName   string
+	forceParts bool
+)
+
+func info(ctx *cli.Context) error {
+	url := ctx.Args().First()
+	if url == "" {
+		return printErrWithCmdHelp(
+			ctx,
+			errors.New("no url provided"),
 		)
-		bar.SetTotal(foff-ioff, false)
-		bar.EnableTriggerComplete()
-		barMap.Set(hash, bar)
 	}
-}
-
-var countMap = warplib.VMap[string, int64]{}
-
-func newPartNoOp(hash string, ioff, foff int64) {}
-
-// func newPartNoOp(hash string, ioff, foff int64) {}
-
-func progressHandler(b *mpb.Bar) warplib.ProgressHandlerFunc {
-	return func(hash string, nread int) {
-		// bar := barMap.Get(hash)
-		// if bar == nil {
-		// 	return
-		// }
-		// bar.EwmaSetCurrent(nread, dur)
-		// bar.IncrBy(nread)
-		b.IncrBy(nread)
+	fmt.Printf("%s: fetching details, please wait...", ctx.App.HelpName)
+	d, err := warplib.NewDownloader(
+		&http.Client{},
+		url,
+		nil,
+	)
+	if err != nil {
+		printRuntimeErr(ctx, "info", err)
+		return nil
 	}
-}
-
-func progressHandlerNoOp(hash string, nread int64) {}
-
-func progressHandlerNoCount(hash string, nread int64) {
-	countMap.Set(hash, nread)
-}
-
-func respawnHandler(p *mpb.Progress) warplib.RespawnPartHandlerFunc {
-	return func(hash string, ioff, foff int64) {
-		// fmt.Println("reused part with hash:", hash, "ioff:", ioff, "foff:", foff)
-		bar := barMap.Get(hash)
-		name := "Process " + hash
-		nbar := p.New(0,
-			// BarFillerBuilder with custom style
-			mpb.BarStyle().Lbound("╢").Filler("█").Tip("█").Padding("░").Rbound("╟"),
-			mpb.BarQueueAfter(bar),
-			mpb.PrependDecorators(
-				// display our name with one space on the right
-				decor.Name(name, decor.WC{W: len(name) + 1, C: decor.DidentRight}),
-				// replace ETA decorator with "done" message, OnComplete event
-				decor.OnComplete(
-					decor.AverageETA(decor.ET_STYLE_GO, decor.WC{W: 4}), "Completed",
-				),
-			),
-			mpb.AppendDecorators(
-				// decor.Name(" ] "),
-				// decor.EwmaSpeed(decor.SizeB1024(0), "% .2f", 30),
-				decor.AverageSpeed(decor.SizeB1024(0), "% .2f")),
-		)
-		bar.Abort(true)
-		nbar.SetTotal(foff-ioff, false)
-		nbar.EnableTriggerComplete()
-		barMap.Set(hash, nbar)
+	fName := d.GetFileName()
+	if fName == "" {
+		fName = "not-defined"
 	}
-}
-
-func respawnHandlerNoOp(hash string, ioff, foff int64) {}
-
-func findAudioByQuality(formats youtube.FormatList, ql string) *youtube.Format {
-	for _, f := range formats {
-		if f.QualityLabel != "" {
-			continue
-		}
-		if f.AudioQuality == ql {
-			return &f
-		}
-	}
+	fmt.Printf(`
+File Info
+Name: %s
+Size: %s
+`, fName, d.GetContentLengthAsString())
 	return nil
 }
 
-func main() {
-	args := os.Args
-	if len(args) < 2 {
-		fmt.Println("specify a url")
-		os.Exit(1)
+func download(ctx *cli.Context) error {
+	url := ctx.Args().First()
+	if url == "" {
+		return printErrWithCmdHelp(
+			ctx,
+			errors.New("no url provided"),
+		)
 	}
-	url := args[1]
-	if url == "version" {
-		fmt.Println("warp: version 1.0.2")
-		return
-	}
-	fmt.Println("WarpDL v0.0.1")
-	var fName string
-	if (url == "yt" || url == "youtube") && len(args) > 2 {
-		url = args[2]
-		// url = strings.TrimPrefix(url, "http://")
-		// url = strings.TrimPrefix(url, "https://")
-		// url = strings.TrimPrefix(url, "youtu.be/")
-		// url = strings.TrimPrefix(url, "youtube.com/")
-
-		client := youtube.Client{}
-
-		dlt := "video"
-
-		if len(args) > 3 {
-			dlt = args[3]
-		}
-
-		video, err := client.GetVideo(url)
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-		formats := video.Formats
-		//for _, x := range formats {
-		//	if x.QualityLabel == "1080p" {
-		//		url =
-		//		break
-		//	}
-		//	fmt.Println("q:", x.Quality, "ql:", x.QualityLabel)
-		//	fmt.Println("ac:", x.AudioChannels, "aq:", x.AudioQuality, "asr:", x.AudioSampleRate)
-		//	fmt.Println("pt:", x.ProjectionType, "bt:", x.Bitrate, "abt:", x.AverageBitrate)
-		//	fmt.Println()
-		//}
-		//return
-		var format *youtube.Format
-		switch dlt {
-		case "audio":
-			format = findAudioByQuality(formats, "AUDIO_QUALITY_HIGH")
-			if format == nil {
-				format = findAudioByQuality(formats, "AUDIO_QUALITY_MEDIUM")
-			}
-			if format == nil {
-				format = findAudioByQuality(formats, "AUDIO_QUALITY_LOW")
-			}
-			fName = "audio.webm"
-		default:
-			format = formats.FindByQuality("2160p")
-			if format == nil {
-				format = formats.FindByQuality("1440p")
-			}
-			if format == nil {
-				format = formats.FindByQuality("1080p")
-			}
-			if format == nil {
-				format = formats.FindByQuality("720p")
-			}
-			if format == nil {
-				format = formats.FindByQuality("360p")
-			}
-			fName = "video.mp4"
-		}
-		if format == nil {
-			fmt.Println("fmt nil")
-			return
-		}
-		fmt.Println("downloading at", format.QualityLabel, format.Bitrate, format.MimeType, "audio:", format.AudioQuality)
-		// return
-		url = format.URL
-		// return
-	}
-	// barMap.Make()
-	// countMap.Make()
-	// turl := "https://firebasestorage.googleapis.com/v0/b/skink-cdb44.appspot.com/o/skink.exe?alt=media&token=fa521a89-1a65-4fa9-a634-fee4bb4bdc71"
-	// turl := "https://sample-videos.com/video123/mp4/720/big_buck_bunny_720p_30mb.mp4"
-
-	tn := time.Now()
-	// req, err := http.NewRequest(http.MethodGet, url, nil)
-	// if err != nil {
-	// 	log.Fatalln(err)
-	// }
-	// req.Header.Set("User-Agent", "Warp/1.0")
-	// resp, err := http.DefaultClient.Do(req)
-
-	d, err := warplib.NewDownloader(&http.Client{}, url, true)
-	if err != nil {
-		log.Fatalln(err)
-	}
-
-	d.SetMaxConnections(24)
-	d.SetFileName(fName)
-	d.SetDownloadLocation("./")
-
-	fmt.Printf(`
-File Info:
-Name: %s
-Size: %s
-Len: %d
-`, d.GetFileName(), d.GetContentLengthAsString(), d.GetContentLengthAsInt())
+	fmt.Println(">> Initiating a WARP download << ")
 	p := mpb.New(mpb.WithWidth(64))
-	// var rtotal int64 = 0
-
 	name := "Progress: "
-
 	bar := p.New(0,
 		// BarFillerBuilder with custom style
 		mpb.BarStyle().Lbound("╢").Filler("█").Tip("█").Padding("░").Rbound("╟"),
@@ -242,44 +109,207 @@ Len: %d
 			decor.AverageSpeed(decor.SizeB1024(0), "% .2f"),
 		),
 	)
+	d, err := warplib.NewDownloader(
+		&http.Client{},
+		url,
+		&warplib.DownloaderOpts{
+			ForceParts: forceParts,
+			Handlers: &warplib.Handlers{
+				ProgressHandler: func(hash string, nread int) {
+					bar.IncrBy(nread)
+				},
+			},
+		},
+	)
+	if err != nil {
+		printRuntimeErr(ctx, "info", err)
+		return nil
+	}
 	bar.SetTotal(d.GetContentLengthAsInt(), false)
 	bar.EnableTriggerComplete()
-
-	d.Handlers = &warplib.Handlers{
-		SpawnPartHandler:   newPartNoOp,
-		ProgressHandler:    progressHandler(bar),
-		RespawnPartHandler: respawnHandlerNoOp,
-		OnCompleteHandler: func(hash string, tread int64) {
-			// bar := barMap.Get(hash)
-			// bar.SetCurrent(tread)
-		},
-		ErrorHandler: func(err error) {
-			panic(err)
-		},
+	d.SetDownloadLocation(dlPath)
+	d.SetFileName(fileName)
+	d.SetMaxConnections(maxConns)
+	d.SetMaxParts(maxParts)
+	fName := d.GetFileName()
+	if fName == "" {
+		fName = "not-defined"
 	}
+	fmt.Printf(`
+File Info
+Name: %s
+Size: %s
+`, fName, d.GetContentLengthAsString())
+	return nil
+}
 
-	err = d.Start()
+func help(ctx *cli.Context) error {
+	arg := ctx.Args().First()
+	if arg == "" {
+		fmt.Printf("%s %s\n", ctx.App.Name, ctx.App.Version)
+		cli.ShowAppHelpAndExit(ctx, 0)
+		return nil
+	}
+	err := cli.ShowCommandHelp(ctx, arg)
+	printErrWithHelp(ctx, err)
+	return nil
+}
+
+func version(ctx *cli.Context) error {
+	fmt.Printf(
+		"%s %s (%s_%s)\n",
+		ctx.App.Name,
+		ctx.App.Version,
+		runtime.GOOS,
+		runtime.GOARCH,
+	)
+	return nil
+}
+
+func printRuntimeErr(ctx *cli.Context, cmd string, err error) {
+	fmt.Printf("%s: %s: %s\n", ctx.App.HelpName, cmd, err.Error())
+}
+
+func printErrWithCmdHelp(ctx *cli.Context, err error) error {
+	return printErrWithCallback(
+		ctx,
+		err,
+		func() {
+			cli.ShowCommandHelp(ctx, ctx.Command.Name)
+		},
+	)
+}
+
+func printErrWithHelp(ctx *cli.Context, err error) error {
+	return printErrWithCallback(
+		ctx,
+		err,
+		func() {
+			cli.ShowAppHelpAndExit(ctx, 1)
+		},
+	)
+}
+
+func printErrWithCallback(ctx *cli.Context, err error, callback func()) error {
+	if err == nil {
+		return nil
+	}
+	estr := strings.ToLower(err.Error())
+	if estr == "flag: help requested" {
+		return help(ctx)
+	}
+	if strings.Contains(estr, "-version") ||
+		strings.Contains(estr, "-v") {
+		return version(ctx)
+	}
+	fmt.Printf("%s: %s\n\n", ctx.App.HelpName, err.Error())
+	callback()
+	return nil
+}
+
+func usageErrorCallback(ctx *cli.Context, err error, isSubcommand bool) error {
+	if ctx.Command.Name != "" {
+		return printErrWithCmdHelp(ctx, err)
+	}
+	return printErrWithHelp(ctx, err)
+}
+
+func main() {
+	app := cli.App{
+		Name:                  "Warp",
+		HelpName:              "warp",
+		Usage:                 "An ultra fast download manager.",
+		Version:               "v0.0.1",
+		UsageText:             "warp <command> [arguments...]",
+		Description:           Description,
+		CustomAppHelpTemplate: HELP_TEMPL,
+		OnUsageError:          usageErrorCallback,
+		Commands: []cli.Command{
+			{
+				Name:    "info",
+				Aliases: []string{"i"},
+				Usage:   "shows info about a file",
+				Description: `The Info command makes a GET request to the entered 
+url and and tries to fetch the basic file info like 
+name, size etc.
+
+Example:
+        warp info https://domain.com/file.zip`,
+				Action:             info,
+				OnUsageError:       usageErrorCallback,
+				CustomHelpTemplate: CMD_HELP_TEMPL,
+			},
+			{
+				Name:               "download",
+				Aliases:            []string{"d"},
+				Usage:              "fastly download a file ",
+				CustomHelpTemplate: CMD_HELP_TEMPL,
+				OnUsageError:       usageErrorCallback,
+				Flags: []cli.Flag{
+					cli.IntFlag{
+						Name:        "max-parts, s",
+						Usage:       "to specify the number of maximum file segments",
+						EnvVar:      "WARP_MAX_PARTS",
+						Destination: &maxParts,
+					},
+					cli.IntFlag{
+						Name:        "max-connection, x",
+						Usage:       "specify the number of maximum parallel connection",
+						EnvVar:      "WARP_MAX_CONN",
+						Destination: &maxConns,
+						Value:       24,
+					},
+					cli.StringFlag{
+						Name:        "file-name, o",
+						Usage:       "explicitly set the name of file (determined automatically if not specified)",
+						Destination: &fileName,
+					},
+					cli.StringFlag{
+						Name:        "download-path, l",
+						Usage:       "set the path where downloaded file should be saved",
+						Value:       "./",
+						Destination: &dlPath,
+					},
+					cli.BoolTFlag{
+						Name:        "force-parts, f",
+						Usage:       "force using file segmentation even if not specified by server",
+						EnvVar:      "WARP_FORCE_SEGMENTS",
+						Destination: &forceParts,
+					},
+				},
+				Description: `The Download command lets you quickly fetch and save 
+files from the internet. You can initiate the download
+process and securely store the desired file on your 
+local system.
+
+Warp uses dynamic file segmentation technique by default
+to download files fastly by utilizing the full alloted 
+bandwidth 
+
+Example:
+        warp https://domain.com/file.zip
+					OR
+        warp download https://domain.com/file.zip`,
+			},
+			{
+				Name:    "help",
+				Aliases: []string{"h"},
+				Usage:   "prints the help message",
+				Action:  help,
+			},
+			{
+				Name:    "version",
+				Aliases: []string{"v"},
+				Usage:   "prints installed version of warp",
+				Action:  version,
+			},
+		},
+		UseShortOptionHandling: true,
+		HideHelp:               true,
+		HideVersion:            true,
+	}
+	err := app.Run(os.Args)
 	if err != nil {
-		fmt.Println(err.Error())
+		fmt.Printf("warp: %s\n", err.Error())
 	}
-	// var tot int64 = 0
-	// for _, k := range countMap.Keys() {
-	// 	tot += countMap.GetUnsafe(k)
-	// }
-	// if tot != d.GetContentLengthAsInt() {
-	// 	fmt.Println("Diff L detected", "Expected:", d.GetContentLengthAsInt(), "Found:", tot, "Rtotal:", rtotal)
-	// 	fmt.Println("Diff L detected", "Expected:", d.GetContentLength(), "Found:", warplib.ContentLength(tot), "Rtotal:", warplib.ContentLength(rtotal))
-	// }
-	p.Wait()
-	// f, err := os.Create("test")
-	// if err != nil {
-	// 	panic(err)
-	// }
-	// defer resp.Body.Close()
-	// _, err = io.Copy(f, resp.Body)
-	// if err != nil {
-	// 	panic(err)
-	// }
-	fmt.Println("TIME TAKEN:", time.Since(tn))
-	// "https://speed.hetzner.de/100MB.bin"
 }
