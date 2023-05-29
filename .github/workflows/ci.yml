@@ -23,6 +23,13 @@ jobs:
         with:
           version: latest
           args: release --snapshot --skip-publish --clean
+      - name: Run UPX
+        uses: crazy-max/ghaction-upx@v2
+        with:
+          version: latest
+          files: |
+            dist/**/**
+          args: -q
       - run: tar -cvf warp.tar dist/
       - uses: actions/upload-artifact@v3
         with:
