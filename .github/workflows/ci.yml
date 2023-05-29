@@ -17,7 +17,7 @@ jobs:
       - uses: actions/setup-go@v4
         with:
           go-version: "stable"
-      - run: go get -u github.com/warpdl/warplib
+      # - run: go get -u github.com/warpdl/warplib
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v4
         with:
