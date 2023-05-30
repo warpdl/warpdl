@@ -14,7 +14,7 @@ jobs:
     uses: divkix/reusable-workflows/.github/workflows/goreleaser-ci.yml@main
     with:
       use-upx: true
-      upx-files: |
+      upx-files: >-
         dist/warp_linux_arm64/warp
         dist/warp_linux_amd64_v1/warp
         dist/warp_windows_amd64_v1/warp.exe
