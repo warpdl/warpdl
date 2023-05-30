@@ -64,10 +64,6 @@ archives:
     format_overrides:
       - goos: windows
         format: zip
-    files:
-      - README.md
-      - LICENSE
-      - completions/*
 
 changelog:
   sort: asc
