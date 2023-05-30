@@ -13,7 +13,7 @@ jobs:
     name: CI
     uses: divkix/reusable-workflows/.github/workflows/goreleaser-ci.yml@main
     with:
-      use-upx: true
+      use-upx: false
       upx-files: |-
         dist/warp_linux_arm64/warp
         dist/warp_linux_amd64_v1/warp
