@@ -1,19 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+  pull_request:
+  workflow_dispatch:
+
+jobs:
   ci:
     name: CI
     runs-on: ubuntu-latest
+    env:
+      GOPRIVATE: github.com/warpdl/warplib
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-go@v4
         with:
           go-version: "stable"
-      # - name: Install dependencies
-      #   run: |
-      #     export GOPRIVATE=github.com/warpdl/warplib
-      #     export GOPROXY=direct
-      #     git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf https://github.com/
-      #   env:
-      #     GOPRIVATE: github.com/warpdl/warplib@latest
-      #     GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+      - name: Install dependencies
+        run: |
+          export GOPRIVATE=github.com/warpdl/warplib
+          export GOPROXY=direct
+          git config --global url."https://${{ secrets.GH_PAT }}@github.com/".insteadOf https://github.com/
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v4
         with:
