@@ -7,6 +7,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/urfave/cli"
 	"github.com/vbauerster/mpb/v8"
@@ -26,9 +27,9 @@ Use "{{.HelpName}} help <command>" for more information about any command.
 
 `
 
-const CMD_HELP_TEMPL = `{{.Description}}
+const CMD_HELP_TEMPL = `{{if .Description}}{{.Description}}{{else}}{{.HelpName}} - {{.Usage}}
 
-Usage:
+{{end}}Usage:
         {{.HelpName}} {{if .UsageText}}{{.UsageText}}{{else}}[arguments...]{{end}}{{if .VisibleFlags}}
 
 Supported Flags:{{range .VisibleFlags}}
@@ -49,6 +50,7 @@ var (
 	dlPath     string
 	fileName   string
 	forceParts bool
+	timeTaken  bool
 )
 
 func info(ctx *cli.Context) error {
@@ -75,8 +77,8 @@ func info(ctx *cli.Context) error {
 	}
 	fmt.Printf(`
 File Info
-Name: %s
-Size: %s
+Name`+"\t"+`: %s
+Size`+"\t"+`: %s
 `, fName, d.GetContentLengthAsString())
 	return nil
 }
@@ -84,6 +86,9 @@ Size: %s
 func download(ctx *cli.Context) error {
 	url := ctx.Args().First()
 	if url == "" {
+		if ctx.Command.Name == "" {
+			return help(ctx)
+		}
 		return printErrWithCmdHelp(
 			ctx,
 			errors.New("no url provided"),
@@ -91,24 +96,7 @@ func download(ctx *cli.Context) error {
 	}
 	fmt.Println(">> Initiating a WARP download << ")
 	p := mpb.New(mpb.WithWidth(64))
-	name := "Progress: "
-	bar := p.New(0,
-		// BarFillerBuilder with custom style
-		mpb.BarStyle().Lbound("╢").Filler("█").Tip("█").Padding("░").Rbound("╟"),
-		mpb.PrependDecorators(
-			// display our name with one space on the right
-			decor.Name(name, decor.WC{W: len(name) + 1, C: decor.DidentRight}),
-			// replace ETA decorator with "done" message, OnComplete event
-			decor.OnComplete(
-				decor.AverageETA(decor.ET_STYLE_GO, decor.WC{W: 4}), "Completed",
-			),
-		),
-		mpb.AppendDecorators(
-			// decor.Name(" ] "),
-			// decor.EwmaSpeed(decor.SizeB1024(0), "% .2f", 30),
-			decor.AverageSpeed(decor.SizeB1024(0), "% .2f"),
-		),
-	)
+	var bar *mpb.Bar
 	d, err := warplib.NewDownloader(
 		&http.Client{},
 		url,
@@ -125,8 +113,6 @@ func download(ctx *cli.Context) error {
 		printRuntimeErr(ctx, "info", err)
 		return nil
 	}
-	bar.SetTotal(d.GetContentLengthAsInt(), false)
-	bar.EnableTriggerComplete()
 	d.SetDownloadLocation(dlPath)
 	d.SetFileName(fileName)
 	d.SetMaxConnections(maxConns)
@@ -135,17 +121,52 @@ func download(ctx *cli.Context) error {
 	if fName == "" {
 		fName = "not-defined"
 	}
-	fmt.Printf(`
+	txt := fmt.Sprintf(`
 File Info
-Name: %s
-Size: %s
-`, fName, d.GetContentLengthAsString())
+Name`+"\t\t"+`: %s
+Size`+"\t\t"+`: %s
+Max Connections`+"\t"+`: %d
+`, fName, d.GetContentLengthAsString(), maxConns)
+	if maxParts != 0 {
+		txt += fmt.Sprintf("Max Segments\t: %d\n", maxParts)
+	}
+	fmt.Println(txt)
+	name := "Downloading"
+	bar = p.New(0,
+		// BarFillerBuilder with custom style
+		mpb.BarStyle().Lbound("╢").Filler("█").Tip("█").Padding("░").Rbound("╟"),
+		mpb.PrependDecorators(
+			// display our name with one space on the right
+			decor.Name(name, decor.WC{W: len(name) + 1, C: decor.DidentRight}),
+			// replace ETA decorator with "done" message, OnComplete event
+			decor.OnComplete(
+				decor.AverageETA(decor.ET_STYLE_GO, decor.WC{W: 4}), "Completed",
+			),
+		),
+		mpb.AppendDecorators(
+			// decor.Name(" ] "),
+			// decor.EwmaSpeed(decor.SizeB1024(0), "% .2f", 30),
+			decor.AverageSpeed(decor.SizeB1024(0), "% .2f"),
+		),
+	)
+	bar.SetTotal(d.GetContentLengthAsInt(), false)
+	bar.EnableTriggerComplete()
+	nt := time.Now()
+	err = d.Start()
+	if err != nil {
+		return err
+	}
+	p.Wait()
+	if !timeTaken {
+		return nil
+	}
+	fmt.Printf("\nTime Taken: %s\n", time.Since(nt).String())
 	return nil
 }
 
 func help(ctx *cli.Context) error {
 	arg := ctx.Args().First()
-	if arg == "" {
+	if arg == "" || arg == "help" {
 		fmt.Printf("%s %s\n", ctx.App.Name, ctx.App.Version)
 		cli.ShowAppHelpAndExit(ctx, 0)
 		return nil
@@ -214,6 +235,44 @@ func usageErrorCallback(ctx *cli.Context, err error, isSubcommand bool) error {
 	return printErrWithHelp(ctx, err)
 }
 
+var dlFlags = []cli.Flag{
+	cli.IntFlag{
+		Name:        "max-parts, s",
+		Usage:       "to specify the number of maximum file segments",
+		EnvVar:      "WARP_MAX_PARTS",
+		Destination: &maxParts,
+	},
+	cli.IntFlag{
+		Name:        "max-connection, x",
+		Usage:       "specify the number of maximum parallel connection",
+		EnvVar:      "WARP_MAX_CONN",
+		Destination: &maxConns,
+		Value:       24,
+	},
+	cli.StringFlag{
+		Name:        "file-name, o",
+		Usage:       "explicitly set the name of file (determined automatically if not specified)",
+		Destination: &fileName,
+	},
+	cli.StringFlag{
+		Name:        "download-path, l",
+		Usage:       "set the path where downloaded file should be saved",
+		Value:       "./",
+		Destination: &dlPath,
+	},
+	cli.BoolTFlag{
+		Name:        "force-parts, f",
+		Usage:       "force using file segmentation even if not specified by server",
+		EnvVar:      "WARP_FORCE_SEGMENTS",
+		Destination: &forceParts,
+	},
+	cli.BoolFlag{
+		Name:        "time-taken, e",
+		Destination: &timeTaken,
+		Hidden:      true,
+	},
+}
+
 func main() {
 	app := cli.App{
 		Name:                  "Warp",
@@ -245,38 +304,8 @@ Example:
 				Usage:              "fastly download a file ",
 				CustomHelpTemplate: CMD_HELP_TEMPL,
 				OnUsageError:       usageErrorCallback,
-				Flags: []cli.Flag{
-					cli.IntFlag{
-						Name:        "max-parts, s",
-						Usage:       "to specify the number of maximum file segments",
-						EnvVar:      "WARP_MAX_PARTS",
-						Destination: &maxParts,
-					},
-					cli.IntFlag{
-						Name:        "max-connection, x",
-						Usage:       "specify the number of maximum parallel connection",
-						EnvVar:      "WARP_MAX_CONN",
-						Destination: &maxConns,
-						Value:       24,
-					},
-					cli.StringFlag{
-						Name:        "file-name, o",
-						Usage:       "explicitly set the name of file (determined automatically if not specified)",
-						Destination: &fileName,
-					},
-					cli.StringFlag{
-						Name:        "download-path, l",
-						Usage:       "set the path where downloaded file should be saved",
-						Value:       "./",
-						Destination: &dlPath,
-					},
-					cli.BoolTFlag{
-						Name:        "force-parts, f",
-						Usage:       "force using file segmentation even if not specified by server",
-						EnvVar:      "WARP_FORCE_SEGMENTS",
-						Destination: &forceParts,
-					},
-				},
+				Action:             download,
+				Flags:              dlFlags,
 				Description: `The Download command lets you quickly fetch and save 
 files from the internet. You can initiate the download
 process and securely store the desired file on your 
@@ -298,12 +327,17 @@ Example:
 				Action:  help,
 			},
 			{
-				Name:    "version",
-				Aliases: []string{"v"},
-				Usage:   "prints installed version of warp",
-				Action:  version,
+				Name:               "version",
+				Aliases:            []string{"v"},
+				Usage:              "prints installed version of warp",
+				UsageText:          " ",
+				CustomHelpTemplate: CMD_HELP_TEMPL,
+				Action:             version,
 			},
 		},
+		Action: download,
+		// TODO: fix broken flags
+		Flags:                  dlFlags,
 		UseShortOptionHandling: true,
 		HideHelp:               true,
 		HideVersion:            true,
