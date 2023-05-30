@@ -17,13 +17,12 @@ jobs:
       - uses: actions/setup-go@v4
         with:
           go-version: "stable"
-      - name: Configure Git
-        run: git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf https://github.com/
-        env:
-          GOPRIVATE: github.com/warpdl/warplib@latest
-          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
-          GOPROXY: direct
-      # - run: go get -u github.com/warpdl/warplib
+      # - name: Configure Git
+      #   run: git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf https://github.com/
+      #   env:
+      #     GOPRIVATE: github.com/warpdl/warplib
+      #     GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+      #     GOPROXY: direct
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v4
         with:
@@ -31,12 +30,12 @@ jobs:
           args: release --snapshot --skip-publish --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
-      - name: Run UPX
-        uses: crazy-max/ghaction-upx@v2
-        with:
-          version: latest
-          files: |
-            dist/**/**
+          # - name: Run UPX
+          #   uses: crazy-max/ghaction-upx@v2
+          #   with:
+          #     version: latest
+          #     files: |
+          #       dist/**/**
           args: -q
       - run: tar -cvf warp.tar dist/
       - uses: actions/upload-artifact@v3

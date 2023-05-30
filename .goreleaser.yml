@@ -3,6 +3,10 @@ release:
   replace_existing_draft: true
   header: |
     Welcome to this new release!
+gomod:
+  env:
+    - GOPROXY=direct
+    - GOPRIVATE=github.com/warpdl/warplib
 before:
   hooks:
     - go mod tidy
