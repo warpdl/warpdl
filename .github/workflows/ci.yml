@@ -17,12 +17,16 @@ jobs:
       - uses: actions/setup-go@v4
         with:
           go-version: "stable"
+      - name: Configure Git
+        run: git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf https://github.com/
       # - run: go get -u github.com/warpdl/warplib
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v4
         with:
           version: latest
           args: release --snapshot --skip-publish --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
       - name: Run UPX
         uses: crazy-max/ghaction-upx@v2
         with:
