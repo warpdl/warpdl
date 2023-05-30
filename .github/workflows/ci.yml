@@ -37,8 +37,12 @@ jobs:
         with:
           version: latest
           files: |
-            dist/**/**
-          args: --brute
+            dist/warp_linux_arm64/warp
+            dist/warp_linux_amd64_v1/warp
+            dist/warp_windows_amd64_v1/warp.exe
+            dist/warp_darwin_amd64_v1/warp
+            dist/warp_darwin_arm64/warp
+          args: -f --brute
       - name: Tar files
         run: tar -cvf warp.tar dist/
       - name: Upload Artifact
