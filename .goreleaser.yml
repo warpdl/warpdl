@@ -1,32 +1,133 @@
 project_name: warp
 release:
+  github:
+    owner: warpdl
+    name: warp
   replace_existing_draft: true
   header: |
     Welcome to this new release!
+
 gomod:
   env:
     - GOPROXY=direct
     - GOPRIVATE=github.com/warpdl/warplib
+
 before:
   hooks:
     - go mod tidy
     - go mod download
+
 builds:
-  - goos:
-      - linux
-      - windows
+  - binary: warpdl
+    env:
+      - CGO_ENABLED=0
+    goos:
       - darwin
+      - freebsd
+      - linux
+      - netbsd
+      - openbsd
+      - windows
     goarch:
+      - "386"
       - amd64
+      - arm
       - arm64
+    goarm:
+      - "6"
+      - "7"
+    ignore:
+      - goos: darwin
+        goarch: "386"
+      - goos: windows
+        goarch: "386"
+      - goos: freebsd
+        goarch: "386"
     mod_timestamp: "{{ .CommitTimestamp }}"
     flags:
       - -trimpath
     ldflags:
       - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{ .CommitDate }}
+
 archives:
-  - format: binary
+  - rlcp: true
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- if eq .Os "darwin" }}macOS
+      {{- else }}{{ .Os }}{{ end }}_
+      {{- if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- with .Arm }}v{{ . }}{{ end }}
+      {{- with .Mips }}_{{ . }}{{ end }}
+      {{- if not (eq .Amd64 "v1") }}{{ .Amd64 }}{{ end }}
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - README.md
+      - LICENSE
+      - completions/*
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - Merge pull request
+      - Merge branch
+
 checksum:
   name_template: "checksums.txt"
+  algorithm: sha256
+
 snapshot:
   name_template: "{{ incpatch .Version }}-next"
+
+brews:
+  - name: warpdl
+    tap:
+      owner: warpdl
+      name: homebrew-warpdl
+    commit_author:
+      name: "Divkix"
+      email: divkix@divkix.me
+    folder: Formula
+    homepage: "https://warpdl.org"
+    description: "The official Warp CLI download manager"
+    install: |-
+      bin.install "warpdl"
+    test: |
+      system "#{bin}/warpdl --version"
+
+scoop:
+  bucket:
+    owner: warpdl
+    name: scoop-warpdl
+  commit_author:
+    name: "Divkix"
+    email: divkix@divkix.me
+  homepage: "https://warpdl.org"
+  description: "The official Warp CLI download manager"
+
+nfpms:
+  - id: doppler
+    file_name_template: >-
+      {{ .PackageName }}_
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- with .Arm }}v{{ . }}{{ end }}
+      {{- with .Mips }}_{{ . }}{{ end }}
+      {{- if not (eq .Amd64 "v1") }}{{ .Amd64 }}{{ end }}
+    homepage: "https://warpdl.org"
+    maintainer: Divanshu Chauhan <divkix@divkix.me>
+    description: "The official Warp CLI download manager"
+    bindir: /usr/bin
+    formats:
+      - deb
+      - rpm
+      - apk
