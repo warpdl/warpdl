@@ -5,7 +5,7 @@ go 1.20
 require (
 	github.com/urfave/cli v1.22.13
 	github.com/vbauerster/mpb/v8 v8.4.0
-	github.com/warpdl/warplib v0.0.0-20230529094646-4682438fc115
+	github.com/warpdl/warplib v0.0.0-20230530070402-f942012f9ac7
 )
 
 require (

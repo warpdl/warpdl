@@ -140,12 +140,10 @@ Max Connections`+"\t"+`: %d
 			decor.Name(name, decor.WC{W: len(name) + 1, C: decor.DidentRight}),
 			// replace ETA decorator with "done" message, OnComplete event
 			decor.OnComplete(
-				decor.AverageETA(decor.ET_STYLE_GO, decor.WC{W: 4}), "Completed",
+				decor.AverageETA(decor.ET_STYLE_GO, decor.WC{W: 4}), "Complete",
 			),
 		),
 		mpb.AppendDecorators(
-			// decor.Name(" ] "),
-			// decor.EwmaSpeed(decor.SizeB1024(0), "% .2f", 30),
 			decor.AverageSpeed(decor.SizeB1024(0), "% .2f"),
 		),
 	)
@@ -299,13 +297,14 @@ Example:
 				CustomHelpTemplate: CMD_HELP_TEMPL,
 			},
 			{
-				Name:               "download",
-				Aliases:            []string{"d"},
-				Usage:              "fastly download a file ",
-				CustomHelpTemplate: CMD_HELP_TEMPL,
-				OnUsageError:       usageErrorCallback,
-				Action:             download,
-				Flags:              dlFlags,
+				Name:                   "download",
+				Aliases:                []string{"d"},
+				Usage:                  "fastly download a file ",
+				CustomHelpTemplate:     CMD_HELP_TEMPL,
+				OnUsageError:           usageErrorCallback,
+				Action:                 download,
+				Flags:                  dlFlags,
+				UseShortOptionHandling: true,
 				Description: `The Download command lets you quickly fetch and save 
 files from the internet. You can initiate the download
 process and securely store the desired file on your 
