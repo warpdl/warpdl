@@ -32,7 +32,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
       - name: Tar files
-        run: tar -cvf warp.tar /dist
+        run: tar -cvf warp.tar dist/
       - name: Upload Artifact
         uses: actions/upload-artifact@v3
         with:
