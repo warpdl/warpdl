@@ -103,7 +103,7 @@ func download(ctx *cli.Context) error {
 		&warplib.DownloaderOpts{
 			ForceParts: forceParts,
 			Handlers: &warplib.Handlers{
-				ProgressHandler: func(hash string, nread int) {
+				ProgressHandler: func(_ string, nread int) {
 					bar.IncrBy(nread)
 				},
 			},
@@ -226,7 +226,7 @@ func printErrWithCallback(ctx *cli.Context, err error, callback func()) error {
 	return nil
 }
 
-func usageErrorCallback(ctx *cli.Context, err error, isSubcommand bool) error {
+func usageErrorCallback(ctx *cli.Context, err error, _ bool) error {
 	if ctx.Command.Name != "" {
 		return printErrWithCmdHelp(ctx, err)
 	}
@@ -276,7 +276,7 @@ func main() {
 		Name:                  "Warp",
 		HelpName:              "warp",
 		Usage:                 "An ultra fast download manager.",
-		Version:               "v0.0.1",
+		Version:               "v0.0.2",
 		UsageText:             "warp <command> [arguments...]",
 		Description:           Description,
 		CustomAppHelpTemplate: HELP_TEMPL,
@@ -291,7 +291,9 @@ url and and tries to fetch the basic file info like
 name, size etc.
 
 Example:
-        warp info https://domain.com/file.zip`,
+        warp info https://domain.com/file.zip
+
+`,
 				Action:             info,
 				OnUsageError:       usageErrorCallback,
 				CustomHelpTemplate: CMD_HELP_TEMPL,
@@ -317,7 +319,9 @@ bandwidth
 Example:
         warp https://domain.com/file.zip
 					OR
-        warp download https://domain.com/file.zip`,
+        warp download https://domain.com/file.zip
+
+`,
 			},
 			{
 				Name:    "help",
