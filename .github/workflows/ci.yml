@@ -38,7 +38,7 @@ jobs:
           version: latest
           files: |
             dist/**/**
-          args: -fq --brute
+          args: --brute
       - name: Tar files
         run: tar -cvf warp.tar dist/
       - name: Upload Artifact
