@@ -22,6 +22,8 @@ builds:
   - binary: warpdl
     env:
       - CGO_ENABLED=0
+      - GOPRIVATE=github.com/warpdl/warplib
+      - GOPROXY=direct
     goos:
       - darwin
       - freebsd
