@@ -10,9 +10,27 @@ on:
 
 jobs:
   ci:
-    name: CI
-    uses: divkix/reusable-workflows/.github/workflows/goreleaser-ci.yml@main
-    with:
-      use-upx: false
-    secrets:
-      GH_PAT: ${{ secrets.GH_PAT }}
+    env:
+      GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+    name: Goreleaser CI
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-go@v4
+        with:
+          go-version: "stable"
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v4
+        with:
+          version: latest
+          args: release --snapshot --skip-publish --clean
+        env:
+          GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
+      - name: Tar files
+        run: tar -cvf artifacts.tar dist/
+      - uses: actions/upload-artifact@v3
+        with:
+          name: artifacts
+          path: artifacts.tar
