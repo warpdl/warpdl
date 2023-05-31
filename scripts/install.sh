@@ -313,7 +313,7 @@ case "$uname_os" in
     ;;
 esac
 
-log_debug "Detected OS '$os'"
+log_debug "Detected OS '$OS'"
 
 # identify arch
 uname_machine=$(uname -m)
@@ -336,7 +336,7 @@ else
   clean_exit 1
 fi
 
-log_debug "Detected architecture '$arch'"
+log_debug "Detected architecture '$ARCH'"
 
 # identify format
 if [ "$OS" = "windows" ]; then
