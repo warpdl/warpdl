@@ -11,8 +11,8 @@ on:
 jobs:
   ci:
     env:
-      GITHUB_TOKEN: ${{ secrets.GH_PAT }}
       GOPRIVATE: github.com/warpdl/warplib
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GOPROXY: direct
     name: Goreleaser CI
     runs-on: ubuntu-latest
