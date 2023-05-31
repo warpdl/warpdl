@@ -83,7 +83,7 @@ Size`+"\t"+`: %s
 	return nil
 }
 
-func download(ctx *cli.Context) error {
+func download(ctx *cli.Context) (err error) {
 	url := ctx.Args().First()
 	if url == "" {
 		if ctx.Command.Name == "" {
@@ -95,7 +95,12 @@ func download(ctx *cli.Context) error {
 		)
 	}
 	fmt.Println(">> Initiating a WARP download << ")
-	p := mpb.New(mpb.WithWidth(64))
+	if isYoutubeVideo(url) {
+		url, err = processVideo(url)
+		if err != nil {
+			return
+		}
+	}
 	var bar *mpb.Bar
 	d, err := warplib.NewDownloader(
 		&http.Client{},
@@ -122,15 +127,22 @@ func download(ctx *cli.Context) error {
 		fName = "not-defined"
 	}
 	txt := fmt.Sprintf(`
-File Info
+Download Info
 Name`+"\t\t"+`: %s
 Size`+"\t\t"+`: %s
+Save Location`+"\t"+`: %s/
 Max Connections`+"\t"+`: %d
-`, fName, d.GetContentLengthAsString(), maxConns)
+`,
+		fName,
+		d.GetContentLengthAsString(),
+		d.GetDownloadDirectory(),
+		maxConns,
+	)
 	if maxParts != 0 {
 		txt += fmt.Sprintf("Max Segments\t: %d\n", maxParts)
 	}
 	fmt.Println(txt)
+	p := mpb.New(mpb.WithWidth(64))
 	name := "Downloading"
 	bar = p.New(0,
 		// BarFillerBuilder with custom style
@@ -338,8 +350,7 @@ Example:
 				Action:             version,
 			},
 		},
-		Action: download,
-		// TODO: fix broken flags
+		Action:                 download,
 		Flags:                  dlFlags,
 		UseShortOptionHandling: true,
 		HideHelp:               true,
