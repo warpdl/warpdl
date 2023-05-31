@@ -58,9 +58,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v3
-      - name: Run tests/install-script.sh
+      - name: Test installation on debian, ubuntu, fedora, centos, alpine
         run: |-
           ./tests/install-script.sh
+      - name: Test docker image
+        run: |-
+          ./tests/test-docker-image.sh
 
   update-install-script:
     name: Update scripts/install.sh in warp-releases
