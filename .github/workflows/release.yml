@@ -62,10 +62,13 @@ jobs:
       - name: Replace version
         run: |
           sed -i "s/LATEST_RELEASE=.*/LATEST_RELEASE=\"${{ env.latest_tag }}\"/g" scripts/install.sh
-      - name: Commit on warp-releases
-        uses: EndBug/add-and-commit@v9
+      - name: Commit changes
+        run: |
+          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git commit -a -m "Add changes"
+      - name: Push changes
+        uses: ad-m/github-push-action@master
         with:
-          author_name: Divanshu Chauhan
-          author_email: divkix@divkix.me
-          push: true
-          message: "Update warp to ${{ env.latest_tag }}"
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ github.ref }}
