@@ -51,8 +51,7 @@ builds:
       - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{ .CommitDate }}
 
 archives:
-  - format: binary
-    rlcp: true
+  - rlcp: true
     name_template: >-
       {{ .ProjectName }}_
       {{- .Version }}_
@@ -136,4 +135,3 @@ scoops:
 #       - deb
 #       - rpm
 #       - apk
-#       - archlinux
