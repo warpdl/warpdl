@@ -1,5 +1,5 @@
 FROM alpine
-COPY --from=builder /bin/warpdl /bin/warpdl
+COPY warpdl /bin/warpdl
 ENTRYPOINT ["/bin/warpdl"]
 
 LABEL org.opencontainers.image.authors="Divanshu Chauhan <divkix@divkix.me>"
