@@ -10,6 +10,7 @@ release:
 
 gomod:
   env:
+    - CGO_ENABLED=1
     - GOPROXY=direct
     - GOPRIVATE=github.com/warpdl/warplib
 
