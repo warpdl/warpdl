@@ -15,12 +15,14 @@ jobs:
     name: Run GoReleaser
     runs-on: ubuntu-latest
     env:
-      GOPRIVATE: github.com/warpdl/warplib
-      GH_ACCESS_TOKEN: ${{ secrets.GH_PAT }}
+      GITHUB_TOKEN: ${{ secrets.GH_PAT }}
     steps:
+      - name: Set up git
+        run: git config --global url."https://divkix:${GITHUB_TOKEN}@github.com".insteadOf "https://github.com"
       - name: Checkout
         uses: actions/checkout@v3
-      - uses: actions/setup-go@v4
+      - name: Set up Go
+        uses: actions/setup-go@v4
         with:
           go-version: "stable"
         # only run this step when the tag is not already created
@@ -35,6 +37,12 @@ jobs:
           fi
           git tag -f -a -m "$tag" "$tag"
           git push -f origin "$tag"
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v4
         with:
@@ -43,31 +51,56 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
 
+  run-tests:
+    name: Run test scripts
+    runs-on: ubuntu-latest
+    needs: goreleaser
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Test installation on debian, ubuntu, fedora, centos, alpine
+        run: |-
+          ./tests/install-script.sh
+      - name: Test docker image
+        run: |-
+          ./tests/test-docker-image.sh
+
   update-install-script:
     name: Update scripts/install.sh in warp-releases
     runs-on: ubuntu-latest
     needs: goreleaser
+    env:
+      RELEASES_REPO: warpdl/warp-releases
     steps:
       - name: Get latest tag from GitHub API
         run: |-
-          # set latest_tag variable to latest tag of warpdl/warp-releases
-          latest_tag=$(curl -s https://api.github.com/repos/warpdl/warp-releases/releases/latest | jq -r '.tag_name')
+          # set latest_tag variable to latest tag of $RELEASES_REPO
+          latest_tag=$(curl -s https://api.github.com/repos/$RELEASES_REPO/releases/latest | jq -r '.tag_name')
           # set it into GITHUB_ENV so it can be used in next steps
           echo "latest_tag=$latest_tag" >> $GITHUB_ENV
+      - name: Checkout warp
+        uses: actions/checkout@v3
+        with:
+          path: ./warp
       - name: Checkout warp-releases
         uses: actions/checkout@v3
         with:
-          repository: warpdl/warp-releases
-          ref: main
-      - name: Replace version
-        run: |
-          sed -i "s/LATEST_RELEASE=.*/LATEST_RELEASE=\"${{ env.latest_tag }}\"/g" scripts/install.sh
+          repository: ${{ env.RELEASES_REPO }}
+          persist-credentials: false
+          fetch-depth: 0
+          path: ./warp-releases
+      - name: Replace version and copy install.sh to warp-releases
+        run: |-
+          sed -i "s/LATEST_RELEASE=.*/LATEST_RELEASE=\"${{ env.latest_tag }}\"/g" ./warp/scripts/install.sh
+          cp ./warp/scripts/install.sh ./warp-releases/scripts/install.sh
       - name: Commit changes
-        run: |
-          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-          git commit -a -m "Add changes"
+        run: |-
+          git config --global user.email "divkix@divkix.me"
+          git config --global user.name "Divkix"
+          cd warp-releases && git commit -a -m "bump to ${{ env.latest_tag }}"
       - name: Push changes
         uses: ad-m/github-push-action@master
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          github_token: ${{ secrets.GH_PAT }}
+          repository: ${{ env.RELEASES_REPO }}
+          directory: ./warp-releases

@@ -10,6 +10,7 @@ release:
 
 gomod:
   env:
+    - CGO_ENABLED=1
     - GOPROXY=direct
     - GOPRIVATE=github.com/warpdl/warplib
 
@@ -22,6 +23,8 @@ builds:
   - binary: warpdl
     env:
       - CGO_ENABLED=0
+      - GOPRIVATE=github.com/warpdl/warplib
+      - GOPROXY=direct
     goos:
       - darwin
       - freebsd
@@ -65,12 +68,6 @@ archives:
     format_overrides:
       - goos: windows
         format: zip
-
-# source:
-#   rlcp: true
-#   enabled: true
-#   name_template: "{{ .ProjectName }}_{{ .Version }}_src"
-#   format: "tar.gz"
 
 changelog:
   sort: asc
@@ -116,7 +113,10 @@ scoops:
       email: divkix@divkix.me
     homepage: "https://warpdl.org"
     description: "The official Warp CLI download manager"
-#
+
+# signs:
+#   - artifacts: checksum
+
 # nfpms:
 #   - file_name_template: >-
 #       {{ .PackageName }}_
@@ -135,3 +135,39 @@ scoops:
 #       - deb
 #       - rpm
 #       - apk
+
+dockers:
+  - goarch: amd64
+    dockerfile: goreleaser.Dockerfile
+    use: buildx
+    image_templates:
+      - "ghcr.io/warpdl/warp-cli:{{ .Tag }}-amd64"
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--pull"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title=warp-cli"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+  - goarch: arm64
+    dockerfile: goreleaser.Dockerfile
+    use: buildx
+    image_templates:
+      - "ghcr.io/warpdl/warp-cli:{{ .Tag }}-arm64v8"
+    build_flag_templates:
+      - "--platform=linux/arm64/v8"
+      - "--pull"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title=warp-cli"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+
+docker_manifests:
+  - name_template: "ghcr.io/warpdl/warp-cli:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/warpdl/warp-cli:{{ .Tag }}-amd64"
+      - "ghcr.io/warpdl/warp-cli:{{ .Tag }}-arm64v8"
+  - name_template: "ghcr.io/warpdl/warp-cli:latest"
+    image_templates:
+      - "ghcr.io/warpdl/warp-cli:{{ .Tag }}-amd64"
+      - "ghcr.io/warpdl/warp-cli:{{ .Tag }}-arm64v8"
