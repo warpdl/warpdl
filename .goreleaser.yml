@@ -13,10 +13,10 @@ gomod:
     - GOPROXY=direct
     - GOPRIVATE=github.com/warpdl/warplib
 
-before:
-  hooks:
-    - go mod tidy
-    - go mod download
+# before:
+#   hooks:
+#     - go mod tidy
+#     - go mod download
 
 builds:
   - binary: warpdl
