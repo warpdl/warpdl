@@ -67,9 +67,9 @@ jobs:
           sed -i "s/LATEST_RELEASE=.*/LATEST_RELEASE=\"${{ env.latest_tag }}\"/g" scripts/install.sh
       - name: Commit changes
         run: |
-          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-          git commit -a -m "Add changes"
+          git config --local user.email "divkix@divkix.me"
+          git config --local user.name "Divkix"
+          git commit -a -m "bump to ${{ env.latest_tag }}"
       - name: Push changes
         uses: ad-m/github-push-action@master
         with:
