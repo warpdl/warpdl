@@ -12,6 +12,7 @@ jobs:
   ci:
     env:
       GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+      GOPRIVATE: github.com/warpdl/warplib
     name: Goreleaser CI
     runs-on: ubuntu-latest
     permissions:
