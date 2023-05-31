@@ -94,7 +94,7 @@ brews:
   - name: warpdl
     tap:
       owner: warpdl
-      name: homebrew-warpdl
+      name: homebrew-tap
     commit_author:
       name: "Divkix"
       email: divkix@divkix.me
@@ -110,7 +110,7 @@ scoops:
   - name: warpdl
     bucket:
       owner: warpdl
-      name: scoop-warpdl
+      name: scoop-bucket
     commit_author:
       name: "Divkix"
       email: divkix@divkix.me
