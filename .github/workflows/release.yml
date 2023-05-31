@@ -88,7 +88,7 @@ jobs:
         run: |-
           git config --global user.email "divkix@divkix.me"
           git config --global user.name "Divkix"
-          git commit -C ./warp-releases -a -m "bump to ${{ env.latest_tag }}"
+          cd warp-releases && git commit -a -m "bump to ${{ env.latest_tag }}"
       - name: Push changes
         uses: ad-m/github-push-action@master
         with:
