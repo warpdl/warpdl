@@ -15,4 +15,4 @@ jobs:
     with:
       use-upx: false
     secrets:
-      GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+      GH_PAT: ${{ secrets.GH_PAT }}
