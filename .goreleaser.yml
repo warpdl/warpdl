@@ -65,6 +65,12 @@ archives:
       - goos: windows
         format: zip
 
+source:
+  rlcp: true
+  enabled: true
+  name_template: "{{ .ProjectName }}_{{ .Version }}_src"
+  format: "tar.gz"
+
 changelog:
   sort: asc
   filters:
@@ -98,15 +104,16 @@ brews:
     test: |
       system "#{bin}/warpdl --version"
 
-scoop:
-  bucket:
-    owner: warpdl
-    name: scoop-warpdl
-  commit_author:
-    name: "Divkix"
-    email: divkix@divkix.me
-  homepage: "https://warpdl.org"
-  description: "The official Warp CLI download manager"
+scoops:
+  - name: warpdl
+    bucket:
+      owner: warpdl
+      name: scoop-warpdl
+    commit_author:
+      name: "Divkix"
+      email: divkix@divkix.me
+    homepage: "https://warpdl.org"
+    description: "The official Warp CLI download manager"
 
 nfpms:
   - id: doppler
