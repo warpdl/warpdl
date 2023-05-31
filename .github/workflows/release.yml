@@ -16,9 +16,10 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GOPRIVATE: github.com/warpdl/warplib
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.GH_PAT }}
       GOPROXY: direct
     steps:
+      - run: git config --global url."https://divkix:${GITHUB_TOKEN}@github.com".insteadOf "https://github.com"
       - name: Checkout
         uses: actions/checkout@v3
       - uses: actions/setup-go@v4

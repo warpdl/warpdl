@@ -12,17 +12,14 @@ jobs:
   ci:
     env:
       GOPRIVATE: github.com/warpdl/warplib
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.GH_PAT }}
       GOPROXY: direct
     name: Goreleaser CI
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Configure git for private modules
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: git config --global url."https://divkix:${GITHUB_TOKEN}@github.com".insteadOf "https://github.com"
+      - run: git config --global url."https://divkix:${GITHUB_TOKEN}@github.com".insteadOf "https://github.com"
       - uses: actions/checkout@v3
       - uses: actions/setup-go@v4
         with:
