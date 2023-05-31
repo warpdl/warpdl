@@ -86,8 +86,8 @@ jobs:
           cp ./warp/scripts/install.sh ./warp-releases/scripts/install.sh
       - name: Commit changes
         run: |-
-          git config --local user.email "divkix@divkix.me"
-          git config --local user.name "Divkix"
+          git config --global user.email "divkix@divkix.me"
+          git config --global user.name "Divkix"
           git commit -a -m "bump to ${{ env.latest_tag }}"
       - name: Push changes
         uses: ad-m/github-push-action@master
