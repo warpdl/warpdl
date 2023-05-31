@@ -66,11 +66,11 @@ archives:
       - goos: windows
         format: zip
 
-source:
-  rlcp: true
-  enabled: true
-  name_template: "{{ .ProjectName }}_{{ .Version }}_src"
-  format: "tar.gz"
+# source:
+#   rlcp: true
+#   enabled: true
+#   name_template: "{{ .ProjectName }}_{{ .Version }}_src"
+#   format: "tar.gz"
 
 changelog:
   sort: asc
