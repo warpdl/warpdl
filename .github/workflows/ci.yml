@@ -32,7 +32,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
       - name: Tar files
-        run: tar -cvf artifacts.tar dist/
+        run: tar -czvf artifacts.tar.gz dist/
       - uses: actions/upload-artifact@v3
         with:
           name: artifacts
