@@ -2,7 +2,7 @@ project_name: warp
 release:
   github:
     owner: warpdl
-    name: warp
+    name: warp-releases
   replace_existing_draft: true
   header: |
     Welcome to this new release!
