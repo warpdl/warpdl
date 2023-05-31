@@ -12,3 +12,5 @@ jobs:
   ci:
     name: CI
     uses: divkix/reusable-workflows/.github/workflows/goreleaser-ci.yml@main
+    with:
+      use-upx: false
