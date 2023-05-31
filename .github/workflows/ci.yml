@@ -14,3 +14,4 @@ jobs:
     uses: divkix/reusable-workflows/.github/workflows/goreleaser-ci.yml@main
     with:
       use-upx: false
+    secrets: inherit
