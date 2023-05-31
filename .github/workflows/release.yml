@@ -37,6 +37,12 @@ jobs:
           fi
           git tag -f -a -m "$tag" "$tag"
           git push -f origin "$tag"
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v4
         with:
