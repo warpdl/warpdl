@@ -12,7 +12,7 @@ on:
 
 jobs:
   goreleaser:
-    name: Release Binaries
+    name: Run GoReleaser
     runs-on: ubuntu-latest
     env:
       GOPRIVATE: github.com/warpdl/warplib
@@ -42,3 +42,30 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+
+  update-install-script:
+    name: Update scripts/install.sh in warp-releases
+    runs-on: ubuntu-latest
+    needs: goreleaser
+    steps:
+      - name: Get latest tag from GitHub API
+        run: |-
+          # set latest_tag variable to latest tag of warpdl/warp-releases
+          latest_tag=$(curl -s https://api.github.com/repos/warpdl/warp-releases/releases/latest | jq -r '.tag_name')
+          # set it into GITHUB_ENV so it can be used in next steps
+          echo "latest_tag=$latest_tag" >> $GITHUB_ENV
+      - name: Checkout warp-releases
+        uses: actions/checkout@v3
+        with:
+          repository: warpdl/warp-releases
+          ref: main
+      - name: Replace version
+        run: |
+          sed -i "s/LATEST_RELEASE=.*/LATEST_RELEASE=\"${{ env.latest_tag }}\"/g" scripts/install.sh
+      - name: Commit on warp-releases
+        uses: EndBug/add-and-commit@v9
+        with:
+          author_name: Divanshu Chauhan
+          author_email: divkix@divkix.me
+          push: true
+          message: "Update warp to ${{ env.latest_tag }}"
