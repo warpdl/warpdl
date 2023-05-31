@@ -17,6 +17,7 @@ jobs:
     env:
       GOPRIVATE: github.com/warpdl/warplib
       GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+      GOPROXY: direct
     steps:
       - name: Checkout
         uses: actions/checkout@v3
