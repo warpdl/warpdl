@@ -47,6 +47,8 @@ jobs:
     name: Update scripts/install.sh in warp-releases
     runs-on: ubuntu-latest
     needs: goreleaser
+    env:
+      RELEASES_REPO: warpdl/warp-releases
     steps:
       - name: Get latest tag from GitHub API
         run: |-
@@ -57,7 +59,7 @@ jobs:
       - name: Checkout warp-releases
         uses: actions/checkout@v3
         with:
-          repository: warpdl/warp-releases
+          repository: ${{ env.RELEASES_REPO }}
           persist-credentials: false
           fetch-depth: 0
       - name: Replace version
@@ -72,4 +74,4 @@ jobs:
         uses: ad-m/github-push-action@master
         with:
           github_token: ${{ secrets.GH_PAT }}
-          repository: warpdl/warp-releases
+          repository: ${{ env.RELEASES_REPO }}
