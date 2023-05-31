@@ -116,8 +116,7 @@ scoops:
     description: "The official Warp CLI download manager"
 
 nfpms:
-  - id: doppler
-    file_name_template: >-
+  - file_name_template: >-
       {{ .PackageName }}_
       {{- .Version }}_
       {{- .Os }}_
@@ -134,3 +133,4 @@ nfpms:
       - deb
       - rpm
       - apk
+      - archlinux
