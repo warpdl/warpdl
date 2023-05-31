@@ -395,7 +395,6 @@ fi
 if [ "$format" = "tar.gz" ] || [ "$format" = "zip" ]; then
   if [ "$format" = "tar.gz" ]; then
     filename="${tempdir}/${DL_FILENAME}"
-    echo $filename
 
     # extract
     extract_dir="$tempdir/x"
