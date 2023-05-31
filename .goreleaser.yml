@@ -118,22 +118,22 @@ scoops:
       email: divkix@divkix.me
     homepage: "https://warpdl.org"
     description: "The official Warp CLI download manager"
-#
-# nfpms:
-#   - file_name_template: >-
-#       {{ .PackageName }}_
-#       {{- .Version }}_
-#       {{- .Os }}_
-#       {{- if eq .Arch "386" }}i386
-#       {{- else }}{{ .Arch }}{{ end }}
-#       {{- with .Arm }}v{{ . }}{{ end }}
-#       {{- with .Mips }}_{{ . }}{{ end }}
-#       {{- if not (eq .Amd64 "v1") }}{{ .Amd64 }}{{ end }}
-#     homepage: "https://warpdl.org"
-#     maintainer: Divanshu Chauhan <divkix@divkix.me>
-#     description: "The official Warp CLI download manager"
-#     bindir: /usr/bin
-#     formats:
-#       - deb
-#       - rpm
-#       - apk
+
+nfpms:
+  - file_name_template: >-
+      {{ .PackageName }}_
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- with .Arm }}v{{ . }}{{ end }}
+      {{- with .Mips }}_{{ . }}{{ end }}
+      {{- if not (eq .Amd64 "v1") }}{{ .Amd64 }}{{ end }}
+    homepage: "https://warpdl.org"
+    maintainer: Divanshu Chauhan <divkix@divkix.me>
+    description: "The official Warp CLI download manager"
+    bindir: /usr/bin
+    formats:
+      - deb
+      - rpm
+      - apk
