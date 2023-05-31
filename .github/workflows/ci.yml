@@ -34,7 +34,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
       - name: Tar files
         run: tar -czvf artifacts.tar.gz dist/
-      - uses: actions/upload-artifact@v3
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
         with:
           name: artifacts
           path: artifacts.tar.gz

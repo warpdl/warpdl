@@ -119,6 +119,7 @@ scoops:
       email: divkix@divkix.me
     homepage: "https://warpdl.org"
     description: "The official Warp CLI download manager"
+#
 # nfpms:
 #   - file_name_template: >-
 #       {{ .PackageName }}_
@@ -137,7 +138,7 @@ scoops:
 #       - deb
 #       - rpm
 #       - apk
-
+#
 dockers:
   - goarch: amd64
     dockerfile: goreleaser.Dockerfile
