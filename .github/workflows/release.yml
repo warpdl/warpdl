@@ -58,7 +58,6 @@ jobs:
         uses: actions/checkout@v3
         with:
           repository: warpdl/warp-releases
-          ref: main
       - name: Replace version
         run: |
           sed -i "s/LATEST_RELEASE=.*/LATEST_RELEASE=\"${{ env.latest_tag }}\"/g" scripts/install.sh
