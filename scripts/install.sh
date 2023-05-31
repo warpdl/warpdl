@@ -5,22 +5,17 @@ set -e
 # error codes
 # 1 general
 # 2 insufficient perms
-# 3 gnupg package not installed
-# 4 ~/.gnupg ownership issue
 
 WARP_DOMAIN="cli.warpdl.org"
 DEBUG=0
 INSTALL=1
 CLEAN_EXIT=0
-USE_PACKAGE_MANAGER=1
 DISABLE_CURL=0
 CUSTOM_INSTALL_PATH=""
 BINARY_INSTALLED_PATH=""
 
 tempdir=""
 filename=""
-sig_filename=""
-key_filename=""
 
 cleanup() {
   exit_code=$?
@@ -82,21 +77,6 @@ macos_shell() {
 # so the shell will always be /usr/bin/bash
 windows_shell() {
   echo "/usr/bin/bash"
-}
-
-install_completions() {
-  default_shell=""
-  if [ "$os" = "macos" ]; then
-    default_shell="$(macos_shell || true)"
-  elif [ "$os" = "windows" ]; then
-    default_shell="$(windows_shell || true)"
-  else
-    default_shell="$(linux_shell || true)"
-  fi
-
-  log_debug "Installing shell completions for '$default_shell'"
-  # ignore all output
-  "$BINARY_INSTALLED_PATH/"warpdl completion install "$default_shell" --no-check-version > /dev/null 2>&1
 }
 
 # exit code
@@ -297,10 +277,6 @@ for arg; do
     INSTALL=0
   fi
 
-  if [ "$arg" = "--no-package-manager" ]; then
-    USE_PACKAGE_MANAGER=0
-  fi
-
   if [ "$arg" = "--disable-curl" ]; then
     DISABLE_CURL=1
   fi
@@ -313,11 +289,6 @@ done
 if [ "$find_install_path_arg" -eq 1 ]; then
   log "You must provide a path when specifying --install-path"
   clean_exit 1
-fi
-
-if [ "$CUSTOM_INSTALL_PATH" != "" ]; then
-  # disable package managers when specifying custom path
-  USE_PACKAGE_MANAGER=0
 fi
 
 # identify OS
@@ -340,11 +311,6 @@ case "$uname_os" in
 esac
 
 log_debug "Detected OS '$os'"
-
-# disable package managers on macOS and windows (their use would be most unexpected)
-if [ "$os" = "macos" ] || [ "$os" = "windows" ]; then
-  USE_PACKAGE_MANAGER=0
-fi
 
 # identify arch
 arch="unknown"
@@ -377,24 +343,7 @@ else
   format="tar"
 fi
 
-if [ "$USE_PACKAGE_MANAGER" -eq 1 ]; then
-  if [ -x "$(command -v dpkg)" ]; then
-    format="deb"
-  elif [ -x "$(command -v rpm)" ]; then
-    format="rpm"
-  fi
-fi
-
 log_debug "Detected format '$format'"
-
-gpg_binary="$(command -v gpg || true)";
-if [ -x "$gpg_binary" ]; then
-  log_debug "Using $gpg_binary for signature verification"
-else
-  log "ERROR: Unable to find gpg binary for signature verification"
-  log "You can resolve this error by installing your system's gnupg package"
-  clean_exit 3
-fi
 
 url="https://$WARP_DOMAIN/download?os=$os&arch=$arch&format=$format"
 
@@ -419,8 +368,6 @@ if [ "$curl_installed" -eq 0 ] || [ "$wget_installed" -eq 0 ]; then
   log "Downloading Warpdl CLI"
   file="warpdl-download"
   filename="$tempdir/$file"
-  sig_filename="$filename.sig"
-  key_filename="$tempdir/publickey.gpg"
 
   if [ "$curl_installed" -eq 0 ]; then
     log_debug "Using $curl_binary for requests"
@@ -442,46 +389,7 @@ else
   clean_exit 1
 fi
 
-log "Verifying signature"
-# verify we can read ~/.gnupg so that we can provide a helpful error message
-if [ -d ~/.gnupg ]; then
-  # Run sudo chown -r $(whoami) ~/.gnupg to fix this
-  ls -l ~/.gnupg > /dev/null 2>&1 || (log "Failed to read ~/.gnupg. Please verify the directory's ownership, or run 'sudo chown -R $(whoami) ~/.gnupg' to fix this." && clean_exit 4)
-fi
-gpg --no-default-keyring --keyring "$key_filename" --verify "$sig_filename" "$filename" > /dev/null 2>&1 || (log "Failed to verify binary signature" && clean_exit 1)
-log_debug "Signature successfully verified!"
-
-if [ "$format" = "deb" ]; then
-  mv -f "$filename" "$filename.deb"
-  filename="$filename.deb"
-
-  if [ "$INSTALL" -eq 1 ]; then
-    log "Installing..."
-    dpkg -i "$filename"
-    # dpkg doesn't provide us the actual path, so take a best guess
-    BINARY_INSTALLED_PATH="$(dirname "$(command -v warpdl)")"
-    echo "Installed Warpdl CLI $("$BINARY_INSTALLED_PATH/"warpdl -v)"
-  else
-    log_debug "Moving installer to $(pwd) (cwd)"
-    mv -f "$filename" .
-    echo "Warpdl CLI installer saved to ./$file.deb"
-  fi
-elif [ "$format" = "rpm" ]; then
-  mv -f "$filename" "$filename.rpm"
-  filename="$filename.rpm"
-
-  if [ "$INSTALL" -eq 1 ]; then
-    log "Installing..."
-    rpm -i --force "$filename"
-    # rpm doesn't provide us the actual path, so take a best guess
-    BINARY_INSTALLED_PATH="$(dirname "$(command -v warpdl)")"
-    echo "Installed Warpdl CLI $("$BINARY_INSTALLED_PATH/"warpdl -v)"
-  else
-    log_debug "Moving installer to $(pwd) (cwd)"
-    mv -f "$filename" .
-    echo "Warpdl CLI installer saved to ./$file.rpm"
-  fi
-elif [ "$format" = "tar" ] || [ "$format" = "zip" ]; then
+if [ "$format" = "tar" ] || [ "$format" = "zip" ]; then
   if [ "$format" = "tar" ]; then
     mv -f "$filename" "$filename.tar.gz"
     filename="$filename.tar.gz"
@@ -646,5 +554,3 @@ elif [ "$format" = "tar" ] || [ "$format" = "zip" ]; then
     echo "Warpdl CLI saved to ./warpdl"
   fi
 fi
-
-install_completions || log_debug "Unable to install shell completions"
