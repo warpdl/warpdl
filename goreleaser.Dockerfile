@@ -1,6 +1,6 @@
 FROM alpine
 RUN apk add --no-cache tini
-COPY warpdl /bin/warpdl
+COPY --from=builder /bin/warpdl /bin/warpdl
 ENTRYPOINT ["/sbin/tini", "--", "/bin/warpdl"]
 
 LABEL org.opencontainers.image.authors="Divanshu Chauhan <divkix@divkix.me>"
