@@ -137,3 +137,39 @@ scoops:
 #       - deb
 #       - rpm
 #       - apk
+
+dockers:
+  - goarch: amd64
+    dockerfile: goreleaser.Dockerfile
+    use: buildx
+    image_templates:
+      - "ghcr.io/warpdl/warp-cli:{{ .Tag }}-amd64"
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--pull"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title=warp-cli"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+  - goarch: arm64
+    dockerfile: goreleaser.Dockerfile
+    use: buildx
+    image_templates:
+      - "ghcr.io/warpdl/warp-cli:{{ .Tag }}-arm64v8"
+    build_flag_templates:
+      - "--platform=linux/arm64/v8"
+      - "--pull"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title=warp-cli"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+
+docker_manifests:
+  - name_template: "ghcr.io/warpdl/warp-cli:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/warpdl/warp-cli:{{ .Tag }}-amd64"
+      - "ghcr.io/warpdl/warp-cli:{{ .Tag }}-arm64v8"
+  - name_template: "ghcr.io/warpdl/warp-cli:latest"
+    image_templates:
+      - "ghcr.io/warpdl/warp-cli:{{ .Tag }}-amd64"
+      - "ghcr.io/warpdl/warp-cli:{{ .Tag }}-arm64v8"
