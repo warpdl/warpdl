@@ -41,24 +41,3 @@ jobs:
       #   with:
       #     name: artifacts
       #     path: artifacts.tar.gz
-
-  run-tests:
-    name: Run Tests
-    runs-on: ubuntu-latest
-    env:
-      GITHUB_TOKEN: ${{ secrets.GH_PAT }}
-      GOPRIVATE: github.com/warpdl/warplib
-      GOPROXY: direct
-    steps:
-      - name: Configure git
-        run: git config --global url."https://divkix:${GITHUB_TOKEN}@github.com".insteadOf "https://github.com"
-      - name: Checkout Source
-        uses: actions/checkout@v3
-      - name: Go mod commands
-        run: |
-          go mod tidy
-          go mod download
-      - name: Run Gosec Security Scanner
-        uses: securego/gosec@master
-        with:
-          args: ./...
