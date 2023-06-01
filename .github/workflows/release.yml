@@ -42,12 +42,9 @@ jobs:
     env:
       RELEASES_REPO: warpdl/warp-releases
     steps:
-      - name: Get latest tag from GitHub API
+      - name: Get latest tag
         run: |-
-          # set latest_tag variable to latest tag of $RELEASES_REPO
-          latest_tag=$(curl -s https://api.github.com/repos/$RELEASES_REPO/releases/latest | jq -r '.tag_name')
-          # set it into GITHUB_ENV so it can be used in next steps
-          echo "latest_tag=$latest_tag" >> $GITHUB_ENV
+          echo "RELEASE_VERSION=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
       - name: Checkout warp
         uses: actions/checkout@v3
         with:
@@ -61,13 +58,13 @@ jobs:
           path: ./warp-releases
       - name: Replace version and copy install.sh to warp-releases
         run: |-
-          sed -i "s/LATEST_RELEASE=.*/LATEST_RELEASE=\"${{ env.latest_tag }}\"/g" ./warp/scripts/install.sh
+          sed -i "s/LATEST_RELEASE=.*/LATEST_RELEASE=\"${{ env.RELEASE_VERSION }}\"/g" ./warp/scripts/install.sh
           cp ./warp/scripts/install.sh ./warp-releases/scripts/install.sh
       - name: Commit changes
         run: |-
           git config --global user.email "divkix@divkix.me"
           git config --global user.name "Divkix"
-          cd warp-releases && git commit -a -m "bump to ${{ env.latest_tag }}"
+          cd warp-releases && git commit -a -m "bump to ${{ env.RELEASE_VERSION }}"
       - name: Push changes
         uses: ad-m/github-push-action@master
         with:
