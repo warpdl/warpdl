@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/kkdai/youtube/v2"
+	"github.com/warpdl/warplib"
 )
 
 // func isYoutubeVideo(url string) bool {
@@ -22,6 +23,7 @@ type formatInfo struct {
 	Quality string
 	Url     string
 	Mime    string
+	Size    warplib.ContentLength
 }
 
 func processVideo(url string) (durl string, err error) {
@@ -56,6 +58,7 @@ func processVideo(url string) (durl string, err error) {
 			Quality: q,
 			Url:     format.URL,
 			Mime:    format.MimeType,
+			Size:    warplib.ContentLength(format.ContentLength),
 		})
 		tmp[q] = 0
 	}
@@ -73,7 +76,7 @@ Duration`+"\t"+`: %s
 Please choose a video quality from following:
 `, info.Title, info.Duration.String())
 	for i, q := range fs {
-		fmt.Printf("[%d] %s\n", i+1, q.Quality)
+		fmt.Printf("[%d] %s (%s)\n", i+1, q.Quality, q.Size.String())
 	}
 
 	fmt.Print("\nPlease enter the index number of chosen quality: ")

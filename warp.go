@@ -98,7 +98,17 @@ func download(ctx *cli.Context) (err error) {
 	if uri, er := processVideo(url); er == nil {
 		url = uri
 	}
-	var bar *mpb.Bar
+
+	var (
+		dbar, cbar *mpb.Bar
+	)
+
+	m, err := warplib.InitManager()
+	if err != nil {
+		printRuntimeErr(ctx, "info-manager", err)
+		return nil
+	}
+	defer m.Close()
 	d, err := warplib.NewDownloader(
 		&http.Client{},
 		url,
@@ -106,19 +116,24 @@ func download(ctx *cli.Context) (err error) {
 			ForceParts: forceParts,
 			Handlers: &warplib.Handlers{
 				ProgressHandler: func(_ string, nread int) {
-					bar.IncrBy(nread)
+					dbar.IncrBy(nread)
+				},
+				CompileProgressHandler: func(nread int) {
+					cbar.IncrBy(nread)
 				},
 			},
+			FileName:          fileName,
+			DownloadDirectory: dlPath,
+			MaxConnections:    maxConns,
+			MaxSegments:       maxParts,
 		},
 	)
 	if err != nil {
-		printRuntimeErr(ctx, "info", err)
+		printRuntimeErr(ctx, "info-downloader", err)
 		return nil
 	}
-	d.SetDownloadLocation(dlPath)
-	d.SetFileName(fileName)
-	d.SetMaxConnections(maxConns)
-	d.SetMaxParts(maxParts)
+	m.AddDownload(d)
+
 	fName := d.GetFileName()
 	if fName == "" {
 		fName = "not-defined"
@@ -138,16 +153,16 @@ Max Connections`+"\t"+`: %d
 	if maxParts != 0 {
 		txt += fmt.Sprintf("Max Segments\t: %d\n", maxParts)
 	}
-	fmt.Println(txt)
 	p := mpb.New(mpb.WithWidth(64))
+
+	barStyle := mpb.BarStyle().Lbound("╢").Filler("█").Tip("█").Padding("░").Rbound("╟")
+
 	name := "Downloading"
-	bar = p.New(0,
-		// BarFillerBuilder with custom style
-		mpb.BarStyle().Lbound("╢").Filler("█").Tip("█").Padding("░").Rbound("╟"),
+
+	dbar = p.New(0,
+		barStyle,
 		mpb.PrependDecorators(
-			// display our name with one space on the right
 			decor.Name(name, decor.WC{W: len(name) + 1, C: decor.DidentRight}),
-			// replace ETA decorator with "done" message, OnComplete event
 			decor.OnComplete(
 				decor.AverageETA(decor.ET_STYLE_GO, decor.WC{W: 4}), "Complete",
 			),
@@ -156,8 +171,26 @@ Max Connections`+"\t"+`: %d
 			decor.AverageSpeed(decor.SizeB1024(0), "% .2f"),
 		),
 	)
-	bar.SetTotal(d.GetContentLengthAsInt(), false)
-	bar.EnableTriggerComplete()
+	dbar.SetTotal(d.GetContentLengthAsInt(), false)
+	dbar.EnableTriggerComplete()
+
+	name = "Compiling"
+	cbar = p.New(0,
+		barStyle,
+		mpb.BarQueueAfter(dbar),
+		mpb.PrependDecorators(
+			decor.Name(name, decor.WC{W: len(name) + 1, C: decor.DidentRight}),
+			decor.OnComplete(
+				decor.AverageETA(decor.ET_STYLE_GO, decor.WC{W: 4}), "Complete",
+			),
+		),
+		mpb.AppendDecorators(
+			decor.AverageSpeed(decor.SizeB1024(0), "% .2f"),
+		),
+	)
+	cbar.SetTotal(d.GetContentLengthAsInt(), false)
+	cbar.EnableTriggerComplete()
+
 	nt := time.Now()
 	err = d.Start()
 	if err != nil {

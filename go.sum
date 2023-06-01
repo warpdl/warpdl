@@ -64,6 +64,8 @@ github.com/vbauerster/mpb/v8 v8.4.0 h1:Jq2iNA7T6SydpMVOwaT+2OBWlXS9Th8KEvBqeu5ee
 github.com/vbauerster/mpb/v8 v8.4.0/go.mod h1:vjp3hSTuCtR+x98/+2vW3eZ8XzxvGoP8CPseHMhiPyc=
 github.com/warpdl/warplib v0.0.0-20230531212701-f9b32e5b221b h1:rftVdJp7YtslF484XadEqzdjkTbXMsTUOavLw93DB8g=
 github.com/warpdl/warplib v0.0.0-20230531212701-f9b32e5b221b/go.mod h1:gV8CkFL0ZSdQtNuLrHLiQeLFUR3QK1wdfyjPmT6l13Y=
+github.com/warpdl/warplib v0.0.0-20230601205419-ba58356e996c h1:cTyW6DIs3ClBvuqjSyBdeEWpsiSnwugjENlP1iBIwjA=
+github.com/warpdl/warplib v0.0.0-20230601205419-ba58356e996c/go.mod h1:gV8CkFL0ZSdQtNuLrHLiQeLFUR3QK1wdfyjPmT6l13Y=
 github.com/yuin/goldmark v1.4.13/go.mod h1:6yULJ656Px+3vBD8DxQVa3kxgyrAnzto9xy5taEt/CY=
 golang.org/x/crypto v0.0.0-20190308221718-c2843e01d9a2/go.mod h1:djNgcEr1/C05ACkg1iLfiJU5Ep61QUkGW8qpdssI0+w=
 golang.org/x/crypto v0.0.0-20210921155107-089bfa567519/go.mod h1:GvvjBRRGRdwPK5ydBHafDWAxML/pGHZbMvKqRZ5+Abc=
