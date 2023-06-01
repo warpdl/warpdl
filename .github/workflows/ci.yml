@@ -47,6 +47,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+      GOPRIVATE: github.com/warpdl/warplib
+      GOPROXY: direct
     steps:
       - name: Configure git
         run: git config --global url."https://divkix:${GITHUB_TOKEN}@github.com".insteadOf "https://github.com"
