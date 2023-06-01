@@ -8,6 +8,9 @@ release:
   header: |
     Welcome to this new release!
 
+    Docker 🐳 images are available at:
+    `ghcr.io/warpdl/warp-cli:{{ .Tag }}`
+
 gomod:
   env:
     - CGO_ENABLED=1
