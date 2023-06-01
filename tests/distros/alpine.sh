@@ -3,4 +3,4 @@
 set -e
 
 apk add -q --no-cache curl wget \
-    && ./../scripts/universal-script.sh
+    && /usr/warpdl/cli/tests/scripts/universal-script.sh

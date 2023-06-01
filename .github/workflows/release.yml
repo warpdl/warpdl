@@ -27,6 +27,11 @@ jobs:
         uses: actions/setup-go@v4
         with:
           go-version: "stable"
+      - name: Import GPG key
+        uses: crazy-max/ghaction-import-gpg@v5
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.GPG_PASSPHRASE }}
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v4
         with:
@@ -34,6 +39,7 @@ jobs:
           args: release --snapshot --skip-publish --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
 
   update-install-script:
     name: Update scripts/install.sh in warp-releases
@@ -87,6 +93,10 @@ jobs:
         uses: actions/setup-go@v4
         with:
           go-version: "stable"
+      - name: Install UPX
+        uses: crazy-max/ghaction-upx@v2
+        with:
+          install-only: true
         # only run this step when the tag is not already created
       - if: startsWith(github.ref, 'refs/tags/') != 'true' && github.event.inputs.tag != ''
         name: Create and Push Tag
@@ -105,6 +115,11 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Import GPG key
+        uses: crazy-max/ghaction-import-gpg@v5
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.GPG_PASSPHRASE }}
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v4
         with:
@@ -112,6 +127,7 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
 
   run-tests:
     name: Run test scripts
@@ -123,23 +139,23 @@ jobs:
       - name: Test ubuntu docker
         run: |-
           echo "Testing ubuntu"
-          time docker run --rm -v "$(pwd)/tests/distros":/usr/warpdl/cli:ro ubuntu /usr/warpdl/cli/ubuntu-debian.sh
+          time docker run --rm -v "$(pwd)/tests/":/usr/warpdl/cli/tests:ro ubuntu /usr/warpdl/cli/tests/distros/ubuntu-debian.sh
       - name: Test debian docker
         run: |-
           echo "Testing debian"
-          time docker run --rm -v "$(pwd)/tests/distros":/usr/warpdl/cli:ro debian /usr/warpdl/cli/ubuntu-debian.sh
+          time docker run --rm -v "$(pwd)/tests/":/usr/warpdl/cli/tests:ro debian /usr/warpdl/cli/tests/distros/ubuntu-debian.sh
       - name: Test fedora docker
         run: |-
           echo "Testing fedora"
-          time docker run --rm -v "$(pwd)/tests/distros":/usr/warpdl/cli:ro fedora /usr/warpdl/cli/fedora-centos.sh
+          time docker run --rm -v "$(pwd)/tests/":/usr/warpdl/cli/tests:ro fedora /usr/warpdl/cli/tests/distros/fedora-centos.sh
       - name: Test centos docker
         run: |-
           echo "Testing centos"
-          time docker run --rm -v "$(pwd)/tests/distros":/usr/warpdl/cli:ro centos /usr/warpdl/cli/fedora-centos.sh
+          time docker run --rm -v "$(pwd)/tests/":/usr/warpdl/cli/tests:ro centos /usr/warpdl/cli/tests/distros/fedora-centos.sh
       - name: Test alpine docker
         run: |-
           echo "Testing alpine"
-          time docker run --rm -v "$(pwd)/tests/distros":/usr/warpdl/cli:ro alpine /usr/warpdl/cli/alpine.sh
+          time docker run --rm -v "$(pwd)/tests/":/usr/warpdl/cli/tests:ro alpine /usr/warpdl/cli/tests/distros/alpine.sh
       - name: Test docker image
         run: |-
           ./tests/test-docker-image.sh

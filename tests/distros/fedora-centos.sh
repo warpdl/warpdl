@@ -2,4 +2,4 @@
 
 set -e
 
-./../scripts/universal-script.sh
+/usr/warpdl/cli/tests/scripts/universal-script.sh
