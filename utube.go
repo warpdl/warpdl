@@ -78,7 +78,11 @@ Please choose a video quality from following:
 
 	fmt.Print("\nPlease enter the index number of chosen quality: ")
 	var n int
-	fmt.Scan(&n)
+	_, er := fmt.Scanf("%d", &n)
+	if er != nil {
+		err = er
+		return
+	}
 	if n < 1 {
 		n = 1
 	}

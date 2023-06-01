@@ -179,7 +179,13 @@ func help(ctx *cli.Context) error {
 		return nil
 	}
 	err := cli.ShowCommandHelp(ctx, arg)
-	printErrWithHelp(ctx, err)
+	if err != nil {
+		return err
+	}
+	err = printErrWithHelp(ctx, err)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -203,7 +209,10 @@ func printErrWithCmdHelp(ctx *cli.Context, err error) error {
 		ctx,
 		err,
 		func() {
-			cli.ShowCommandHelp(ctx, ctx.Command.Name)
+			err := cli.ShowCommandHelp(ctx, ctx.Command.Name)
+			if err != nil {
+				fmt.Println(err.Error())
+			}
 		},
 	)
 }
