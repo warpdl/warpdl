@@ -138,7 +138,7 @@ scoops:
 
 dockers:
   - goarch: amd64
-    dockerfile: goreleaser.Dockerfile
+    dockerfile: docker/goreleaser
     use: buildx
     image_templates:
       - "ghcr.io/warpdl/warp-cli:{{ .Tag }}-amd64"
@@ -150,7 +150,7 @@ dockers:
       - "--label=org.opencontainers.image.revision={{.FullCommit}}"
       - "--label=org.opencontainers.image.version={{.Version}}"
   - goarch: arm64
-    dockerfile: goreleaser.Dockerfile
+    dockerfile: docker/goreleaser
     use: buildx
     image_templates:
       - "ghcr.io/warpdl/warp-cli:{{ .Tag }}-arm64v8"
