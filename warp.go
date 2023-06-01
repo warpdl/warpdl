@@ -95,11 +95,8 @@ func download(ctx *cli.Context) (err error) {
 		)
 	}
 	fmt.Println(">> Initiating a WARP download << ")
-	if isYoutubeVideo(url) {
-		url, err = processVideo(url)
-		if err != nil {
-			return
-		}
+	if uri, er := processVideo(url); er == nil {
+		url = uri
 	}
 	var bar *mpb.Bar
 	d, err := warplib.NewDownloader(

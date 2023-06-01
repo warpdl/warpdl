@@ -8,10 +8,10 @@ import (
 	"github.com/kkdai/youtube/v2"
 )
 
-func isYoutubeVideo(url string) bool {
-	_, err := youtube.ExtractVideoID(url)
-	return err == nil
-}
+// func isYoutubeVideo(url string) bool {
+// 	url1, err := youtube.ExtractVideoID(url)
+// 	return err == nil && url1 != url
+// }
 
 type videoInfo struct {
 	Title    string
