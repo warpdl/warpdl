@@ -27,6 +27,11 @@ jobs:
         uses: actions/setup-go@v4
         with:
           go-version: "stable"
+      - name: Import GPG key
+        uses: crazy-max/ghaction-import-gpg@v4
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.GPG_PASSPHRASE }}
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v4
         with:
@@ -34,6 +39,7 @@ jobs:
           args: release --snapshot --skip-publish --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
       # - name: Tar files
       #   run: tar -czvf artifacts.tar.gz dist/
       # - name: Upload artifacts
