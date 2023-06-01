@@ -120,9 +120,26 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v3
-      - name: Test installation on debian, ubuntu, fedora, centos, alpine
+      - name: Test ubuntu docker
         run: |-
-          ./tests/install-script.sh
+          echo "Testing ubuntu"
+          time docker run --rm -v "$(pwd)/tests/distros":/usr/warpdl/cli:ro ubuntu /usr/warpdl/cli/ubuntu-debian.sh
+      - name: Test debian docker
+        run: |-
+          echo "Testing debian"
+          time docker run --rm -v "$(pwd)/tests/distros":/usr/warpdl/cli:ro debian /usr/warpdl/cli/ubuntu-debian.sh
+      - name: Test fedora docker
+        run: |-
+          echo "Testing fedora"
+          time docker run --rm -v "$(pwd)/tests/distros":/usr/warpdl/cli:ro fedora /usr/warpdl/cli/fedora-centos.sh
+      - name: Test centos docker
+        run: |-
+          echo "Testing centos"
+          time docker run --rm -v "$(pwd)/tests/distros":/usr/warpdl/cli:ro centos /usr/warpdl/cli/fedora-centos.sh
+      - name: Test alpine docker
+        run: |-
+          echo "Testing alpine"
+          time docker run --rm -v "$(pwd)/tests/distros":/usr/warpdl/cli:ro alpine /usr/warpdl/cli/alpine.sh
       - name: Test docker image
         run: |-
           ./tests/test-docker-image.sh
