@@ -22,9 +22,9 @@ before:
     - go mod tidy
     - go mod download
 
-upx:
-  - enabled: true
-    brute: true
+# upx:
+#   - enabled: true
+#     brute: true
 
 builds:
   - binary: warpdl
