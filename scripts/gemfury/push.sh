@@ -6,7 +6,7 @@ set -euo pipefail
 pushToGemfury() {
     type=$1
     pkgs_list=($(echo "$(find dist/*.$type -type f)" | tr ' ' '\n'))
-    echo "Uploading $type package: $package"
+    echo "Uploading $type packages"
     for package in "${pkgs_list[@]}"
     do
         echo "Uploading $package"
@@ -15,5 +15,7 @@ pushToGemfury() {
 }
 
 
-pushToGemfury apt
 pushToGemfury deb
+pushToGemfury rpm
+
+echo "Uploaded all packages to Gemfury"

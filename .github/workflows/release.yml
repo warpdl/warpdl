@@ -130,6 +130,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+      - name: Push to fury
+        run: |-
+          ./scripts/gemfury/push.sh
+        env:
+          GEMFURY_PUSH_KEY: ${{ secrets.GEMFURY_PUSH_KEY }}
 
   run-tests:
     name: Run test scripts
