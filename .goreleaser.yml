@@ -9,7 +9,7 @@ release:
     Welcome to this new release!
 
     Docker 🐳 images are available at:
-    `ghcr.io/warpdl/warp-cli:{{ .Tag }}`
+    `docker pull ghcr.io/warpdl/warp-cli:{{ .Tag }}`
 
 gomod:
   env:
