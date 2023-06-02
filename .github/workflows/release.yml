@@ -72,7 +72,7 @@ jobs:
         run: |-
           git config --global user.email "divkix@divkix.me"
           git config --global user.name "Divkix"
-          cd warp-releases && git commit -a -m "bump to ${{ env.RELEASE_VERSION }}"
+          cd warp-releases && git add . && git commit -m "bump to ${{ env.RELEASE_VERSION }}"
       - name: Push changes
         uses: ad-m/github-push-action@master
         with:
