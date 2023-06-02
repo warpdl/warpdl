@@ -158,6 +158,9 @@ func filterMime(mimeT string) (ext string, err error) {
 	return
 }
 
+func downloadVideo(audio, video string) {
+}
+
 func init() {
 	mime.AddExtensionType(".opus", `audio/webm; codecs="opus"`)
 	mime.AddExtensionType(".mkv", `video/webm; codecs="vp9"`)
