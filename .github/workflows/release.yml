@@ -62,10 +62,12 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
           path: ./warp-releases
-      - name: Replace version and copy install.sh to warp-releases
+      - name: Copy existing files from warp to warpdl
         run: |-
           sed -i "s/LATEST_RELEASE=.*/LATEST_RELEASE=\"${{ env.RELEASE_VERSION }}\"/g" ./warp/scripts/install.sh
           cp ./warp/scripts/install.sh ./warp-releases/scripts/install.sh
+          mkdir -p ./warp-releases/configs/rpm/ && cp ./warp/configs/rpm/config.rpm.txt ./warp-releases/configs/rpm/config.rpm.txt
+          mkdir -p ./warp-releases/keys/ && cp ./warp/keys/key.gpg ./warp-releases/keys/key.gpg
       - name: Commit changes
         run: |-
           git config --global user.email "divkix@divkix.me"
