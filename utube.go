@@ -9,6 +9,11 @@ import (
 	"github.com/warpdl/warplib"
 )
 
+const (
+	AUDIO_QUALITY_LOW    = "AUDIO_QUALITY_LOW"
+	AUDIO_QUALITY_MEDIUM = "AUDIO_QUALITY_MEDIUM"
+)
+
 // func isYoutubeVideo(url string) bool {
 // 	url1, err := youtube.ExtractVideoID(url)
 // 	return err == nil && url1 != url
@@ -20,13 +25,14 @@ type videoInfo struct {
 }
 
 type formatInfo struct {
-	Quality string
-	Url     string
-	Mime    string
-	Size    warplib.ContentLength
+	Quality  string
+	Url      string
+	Mime     string
+	Size     warplib.ContentLength
+	HasAudio bool
 }
 
-func processVideo(url string) (durl string, err error) {
+func processVideo(url string) (vurl, aurl string, err error) {
 	_, er := youtube.ExtractVideoID(url)
 	if er != nil {
 		return
@@ -42,12 +48,16 @@ func processVideo(url string) (durl string, err error) {
 		Duration: vid.Duration,
 	}
 	fs := make([]formatInfo, 0)
+	audio := make(map[string]string)
 	tmp := make(map[string]int)
 	n := len(vid.Formats)
 	for i := 0; i < n; i++ {
 		format := vid.Formats[n-i-1]
 		q := format.QualityLabel
 		if q == "" {
+			if format.AudioQuality != "" {
+				audio[format.AudioQuality] = format.URL
+			}
 			continue
 		}
 		_, ok := tmp[q]
@@ -55,19 +65,41 @@ func processVideo(url string) (durl string, err error) {
 			continue
 		}
 		fs = append(fs, formatInfo{
-			Quality: q,
-			Url:     format.URL,
-			Mime:    format.MimeType,
-			Size:    warplib.ContentLength(format.ContentLength),
+			Quality:  q,
+			Url:      format.URL,
+			Mime:     format.MimeType,
+			Size:     warplib.ContentLength(format.ContentLength),
+			HasAudio: format.AudioChannels > 0,
 		})
 		tmp[q] = 0
 	}
 	tmp = nil
-	durl, err = ytDialog(info, fs)
+	var (
+		q        string
+		hasAudio bool
+	)
+	q, vurl, hasAudio, err = ytDialog(info, fs)
+	if hasAudio {
+		return
+	}
+	switch q {
+	case "144p", "240p", "360p", "480p":
+		audUrl, ok := audio[AUDIO_QUALITY_LOW]
+		if !ok {
+			audUrl = audio[AUDIO_QUALITY_MEDIUM]
+		}
+		aurl = audUrl
+	default:
+		audUrl, ok := audio[AUDIO_QUALITY_MEDIUM]
+		if !ok {
+			audUrl = audio[AUDIO_QUALITY_LOW]
+		}
+		aurl = audUrl
+	}
 	return
 }
 
-func ytDialog(info *videoInfo, fs []formatInfo) (url string, err error) {
+func ytDialog(info *videoInfo, fs []formatInfo) (q, url string, hasAudio bool, err error) {
 	fmt.Printf(`
 Youtube Video Info
 Title`+"\t\t"+`: %s
@@ -94,6 +126,7 @@ Please choose a video quality from following:
 	}
 	n--
 	f := fs[n]
+	q = f.Quality
 	url = f.Url
 	if fileName != "" {
 		return
@@ -123,4 +156,9 @@ func filterMime(mimeT string) (ext string, err error) {
 	}
 	ext = exts[0]
 	return
+}
+
+func init() {
+	mime.AddExtensionType(".opus", `audio/webm; codecs="opus"`)
+	mime.AddExtensionType(".mkv", `video/webm; codecs="vp9"`)
 }

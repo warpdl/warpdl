@@ -95,8 +95,9 @@ func download(ctx *cli.Context) (err error) {
 		)
 	}
 	fmt.Println(">> Initiating a WARP download << ")
-	if uri, er := processVideo(url); er == nil {
-		url = uri
+	if vurl, _, er := processVideo(url); er == nil {
+		url = vurl
+		// fmt.Println("aurl:", aurl)
 	}
 
 	var (
@@ -153,6 +154,8 @@ Max Connections`+"\t"+`: %d
 	if maxParts != 0 {
 		txt += fmt.Sprintf("Max Segments\t: %d\n", maxParts)
 	}
+	fmt.Println(txt)
+
 	p := mpb.New(mpb.WithWidth(64))
 
 	barStyle := mpb.BarStyle().Lbound("╢").Filler("█").Tip("█").Padding("░").Rbound("╟")
