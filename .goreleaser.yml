@@ -26,6 +26,10 @@ before:
 #   - enabled: true
 #     brute: true
 
+publishers:
+  - name: gemfury
+    cmd: scripts/gemfury/push.sh
+
 builds:
   - binary: warpdl
     env:
