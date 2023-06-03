@@ -83,9 +83,7 @@ Size`+"\t"+`: %s
 	return nil
 }
 
-func initBars(prefix string, cLength int64) (p *mpb.Progress, dbar *mpb.Bar, cbar *mpb.Bar) {
-	p = mpb.New(mpb.WithWidth(64))
-
+func initBars(p *mpb.Progress, prefix string, cLength int64) (dbar *mpb.Bar, cbar *mpb.Bar) {
 	barStyle := mpb.BarStyle().Lbound("╢").Filler("█").Tip("█").Padding("░").Rbound("╟")
 
 	name := prefix + "Downloading"
@@ -137,21 +135,32 @@ func download(ctx *cli.Context) (err error) {
 	}
 	fmt.Println(">> Initiating a WARP download << ")
 	var (
-		p          *mpb.Progress
 		dbar, cbar *mpb.Bar
 	)
-
-	if vurl, aurl, er := processVideo(url); er == nil {
-		downloadVideo(aurl, vurl)
-		return
-	}
-
 	m, err := warplib.InitManager()
 	if err != nil {
-		printRuntimeErr(ctx, "info-manager", err)
+		printRuntimeErr(ctx, "info", err)
 		return nil
 	}
 	defer m.Close()
+
+	if vInfo, er := processVideo(url); er == nil {
+		if vInfo.AudioFName != "" {
+			nt := time.Now()
+			er = downloadVideo(&http.Client{}, m, vInfo)
+			if er != nil {
+				printRuntimeErr(ctx, "info", err)
+			}
+			if !timeTaken {
+				return nil
+			}
+			fmt.Printf("\nTime Taken: %s\n", time.Since(nt).String())
+			return nil
+		}
+		url = vInfo.VideoUrl
+		fileName = vInfo.VideoFName
+	}
+
 	d, err := warplib.NewDownloader(
 		&http.Client{},
 		url,
@@ -172,14 +181,15 @@ func download(ctx *cli.Context) (err error) {
 		},
 	)
 	if err != nil {
-		printRuntimeErr(ctx, "info-downloader", err)
+		printRuntimeErr(ctx, "info", err)
 		return nil
 	}
-	m.AddDownload(d)
+	m.AddDownload(d, nil)
 
-	fName := d.GetFileName()
-	if fName == "" {
-		fName = "not-defined"
+	fileName = d.GetFileName()
+	if fileName == "" {
+		printRuntimeErr(ctx, "info", errors.New("file name cannot be empty"))
+		return
 	}
 	txt := fmt.Sprintf(`
 Download Info
@@ -188,7 +198,7 @@ Size`+"\t\t"+`: %s
 Save Location`+"\t"+`: %s/
 Max Connections`+"\t"+`: %d
 `,
-		fName,
+		fileName,
 		d.GetContentLengthAsString(),
 		d.GetDownloadDirectory(),
 		maxConns,
@@ -198,7 +208,8 @@ Max Connections`+"\t"+`: %d
 	}
 	fmt.Println(txt)
 
-	p, dbar, cbar = initBars("", d.GetContentLengthAsInt())
+	p := mpb.New(mpb.WithWidth(64))
+	dbar, cbar = initBars(p, "", d.GetContentLengthAsInt())
 
 	nt := time.Now()
 	err = d.Start()
@@ -315,7 +326,7 @@ var dlFlags = []cli.Flag{
 	cli.StringFlag{
 		Name:        "download-path, l",
 		Usage:       "set the path where downloaded file should be saved",
-		Value:       "./",
+		Value:       ".",
 		Destination: &dlPath,
 	},
 	cli.BoolTFlag{
@@ -336,7 +347,7 @@ func main() {
 		Name:                  "Warp",
 		HelpName:              "warp",
 		Usage:                 "An ultra fast download manager.",
-		Version:               "v0.0.27", // NOTE: change version from here
+		Version:               "v0.0.30", // NOTE: change version from here
 		UsageText:             "warp <command> [arguments...]",
 		Description:           Description,
 		CustomAppHelpTemplate: HELP_TEMPL,

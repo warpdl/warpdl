@@ -3,9 +3,14 @@ package main
 import (
 	"fmt"
 	"mime"
+	"net/http"
+	"os"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/kkdai/youtube/v2"
+	"github.com/vbauerster/mpb/v8"
 	"github.com/warpdl/warplib"
 )
 
@@ -20,8 +25,10 @@ const (
 // }
 
 type videoInfo struct {
-	Title    string
-	Duration time.Duration
+	Title                string
+	Duration             time.Duration
+	VideoFName, VideoUrl string
+	AudioFName, AudioUrl string
 }
 
 type formatInfo struct {
@@ -32,7 +39,7 @@ type formatInfo struct {
 	HasAudio bool
 }
 
-func processVideo(url string) (vurl, aurl string, err error) {
+func processVideo(url string) (info *videoInfo, err error) {
 	_, er := youtube.ExtractVideoID(url)
 	if er != nil {
 		return
@@ -43,12 +50,12 @@ func processVideo(url string) (vurl, aurl string, err error) {
 		err = er
 		return
 	}
-	info := &videoInfo{
+	info = &videoInfo{
 		Title:    vid.Title,
 		Duration: vid.Duration,
 	}
 	fs := make([]formatInfo, 0)
-	audio := make(map[string]string)
+	audio := make(map[string]youtube.Format)
 	tmp := make(map[string]int)
 	n := len(vid.Formats)
 	for i := 0; i < n; i++ {
@@ -56,7 +63,7 @@ func processVideo(url string) (vurl, aurl string, err error) {
 		q := format.QualityLabel
 		if q == "" {
 			if format.AudioQuality != "" {
-				audio[format.AudioQuality] = format.URL
+				audio[format.AudioQuality] = format
 			}
 			continue
 		}
@@ -78,28 +85,37 @@ func processVideo(url string) (vurl, aurl string, err error) {
 		q        string
 		hasAudio bool
 	)
-	q, vurl, hasAudio, err = ytDialog(info, fs)
+	q, info.VideoFName, info.VideoUrl, hasAudio, err = ytDialog(info, fs)
 	if hasAudio {
 		return
 	}
+	var (
+		aud youtube.Format
+		ok  bool
+	)
 	switch q {
 	case "144p", "240p", "360p", "480p":
-		audUrl, ok := audio[AUDIO_QUALITY_LOW]
+		aud, ok = audio[AUDIO_QUALITY_LOW]
 		if !ok {
-			audUrl = audio[AUDIO_QUALITY_MEDIUM]
+			aud = audio[AUDIO_QUALITY_MEDIUM]
 		}
-		aurl = audUrl
 	default:
-		audUrl, ok := audio[AUDIO_QUALITY_MEDIUM]
+		aud, ok = audio[AUDIO_QUALITY_MEDIUM]
 		if !ok {
-			audUrl = audio[AUDIO_QUALITY_LOW]
+			aud = audio[AUDIO_QUALITY_LOW]
 		}
-		aurl = audUrl
 	}
+	info.AudioUrl = aud.URL
+	ext, er := filterMime(aud.MimeType)
+	if er != nil {
+		err = er
+		return
+	}
+	info.AudioFName = info.Title + ext
 	return
 }
 
-func ytDialog(info *videoInfo, fs []formatInfo) (q, url string, hasAudio bool, err error) {
+func ytDialog(info *videoInfo, fs []formatInfo) (q, fName, url string, hasAudio bool, err error) {
 	fmt.Printf(`
 Youtube Video Info
 Title`+"\t\t"+`: %s
@@ -126,18 +142,16 @@ Please choose a video quality from following:
 	}
 	n--
 	f := fs[n]
+	hasAudio = f.HasAudio
 	q = f.Quality
 	url = f.Url
-	if fileName != "" {
-		return
-	}
-	fileName = info.Title
+	fName = info.Title
 	ext, er := filterMime(f.Mime)
 	if er != nil {
 		err = er
 		return
 	}
-	fileName += ext
+	fName += ext
 	return
 }
 
@@ -158,7 +172,132 @@ func filterMime(mimeT string) (ext string, err error) {
 	return
 }
 
-func downloadVideo(audio, video string) {
+func downloadVideo(client *http.Client, m *warplib.Manager, vInfo *videoInfo) (err error) {
+	var (
+		vDBar, vCBar *mpb.Bar
+		aDBar, aCBar *mpb.Bar
+	)
+
+	vd, er := warplib.NewDownloader(client, vInfo.VideoUrl, &warplib.DownloaderOpts{
+		FileName:          vInfo.VideoFName,
+		ForceParts:        forceParts,
+		MaxConnections:    maxConns,
+		MaxSegments:       maxParts,
+		DownloadDirectory: warplib.DlDataDir,
+		Handlers: &warplib.Handlers{
+			ProgressHandler: func(_ string, nread int) {
+				vDBar.IncrBy(nread)
+			},
+			CompileProgressHandler: func(nread int) {
+				vCBar.IncrBy(nread)
+			},
+		},
+	})
+	if er != nil {
+		err = er
+		return
+	}
+
+	aConn := 3
+	if maxConns != 0 && maxConns < aConn {
+		aConn = maxConns
+	}
+	aSegments := 6
+	if maxParts != 0 && maxParts < aSegments {
+		aSegments = maxParts
+	}
+
+	ad, er := warplib.NewDownloader(client, vInfo.AudioUrl, &warplib.DownloaderOpts{
+		FileName:          vInfo.AudioFName,
+		ForceParts:        forceParts,
+		MaxConnections:    aConn,
+		MaxSegments:       aSegments,
+		DownloadDirectory: warplib.DlDataDir,
+		Handlers: &warplib.Handlers{
+			ProgressHandler: func(_ string, nread int) {
+				aDBar.IncrBy(nread)
+			},
+			CompileProgressHandler: func(nread int) {
+				aCBar.IncrBy(nread)
+			},
+		},
+	})
+	if er != nil {
+		err = er
+		return
+	}
+
+	m.AddDownload(vd, &warplib.AddDownloadOpts{
+		Child: ad,
+	})
+	m.AddDownload(ad, &warplib.AddDownloadOpts{
+		IsHidden:   true,
+		IsChildren: true,
+	})
+
+	vcl := vd.GetContentLengthAsInt()
+	acl := ad.GetContentLengthAsInt()
+
+	dlPath = strings.TrimSuffix(dlPath, "/")
+
+	if fileName == "" {
+		fileName = vInfo.VideoFName
+	}
+	txt := fmt.Sprintf(`
+Download Info
+Name`+"\t\t"+`: %s
+Size`+"\t\t"+`: %s
+Save Location`+"\t"+`: %s/
+Max Connections`+"\t"+`: %d
+`,
+		fileName,
+		warplib.ContentLength(vcl+acl).String(),
+		dlPath,
+		maxConns,
+	)
+	if maxParts != 0 {
+		txt += fmt.Sprintf("Max Segments\t: %d\n", maxParts)
+	}
+	fmt.Println(txt)
+
+	p := mpb.New(mpb.WithWidth(64))
+	vDBar, vCBar = initBars(p, "Video: ", vd.GetContentLengthAsInt())
+	aDBar, aCBar = initBars(p, "Audio: ", ad.GetContentLengthAsInt())
+
+	wg := sync.WaitGroup{}
+	wg.Add(2)
+
+	dl := func(d *warplib.Downloader) {
+		err = d.Start()
+		wg.Done()
+	}
+
+	go dl(vd)
+	go dl(ad)
+
+	wg.Wait()
+	p.Wait()
+
+	fmt.Println("\nMixing video and audio...")
+
+	err = mux(
+		ad.GetSavePath(),
+		vd.GetSavePath(),
+		warplib.GetPath(dlPath, vInfo.VideoFName),
+	)
+
+	if err == nil {
+		os.Remove(vd.GetSavePath())
+		os.Remove(ad.GetSavePath())
+		fmt.Println("Download Complete!")
+		return
+	}
+	fmt.Println("warp:", err)
+	fmt.Println("Saving video and audio separately...")
+
+	os.Rename(vd.GetSavePath(), warplib.GetPath(dlPath, vInfo.VideoFName))
+	os.Rename(ad.GetSavePath(), warplib.GetPath(dlPath, vInfo.AudioFName))
+	return
 }
 
 func init() {
