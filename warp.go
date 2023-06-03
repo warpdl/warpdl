@@ -347,7 +347,7 @@ func main() {
 		Name:                  "Warp",
 		HelpName:              "warp",
 		Usage:                 "An ultra fast download manager.",
-		Version:               "v0.0.30", // NOTE: change version from here
+		Version:               "v0.0.31", // NOTE: change version from here
 		UsageText:             "warp <command> [arguments...]",
 		Description:           Description,
 		CustomAppHelpTemplate: HELP_TEMPL,
