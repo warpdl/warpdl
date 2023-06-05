@@ -212,7 +212,12 @@ Max Connections`+"\t"+`: %d
 		dbar, cbar = initBars(p, "Video: ", int64(item.TotalSize))
 		go resumeItem(wg, item)
 		sDBar, sCBar = initBars(p, "Audio: ", int64(cItem.TotalSize))
-		go resumeItem(wg, cItem)
+		if cItem.Downloaded < cItem.TotalSize {
+			go resumeItem(wg, cItem)
+		} else {
+			sDBar.SetCurrent(int64(cItem.TotalSize))
+			sCBar.SetCurrent(int64(cItem.TotalSize))
+		}
 	} else {
 		dbar, cbar = initBars(p, "", int64(item.TotalSize))
 		go resumeItem(wg, item)
