@@ -200,7 +200,6 @@ Max Connections`+"\t"+`: %d
 	fmt.Println(txt)
 
 	wg := &sync.WaitGroup{}
-	wg.Add(2)
 
 	resumeItem := func(wg *sync.WaitGroup, i *warplib.Item) {
 		err = i.Resume()
@@ -210,9 +209,11 @@ Max Connections`+"\t"+`: %d
 
 	if cItem != nil {
 		dbar, cbar = initBars(p, "Video: ", int64(item.TotalSize))
+		wg.Add(1)
 		go resumeItem(wg, item)
 		sDBar, sCBar = initBars(p, "Audio: ", int64(cItem.TotalSize))
 		if cItem.Downloaded < cItem.TotalSize {
+			wg.Add(1)
 			go resumeItem(wg, cItem)
 		} else {
 			sDBar.SetCurrent(int64(cItem.TotalSize))
@@ -220,6 +221,7 @@ Max Connections`+"\t"+`: %d
 		}
 	} else {
 		dbar, cbar = initBars(p, "", int64(item.TotalSize))
+		wg.Add(1)
 		go resumeItem(wg, item)
 	}
 
@@ -236,6 +238,7 @@ Max Connections`+"\t"+`: %d
 	if cItem == nil {
 		return
 	}
+	p.Wait()
 	compileVideo(
 		item.GetSavePath(),
 		cItem.GetSavePath(),

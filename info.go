@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -46,13 +47,18 @@ func list(ctx *cli.Context) error {
 		return nil
 	}
 	items := m.GetIncompleteItems()
-	txt := "Here is a list of incomplete items:"
+	// txt := "Here is a list of incomplete items:"
 	for _, item := range items {
-		if item.Children {
-			continue
+		// if item.Children {
+		// 	continue
+		// }
+		b, err := json.MarshalIndent(item, "", "\t")
+		if err != nil {
+			panic(err)
 		}
-		txt += fmt.Sprintf("\n- %s :: %d%%", item.Hash, item.GetPercentage())
+		fmt.Println(string(b))
+		// txt += fmt.Sprintf("\n- %s :: %d%%", item.Hash, item.GetPercentage())
 	}
-	fmt.Println(txt)
+	// fmt.Println(txt)
 	return nil
 }
