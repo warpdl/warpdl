@@ -1,18 +1,14 @@
 package main
 
 import (
-	"errors"
 	"fmt"
-	"net/http"
 	"os"
 	"runtime"
 	"strings"
-	"time"
 
 	"github.com/urfave/cli"
 	"github.com/vbauerster/mpb/v8"
 	"github.com/vbauerster/mpb/v8/decor"
-	"github.com/warpdl/warplib"
 )
 
 const HELP_TEMPL = `Usage: {{if .UsageText}}{{.UsageText}}{{else}}{{.HelpName}} {{if .VisibleFlags}}[global options]{{end}}{{if .Commands}} command [command options]{{end}} {{if .ArgsUsage}}{{.ArgsUsage}}{{else}}[arguments...]{{end}}{{end}}
@@ -53,36 +49,6 @@ var (
 	timeTaken  bool
 )
 
-func info(ctx *cli.Context) error {
-	url := ctx.Args().First()
-	if url == "" {
-		return printErrWithCmdHelp(
-			ctx,
-			errors.New("no url provided"),
-		)
-	}
-	fmt.Printf("%s: fetching details, please wait...", ctx.App.HelpName)
-	d, err := warplib.NewDownloader(
-		&http.Client{},
-		url,
-		nil,
-	)
-	if err != nil {
-		printRuntimeErr(ctx, "info", err)
-		return nil
-	}
-	fName := d.GetFileName()
-	if fName == "" {
-		fName = "not-defined"
-	}
-	fmt.Printf(`
-File Info
-Name`+"\t"+`: %s
-Size`+"\t"+`: %s
-`, fName, d.GetContentLengthAsString())
-	return nil
-}
-
 func initBars(p *mpb.Progress, prefix string, cLength int64) (dbar *mpb.Bar, cbar *mpb.Bar) {
 	barStyle := mpb.BarStyle().Lbound("╢").Filler("█").Tip("█").Padding("░").Rbound("╟")
 
@@ -120,108 +86,6 @@ func initBars(p *mpb.Progress, prefix string, cLength int64) (dbar *mpb.Bar, cba
 	cbar.SetTotal(cLength, false)
 	cbar.EnableTriggerComplete()
 	return
-}
-
-func download(ctx *cli.Context) (err error) {
-	url := ctx.Args().First()
-	if url == "" {
-		if ctx.Command.Name == "" {
-			return help(ctx)
-		}
-		return printErrWithCmdHelp(
-			ctx,
-			errors.New("no url provided"),
-		)
-	}
-	fmt.Println(">> Initiating a WARP download << ")
-	var (
-		dbar, cbar *mpb.Bar
-	)
-	m, err := warplib.InitManager()
-	if err != nil {
-		printRuntimeErr(ctx, "info", err)
-		return nil
-	}
-	defer m.Close()
-
-	if vInfo, er := processVideo(url); er == nil {
-		if vInfo.AudioFName != "" {
-			nt := time.Now()
-			er = downloadVideo(&http.Client{}, m, vInfo)
-			if er != nil {
-				printRuntimeErr(ctx, "info", err)
-			}
-			if !timeTaken {
-				return nil
-			}
-			fmt.Printf("\nTime Taken: %s\n", time.Since(nt).String())
-			return nil
-		}
-		url = vInfo.VideoUrl
-		fileName = vInfo.VideoFName
-	}
-
-	d, err := warplib.NewDownloader(
-		&http.Client{},
-		url,
-		&warplib.DownloaderOpts{
-			ForceParts: forceParts,
-			Handlers: &warplib.Handlers{
-				ProgressHandler: func(_ string, nread int) {
-					dbar.IncrBy(nread)
-				},
-				CompileProgressHandler: func(nread int) {
-					cbar.IncrBy(nread)
-				},
-			},
-			FileName:          fileName,
-			DownloadDirectory: dlPath,
-			MaxConnections:    maxConns,
-			MaxSegments:       maxParts,
-		},
-	)
-	if err != nil {
-		printRuntimeErr(ctx, "info", err)
-		return nil
-	}
-	m.AddDownload(d, nil)
-
-	fileName = d.GetFileName()
-	if fileName == "" {
-		printRuntimeErr(ctx, "info", errors.New("file name cannot be empty"))
-		return
-	}
-	txt := fmt.Sprintf(`
-Download Info
-Name`+"\t\t"+`: %s
-Size`+"\t\t"+`: %s
-Save Location`+"\t"+`: %s/
-Max Connections`+"\t"+`: %d
-`,
-		fileName,
-		d.GetContentLengthAsString(),
-		d.GetDownloadDirectory(),
-		maxConns,
-	)
-	if maxParts != 0 {
-		txt += fmt.Sprintf("Max Segments\t: %d\n", maxParts)
-	}
-	fmt.Println(txt)
-
-	p := mpb.New(mpb.WithWidth(64))
-	dbar, cbar = initBars(p, "", d.GetContentLengthAsInt())
-
-	nt := time.Now()
-	err = d.Start()
-	if err != nil {
-		return err
-	}
-	p.Wait()
-	if !timeTaken {
-		return nil
-	}
-	fmt.Printf("\nTime Taken: %s\n", time.Since(nt).String())
-	return nil
 }
 
 func help(ctx *cli.Context) error {
@@ -342,6 +206,33 @@ var dlFlags = []cli.Flag{
 	},
 }
 
+var rsFlags = []cli.Flag{
+	cli.IntFlag{
+		Name:        "max-parts, s",
+		Usage:       "to specify the number of maximum file segments",
+		EnvVar:      "WARP_MAX_PARTS",
+		Destination: &maxParts,
+	},
+	cli.IntFlag{
+		Name:        "max-connection, x",
+		Usage:       "specify the number of maximum parallel connection",
+		EnvVar:      "WARP_MAX_CONN",
+		Destination: &maxConns,
+		Value:       24,
+	},
+	cli.BoolTFlag{
+		Name:        "force-parts, f",
+		Usage:       "force using file segmentation even if not specified by server",
+		EnvVar:      "WARP_FORCE_SEGMENTS",
+		Destination: &forceParts,
+	},
+	cli.BoolFlag{
+		Name:        "time-taken, e",
+		Destination: &timeTaken,
+		Hidden:      true,
+	},
+}
+
 func main() {
 	app := cli.App{
 		Name:                  "Warp",
@@ -393,6 +284,22 @@ Example:
         warp download https://domain.com/file.zip
 
 `,
+			},
+			{
+				Name:    "resume",
+				Aliases: []string{"r"},
+				Usage:   "resume an incomplete download",
+				Description: `The resume command lets you resume an incomplete download.
+
+Example:
+        warp download <unique download hash>
+
+`,
+				OnUsageError:           usageErrorCallback,
+				CustomHelpTemplate:     CMD_HELP_TEMPL,
+				Action:                 resume,
+				UseShortOptionHandling: true,
+				Flags:                  rsFlags,
 			},
 			{
 				Name:    "help",
