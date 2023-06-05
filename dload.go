@@ -206,11 +206,16 @@ Max Connections`+"\t"+`: %d
 		err = i.Resume()
 		wg.Done()
 	}
-
-	go resumeItem(wg, item)
+	p := mpb.New(mpb.WithWidth(64))
 
 	if cItem != nil {
+		dbar, cbar = initBars(p, "Video: ", int64(item.TotalSize))
+		go resumeItem(wg, item)
+		sDBar, sCBar = initBars(p, "Audio: ", int64(cItem.TotalSize))
 		go resumeItem(wg, cItem)
+	} else {
+		dbar, cbar = initBars(p, "", int64(item.TotalSize))
+		go resumeItem(wg, item)
 	}
 
 	wg.Wait()
@@ -219,5 +224,18 @@ Max Connections`+"\t"+`: %d
 		printRuntimeErr(ctx, "resume", err)
 		err = nil
 	}
+	cbar.Abort(false)
+	if sCBar != nil {
+		sCBar.Abort(false)
+	}
+	if cItem == nil {
+		return
+	}
+	compileVideo(
+		item.GetSavePath(),
+		cItem.GetSavePath(),
+		item.Name,
+		cItem.Name,
+	)
 	return
 }

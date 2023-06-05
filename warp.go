@@ -245,6 +245,11 @@ func main() {
 		OnUsageError:          usageErrorCallback,
 		Commands: []cli.Command{
 			{
+				Name:   "list",
+				Usage:  "list incomplete downloads",
+				Action: list,
+			},
+			{
 				Name:    "info",
 				Aliases: []string{"i"},
 				Usage:   "shows info about a file",

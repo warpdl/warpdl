@@ -278,26 +278,35 @@ Max Connections`+"\t"+`: %d
 	wg.Wait()
 	p.Wait()
 
+	compileVideo(
+		vd.GetSavePath(),
+		ad.GetSavePath(),
+		vInfo.VideoFName,
+		vInfo.AudioFName,
+	)
+	return
+}
+
+func compileVideo(vPath, aPath, vName, aName string) {
 	fmt.Println("\nMixing video and audio...")
 
-	err = mux(
-		ad.GetSavePath(),
-		vd.GetSavePath(),
-		warplib.GetPath(dlPath, vInfo.VideoFName),
+	err := mux(
+		aPath,
+		vPath,
+		warplib.GetPath(dlPath, vName),
 	)
 
 	if err == nil {
-		os.Remove(vd.GetSavePath())
-		os.Remove(ad.GetSavePath())
+		os.Remove(vPath)
+		os.Remove(aPath)
 		fmt.Println("Download Complete!")
 		return
 	}
 	fmt.Println("warp:", err)
 	fmt.Println("Saving video and audio separately...")
 
-	os.Rename(vd.GetSavePath(), warplib.GetPath(dlPath, vInfo.VideoFName))
-	os.Rename(ad.GetSavePath(), warplib.GetPath(dlPath, vInfo.AudioFName))
-	return
+	os.Rename(vPath, warplib.GetPath(dlPath, vName))
+	os.Rename(aPath, warplib.GetPath(dlPath, aName))
 }
 
 func init() {

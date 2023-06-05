@@ -53,5 +53,6 @@ func list(ctx *cli.Context) error {
 		}
 		txt += fmt.Sprintf("\n- %s :: %d%%", item.Hash, item.GetPercentage())
 	}
+	fmt.Println(txt)
 	return nil
 }
