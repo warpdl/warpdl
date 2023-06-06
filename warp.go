@@ -40,15 +40,6 @@ your download speeds by up to 10 times, revolutionizing the way
 you obtain files on any operating system.
 `
 
-var (
-	maxParts   int
-	maxConns   int
-	dlPath     string
-	fileName   string
-	forceParts bool
-	timeTaken  bool
-)
-
 func initBars(p *mpb.Progress, prefix string, cLength int64) (dbar *mpb.Bar, cbar *mpb.Bar) {
 	barStyle := mpb.BarStyle().Lbound("╢").Filler("█").Tip("█").Padding("░").Rbound("╟")
 
@@ -168,6 +159,15 @@ func usageErrorCallback(ctx *cli.Context, err error, _ bool) error {
 	return printErrWithHelp(ctx, err)
 }
 
+var (
+	maxParts   int
+	maxConns   int
+	dlPath     string
+	fileName   string
+	forceParts bool
+	timeTaken  bool
+)
+
 var dlFlags = []cli.Flag{
 	cli.IntFlag{
 		Name:        "max-parts, s",
@@ -195,7 +195,7 @@ var dlFlags = []cli.Flag{
 	},
 	cli.BoolTFlag{
 		Name:        "force-parts, f",
-		Usage:       "force using file segmentation even if not specified by server",
+		Usage:       "forceful file segmentation (default: true)",
 		EnvVar:      "WARP_FORCE_SEGMENTS",
 		Destination: &forceParts,
 	},
@@ -222,7 +222,7 @@ var rsFlags = []cli.Flag{
 	},
 	cli.BoolTFlag{
 		Name:        "force-parts, f",
-		Usage:       "force using file segmentation even if not specified by server",
+		Usage:       "forceful file segmentation (default: true)",
 		EnvVar:      "WARP_FORCE_SEGMENTS",
 		Destination: &forceParts,
 	},
@@ -233,37 +233,97 @@ var rsFlags = []cli.Flag{
 	},
 }
 
+var (
+	showHidden    bool
+	showCompleted bool
+	showPending   bool
+	showAll       bool
+)
+
+var lsFlags = []cli.Flag{
+	cli.BoolFlag{
+		Name:        "show-completed, c",
+		Usage:       "use this flag to list completed downloads (default: false)",
+		Destination: &showCompleted,
+	},
+	cli.BoolTFlag{
+		Name:        "show-pending, p",
+		Usage:       "use this flag to include pending downloads (default: true)",
+		Destination: &showPending,
+	},
+	cli.BoolFlag{
+		Name:        "show-all, a",
+		Usage:       "use this flag to list all downloads (default: false)",
+		Destination: &showAll,
+	},
+	cli.BoolFlag{
+		Name:        "show-hidden, g",
+		Usage:       "use this flag to list hidden downloads (default: false)",
+		Destination: &showHidden,
+	},
+}
+
+const (
+	ListDescription = `The list command displays a list of incomplete 
+downloads along with their unique download hashes
+which can be used to resume pending downloads.
+
+Example:
+        warpdl list
+
+`
+	InfoDescription = `The info command makes a GET request to the entered 
+url and and tries to fetch the basic file info like 
+name, size etc.
+
+Example:
+        warpdl info https://domain.com/file.zip
+
+`
+	DownloadDescription = `The download command lets you quickly fetch and save 
+files from the internet. You can initiate the download
+process and securely store the desired file on your 
+local system.
+
+Warp uses dynamic file segmentation technique by default
+to download files fastly by utilizing the full alloted 
+bandwidth 
+
+Example:
+        warpdl https://domain.com/file.zip
+					OR
+        warpdl download https://domain.com/file.zip
+
+`
+	ResumeDescription = `The resume command lets you resume an incomplete download
+using its unique download hash which you can retrieve by 
+using "warpdl list" command.
+
+Example:
+        warpdl resume <unique download hash>
+
+`
+)
+
 func main() {
 	app := cli.App{
 		Name:                  "Warp",
 		HelpName:              "warp",
 		Usage:                 "An ultra fast download manager.",
-		Version:               "v0.0.31", // NOTE: change version from here
+		Version:               "v0.0.32", // NOTE: change version from here
 		UsageText:             "warp <command> [arguments...]",
 		Description:           Description,
 		CustomAppHelpTemplate: HELP_TEMPL,
 		OnUsageError:          usageErrorCallback,
 		Commands: []cli.Command{
 			{
-				Name:   "list",
-				Usage:  "list incomplete downloads",
-				Action: list,
-			},
-			{
-				Name:    "info",
-				Aliases: []string{"i"},
-				Usage:   "shows info about a file",
-				Description: `The Info command makes a GET request to the entered 
-url and and tries to fetch the basic file info like 
-name, size etc.
-
-Example:
-        warp info https://domain.com/file.zip
-
-`,
+				Name:               "info",
+				Aliases:            []string{"i"},
+				Usage:              "shows info about a file",
 				Action:             info,
 				OnUsageError:       usageErrorCallback,
 				CustomHelpTemplate: CMD_HELP_TEMPL,
+				Description:        InfoDescription,
 			},
 			{
 				Name:                   "download",
@@ -274,32 +334,24 @@ Example:
 				Action:                 download,
 				Flags:                  dlFlags,
 				UseShortOptionHandling: true,
-				Description: `The Download command lets you quickly fetch and save 
-files from the internet. You can initiate the download
-process and securely store the desired file on your 
-local system.
-
-Warp uses dynamic file segmentation technique by default
-to download files fastly by utilizing the full alloted 
-bandwidth 
-
-Example:
-        warp https://domain.com/file.zip
-					OR
-        warp download https://domain.com/file.zip
-
-`,
+				Description:            DownloadDescription,
 			},
 			{
-				Name:    "resume",
-				Aliases: []string{"r"},
-				Usage:   "resume an incomplete download",
-				Description: `The resume command lets you resume an incomplete download.
-
-Example:
-        warp download <unique download hash>
-
-`,
+				Name:                   "list",
+				Aliases:                []string{"l"},
+				Usage:                  "display downloads history",
+				Action:                 list,
+				OnUsageError:           usageErrorCallback,
+				CustomHelpTemplate:     CMD_HELP_TEMPL,
+				Description:            ListDescription,
+				UseShortOptionHandling: true,
+				Flags:                  lsFlags,
+			},
+			{
+				Name:                   "resume",
+				Aliases:                []string{"r"},
+				Usage:                  "resume an incomplete download",
+				Description:            ResumeDescription,
 				OnUsageError:           usageErrorCallback,
 				CustomHelpTemplate:     CMD_HELP_TEMPL,
 				Action:                 resume,

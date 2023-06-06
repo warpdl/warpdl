@@ -228,7 +228,8 @@ func downloadVideo(client *http.Client, m *warplib.Manager, vInfo *videoInfo) (e
 	}
 
 	m.AddDownload(vd, &warplib.AddDownloadOpts{
-		Child: ad,
+		Child:            ad,
+		AbsoluteLocation: dlPath,
 	})
 	m.AddDownload(ad, &warplib.AddDownloadOpts{
 		IsHidden:   true,
@@ -283,17 +284,18 @@ Max Connections`+"\t"+`: %d
 		ad.GetSavePath(),
 		vInfo.VideoFName,
 		vInfo.AudioFName,
+		dlPath,
 	)
 	return
 }
 
-func compileVideo(vPath, aPath, vName, aName string) {
+func compileVideo(vPath, aPath, vName, aName, absolPath string) {
 	fmt.Println("\nMixing video and audio...")
 
 	err := mux(
 		aPath,
 		vPath,
-		warplib.GetPath(dlPath, vName),
+		warplib.GetPath(absolPath, vName),
 	)
 
 	if err == nil {
@@ -305,8 +307,8 @@ func compileVideo(vPath, aPath, vName, aName string) {
 	fmt.Println("warp:", err)
 	fmt.Println("Saving video and audio separately...")
 
-	os.Rename(vPath, warplib.GetPath(dlPath, vName))
-	os.Rename(aPath, warplib.GetPath(dlPath, aName))
+	os.Rename(vPath, warplib.GetPath(absolPath, vName))
+	os.Rename(aPath, warplib.GetPath(absolPath, aName))
 }
 
 func init() {

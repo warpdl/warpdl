@@ -22,6 +22,8 @@ func download(ctx *cli.Context) (err error) {
 			ctx,
 			errors.New("no url provided"),
 		)
+	} else if url == "help" {
+		return cli.ShowCommandHelp(ctx, ctx.Command.Name)
 	}
 	fmt.Println(">> Initiating a WARP download << ")
 
@@ -125,6 +127,8 @@ func resume(ctx *cli.Context) (err error) {
 			ctx,
 			errors.New("no hash provided"),
 		)
+	} else if hash == "help" {
+		return cli.ShowCommandHelp(ctx, ctx.Command.Name)
 	}
 
 	fmt.Println(">> Initiating a WARP download << ")
@@ -140,8 +144,8 @@ func resume(ctx *cli.Context) (err error) {
 	)
 
 	client := &http.Client{}
-
-	item, err := m.ResumeDownload(client, hash, &warplib.ResumeDownloadOpts{
+	var item *warplib.Item
+	item, err = m.ResumeDownload(client, hash, &warplib.ResumeDownloadOpts{
 		ForceParts:     forceParts,
 		MaxConnections: maxConns,
 		MaxSegments:    maxParts,
@@ -151,6 +155,18 @@ func resume(ctx *cli.Context) (err error) {
 			},
 			CompileProgressHandler: func(nread int) {
 				cbar.IncrBy(nread)
+			},
+			DownloadCompleteHandler: func(hash string, tread int64) {
+				if dbar.Completed() {
+					return
+				}
+				dbar.SetCurrent(int64(item.TotalSize))
+			},
+			CompileCompleteHandler: func() {
+				if cbar.Completed() {
+					return
+				}
+				cbar.SetCurrent(int64(item.TotalSize))
 			},
 		},
 	})
@@ -174,12 +190,29 @@ func resume(ctx *cli.Context) (err error) {
 				CompileProgressHandler: func(nread int) {
 					sCBar.IncrBy(nread)
 				},
+				DownloadCompleteHandler: func(hash string, tread int64) {
+					if sDBar.Completed() {
+						return
+					}
+					sDBar.SetCurrent(int64(cItem.TotalSize))
+				},
+				CompileCompleteHandler: func() {
+					if sCBar.Completed() {
+						return
+					}
+					sCBar.SetCurrent(int64(cItem.TotalSize))
+				},
 			},
 		})
 		if err != nil {
 			printRuntimeErr(ctx, "secondary-resume", err)
 			return nil
 		}
+	}
+
+	size := item.TotalSize
+	if cItem != nil {
+		size += cItem.TotalSize
 	}
 
 	txt := fmt.Sprintf(`
@@ -190,8 +223,14 @@ Save Location`+"\t"+`: %s/
 Max Connections`+"\t"+`: %d
 `,
 		item.Name,
-		item.TotalSize.String(),
-		item.DownloadLocation,
+		size.String(),
+		func() string {
+			loc := item.AbsoluteLocation
+			if loc != "" {
+				return loc
+			}
+			return item.DownloadLocation
+		}(),
 		maxConns,
 	)
 	if maxParts != 0 {
@@ -244,6 +283,7 @@ Max Connections`+"\t"+`: %d
 		cItem.GetSavePath(),
 		item.Name,
 		cItem.Name,
+		item.AbsoluteLocation,
 	)
 	return
 }

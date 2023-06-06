@@ -22,3 +22,5 @@ vendor/
 
 # Go workspace file
 go.work
+
+dltest/
