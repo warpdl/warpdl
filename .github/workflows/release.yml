@@ -146,23 +146,23 @@ jobs:
       - name: Test ubuntu docker
         run: |-
           echo "Testing ubuntu"
-          time docker run --rm -v "$(pwd)/tests/":/usr/warpdl/cli/tests:ro ubuntu /usr/warpdl/cli/tests/distros/ubuntu-debian.sh
+          time docker run --rm -v "$(pwd)/tests/":/app:ro ubuntu /app/distros/ubuntu-debian.sh
       - name: Test debian docker
         run: |-
           echo "Testing debian"
-          time docker run --rm -v "$(pwd)/tests/":/usr/warpdl/cli/tests:ro debian /usr/warpdl/cli/tests/distros/ubuntu-debian.sh
+          time docker run --rm -v "$(pwd)/tests/":/app:ro debian /app/distros/ubuntu-debian.sh
       - name: Test fedora docker
         run: |-
           echo "Testing fedora"
-          time docker run --rm -v "$(pwd)/tests/":/usr/warpdl/cli/tests:ro fedora /usr/warpdl/cli/tests/distros/fedora-centos.sh
+          time docker run --rm -v "$(pwd)/tests/":/app:ro fedora /app/distros/fedora-centos.sh
       - name: Test centos docker
         run: |-
           echo "Testing centos"
-          time docker run --rm -v "$(pwd)/tests/":/usr/warpdl/cli/tests:ro centos /usr/warpdl/cli/tests/distros/fedora-centos.sh
+          time docker run --rm -v "$(pwd)/tests/":/app:ro centos /app/distros/fedora-centos.sh
       - name: Test alpine docker
         run: |-
           echo "Testing alpine"
-          time docker run --rm -v "$(pwd)/tests/":/usr/warpdl/cli/tests:ro alpine /usr/warpdl/cli/tests/distros/alpine.sh
+          time docker run --rm -v "$(pwd)/tests/":/app:ro alpine /app/distros/alpine.sh
       - name: Test docker image
         run: |-
           ./tests/test-docker-image.sh
