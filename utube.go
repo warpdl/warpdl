@@ -198,20 +198,11 @@ func downloadVideo(client *http.Client, m *warplib.Manager, vInfo *videoInfo) (e
 		return
 	}
 
-	aConn := 3
-	if maxConns != 0 && maxConns < aConn {
-		aConn = maxConns
-	}
-	aSegments := 6
-	if maxParts != 0 && maxParts < aSegments {
-		aSegments = maxParts
-	}
-
 	ad, er := warplib.NewDownloader(client, vInfo.AudioUrl, &warplib.DownloaderOpts{
 		FileName:          vInfo.AudioFName,
 		ForceParts:        forceParts,
-		MaxConnections:    aConn,
-		MaxSegments:       aSegments,
+		MaxConnections:    maxConns,
+		MaxSegments:       maxParts,
 		DownloadDirectory: warplib.DlDataDir,
 		Handlers: &warplib.Handlers{
 			ProgressHandler: func(_ string, nread int) {

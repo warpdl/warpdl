@@ -240,8 +240,13 @@ Max Connections`+"\t"+`: %d
 
 	wg := &sync.WaitGroup{}
 
-	resumeItem := func(wg *sync.WaitGroup, i *warplib.Item) {
-		err = i.Resume()
+	resumeItem := func(wg *sync.WaitGroup, i *warplib.Item, db, cb *mpb.Bar) {
+		if i.Downloaded < i.TotalSize {
+			err = i.Resume()
+		} else {
+			db.SetCurrent(int64(i.TotalSize))
+			cb.SetCurrent(int64(i.TotalSize))
+		}
 		wg.Done()
 	}
 	p := mpb.New(mpb.WithWidth(64))
@@ -249,35 +254,30 @@ Max Connections`+"\t"+`: %d
 	if cItem != nil {
 		dbar, cbar = initBars(p, "Video: ", int64(item.TotalSize))
 		wg.Add(1)
-		go resumeItem(wg, item)
+		go resumeItem(wg, item, dbar, cbar)
+
 		sDBar, sCBar = initBars(p, "Audio: ", int64(cItem.TotalSize))
-		if cItem.Downloaded < cItem.TotalSize {
-			wg.Add(1)
-			go resumeItem(wg, cItem)
-		} else {
-			sDBar.SetCurrent(int64(cItem.TotalSize))
-			sCBar.SetCurrent(int64(cItem.TotalSize))
-		}
+		wg.Add(1)
+		go resumeItem(wg, cItem, sDBar, sCBar)
 	} else {
 		dbar, cbar = initBars(p, "", int64(item.TotalSize))
 		wg.Add(1)
-		go resumeItem(wg, item)
+		go resumeItem(wg, item, dbar, cbar)
 	}
-
 	wg.Wait()
-
-	if err != nil {
-		printRuntimeErr(ctx, "resume", err)
-		err = nil
-	}
 	cbar.Abort(false)
 	if sCBar != nil {
 		sCBar.Abort(false)
 	}
+	p.Wait()
+	if err != nil {
+		printRuntimeErr(ctx, "resume", err)
+		err = nil
+		return
+	}
 	if cItem == nil {
 		return
 	}
-	p.Wait()
 	compileVideo(
 		item.GetSavePath(),
 		cItem.GetSavePath(),

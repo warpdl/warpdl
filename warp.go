@@ -174,6 +174,7 @@ var dlFlags = []cli.Flag{
 		Usage:       "to specify the number of maximum file segments",
 		EnvVar:      "WARP_MAX_PARTS",
 		Destination: &maxParts,
+		Value:       200,
 	},
 	cli.IntFlag{
 		Name:        "max-connection, x",
@@ -212,6 +213,7 @@ var rsFlags = []cli.Flag{
 		Usage:       "to specify the number of maximum file segments",
 		EnvVar:      "WARP_MAX_PARTS",
 		Destination: &maxParts,
+		Value:       200,
 	},
 	cli.IntFlag{
 		Name:        "max-connection, x",
@@ -310,7 +312,7 @@ func main() {
 		Name:                  "Warp",
 		HelpName:              "warp",
 		Usage:                 "An ultra fast download manager.",
-		Version:               "v0.0.32", // NOTE: change version from here
+		Version:               VERSION,
 		UsageText:             "warp <command> [arguments...]",
 		Description:           Description,
 		CustomAppHelpTemplate: HELP_TEMPL,
