@@ -5,7 +5,7 @@ import (
 	"mime"
 	"net/http"
 	"os"
-	"strings"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -163,7 +163,7 @@ func filterMime(mimeT string) (ext string, err error) {
 	}
 	for _, tExt := range exts {
 		switch tExt {
-		case ".mp4", ".3gp":
+		case ".mp4", ".3gp", ".mkv", ".opus":
 			ext = tExt
 			return
 		}
@@ -218,6 +218,13 @@ func downloadVideo(client *http.Client, m *warplib.Manager, vInfo *videoInfo) (e
 		return
 	}
 
+	dlPath, err = filepath.Abs(
+		dlPath,
+	)
+	if err != nil {
+		return
+	}
+
 	m.AddDownload(vd, &warplib.AddDownloadOpts{
 		Child:            ad,
 		AbsoluteLocation: dlPath,
@@ -229,8 +236,6 @@ func downloadVideo(client *http.Client, m *warplib.Manager, vInfo *videoInfo) (e
 
 	vcl := vd.GetContentLengthAsInt()
 	acl := ad.GetContentLengthAsInt()
-
-	dlPath = strings.TrimSuffix(dlPath, "/")
 
 	if fileName == "" {
 		fileName = vInfo.VideoFName
