@@ -59,13 +59,17 @@ func list(ctx *cli.Context) error {
 	default:
 		items = m.GetIncompleteItems()
 	}
-	if len(items) == 0 {
+	fback := func() error {
 		fmt.Println("warp: no downloads found")
 		return nil
+	}
+	if len(items) == 0 {
+		return fback()
 	}
 	txt := "Here are your downloads:"
 	txt += "\n\n------------------------------------------------------"
 	txt += "\n|Num|\t         Name         | Unique Hash | Status |"
+	txt += "\n|---|-------------------------|-------------|--------|"
 	var i int
 	for _, item := range items {
 		if !showHidden && (item.Hidden || item.Children) {
@@ -82,6 +86,9 @@ func list(ctx *cli.Context) error {
 		}
 		perc := fmt.Sprintf(`%d%%`, item.GetPercentage())
 		txt += fmt.Sprintf("\n| %d | %s |   %s  |  %s  |", i, name, item.Hash, beaut(perc, 4))
+	}
+	if i == 0 {
+		return fback()
 	}
 	txt += "\n------------------------------------------------------"
 	fmt.Println(txt)
