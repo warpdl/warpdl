@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -26,7 +27,7 @@ func download(ctx *cli.Context) (err error) {
 		return cli.ShowCommandHelp(ctx, ctx.Command.Name)
 	}
 	fmt.Println(">> Initiating a WARP download << ")
-
+	url = strings.TrimSpace(url)
 	m, err := warplib.InitManager()
 	if err != nil {
 		printRuntimeErr(ctx, "info", err)
@@ -60,7 +61,7 @@ func download(ctx *cli.Context) (err error) {
 		&warplib.DownloaderOpts{
 			ForceParts: forceParts,
 			Handlers: &warplib.Handlers{
-				ProgressHandler: func(_ string, nread int) {
+				DownloadProgressHandler: func(_ string, nread int) {
 					dbar.IncrBy(nread)
 				},
 				CompileProgressHandler: func(nread int) {
@@ -150,13 +151,19 @@ func resume(ctx *cli.Context) (err error) {
 		MaxConnections: maxConns,
 		MaxSegments:    maxParts,
 		Handlers: &warplib.Handlers{
-			ProgressHandler: func(_ string, nread int) {
+			ResumeProgressHandler: func(nread int) {
+				dbar.IncrBy(nread)
+			},
+			DownloadProgressHandler: func(_ string, nread int) {
 				dbar.IncrBy(nread)
 			},
 			CompileProgressHandler: func(nread int) {
 				cbar.IncrBy(nread)
 			},
 			DownloadCompleteHandler: func(hash string, tread int64) {
+				if hash == warplib.MAIN_HASH {
+					return
+				}
 				if dbar.Completed() {
 					return
 				}
@@ -184,13 +191,19 @@ func resume(ctx *cli.Context) (err error) {
 			MaxConnections: maxConns,
 			MaxSegments:    maxParts,
 			Handlers: &warplib.Handlers{
-				ProgressHandler: func(_ string, nread int) {
+				ResumeProgressHandler: func(nread int) {
+					sDBar.IncrBy(nread)
+				},
+				DownloadProgressHandler: func(_ string, nread int) {
 					sDBar.IncrBy(nread)
 				},
 				CompileProgressHandler: func(nread int) {
 					sCBar.IncrBy(nread)
 				},
 				DownloadCompleteHandler: func(hash string, tread int64) {
+					if hash == warplib.MAIN_HASH {
+						return
+					}
 					if sDBar.Completed() {
 						return
 					}

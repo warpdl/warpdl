@@ -42,6 +42,7 @@ type formatInfo struct {
 func processVideo(url string) (info *videoInfo, err error) {
 	_, er := youtube.ExtractVideoID(url)
 	if er != nil {
+		err = er
 		return
 	}
 	client := youtube.Client{}
@@ -185,7 +186,7 @@ func downloadVideo(client *http.Client, m *warplib.Manager, vInfo *videoInfo) (e
 		MaxSegments:       maxParts,
 		DownloadDirectory: warplib.DlDataDir,
 		Handlers: &warplib.Handlers{
-			ProgressHandler: func(_ string, nread int) {
+			DownloadProgressHandler: func(_ string, nread int) {
 				vDBar.IncrBy(nread)
 			},
 			CompileProgressHandler: func(nread int) {
@@ -205,7 +206,7 @@ func downloadVideo(client *http.Client, m *warplib.Manager, vInfo *videoInfo) (e
 		MaxSegments:       maxParts,
 		DownloadDirectory: warplib.DlDataDir,
 		Handlers: &warplib.Handlers{
-			ProgressHandler: func(_ string, nread int) {
+			DownloadProgressHandler: func(_ string, nread int) {
 				aDBar.IncrBy(nread)
 			},
 			CompileProgressHandler: func(nread int) {
