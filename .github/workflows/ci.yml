@@ -33,7 +33,11 @@ jobs:
           gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
           passphrase: ${{ secrets.GPG_PASSPHRASE }}
       - name: Setup snapcraft
-        run: sudo snap install snapcraft --classic
+        run: |
+          sudo systemctl unmask snapd.service
+          sudo systemctl enable snapd.service
+          sudo systemctl start snapd.service
+          sudo snap install snapcraft --classic
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v4
         with:
