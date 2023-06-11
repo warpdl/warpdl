@@ -34,9 +34,9 @@ jobs:
           passphrase: ${{ secrets.GPG_PASSPHRASE }}
       - name: Setup snapcraft
         run: |
-          sudo apt -y autoremove --purge snapd
-          sudo apt -y install snapd
-          sudo snap install snapcraft --classic
+          apt -y autoremove --purge snapd
+          apt -y install snapd
+          snap install snapcraft --classic
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v4
         with:
