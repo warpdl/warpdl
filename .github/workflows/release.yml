@@ -122,6 +122,8 @@ jobs:
           fi
           git tag -f -a -m "$tag" "$tag"
           git push -f origin "$tag"
+          # set project version
+          export SNAPCRAFT_PROJECT_VERSION="$tag"
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v2
         with:
