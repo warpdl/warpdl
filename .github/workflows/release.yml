@@ -46,6 +46,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: ci
     env:
+      CLI_REPO: warpdl/warp
       RELEASES_REPO: warpdl/warp-releases
     steps:
       - name: Get latest tag
@@ -66,6 +67,8 @@ jobs:
         run: |-
           sed -i "s/LATEST_RELEASE=.*/LATEST_RELEASE=\"${{ env.RELEASE_VERSION }}\"/g" ./warp/scripts/install.sh
           cp ./warp/scripts/install.sh ./warp-releases/scripts/install.sh
+          sed -i "s/version:.*/version: '${{ env.RELEASE_VERSION }}'/g" ./warp/snap/snapcraft.yaml
+          cp ./warp/snap/snapcraft.yaml ./warp-releases/snap/snapcraft.yaml
           mkdir -p ./warp-releases/configs/rpm/ && cp ./warp/configs/rpm/config.rpm.txt ./warp-releases/configs/rpm/config.rpm.txt
           mkdir -p ./warp-releases/keys/ && cp ./warp/keys/key.gpg ./warp-releases/keys/key.gpg
       - name: Commit changes
@@ -73,17 +76,25 @@ jobs:
           git config --global user.email "divkix@divkix.me"
           git config --global user.name "Divkix"
           cd warp-releases && git add . && git commit -m "bump to ${{ env.RELEASE_VERSION }}"
-      - name: Push changes
+          cd ..
+          cd warp && git add . && git commit -m "bump to ${{ env.RELEASE_VERSION }}"
+      - name: Push warp-releases changes
         uses: ad-m/github-push-action@master
         with:
           github_token: ${{ secrets.GH_PAT }}
           repository: ${{ env.RELEASES_REPO }}
           directory: ./warp-releases
+      - name: Push warp cli changes
+        uses: ad-m/github-push-action@master
+        with:
+          github_token: ${{ secrets.GH_PAT }}
+          repository: ${{ env.CLI_REPO }}
+          directory: ./warp
 
   goreleaser:
     name: Run GoReleaser
     needs: update-install-script
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     env:
       GITHUB_TOKEN: ${{ secrets.GH_PAT }}
     steps:
@@ -135,6 +146,16 @@ jobs:
           ./scripts/gemfury/push.sh
         env:
           GEMFURY_PUSH_KEY: ${{ secrets.GEMFURY_PUSH_KEY }}
+      - name: Build snaps
+        uses: snapcore/action-build@v1
+        id: build
+      - name: Publish snaps
+        uses: snapcore/action-publish@v1
+        env:
+          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
+        with:
+          snap: ${{ steps.build.outputs.snap }}
+          release: edge
 
   run-tests:
     name: Run test scripts
