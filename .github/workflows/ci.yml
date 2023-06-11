@@ -40,13 +40,13 @@ jobs:
 #         env:
 #           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
 #           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
-      - name: Setup snapcraft
-        run: |
-          sudo iptables -P FORWARD ACCEPT
-          sudo snap install --classic snapcraft
-          sudo usermod -aG lxd $USER
-          sudo snap run lxd init --auto
-          sudo snap run lxd waitready
+#       - name: Setup snapcraft
+#         run: |
+#           sudo iptables -P FORWARD ACCEPT
+#           sudo snap install --classic snapcraft
+#           sudo usermod -aG lxd $USER
+#           sudo snap run lxd init --auto
+#           sudo snap run lxd waitready
       - name: Build snaps
         uses: snapcore/action-build@v1
         id: build
