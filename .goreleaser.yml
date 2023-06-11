@@ -158,7 +158,7 @@ nfpms:
 
 snapcrafts:
   - name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
-    publish: true
+    publish: false
     summary: An ultra fast download manager
     description: |-
       Warp is a powerful and versatile cross-platform download manager. 
