@@ -156,21 +156,21 @@ nfpms:
       - rpm
       - apk
 
-snapcrafts:
-  - name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
-    publish: false
-    summary: An ultra fast download manager
-    description: |-
-      Warp is a powerful and versatile cross-platform download manager. 
-      With its advanced technology, Warp has the ability to accelerate
-      your download speeds by up to 10 times, revolutionizing the way
-      you obtain files on any operating system.
-    grade: stable
-    confinement: strict
-    base: core18
-    apps:
-      warpdl:
-        command: usr/bin/warpdl
+# snapcrafts:
+#   - name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+#     publish: false
+#     summary: An ultra fast download manager
+#     description: |-
+#       Warp is a powerful and versatile cross-platform download manager. 
+#       With its advanced technology, Warp has the ability to accelerate
+#       your download speeds by up to 10 times, revolutionizing the way
+#       you obtain files on any operating system.
+#     grade: stable
+#     confinement: strict
+#     base: core18
+#     apps:
+#       warpdl:
+#         command: usr/bin/warpdl
 
 dockers:
   - goarch: amd64
