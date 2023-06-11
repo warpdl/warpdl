@@ -47,16 +47,16 @@ jobs:
 #           sudo usermod -aG lxd $USER
 #           sudo snap run lxd init --auto
 #           sudo snap run lxd waitready
-      - name: Build snaps
-        uses: snapcore/action-build@v1
-        id: build
-      - name: Publish snaps
-        uses: snapcore/action-publish@v1
-        env:
-          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
-        with:
-          snap: ${{ steps.build.outputs.snap }}
-          release: edge
+#       - name: Build snaps
+#         uses: snapcore/action-build@v1
+#         id: build
+#       - name: Publish snaps
+#         uses: snapcore/action-publish@v1
+#         env:
+#           SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
+#         with:
+#           snap: ${{ steps.build.outputs.snap }}
+#           release: edge
       # - name: Tar files
       #   run: tar -czvf artifacts.tar.gz dist/
       # - name: Upload artifacts
