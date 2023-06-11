@@ -32,13 +32,6 @@ jobs:
         with:
           gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
           passphrase: ${{ secrets.GPG_PASSPHRASE }}
-      - name: Setup snapcraft
-        run: |
-          sudo iptables -P FORWARD ACCEPT
-          sudo snap install --classic snapcraft
-          sudo usermod -aG lxd $USER
-          sudo snap run lxd init --auto
-          sudo snap run lxd waitready
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v4
         with:
@@ -47,6 +40,23 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+      - name: Setup snapcraft
+        run: |
+          sudo iptables -P FORWARD ACCEPT
+          sudo snap install --classic snapcraft
+          sudo usermod -aG lxd $USER
+          sudo snap run lxd init --auto
+          sudo snap run lxd waitready
+      - name: Build snaps
+        uses: snapcore/action-build@v1
+        id: build
+      - name: Publish snaps
+        uses: snapcore/action-publish@v1
+        env:
+          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
+        with:
+          snap: ${{ steps.build.outputs.snap }}
+          release: edge
       # - name: Tar files
       #   run: tar -czvf artifacts.tar.gz dist/
       # - name: Upload artifacts
