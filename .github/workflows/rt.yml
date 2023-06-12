@@ -31,7 +31,6 @@ jobs:
       - name: Copy existing files from warp to warpdl
         run: |-
           sed -i "s/version:.*/version: '${{ env.RELEASE_VERSION }}'/g" ./warp/snap/snapcraft.yaml
-          cp ./warp/snap/snapcraft.yaml ./warp-releases/snap/snapcraft.yaml   
       - name: Commit changes
         run: |-
           git config --global user.email "divkix@divkix.me"
