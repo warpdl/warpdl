@@ -12,6 +12,7 @@ on:
       snap_channel:
         description: "Snap release channel"
         required: false
+        type: choice
         default: 'edge'
         options:
             - stable
