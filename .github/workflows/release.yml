@@ -50,8 +50,12 @@ jobs:
       RELEASES_REPO: warpdl/warp-releases
     steps:
       - name: Get latest tag
-        run: |-
-          echo "RELEASE_VERSION=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
+        run: |
+          tag=${{ github.event.inputs.tag }} # if triggered by workflow_dispatch
+          if [ -z "$tag" ]; then
+            tag=${GITHUB_REF#refs/tags/}
+          fi
+          RELEASE_VERSION=$tag
       - name: Checkout warp
         uses: actions/checkout@v3
         with:
