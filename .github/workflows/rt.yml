@@ -46,10 +46,17 @@ jobs:
   goreleaser:
     name: Run test
     needs: update-install-script
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     env:
       GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+    strategy:
+      matrix:
+        platform:
+        - i386
+        - amd64
+        - arm64
     steps:
+      - uses: docker/setup-qemu-action@v2
       - name: Set up git
         run: git config --global url."https://divkix:${GITHUB_TOKEN}@github.com".insteadOf "https://github.com"
       - name: Checkout
@@ -57,5 +64,8 @@ jobs:
       - name: test
         run: |-
           git pull
-          ls
-          cd snap && cat snapcraft.yaml
+      - name: Build snaps
+        uses: diddlesnaps/snapcraft-multiarch-action@v1
+        with:
+          architecture: ${{ matrix.platform }}
+      - run: ls 
