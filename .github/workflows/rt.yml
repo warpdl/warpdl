@@ -47,13 +47,13 @@ jobs:
     name: Run test
     needs: update-install-script
     runs-on: ubuntu-20.04
-#     env:
-#       GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+    env:
+      GITHUB_TOKEN: ${{ secrets.GH_PAT }}
     steps:
-#       - name: Set up git
-#         run: git config --global url."https://divkix:${GITHUB_TOKEN}@github.com".insteadOf "https://github.com"
-#       - name: Checkout
-#         uses: actions/checkout@v3
+      - name: Set up git
+        run: git config --global url."https://divkix:${GITHUB_TOKEN}@github.com".insteadOf "https://github.com"
+      - name: Checkout
+        uses: actions/checkout@v3
       - name: test
         run: |-
           ls
