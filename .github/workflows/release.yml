@@ -167,7 +167,14 @@ jobs:
     needs: goreleaser
     env:
       GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+    strategy:
+      matrix:
+        platform:
+        - i386
+        - amd64
+        - arm64
     steps:
+      - uses: docker/setup-qemu-action@v2
       - name: Set up git
         run: git config --global url."https://divkix:${GITHUB_TOKEN}@github.com".insteadOf "https://github.com"
       - name: Checkout
@@ -175,10 +182,11 @@ jobs:
       - name: Pull changes
         run: |-
           git pull
-          cd snap && cat snapcraft.yaml
       - name: Build snaps
-        uses: snapcore/action-build@v1
+        uses: diddlesnaps/snapcraft-multiarch-action@v1
         id: build
+        with:
+          architecture: ${{ matrix.platform }}
       - name: Publish snaps
         uses: snapcore/action-publish@v1
         env:
