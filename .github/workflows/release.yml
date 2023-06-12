@@ -55,7 +55,7 @@ jobs:
           if [ -z "$tag" ]; then
             tag=${GITHUB_REF#refs/tags/}
           fi
-          RELEASE_VERSION=$tag
+          export RELEASE_VERSION="$tag"
       - name: Checkout warp
         uses: actions/checkout@v3
         with:
