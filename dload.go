@@ -160,7 +160,7 @@ func resume(ctx *cli.Context) (err error) {
 			CompileProgressHandler: func(nread int) {
 				cbar.IncrBy(nread)
 			},
-			DownloadCompleteHandler: func(hash string, tread int64) {
+			DownloadCompleteHandler: func(hash string, _ int64) {
 				if hash == warplib.MAIN_HASH {
 					return
 				}
@@ -200,7 +200,7 @@ func resume(ctx *cli.Context) (err error) {
 				CompileProgressHandler: func(nread int) {
 					sCBar.IncrBy(nread)
 				},
-				DownloadCompleteHandler: func(hash string, tread int64) {
+				DownloadCompleteHandler: func(hash string, _ int64) {
 					if hash == warplib.MAIN_HASH {
 						return
 					}

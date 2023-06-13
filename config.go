@@ -2,7 +2,7 @@ package main
 
 const (
 	// NOTE: change version from here
-	VERSION = "v0.0.34"
+	VERSION = "v0.0.42"
 
 	DEF_MAX_PARTS = 200
 	DEF_MAX_CONNS = 24
