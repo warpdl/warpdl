@@ -83,32 +83,32 @@ jobs:
 #         uses: snapcore/action-build@v1
 #       - run: ls 
       
-  goreleaser:
-    name: Run test
-    needs: update-install-script
-    runs-on: ubuntu-latest
-    env:
-      GITHUB_TOKEN: ${{ secrets.GH_PAT }}
-    strategy:
-      matrix:
-        platform:
-        - i386
-        - amd64
-        - arm64
-    steps:
-      - uses: docker/setup-qemu-action@v2
-      - name: Set up git
-        run: git config --global url."https://divkix:${GITHUB_TOKEN}@github.com".insteadOf "https://github.com"
-      - name: Checkout
-        uses: actions/checkout@v3
-      - name: test
-        run: |-
-          git pull
-      - name: Build snaps
-        uses: diddlesnaps/snapcraft-multiarch-action@v1
-        id: build
-        with:
-          architecture: ${{ matrix.platform }}
-      - run: |
-          ls
-          echo Built: ${{ steps.build.outputs.snap }}
+#   goreleaser:
+#     name: Run test
+#     needs: update-install-script
+#     runs-on: ubuntu-latest
+#     env:
+#       GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+#     strategy:
+#       matrix:
+#         platform:
+#         - i386
+#         - amd64
+#         - arm64
+#     steps:
+#       - uses: docker/setup-qemu-action@v2
+#       - name: Set up git
+#         run: git config --global url."https://divkix:${GITHUB_TOKEN}@github.com".insteadOf "https://github.com"
+#       - name: Checkout
+#         uses: actions/checkout@v3
+#       - name: test
+#         run: |-
+#           git pull
+#       - name: Build snaps
+#         uses: diddlesnaps/snapcraft-multiarch-action@v1
+#         id: build
+#         with:
+#           architecture: ${{ matrix.platform }}
+#       - run: |
+#           ls
+#           echo Built: ${{ steps.build.outputs.snap }}
