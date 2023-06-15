@@ -67,6 +67,21 @@ func download(ctx *cli.Context) (err error) {
 				CompileProgressHandler: func(hash string, nread int) {
 					cbar.IncrBy(nread)
 				},
+				DownloadCompleteHandler: func(hash string, tread int64) {
+					if hash != warplib.MAIN_HASH {
+						return
+					}
+					// fill download bar
+					if dbar.Completed() {
+						return
+					}
+					dbar.SetCurrent(tread)
+					// fill compile bar
+					if cbar.Completed() {
+						return
+					}
+					cbar.SetCurrent(tread)
+				},
 			},
 			MaxConnections:    maxConns,
 			MaxSegments:       maxParts,
@@ -164,15 +179,12 @@ func resume(ctx *cli.Context) (err error) {
 				if hash != warplib.MAIN_HASH {
 					return
 				}
+				// fill download bar
 				if dbar.Completed() {
 					return
 				}
 				dbar.SetCurrent(int64(item.TotalSize))
-			},
-			CompileCompleteHandler: func(hash string, _ int64) {
-				if hash != warplib.MAIN_HASH {
-					return
-				}
+				// fill compile bar
 				if cbar.Completed() {
 					return
 				}
@@ -204,22 +216,19 @@ func resume(ctx *cli.Context) (err error) {
 					sCBar.IncrBy(nread)
 				},
 				DownloadCompleteHandler: func(hash string, _ int64) {
-					if hash == warplib.MAIN_HASH {
-						return
-					}
-					if sDBar.Completed() {
-						return
-					}
-					sDBar.SetCurrent(int64(cItem.TotalSize))
-				},
-				CompileCompleteHandler: func(hash string, _ int64) {
 					if hash != warplib.MAIN_HASH {
 						return
 					}
+					// fill download bar
+					if sDBar.Completed() {
+						return
+					}
+					sDBar.SetCurrent(int64(item.TotalSize))
+					// fill compile bar
 					if sCBar.Completed() {
 						return
 					}
-					sCBar.SetCurrent(int64(cItem.TotalSize))
+					sCBar.SetCurrent(int64(item.TotalSize))
 				},
 			},
 		})

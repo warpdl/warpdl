@@ -192,6 +192,21 @@ func downloadVideo(client *http.Client, m *warplib.Manager, vInfo *videoInfo) (e
 			CompileProgressHandler: func(hash string, nread int) {
 				vCBar.IncrBy(nread)
 			},
+			DownloadCompleteHandler: func(hash string, tread int64) {
+				if hash != warplib.MAIN_HASH {
+					return
+				}
+				// fill download bar
+				if vDBar.Completed() {
+					return
+				}
+				vDBar.SetCurrent(tread)
+				// fill compile bar
+				if vCBar.Completed() {
+					return
+				}
+				vCBar.SetCurrent(tread)
+			},
 		},
 	})
 	if er != nil {
@@ -211,6 +226,21 @@ func downloadVideo(client *http.Client, m *warplib.Manager, vInfo *videoInfo) (e
 			},
 			CompileProgressHandler: func(hash string, nread int) {
 				aCBar.IncrBy(nread)
+			},
+			DownloadCompleteHandler: func(hash string, tread int64) {
+				if hash != warplib.MAIN_HASH {
+					return
+				}
+				// fill download bar
+				if aDBar.Completed() {
+					return
+				}
+				aDBar.SetCurrent(tread)
+				// fill compile bar
+				if aCBar.Completed() {
+					return
+				}
+				aCBar.SetCurrent(tread)
 			},
 		},
 	})
