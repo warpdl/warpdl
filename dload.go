@@ -64,7 +64,7 @@ func download(ctx *cli.Context) (err error) {
 				DownloadProgressHandler: func(_ string, nread int) {
 					dbar.IncrBy(nread)
 				},
-				CompileProgressHandler: func(nread int) {
+				CompileProgressHandler: func(hash string, nread int) {
 					cbar.IncrBy(nread)
 				},
 			},
@@ -151,17 +151,17 @@ func resume(ctx *cli.Context) (err error) {
 		MaxConnections: maxConns,
 		MaxSegments:    maxParts,
 		Handlers: &warplib.Handlers{
-			ResumeProgressHandler: func(nread int) {
+			ResumeProgressHandler: func(hash string, nread int) {
 				dbar.IncrBy(nread)
 			},
 			DownloadProgressHandler: func(_ string, nread int) {
 				dbar.IncrBy(nread)
 			},
-			CompileProgressHandler: func(nread int) {
+			CompileProgressHandler: func(hash string, nread int) {
 				cbar.IncrBy(nread)
 			},
 			DownloadCompleteHandler: func(hash string, _ int64) {
-				if hash == warplib.MAIN_HASH {
+				if hash != warplib.MAIN_HASH {
 					return
 				}
 				if dbar.Completed() {
@@ -169,7 +169,10 @@ func resume(ctx *cli.Context) (err error) {
 				}
 				dbar.SetCurrent(int64(item.TotalSize))
 			},
-			CompileCompleteHandler: func() {
+			CompileCompleteHandler: func(hash string, _ int64) {
+				if hash != warplib.MAIN_HASH {
+					return
+				}
 				if cbar.Completed() {
 					return
 				}
@@ -191,13 +194,13 @@ func resume(ctx *cli.Context) (err error) {
 			MaxConnections: maxConns,
 			MaxSegments:    maxParts,
 			Handlers: &warplib.Handlers{
-				ResumeProgressHandler: func(nread int) {
+				ResumeProgressHandler: func(hash string, nread int) {
 					sDBar.IncrBy(nread)
 				},
-				DownloadProgressHandler: func(_ string, nread int) {
+				DownloadProgressHandler: func(hash string, nread int) {
 					sDBar.IncrBy(nread)
 				},
-				CompileProgressHandler: func(nread int) {
+				CompileProgressHandler: func(hash string, nread int) {
 					sCBar.IncrBy(nread)
 				},
 				DownloadCompleteHandler: func(hash string, _ int64) {
@@ -209,7 +212,10 @@ func resume(ctx *cli.Context) (err error) {
 					}
 					sDBar.SetCurrent(int64(cItem.TotalSize))
 				},
-				CompileCompleteHandler: func() {
+				CompileCompleteHandler: func(hash string, _ int64) {
+					if hash != warplib.MAIN_HASH {
+						return
+					}
 					if sCBar.Completed() {
 						return
 					}

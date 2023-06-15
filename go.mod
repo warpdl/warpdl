@@ -4,9 +4,9 @@ go 1.20
 
 require (
 	github.com/kkdai/youtube/v2 v2.8.1
-	github.com/urfave/cli v1.22.13
+	github.com/urfave/cli v1.22.14
 	github.com/vbauerster/mpb/v8 v8.4.0
-	github.com/warpdl/warplib v0.0.0-20230609213125-bd42a2f29d60
+	github.com/warpdl/warplib v0.0.0-20230615201314-d58fbc86faa1
 )
 
 require (
@@ -21,6 +21,6 @@ require (
 	github.com/mattn/go-runewidth v0.0.14 // indirect
 	github.com/rivo/uniseg v0.4.4 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
-	golang.org/x/sys v0.8.0 // indirect
-	golang.org/x/text v0.9.0 // indirect
+	golang.org/x/sys v0.9.0 // indirect
+	golang.org/x/text v0.10.0 // indirect
 )

@@ -189,7 +189,7 @@ func downloadVideo(client *http.Client, m *warplib.Manager, vInfo *videoInfo) (e
 			DownloadProgressHandler: func(_ string, nread int) {
 				vDBar.IncrBy(nread)
 			},
-			CompileProgressHandler: func(nread int) {
+			CompileProgressHandler: func(hash string, nread int) {
 				vCBar.IncrBy(nread)
 			},
 		},
@@ -209,7 +209,7 @@ func downloadVideo(client *http.Client, m *warplib.Manager, vInfo *videoInfo) (e
 			DownloadProgressHandler: func(_ string, nread int) {
 				aDBar.IncrBy(nread)
 			},
-			CompileProgressHandler: func(nread int) {
+			CompileProgressHandler: func(hash string, nread int) {
 				aCBar.IncrBy(nread)
 			},
 		},
