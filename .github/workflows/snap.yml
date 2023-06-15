@@ -1,0 +1,47 @@
+name: Snap Publisher
+
+on:
+  workflow_dispatch:
+    inputs:
+      snap_channel:
+        description: "Snap release channel"
+        required: false
+        type: choice
+        default: 'edge'
+        options:
+            - stable
+            - candidate
+            - beta
+            - edge
+
+jobs:
+  snapcraft:
+    runs-on: ubuntu-20.04
+    env:
+      GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+    strategy:
+      matrix:
+        platform:
+        - i386
+        - amd64
+        - arm64
+    steps:
+      - uses: docker/setup-qemu-action@v2
+      - name: Set up git
+        run: git config --global url."https://divkix:${GITHUB_TOKEN}@github.com".insteadOf "https://github.com"
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Pull changes
+        run: git pull origin dev
+      - name: Build snaps
+        uses: diddlesnaps/snapcraft-multiarch-action@v1
+        id: build
+        with:
+          architecture: ${{ matrix.platform }}
+      - name: Publish snaps
+        uses: snapcore/action-publish@v1
+        env:
+          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
+        with:
+          snap: ${{ steps.build.outputs.snap }}
+          release: ${{ github.event.inputs.snap_channel }}
