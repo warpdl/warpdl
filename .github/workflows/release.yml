@@ -180,8 +180,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
       - name: Pull changes
-        run: |-
-          git pull
+        run: git pull origin dev
       - name: Build snaps
         uses: diddlesnaps/snapcraft-multiarch-action@v1
         id: build
