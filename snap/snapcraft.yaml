@@ -21,3 +21,7 @@ parts:
 apps:
   warpdl:
     command: usr/bin/warpdl
+    plugs:
+      - home
+      - network
+      - network-bind
