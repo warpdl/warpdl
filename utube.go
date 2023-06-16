@@ -162,6 +162,10 @@ func filterMime(mimeT string) (ext string, err error) {
 		err = er
 		return
 	}
+	if len(exts) == 0 {
+		err = fmt.Errorf("no extension found for mimetype: %s", mimeT)
+		return
+	}
 	for _, tExt := range exts {
 		switch tExt {
 		case ".mp4", ".3gp", ".mkv", ".opus":
