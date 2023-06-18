@@ -30,7 +30,7 @@ func download(ctx *cli.Context) (err error) {
 	url = strings.TrimSpace(url)
 	m, err := warplib.InitManager()
 	if err != nil {
-		printRuntimeErr(ctx, "info", err)
+		printRuntimeErr(ctx, "info", "init_manager", err)
 		return nil
 	}
 	defer m.Close()
@@ -40,7 +40,7 @@ func download(ctx *cli.Context) (err error) {
 			nt := time.Now()
 			er = downloadVideo(&http.Client{}, m, vInfo)
 			if er != nil {
-				printRuntimeErr(ctx, "info", err)
+				printRuntimeErr(ctx, "info", "download_video", err)
 			}
 			if !timeTaken {
 				return nil
@@ -90,14 +90,14 @@ func download(ctx *cli.Context) (err error) {
 		},
 	)
 	if err != nil {
-		printRuntimeErr(ctx, "info", err)
+		printRuntimeErr(ctx, "info", "create_downloader", err)
 		return nil
 	}
 	m.AddDownload(d, nil)
 
 	fileName = d.GetFileName()
 	if fileName == "" {
-		printRuntimeErr(ctx, "info", errors.New("file name cannot be empty"))
+		printRuntimeErr(ctx, "info", "get_file_name", errors.New("file name cannot be empty"))
 		return
 	}
 	txt := fmt.Sprintf(`
@@ -150,7 +150,7 @@ func resume(ctx *cli.Context) (err error) {
 	fmt.Println(">> Initiating a WARP download << ")
 	m, err := warplib.InitManager()
 	if err != nil {
-		printRuntimeErr(ctx, "info", err)
+		printRuntimeErr(ctx, "info", "init_manager", err)
 		return nil
 	}
 	defer m.Close()
@@ -193,7 +193,7 @@ func resume(ctx *cli.Context) (err error) {
 		},
 	})
 	if err != nil {
-		printRuntimeErr(ctx, "resume", err)
+		printRuntimeErr(ctx, "resume", "primary", err)
 		return nil
 	}
 	var (
@@ -233,7 +233,7 @@ func resume(ctx *cli.Context) (err error) {
 			},
 		})
 		if err != nil {
-			printRuntimeErr(ctx, "secondary-resume", err)
+			printRuntimeErr(ctx, "resume", "secondary", err)
 			return nil
 		}
 	}
@@ -299,7 +299,7 @@ Max Connections`+"\t"+`: %d
 	}
 	p.Wait()
 	if err != nil {
-		printRuntimeErr(ctx, "resume", err)
+		printRuntimeErr(ctx, "resume", "main", err)
 		err = nil
 		return
 	}

@@ -26,7 +26,7 @@ func info(ctx *cli.Context) error {
 		nil,
 	)
 	if err != nil {
-		printRuntimeErr(ctx, "info", err)
+		printRuntimeErr(ctx, "info", "new_downloader", err)
 		return nil
 	}
 	fName := d.GetFileName()
@@ -47,9 +47,10 @@ func list(ctx *cli.Context) error {
 	}
 	m, err := warplib.InitManager()
 	if err != nil {
-		printRuntimeErr(ctx, "list", err)
+		printRuntimeErr(ctx, "list", "init_manager", err)
 		return nil
 	}
+	defer m.Close()
 	var items []*warplib.Item
 	switch {
 	case showAll, showCompleted && showPending:

@@ -107,3 +107,15 @@ var lsFlags = []cli.Flag{
 		Destination: &showHidden,
 	},
 }
+
+var (
+	forceFlush bool
+)
+
+var flsFlags = []cli.Flag{
+	cli.BoolFlag{
+		Name:        "force, f",
+		Usage:       "use this flag to force flush (default: false)",
+		Destination: &forceFlush,
+	},
+}

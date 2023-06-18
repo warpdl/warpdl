@@ -79,8 +79,8 @@ func version(ctx *cli.Context) error {
 	return nil
 }
 
-func printRuntimeErr(ctx *cli.Context, cmd string, err error) {
-	fmt.Printf("%s: %s: %s\n", ctx.App.HelpName, cmd, err.Error())
+func printRuntimeErr(ctx *cli.Context, cmd, action string, err error) {
+	fmt.Printf("%s: %s[%s]: %s\n", ctx.App.HelpName, cmd, action, err.Error())
 }
 
 func printErrWithCmdHelp(ctx *cli.Context, err error) error {
@@ -182,6 +182,17 @@ func main() {
 				Action:                 resume,
 				UseShortOptionHandling: true,
 				Flags:                  rsFlags,
+			},
+			{
+				Name:                   "flush",
+				Aliases:                []string{"c"},
+				Usage:                  "flush the user download history",
+				Description:            FlushDescription,
+				OnUsageError:           usageErrorCallback,
+				CustomHelpTemplate:     CMD_HELP_TEMPL,
+				Action:                 flush,
+				UseShortOptionHandling: true,
+				Flags:                  flsFlags,
 			},
 			{
 				Name:    "help",

@@ -2,7 +2,7 @@ package main
 
 const (
 	// NOTE: change version from here
-	VERSION = "v0.0.44"
+	VERSION = "v0.0.45"
 
 	DEF_MAX_PARTS = 200
 	DEF_MAX_CONNS = 24
@@ -53,6 +53,13 @@ using "warpdl list" command.
 
 Example:
         warpdl resume <unique download hash>
+
+`
+	FlushDescription = `The flush command deletes download history for the current
+user, it will also delete incomplete downloads and their date.
+
+Example:
+        warpdl flush
 
 `
 )
