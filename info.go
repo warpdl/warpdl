@@ -20,10 +20,18 @@ func info(ctx *cli.Context) error {
 		return cli.ShowCommandHelp(ctx, ctx.Command.Name)
 	}
 	fmt.Printf("%s: fetching details, please wait...\n", ctx.App.HelpName)
+	var headers warplib.Headers
+	if userAgent != "" {
+		headers = warplib.Headers{{
+			Key: warplib.USER_AGENT_KEY, Value: userAgent,
+		}}
+	}
 	d, err := warplib.NewDownloader(
 		&http.Client{},
 		url,
-		nil,
+		&warplib.DownloaderOpts{
+			Headers: headers,
+		},
 	)
 	if err != nil {
 		printRuntimeErr(ctx, "info", "new_downloader", err)

@@ -35,10 +35,17 @@ func download(ctx *cli.Context) (err error) {
 	}
 	defer m.Close()
 
+	var headers warplib.Headers
+	if userAgent != "" {
+		headers = warplib.Headers{{
+			Key: warplib.USER_AGENT_KEY, Value: userAgent,
+		}}
+	}
+
 	if vInfo, er := processVideo(url); er == nil {
 		if vInfo.AudioFName != "" {
 			nt := time.Now()
-			er = downloadVideo(&http.Client{}, m, vInfo)
+			er = downloadVideo(&http.Client{}, headers, m, vInfo)
 			if er != nil {
 				printRuntimeErr(ctx, "info", "download_video", err)
 			}
@@ -87,6 +94,7 @@ func download(ctx *cli.Context) (err error) {
 			MaxSegments:       maxParts,
 			FileName:          fileName,
 			DownloadDirectory: dlPath,
+			Headers:           headers,
 		},
 	)
 	if err != nil {
@@ -159,12 +167,20 @@ func resume(ctx *cli.Context) (err error) {
 		dbar, cbar *mpb.Bar
 	)
 
+	var headers warplib.Headers
+	if userAgent != "" {
+		headers = warplib.Headers{{
+			Key: warplib.USER_AGENT_KEY, Value: userAgent,
+		}}
+	}
+
 	client := &http.Client{}
 	var item *warplib.Item
 	item, err = m.ResumeDownload(client, hash, &warplib.ResumeDownloadOpts{
 		ForceParts:     forceParts,
 		MaxConnections: maxConns,
 		MaxSegments:    maxParts,
+		Headers:        headers,
 		Handlers: &warplib.Handlers{
 			ResumeProgressHandler: func(hash string, nread int) {
 				dbar.IncrBy(nread)
@@ -205,6 +221,7 @@ func resume(ctx *cli.Context) (err error) {
 			ForceParts:     forceParts,
 			MaxConnections: maxConns,
 			MaxSegments:    maxParts,
+			Headers:        headers,
 			Handlers: &warplib.Handlers{
 				ResumeProgressHandler: func(hash string, nread int) {
 					sDBar.IncrBy(nread)

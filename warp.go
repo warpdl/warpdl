@@ -149,6 +149,7 @@ func main() {
 				OnUsageError:       usageErrorCallback,
 				CustomHelpTemplate: CMD_HELP_TEMPL,
 				Description:        InfoDescription,
+				Flags:              infoFlags,
 			},
 			{
 				Name:                   "download",

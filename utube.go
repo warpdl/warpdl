@@ -177,7 +177,7 @@ func filterMime(mimeT string) (ext string, err error) {
 	return
 }
 
-func downloadVideo(client *http.Client, m *warplib.Manager, vInfo *videoInfo) (err error) {
+func downloadVideo(client *http.Client, headers warplib.Headers, m *warplib.Manager, vInfo *videoInfo) (err error) {
 	var (
 		vDBar, vCBar *mpb.Bar
 		aDBar, aCBar *mpb.Bar
@@ -189,6 +189,7 @@ func downloadVideo(client *http.Client, m *warplib.Manager, vInfo *videoInfo) (e
 		MaxConnections:    maxConns,
 		MaxSegments:       maxParts,
 		DownloadDirectory: warplib.DlDataDir,
+		Headers:           headers,
 		Handlers: &warplib.Handlers{
 			DownloadProgressHandler: func(_ string, nread int) {
 				vDBar.IncrBy(nread)
@@ -224,6 +225,7 @@ func downloadVideo(client *http.Client, m *warplib.Manager, vInfo *videoInfo) (e
 		MaxConnections:    maxConns,
 		MaxSegments:       maxParts,
 		DownloadDirectory: warplib.DlDataDir,
+		Headers:           headers,
 		Handlers: &warplib.Handlers{
 			DownloadProgressHandler: func(_ string, nread int) {
 				aDBar.IncrBy(nread)
