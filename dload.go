@@ -38,7 +38,7 @@ func download(ctx *cli.Context) (err error) {
 	var headers warplib.Headers
 	if userAgent != "" {
 		headers = warplib.Headers{{
-			Key: warplib.USER_AGENT_KEY, Value: userAgent,
+			Key: warplib.USER_AGENT_KEY, Value: getUserAgent(userAgent),
 		}}
 	}
 
@@ -170,7 +170,7 @@ func resume(ctx *cli.Context) (err error) {
 	var headers warplib.Headers
 	if userAgent != "" {
 		headers = warplib.Headers{{
-			Key: warplib.USER_AGENT_KEY, Value: userAgent,
+			Key: warplib.USER_AGENT_KEY, Value: getUserAgent(userAgent),
 		}}
 	}
 

@@ -23,14 +23,15 @@ func info(ctx *cli.Context) error {
 	var headers warplib.Headers
 	if userAgent != "" {
 		headers = warplib.Headers{{
-			Key: warplib.USER_AGENT_KEY, Value: userAgent,
+			Key: warplib.USER_AGENT_KEY, Value: getUserAgent(userAgent),
 		}}
 	}
 	d, err := warplib.NewDownloader(
 		&http.Client{},
 		url,
 		&warplib.DownloaderOpts{
-			Headers: headers,
+			Headers:   headers,
+			SkipSetup: true,
 		},
 	)
 	if err != nil {
