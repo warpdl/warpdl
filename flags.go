@@ -98,7 +98,8 @@ var lsFlags = []cli.Flag{
 }
 
 var (
-	forceFlush bool
+	forceFlush  bool
+	hashToFlush string
 )
 
 var flsFlags = []cli.Flag{
@@ -106,5 +107,10 @@ var flsFlags = []cli.Flag{
 		Name:        "force, f",
 		Usage:       "use this flag to force flush (default: false)",
 		Destination: &forceFlush,
+	},
+	cli.StringFlag{
+		Name:        "item-hash, i",
+		Usage:       "use this flag to flush a particular item (default: all)",
+		Destination: &hashToFlush,
 	},
 }

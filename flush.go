@@ -17,6 +17,15 @@ func flush(ctx *cli.Context) error {
 		return nil
 	}
 	defer m.Close()
+	if hashToFlush != "" && hashToFlush != "all" {
+		err = m.FlushOne(hashToFlush)
+		if err != nil {
+			printRuntimeErr(ctx, "flush", "hash", err)
+			return nil
+		}
+		fmt.Println("Flushed that item!")
+		return nil
+	}
 	err = m.Flush()
 	if err != nil {
 		printRuntimeErr(ctx, "flush", "execute", err)
