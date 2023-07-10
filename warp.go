@@ -21,11 +21,11 @@ func initBars(p *mpb.Progress, prefix string, cLength int64) (dbar *mpb.Bar, cba
 		mpb.PrependDecorators(
 			decor.Name(name, decor.WC{W: len(name) + 1, C: decor.DidentRight}),
 			decor.OnComplete(
-				decor.AverageETA(decor.ET_STYLE_GO, decor.WC{W: 4}), "Complete",
+				decor.EwmaETA(decor.ET_STYLE_GO, 30, decor.WC{W: 4}), "Complete",
 			),
 		),
 		mpb.AppendDecorators(
-			decor.AverageSpeed(decor.SizeB1024(0), "% .2f"),
+			decor.EwmaSpeed(decor.SizeB1024(0), "% .2f", 30),
 		),
 	)
 	dbar.SetTotal(cLength, false)

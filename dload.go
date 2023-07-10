@@ -61,6 +61,7 @@ func download(ctx *cli.Context) (err error) {
 	var (
 		dbar, cbar *mpb.Bar
 	)
+	sc := NewSpeedCounter(4350 * time.Microsecond)
 
 	d, err := warplib.NewDownloader(
 		&http.Client{},
@@ -69,7 +70,8 @@ func download(ctx *cli.Context) (err error) {
 			ForceParts: forceParts,
 			Handlers: &warplib.Handlers{
 				DownloadProgressHandler: func(_ string, nread int) {
-					dbar.IncrBy(nread)
+					// dbar.IncrBy(nread)
+					sc.IncrBy(nread)
 				},
 				CompileProgressHandler: func(hash string, nread int) {
 					cbar.IncrBy(nread)
@@ -78,6 +80,7 @@ func download(ctx *cli.Context) (err error) {
 					if hash != warplib.MAIN_HASH {
 						return
 					}
+					sc.Stop()
 					// fill download bar
 					if dbar.Completed() {
 						return
@@ -125,9 +128,10 @@ Max Connections`+"\t"+`: %d
 	}
 	fmt.Println(txt)
 
-	p := mpb.New(mpb.WithWidth(64))
+	p := mpb.New(mpb.WithWidth(64), mpb.WithRefreshRate(time.Millisecond*100))
 	dbar, cbar = initBars(p, "", d.GetContentLengthAsInt())
-
+	sc.SetBar(dbar)
+	sc.Start()
 	nt := time.Now()
 	err = d.Start()
 	if err != nil {
@@ -166,6 +170,7 @@ func resume(ctx *cli.Context) (err error) {
 	var (
 		dbar, cbar *mpb.Bar
 	)
+	sc := NewSpeedCounter(4350 * time.Microsecond)
 
 	var headers warplib.Headers
 	if userAgent != "" {
@@ -186,7 +191,8 @@ func resume(ctx *cli.Context) (err error) {
 				dbar.IncrBy(nread)
 			},
 			DownloadProgressHandler: func(_ string, nread int) {
-				dbar.IncrBy(nread)
+				sc.IncrBy(nread)
+				// dbar.IncrBy(nread)
 			},
 			CompileProgressHandler: func(hash string, nread int) {
 				cbar.IncrBy(nread)
@@ -195,6 +201,7 @@ func resume(ctx *cli.Context) (err error) {
 				if hash != warplib.MAIN_HASH {
 					return
 				}
+				sc.Stop()
 				// fill download bar
 				if dbar.Completed() {
 					return
@@ -215,8 +222,10 @@ func resume(ctx *cli.Context) (err error) {
 	var (
 		cItem        *warplib.Item
 		sDBar, sCBar *mpb.Bar
+		sc1          *SpeedCounter
 	)
 	if item.ChildHash != "" {
+		sc1 = NewSpeedCounter(4350 * time.Microsecond)
 		cItem, err = m.ResumeDownload(client, item.ChildHash, &warplib.ResumeDownloadOpts{
 			ForceParts:     forceParts,
 			MaxConnections: maxConns,
@@ -227,7 +236,7 @@ func resume(ctx *cli.Context) (err error) {
 					sDBar.IncrBy(nread)
 				},
 				DownloadProgressHandler: func(hash string, nread int) {
-					sDBar.IncrBy(nread)
+					sc1.IncrBy(nread)
 				},
 				CompileProgressHandler: func(hash string, nread int) {
 					sCBar.IncrBy(nread)
@@ -236,6 +245,7 @@ func resume(ctx *cli.Context) (err error) {
 					if hash != warplib.MAIN_HASH {
 						return
 					}
+					sc1.Stop()
 					// fill download bar
 					if sDBar.Completed() {
 						return
@@ -294,7 +304,7 @@ Max Connections`+"\t"+`: %d
 		}
 		wg.Done()
 	}
-	p := mpb.New(mpb.WithWidth(64))
+	p := mpb.New(mpb.WithWidth(64), mpb.WithRefreshRate(time.Millisecond*100))
 
 	if cItem != nil {
 		dbar, cbar = initBars(p, "Video: ", int64(item.TotalSize))
@@ -304,11 +314,16 @@ Max Connections`+"\t"+`: %d
 		sDBar, sCBar = initBars(p, "Audio: ", int64(cItem.TotalSize))
 		wg.Add(1)
 		go resumeItem(wg, cItem, sDBar, sCBar)
+
+		sc1.SetBar(sDBar)
+		sc1.Start()
 	} else {
 		dbar, cbar = initBars(p, "", int64(item.TotalSize))
 		wg.Add(1)
 		go resumeItem(wg, item, dbar, cbar)
 	}
+	sc.SetBar(dbar)
+	sc.Start()
 	wg.Wait()
 	cbar.Abort(false)
 	if sCBar != nil {

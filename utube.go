@@ -183,6 +183,8 @@ func downloadVideo(client *http.Client, headers warplib.Headers, m *warplib.Mana
 		aDBar, aCBar *mpb.Bar
 	)
 
+	sc := NewSpeedCounter(4350 * time.Microsecond)
+
 	vd, er := warplib.NewDownloader(client, vInfo.VideoUrl, &warplib.DownloaderOpts{
 		FileName:          vInfo.VideoFName,
 		ForceParts:        forceParts,
@@ -192,7 +194,7 @@ func downloadVideo(client *http.Client, headers warplib.Headers, m *warplib.Mana
 		Headers:           headers,
 		Handlers: &warplib.Handlers{
 			DownloadProgressHandler: func(_ string, nread int) {
-				vDBar.IncrBy(nread)
+				sc.IncrBy(nread)
 			},
 			CompileProgressHandler: func(hash string, nread int) {
 				vCBar.IncrBy(nread)
@@ -201,6 +203,7 @@ func downloadVideo(client *http.Client, headers warplib.Headers, m *warplib.Mana
 				if hash != warplib.MAIN_HASH {
 					return
 				}
+				sc.Stop()
 				// fill download bar
 				if vDBar.Completed() {
 					return
@@ -219,6 +222,7 @@ func downloadVideo(client *http.Client, headers warplib.Headers, m *warplib.Mana
 		return
 	}
 
+	sc1 := NewSpeedCounter(4350 * time.Microsecond)
 	ad, er := warplib.NewDownloader(client, vInfo.AudioUrl, &warplib.DownloaderOpts{
 		FileName:          vInfo.AudioFName,
 		ForceParts:        forceParts,
@@ -228,7 +232,7 @@ func downloadVideo(client *http.Client, headers warplib.Headers, m *warplib.Mana
 		Headers:           headers,
 		Handlers: &warplib.Handlers{
 			DownloadProgressHandler: func(_ string, nread int) {
-				aDBar.IncrBy(nread)
+				sc1.IncrBy(nread)
 			},
 			CompileProgressHandler: func(hash string, nread int) {
 				aCBar.IncrBy(nread)
@@ -237,6 +241,7 @@ func downloadVideo(client *http.Client, headers warplib.Headers, m *warplib.Mana
 				if hash != warplib.MAIN_HASH {
 					return
 				}
+				sc1.Stop()
 				// fill download bar
 				if aDBar.Completed() {
 					return
@@ -294,10 +299,12 @@ Max Connections`+"\t"+`: %d
 	}
 	fmt.Println(txt)
 
-	p := mpb.New(mpb.WithWidth(64))
+	p := mpb.New(mpb.WithWidth(64), mpb.WithRefreshRate(time.Millisecond*100))
 	vDBar, vCBar = initBars(p, "Video: ", vd.GetContentLengthAsInt())
 	aDBar, aCBar = initBars(p, "Audio: ", ad.GetContentLengthAsInt())
 
+	sc.SetBar(vDBar)
+	sc1.SetBar(aDBar)
 	wg := sync.WaitGroup{}
 	wg.Add(2)
 
@@ -308,6 +315,9 @@ Max Connections`+"\t"+`: %d
 
 	go dl(vd)
 	go dl(ad)
+
+	sc.Start()
+	sc1.Start()
 
 	wg.Wait()
 	p.Wait()
