@@ -6,7 +6,7 @@ require (
 	github.com/kkdai/youtube/v2 v2.8.1
 	github.com/urfave/cli v1.22.14
 	github.com/vbauerster/mpb/v8 v8.4.0
-	github.com/warpdl/warplib v0.0.0-20230630122845-7685213346e5
+	github.com/warpdl/warplib v0.0.0-20230710182125-33ac388e4168
 )
 
 require (
