@@ -80,7 +80,17 @@ func version(ctx *cli.Context) error {
 }
 
 func printRuntimeErr(ctx *cli.Context, cmd, action string, err error) {
-	fmt.Printf("%s: %s[%s]: %s\n", ctx.App.HelpName, cmd, action, err.Error())
+	if err == nil {
+		fmt.Println("err is nil", "[", cmd, "|", action, "]")
+		return
+	}
+	var name string
+	if ctx != nil {
+		name = ctx.App.HelpName
+	} else {
+		name = os.Args[0]
+	}
+	fmt.Printf("%s: %s[%s]: %s\n", name, cmd, action, err.Error())
 }
 
 func printErrWithCmdHelp(ctx *cli.Context, err error) error {
@@ -135,7 +145,7 @@ func main() {
 		Name:                  "Warp",
 		HelpName:              "warp",
 		Usage:                 "An ultra fast download manager.",
-		Version:               VERSION,
+		Version:               fmt.Sprintf("%s-%s", VERSION, BuildType),
 		UsageText:             "warp <command> [arguments...]",
 		Description:           DESCRIPTION,
 		CustomAppHelpTemplate: HELP_TEMPL,

@@ -2,11 +2,12 @@ package main
 
 const (
 	// NOTE: change version from here
-	VERSION = "v0.0.48"
-
+	VERSION       = "v0.0.48"
 	DEF_MAX_PARTS = 200
 	DEF_MAX_CONNS = 24
 )
+
+var BuildType string = "unclassified"
 
 const DESCRIPTION = `
 Warp is a powerful and versatile cross-platform download manager. 

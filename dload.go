@@ -47,7 +47,7 @@ func download(ctx *cli.Context) (err error) {
 			nt := time.Now()
 			er = downloadVideo(&http.Client{}, headers, m, vInfo)
 			if er != nil {
-				printRuntimeErr(ctx, "info", "download_video", err)
+				printRuntimeErr(ctx, "info", "download_video", er)
 			}
 			if !timeTaken {
 				return nil
