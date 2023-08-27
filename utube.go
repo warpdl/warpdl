@@ -178,6 +178,13 @@ func filterMime(mimeT string) (ext string, err error) {
 }
 
 func downloadVideo(client *http.Client, headers warplib.Headers, m *warplib.Manager, vInfo *videoInfo) (err error) {
+	dlPath, err = filepath.Abs(
+		dlPath,
+	)
+	if err != nil {
+		return
+	}
+
 	var (
 		vDBar, vCBar *mpb.Bar
 		aDBar, aCBar *mpb.Bar
@@ -186,11 +193,11 @@ func downloadVideo(client *http.Client, headers warplib.Headers, m *warplib.Mana
 	sc := NewSpeedCounter(4350 * time.Microsecond)
 
 	vd, er := warplib.NewDownloader(client, vInfo.VideoUrl, &warplib.DownloaderOpts{
-		FileName:          vInfo.VideoFName,
+		FileName:          vInfo.VideoFName + ".wtemp",
 		ForceParts:        forceParts,
 		MaxConnections:    maxConns,
 		MaxSegments:       maxParts,
-		DownloadDirectory: warplib.DlDataDir,
+		DownloadDirectory: dlPath,
 		Headers:           headers,
 		Handlers: &warplib.Handlers{
 			DownloadProgressHandler: func(_ string, nread int) {
@@ -224,11 +231,11 @@ func downloadVideo(client *http.Client, headers warplib.Headers, m *warplib.Mana
 
 	sc1 := NewSpeedCounter(4350 * time.Microsecond)
 	ad, er := warplib.NewDownloader(client, vInfo.AudioUrl, &warplib.DownloaderOpts{
-		FileName:          vInfo.AudioFName,
+		FileName:          vInfo.AudioFName + ".wtemp",
 		ForceParts:        forceParts,
 		MaxConnections:    maxConns,
 		MaxSegments:       maxParts,
-		DownloadDirectory: warplib.DlDataDir,
+		DownloadDirectory: dlPath,
 		Headers:           headers,
 		Handlers: &warplib.Handlers{
 			DownloadProgressHandler: func(_ string, nread int) {
@@ -257,13 +264,6 @@ func downloadVideo(client *http.Client, headers warplib.Headers, m *warplib.Mana
 	})
 	if er != nil {
 		err = er
-		return
-	}
-
-	dlPath, err = filepath.Abs(
-		dlPath,
-	)
-	if err != nil {
 		return
 	}
 

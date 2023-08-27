@@ -68,13 +68,14 @@ func help(ctx *cli.Context) error {
 	return nil
 }
 
-func version(ctx *cli.Context) error {
+func getVersion(ctx *cli.Context) error {
 	fmt.Printf(
-		"%s %s (%s_%s)\n",
+		"%s %s (%s_%s)\nBuild: %s=%s",
 		ctx.App.Name,
 		ctx.App.Version,
 		runtime.GOOS,
 		runtime.GOARCH,
+		date, commit,
 	)
 	return nil
 }
@@ -126,7 +127,7 @@ func printErrWithCallback(ctx *cli.Context, err error, callback func()) error {
 	}
 	if strings.Contains(estr, "-version") ||
 		strings.Contains(estr, "-v") {
-		return version(ctx)
+		return getVersion(ctx)
 	}
 	fmt.Printf("%s: %s\n\n", ctx.App.HelpName, err.Error())
 	callback()
@@ -145,7 +146,7 @@ func main() {
 		Name:                  "Warp",
 		HelpName:              "warp",
 		Usage:                 "An ultra fast download manager.",
-		Version:               fmt.Sprintf("%s-%s", VERSION, BuildType),
+		Version:               fmt.Sprintf("%s-%s", version, BuildType),
 		UsageText:             "warp <command> [arguments...]",
 		Description:           DESCRIPTION,
 		CustomAppHelpTemplate: HELP_TEMPL,
