@@ -30,7 +30,7 @@ jobs:
       - name: Set up git
         run: git config --global url."https://divkix:${GITHUB_TOKEN}@github.com".insteadOf "https://github.com"
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       - name: Pull changes
         run: git pull origin dev
       - name: Build snaps
