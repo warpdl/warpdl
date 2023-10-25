@@ -218,7 +218,7 @@ func main() {
 				Usage:              "prints installed version of warp",
 				UsageText:          " ",
 				CustomHelpTemplate: CMD_HELP_TEMPL,
-				Action:             version,
+				Action:             getVersion,
 			},
 		},
 		Action:                 download,
