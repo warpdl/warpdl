@@ -191,7 +191,6 @@ func downloadVideo(client *http.Client, headers warplib.Headers, m *warplib.Mana
 	)
 
 	sc := NewSpeedCounter(4350 * time.Microsecond)
-
 	vd, er := warplib.NewDownloader(client, vInfo.VideoUrl, &warplib.DownloaderOpts{
 		FileName:          vInfo.VideoFName + ".wtemp",
 		ForceParts:        forceParts,
@@ -200,6 +199,11 @@ func downloadVideo(client *http.Client, headers warplib.Headers, m *warplib.Mana
 		DownloadDirectory: dlPath,
 		Headers:           headers,
 		Handlers: &warplib.Handlers{
+			ErrorHandler: func(hash string, err error) {
+				sc.bar.Abort(false)
+				fmt.Println("Failed to continue downloading:", rectifyError(err))
+				os.Exit(0)
+			},
 			DownloadProgressHandler: func(_ string, nread int) {
 				sc.IncrBy(nread)
 			},
@@ -238,6 +242,11 @@ func downloadVideo(client *http.Client, headers warplib.Headers, m *warplib.Mana
 		DownloadDirectory: dlPath,
 		Headers:           headers,
 		Handlers: &warplib.Handlers{
+			ErrorHandler: func(hash string, err error) {
+				sc1.bar.Abort(false)
+				fmt.Println("Failed to continue downloading:", rectifyError(err))
+				os.Exit(0)
+			},
 			DownloadProgressHandler: func(_ string, nread int) {
 				sc1.IncrBy(nread)
 			},
@@ -298,6 +307,7 @@ Max Connections`+"\t"+`: %d
 		txt += fmt.Sprintf("Max Segments\t: %d\n", maxParts)
 	}
 	fmt.Println(txt)
+	fmt.Println(vd)
 
 	p := mpb.New(mpb.WithWidth(64), mpb.WithRefreshRate(time.Millisecond*100))
 	vDBar, vCBar = initBars(p, "Video: ", vd.GetContentLengthAsInt())

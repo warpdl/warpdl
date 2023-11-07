@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"net/http"
 
 	"github.com/urfave/cli"
 	"github.com/warpdl/warplib"
@@ -27,7 +26,7 @@ func info(ctx *cli.Context) error {
 		}}
 	}
 	d, err := warplib.NewDownloader(
-		&http.Client{},
+		getHTTPClient(),
 		url,
 		&warplib.DownloaderOpts{
 			Headers:   headers,

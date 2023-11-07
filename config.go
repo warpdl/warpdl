@@ -1,8 +1,11 @@
 package main
 
+import "time"
+
 const (
 	DEF_MAX_PARTS = 200
 	DEF_MAX_CONNS = 24
+	DEF_TIMEOUT   = time.Second * 30
 )
 
 var (

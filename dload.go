@@ -3,7 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
-	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -43,9 +43,10 @@ func download(ctx *cli.Context) (err error) {
 	}
 
 	if vInfo, er := processVideo(url); er == nil {
+		// fmt.Println(vInfo.VideoUrl)
 		if vInfo.AudioFName != "" {
 			nt := time.Now()
-			er = downloadVideo(&http.Client{}, headers, m, vInfo)
+			er = downloadVideo(getHTTPClient(), headers, m, vInfo)
 			if er != nil {
 				printRuntimeErr(ctx, "info", "download_video", er)
 			}
@@ -64,11 +65,16 @@ func download(ctx *cli.Context) (err error) {
 	sc := NewSpeedCounter(4350 * time.Microsecond)
 
 	d, err := warplib.NewDownloader(
-		&http.Client{},
+		getHTTPClient(),
 		url,
 		&warplib.DownloaderOpts{
 			ForceParts: forceParts,
 			Handlers: &warplib.Handlers{
+				ErrorHandler: func(hash string, err error) {
+					sc.bar.Abort(false)
+					fmt.Println("Failed to continue downloading:", rectifyError(err))
+					os.Exit(0)
+				},
 				DownloadProgressHandler: func(_ string, nread int) {
 					// dbar.IncrBy(nread)
 					sc.IncrBy(nread)
@@ -179,7 +185,7 @@ func resume(ctx *cli.Context) (err error) {
 		}}
 	}
 
-	client := &http.Client{}
+	client := getHTTPClient()
 	var item *warplib.Item
 	item, err = m.ResumeDownload(client, hash, &warplib.ResumeDownloadOpts{
 		ForceParts:     forceParts,
@@ -187,6 +193,11 @@ func resume(ctx *cli.Context) (err error) {
 		MaxSegments:    maxParts,
 		Headers:        headers,
 		Handlers: &warplib.Handlers{
+			ErrorHandler: func(hash string, err error) {
+				dbar.Abort(false)
+				fmt.Println("Failed to continue downloading:", rectifyError(err))
+				os.Exit(0)
+			},
 			ResumeProgressHandler: func(hash string, nread int) {
 				dbar.IncrBy(nread)
 			},
@@ -232,6 +243,11 @@ func resume(ctx *cli.Context) (err error) {
 			MaxSegments:    maxParts,
 			Headers:        headers,
 			Handlers: &warplib.Handlers{
+				ErrorHandler: func(hash string, err error) {
+					sDBar.Abort(false)
+					fmt.Println("Failed to continue downloading:", rectifyError(err))
+					os.Exit(0)
+				},
 				ResumeProgressHandler: func(hash string, nread int) {
 					sDBar.IncrBy(nread)
 				},
