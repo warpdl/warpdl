@@ -43,7 +43,6 @@ func download(ctx *cli.Context) (err error) {
 	}
 
 	if vInfo, er := processVideo(url); er == nil {
-		// fmt.Println(vInfo.VideoUrl)
 		if vInfo.AudioFName != "" {
 			nt := time.Now()
 			er = downloadVideo(getHTTPClient(), headers, m, vInfo)

@@ -307,7 +307,6 @@ Max Connections`+"\t"+`: %d
 		txt += fmt.Sprintf("Max Segments\t: %d\n", maxParts)
 	}
 	fmt.Println(txt)
-	fmt.Println(vd)
 
 	p := mpb.New(mpb.WithWidth(64), mpb.WithRefreshRate(time.Millisecond*100))
 	vDBar, vCBar = initBars(p, "Video: ", vd.GetContentLengthAsInt())
