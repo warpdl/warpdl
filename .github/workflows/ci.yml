@@ -13,14 +13,14 @@ on:
 jobs:
   ci:
     name: Goreleaser CI
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     env:
       GITHUB_TOKEN: ${{ secrets.GH_PAT }}
     permissions:
       contents: write
     steps:
       - name: Configure git
-        run: git config --global url."https://divkix:${GITHUB_TOKEN}@github.com".insteadOf "https://github.com"
+        run: git config --global url."https://celestix:${{ secrets.GH_PAT }}@github.com".insteadOf "https://github.com"
       - name: Checkout
         uses: actions/checkout@v4
       - name: Set up Go
@@ -32,35 +32,11 @@ jobs:
         with:
           gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
           passphrase: ${{ secrets.GPG_PASSPHRASE }}
-#       - name: Run GoReleaser
-#         uses: goreleaser/goreleaser-action@v4
-#         with:
-#           version: latest
-#           args: release --snapshot --skip-publish --clean
-#         env:
-#           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
-#           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
-#       - name: Setup snapcraft
-#         run: |
-#           sudo iptables -P FORWARD ACCEPT
-#           sudo snap install --classic snapcraft
-#           sudo usermod -aG lxd $USER
-#           sudo snap run lxd init --auto
-#           sudo snap run lxd waitready
-#       - name: Build snaps
-#         uses: snapcore/action-build@v1
-#         id: build
-#       - name: Publish snaps
-#         uses: snapcore/action-publish@v1
-#         env:
-#           SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
-#         with:
-#           snap: ${{ steps.build.outputs.snap }}
-#           release: edge
-      # - name: Tar files
-      #   run: tar -czvf artifacts.tar.gz dist/
-      # - name: Upload artifacts
-      #   uses: actions/upload-artifact@v3
-      #   with:
-      #     name: artifacts
-      #     path: artifacts.tar.gz
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v4
+        with:
+          version: latest
+          args: release --snapshot --skip-publish --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
