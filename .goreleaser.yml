@@ -112,7 +112,7 @@ snapshot:
 
 brews:
   - name: warpdl
-    tap:
+    repository:
       owner: warpdl
       name: homebrew-tap
     commit_author:
@@ -128,7 +128,7 @@ brews:
 
 scoops:
   - name: warpdl
-    bucket:
+    repository:
       owner: warpdl
       name: scoop-bucket
     commit_author:
