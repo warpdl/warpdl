@@ -30,7 +30,7 @@ jobs:
       contents: write
     steps:
       - name: Configure git
-        run: git config --global url."https://divkix:${GITHUB_TOKEN}@github.com".insteadOf "https://github.com"
+        run: git config --global url."https://celestix:${GITHUB_TOKEN}@github.com".insteadOf "https://github.com"
       - name: Checkout
         uses: actions/checkout@v4
       - name: Set up Go
@@ -87,8 +87,8 @@ jobs:
           mkdir -p ./warp-releases/keys/ && cp ./warp/keys/key.gpg ./warp-releases/keys/key.gpg
       - name: Commit changes
         run: |-
-          git config --global user.email "divkix@divkix.me"
-          git config --global user.name "Divkix"
+          git config --global user.email "73958752+celestix@users.noreply.github.com"
+          git config --global user.name "celestix"
           cd warp-releases && git add . && git commit -m "bump to ${{ env.RELEASE_VERSION }}"
           cd ..
           cd warp && git add . && git commit -m "bump to ${{ env.RELEASE_VERSION }}"
@@ -113,7 +113,7 @@ jobs:
       GITHUB_TOKEN: ${{ secrets.GH_PAT }}
     steps:
       - name: Set up git
-        run: git config --global url."https://divkix:${GITHUB_TOKEN}@github.com".insteadOf "https://github.com"
+        run: git config --global url."https://celestix:${GITHUB_TOKEN}@github.com".insteadOf "https://github.com"
       - name: Checkout
         uses: actions/checkout@v4
       - name: Set up Go
@@ -128,8 +128,8 @@ jobs:
       - if: startsWith(github.ref, 'refs/tags/') != 'true' && github.event.inputs.tag != ''
         name: Create and Push Tag
         run: |-
-          git config --global user.email "divkix@divkix.me"
-          git config --global user.name "Divanshu Chauhan"
+          git config --global user.email "73958752+celestix@users.noreply.github.com"
+          git config --global user.name "celestix"
           tag=${{ github.event.inputs.tag }} # if triggered by workflow_dispatch
           if [ -z "$tag" ]; then
             tag=${GITHUB_REF#refs/tags/}
@@ -176,7 +176,7 @@ jobs:
     steps:
       - uses: docker/setup-qemu-action@v2
       - name: Set up git
-        run: git config --global url."https://divkix:${GITHUB_TOKEN}@github.com".insteadOf "https://github.com"
+        run: git config --global url."https://celestix:${GITHUB_TOKEN}@github.com".insteadOf "https://github.com"
       - name: Checkout
         uses: actions/checkout@v4
       - name: Pull changes
