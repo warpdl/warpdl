@@ -1,4 +1,7 @@
 <br/>
+<!-- ALL-CONTRIBUTORS-BADGE:START - Do not remove or modify this section -->
+[![All Contributors](https://img.shields.io/badge/all_contributors-1-orange.svg?style=flat-square)](#contributors-)
+<!-- ALL-CONTRIBUTORS-BADGE:END -->
 <p align="center">
   <a href="https://github.com/warpdl/warpdl">
     <img src="https://avatars.githubusercontent.com/u/134059456" alt="Logo" width="80" height="80">
@@ -85,3 +88,25 @@ Contributions are what make the open source community such an amazing place to b
 ## License
 
 Distributed under the MIT License. See [LICENSE](https://github.com/warpdl/warp/blob/dev/LICENSE) for more information.
+
+## Contributors ✨
+
+Thanks goes to these wonderful people ([emoji key](https://allcontributors.org/docs/en/emoji-key)):
+
+<!-- ALL-CONTRIBUTORS-LIST:START - Do not remove or modify this section -->
+<!-- prettier-ignore-start -->
+<!-- markdownlint-disable -->
+<table>
+  <tbody>
+    <tr>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/celestix"><img src="https://avatars.githubusercontent.com/u/73958752?v=4?s=100" width="100px;" alt="Veer"/><br /><sub><b>Veer</b></sub></a><br /><a href="https://github.com/warpdl/warpdl/commits?author=celestix" title="Code">💻</a></td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- markdownlint-restore -->
+<!-- prettier-ignore-end -->
+
+<!-- ALL-CONTRIBUTORS-LIST:END -->
+
+This project follows the [all-contributors](https://github.com/all-contributors/all-contributors) specification. Contributions of any kind welcome!
