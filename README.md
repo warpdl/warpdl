@@ -51,14 +51,47 @@ You will need the following things for building warpdl binary:
 
 ### Installation
 
-1. Run the following command in the repo directory of warpdl:
-    ```go mod tidy```
+- Building form source:
 
-2. Build the binary using standard go build command:
-    ```go build -ldflags="-s -w"```
+  1. Run the following command in the repo directory of warpdl:
+      ```go mod tidy```
+  
+  2. Build the binary using standard go build command:
+      ```go build -ldflags="-s -w"```
+  
+  3. Add the binary to `PATH` environment variable.
 
-3. Add the binary to `PATH` environment variable.
+- Installing through package managers:
+  - Scoop (Windows):
+      ```
+      scoop bucket add doppler https://github.com/warpdl/scoop-bucket.git
+      scoop install warpdl
+      ```
+  - Homebrew:
+      ```
+      brew install warpdl/tap/warpdl
+      ```
+  - Snap:
+      ```
+      snap install warpdl
+      ```
+  - Yum (Redhat/Centos):
+      ```
+      sudo rpm --import 'https://repo.warpdl.org/rpm/gpg.key'
+      curl -sLf --retry 3 --tlsv1.2 --proto "=https" 'https://raw.githubusercontent.com/warpdl/warp-releases/main/configs/rpm/config.rpm.txt' | sudo tee /etc/yum.repos.d/warpdl.repo
+      sudo yum update && sudo yum install warp
+      ```
+- Installing through official bash script:
+  ```
+  (curl -Ls --tlsv1.2 --proto "=https" --retry 3 https://cli.warpdl.org/install.sh || wget -t 3 -qO- https://cli.warpdl.org/install.sh) | sh
+  ```
+- Other
 
+  You can download all binaries and release artifacts from the [Releases](https://github.com/warpdl/warp-releases/releases/latest) page. Binaries are built for macOS, Linux, Windows, FreeBSD, OpenBSD, and   NetBSD, and for 32-bit, 64-bit, armv6/armv7, and armv6/armv7 64-bit architectures.
+
+  You can also directly download the generated `.deb`, `.rpm`, and `.apk` packages. If a binary does not yet exist for the OS/architecture you use, please open a GitHub Issue.
+
+You can refer to [INSTALL.md](https://github.com/warpdl/warp-releases/blob/main/INSTALL.md) for more detailed information on installation.
 ## Usage
 
 Use `warpdl help <command>` for information about various commands.
