@@ -56,7 +56,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: ci
     env:
-      CLI_REPO: warpdl/warp
+      CLI_REPO: warpdl/warpdl
       RELEASES_REPO: warpdl/warp-releases
     steps:
       - name: Get latest tag
