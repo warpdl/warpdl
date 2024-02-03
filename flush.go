@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/urfave/cli"
-	"github.com/warpdl/warplib"
+	"github.com/warpdl/warpdl/pkg/warplib"
 )
 
 func flush(ctx *cli.Context) error {

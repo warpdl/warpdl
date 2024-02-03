@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/urfave/cli"
-	"github.com/warpdl/warplib"
+	"github.com/warpdl/warpdl/pkg/warplib"
 )
 
 func info(ctx *cli.Context) error {

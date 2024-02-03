@@ -1,4 +1,4 @@
-module github.com/warpdl/warp
+module github.com/warpdl/warpdl
 
 go 1.21
 
@@ -6,7 +6,6 @@ require (
 	github.com/kkdai/youtube/v2 v2.9.0
 	github.com/urfave/cli v1.22.14
 	github.com/vbauerster/mpb/v8 v8.5.2
-	github.com/warpdl/warplib v0.0.0-20231107203240-f6a8793d01f9
 )
 
 require (

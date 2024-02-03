@@ -11,7 +11,7 @@ import (
 
 	"github.com/kkdai/youtube/v2"
 	"github.com/vbauerster/mpb/v8"
-	"github.com/warpdl/warplib"
+	"github.com/warpdl/warpdl/pkg/warplib"
 )
 
 const (

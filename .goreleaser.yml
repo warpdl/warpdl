@@ -14,8 +14,6 @@ release:
 gomod:
   env:
     - CGO_ENABLED=1
-    - GOPROXY=direct
-    - GOPRIVATE=github.com/warpdl/warplib
 
 before:
   hooks:
@@ -30,8 +28,6 @@ builds:
   - binary: warpdl
     env:
       - CGO_ENABLED=0
-      - GOPRIVATE=github.com/warpdl/warplib
-      - GOPROXY=direct
     goos:
       - darwin
       - freebsd

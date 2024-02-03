@@ -10,7 +10,7 @@ import (
 
 	"github.com/urfave/cli"
 	"github.com/vbauerster/mpb/v8"
-	"github.com/warpdl/warplib"
+	"github.com/warpdl/warpdl/pkg/warplib"
 )
 
 func download(ctx *cli.Context) (err error) {

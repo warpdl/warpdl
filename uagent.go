@@ -3,7 +3,7 @@ package main
 import (
 	"strings"
 
-	"github.com/warpdl/warplib"
+	"github.com/warpdl/warpdl/pkg/warplib"
 )
 
 var UserAgents = map[string]string{
