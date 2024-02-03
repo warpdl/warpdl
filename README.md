@@ -16,7 +16,7 @@
   </p>
 </p>
 
-[![CI](https://github.com/warpdl/warpdl/actions/workflows/ci.yml/badge.svg)](https://github.com/warpdl/warpdl/actions/workflows/ci.yml) [![Release](https://github.com/warpdl/warpdl/actions/workflows/release.yml/badge.svg)](https://github.com/warpdl/warpdl/actions/workflows/release.yml) ![Downloads](https://img.shields.io/github/downloads/warpdl/warpdl/total) ![Contributors](https://img.shields.io/github/contributors/warpdl/warpdl?color=dark-green) ![Issues](https://img.shields.io/github/issues/warpdl/warpdl) ![License](https://img.shields.io/github/license/warpdl/warpdl) 
+[![CI](https://github.com/warpdl/warpdl/actions/workflows/ci.yml/badge.svg)](https://github.com/warpdl/warpdl/actions/workflows/ci.yml) [![Release](https://github.com/warpdl/warpdl/actions/workflows/release.yml/badge.svg)](https://github.com/warpdl/warpdl/actions/workflows/release.yml) ![Downloads](https://img.shields.io/github/downloads/warpdl/warp-releases/total) ![Contributors](https://img.shields.io/github/contributors/warpdl/warpdl?color=dark-green) ![Issues](https://img.shields.io/github/issues/warpdl/warpdl) ![License](https://img.shields.io/github/license/warpdl/warpdl) 
 
 ## Table Of Contents
 
