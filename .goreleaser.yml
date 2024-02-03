@@ -106,31 +106,31 @@ snapshot:
   name_template: "{{ incpatch .Version }}-next"
 
 brews:
-  - name: dl
+  - name: warpdl
     repository:
-      owner: dl
+      owner: warpdl
       name: homebrew-tap
     commit_author:
       name: "Divkix"
       email: divkix@divkix.me
     folder: Formula
-    homepage: "https://dl.org"
-    description: "The official  CLI download manager"
+    homepage: "https://warpdl.org"
+    description: "The official Warp CLI download manager"
     install: |-
-      bin.install "dl"
+      bin.install "warpdl"
     test: |
-      system "#{bin}/dl --version"
+      system "#{bin}/warpdl --version"
 
 scoops:
-  - name: dl
+  - name: warpdl
     repository:
-      owner: dl
+      owner: warpdl
       name: scoop-bucket
     commit_author:
       name: "Divkix"
       email: divkix@divkix.me
-    homepage: "https://dl.org"
-    description: "The official  CLI download manager"
+    homepage: "https://warpdl.org"
+    description: "The official Warp CLI download manager"
 
 nfpms:
   - file_name_template: >-
@@ -142,9 +142,9 @@ nfpms:
       {{- with .Arm }}v{{ . }}{{ end }}
       {{- with .Mips }}_{{ . }}{{ end }}
       {{- if not (eq .Amd64 "v1") }}{{ .Amd64 }}{{ end }}
-    homepage: "https://dl.org"
+    homepage: "https://warpdl.org"
     maintainer: Divanshu Chauhan <divkix@divkix.me>
-    description: "The official  CLI download manager"
+    description: "The official Warp CLI download manager"
     bindir: /usr/bin
     formats:
       - deb
@@ -156,15 +156,15 @@ nfpms:
 #     publish: false
 #     summary: An ultra fast download manager
 #     description: |-
-#        is a powerful and versatile cross-platform download manager. 
-#       With its advanced technology,  has the ability to accelerate
+#       Warp is a powerful and versatile cross-platform download manager. 
+#       With its advanced technology, Warp has the ability to accelerate
 #       your download speeds by up to 10 times, revolutionizing the way
 #       you obtain files on any operating system.
 #     grade: stable
 #     confinement: strict
 #     base: core18
 #     apps:
-#       dl:
+#       warpdl:
 #         command: usr/bin/warpdl
 
 dockers:
