@@ -6,7 +6,7 @@ set -e
 # 1 general
 # 2 insufficient perms
 
-LATEST_RELEASE="v1.0.1"
+LATEST_RELEASE="v1.0.2"
 # both os and arch are set to unknown by default
 OS="unknown"
 ARCH="unknown"
