@@ -16,7 +16,7 @@ parts:
   warpdl:
     plugin: dump
     source-type: deb
-    source: https://github.com/warpdl/warp-releases/releases/download/$SNAPCRAFT_PROJECT_VERSION/warpdl_linux_$SNAPCRAFT_TARGET_ARCH.deb
+    source: https://github.com/warpdl/warp-releases/releases/download/$SNAPCRAFT_PROJECT_VERSION/warpdl_$SNAPCRAFT_PROJECT_VERSION_linux_$SNAPCRAFT_TARGET_ARCH.deb
   
 apps:
   warpdl:
