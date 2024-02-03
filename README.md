@@ -83,7 +83,7 @@ You will need the following things for building warpdl binary:
       ```
 - Installing through official bash script:
   ```
-  (curl -Ls --tlsv1.2 --proto "=https" --retry 3 https://cli.warpdl.org/install.sh || wget -t 3 -qO- https://cli.warpdl.org/install.sh) | sh
+  (curl -Ls --tlsv1.2 --proto "=https" --retry 3 https://cli.warpdl.org/install.sh || wget -t 3 -qO- https://cli.warpdl.org/install.sh) | sudo sh
   ```
 - Other
 
