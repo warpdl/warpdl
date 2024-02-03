@@ -24,3 +24,5 @@ vendor/
 go.work
 
 dltest/
+
+bin/
