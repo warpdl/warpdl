@@ -1,6 +1,6 @@
 name: warpdl 
 base: core18
-version: 'v1.0.2'
+version: '1.0.3'
 summary: An ultra fast download manager
 description: |
   Warp is a powerful and versatile cross-platform download manager. 
