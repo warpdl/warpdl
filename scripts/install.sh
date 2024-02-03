@@ -10,7 +10,7 @@ LATEST_RELEASE="1.0.3"
 # both os and arch are set to unknown by default
 OS="unknown"
 ARCH="unknown"
-DL_FILENAME="warp_${LATEST_RELEASE}"
+DL_FILENAME="warpdl_${LATEST_RELEASE}"
 GITHUB_RELEASES_BASE_URL="https://github.com/warpdl/warp-releases/releases/download/${LATEST_RELEASE}/"
 DEBUG=0
 INSTALL=1
