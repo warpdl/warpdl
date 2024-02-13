@@ -1,0 +1,5 @@
+[warpdl]
+name=Warpdl yum repository
+baseurl=https://repo.warpdl.org/rpm/
+enabled=1
+gpgcheck=0

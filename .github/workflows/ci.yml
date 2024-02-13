@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+    tags-ignore:
+      - "**"
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  ci:
+    name: Goreleaser CI
+    runs-on: ubuntu-20.04
+    env:
+      GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+    permissions:
+      contents: write
+    steps:
+      - name: Configure git
+        run: git config --global url."https://celestix:${{ secrets.GH_PAT }}@github.com".insteadOf "https://github.com"
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "stable"
+      - name: Import GPG key
+        uses: crazy-max/ghaction-import-gpg@v6
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.GPG_PASSPHRASE }}
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v4
+        with:
+          version: latest
+          args: release --snapshot --skip-publish --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
