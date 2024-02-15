@@ -549,6 +549,10 @@ func (d *Downloader) GetContentLengthAsString() string {
 	return d.contentLength.String()
 }
 
+func (d *Downloader) GetHash() string {
+	return d.hash
+}
+
 // NumConnections returns the number of connections
 // running currently.
 func (d *Downloader) NumConnections() int {

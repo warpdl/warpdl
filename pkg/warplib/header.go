@@ -50,7 +50,8 @@ func (h Headers) Add(header http.Header) {
 }
 
 type Header struct {
-	Key, Value string
+	Key   string `json:"key"`
+	Value string `json:"value"`
 }
 
 func (h *Header) Set(header http.Header) {

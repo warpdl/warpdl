@@ -277,7 +277,7 @@ func downloadVideo(client *http.Client, headers warplib.Headers, m *warplib.Mana
 	}
 
 	m.AddDownload(vd, &warplib.AddDownloadOpts{
-		Child:            ad,
+		ChildHash:        ad.GetHash(),
 		AbsoluteLocation: dlPath,
 	})
 	m.AddDownload(ad, &warplib.AddDownloadOpts{

@@ -43,7 +43,7 @@ func InitManager() (m *Manager, err error) {
 type AddDownloadOpts struct {
 	IsHidden         bool
 	IsChildren       bool
-	Child            *Downloader
+	ChildHash        string
 	AbsoluteLocation string
 }
 
@@ -64,10 +64,6 @@ func (m *Manager) AddDownload(d *Downloader, opts *AddDownloadOpts) (err error) 
 	if opts == nil {
 		opts = &AddDownloadOpts{}
 	}
-	cHash := ""
-	if opts.Child != nil {
-		cHash = opts.Child.hash
-	}
 	item, err := newItem(
 		m.mu,
 		d.fileName,
@@ -79,7 +75,7 @@ func (m *Manager) AddDownload(d *Downloader, opts *AddDownloadOpts) (err error) 
 			AbsoluteLocation: opts.AbsoluteLocation,
 			Child:            opts.IsChildren,
 			Hide:             opts.IsHidden,
-			ChildHash:        cHash,
+			ChildHash:        opts.ChildHash,
 			Headers:          d.headers,
 		},
 	)
