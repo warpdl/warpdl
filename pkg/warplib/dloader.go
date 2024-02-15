@@ -1,6 +1,7 @@
 package warplib
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -17,6 +18,8 @@ import (
 )
 
 type Downloader struct {
+	ctx    context.Context
+	cancel context.CancelFunc
 	// Http client to be used to for the whole process
 	client *http.Client
 	// Url of the file to be downloaded
@@ -110,7 +113,10 @@ func NewDownloader(client *http.Client, url string, opts *DownloaderOpts) (d *Do
 	if err != nil {
 		return
 	}
+	ctx, cancel := context.WithCancel(context.Background())
 	d = &Downloader{
+		ctx:      ctx,
+		cancel:   cancel,
 		wg:       &sync.WaitGroup{},
 		client:   client,
 		url:      url,
@@ -182,7 +188,10 @@ func initDownloader(client *http.Client, hash, url string, cLength ContentLength
 	if err != nil {
 		return
 	}
+	ctx, cancel := context.WithCancel(context.Background())
 	d = &Downloader{
+		ctx:           ctx,
+		cancel:        cancel,
 		wg:            &sync.WaitGroup{},
 		client:        client,
 		url:           url,
@@ -294,6 +303,7 @@ func (d *Downloader) openFile() (err error) {
 
 func (d *Downloader) spawnPart(ioff, foff int64) (part *Part, err error) {
 	part, err = newPart(
+		d.ctx,
 		d.wg,
 		d.client,
 		d.url,
@@ -322,6 +332,7 @@ func (d *Downloader) spawnPart(ioff, foff int64) (part *Part, err error) {
 
 func (d *Downloader) initPart(hash string, ioff, foff int64) (part *Part, err error) {
 	part, err = initPart(
+		d.ctx,
 		d.wg,
 		d.client,
 		hash,
@@ -507,6 +518,10 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 	d.Log("%s: part respawned", hash)
 	d.handlers.RespawnPartHandler(hash, part.offset, poff, foff)
 	return d.runPart(part, poff, foff, espeed/2, false)
+}
+
+func (d *Downloader) Stop() {
+	d.cancel()
 }
 
 func (d *Downloader) GetFileName() string {

@@ -1,6 +1,7 @@
 package warplib
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -15,6 +16,7 @@ import (
 )
 
 type Part struct {
+	ctx context.Context
 	// URL
 	url string
 	// size of a bytes chunk to be used for copying
@@ -58,8 +60,9 @@ type partArgs struct {
 	f         *os.File
 }
 
-func initPart(wg *sync.WaitGroup, client *http.Client, hash, url string, args partArgs) (*Part, error) {
+func initPart(ctx context.Context, wg *sync.WaitGroup, client *http.Client, hash, url string, args partArgs) (*Part, error) {
 	p := Part{
+		ctx:     ctx,
 		url:     url,
 		client:  client,
 		chunk:   args.copyChunk,
@@ -84,8 +87,9 @@ func initPart(wg *sync.WaitGroup, client *http.Client, hash, url string, args pa
 	return &p, nil
 }
 
-func newPart(wg *sync.WaitGroup, client *http.Client, url string, args partArgs) (*Part, error) {
+func newPart(ctx context.Context, wg *sync.WaitGroup, client *http.Client, url string, args partArgs) (*Part, error) {
 	p := Part{
+		ctx:     ctx,
 		url:     url,
 		client:  client,
 		chunk:   args.copyChunk,
@@ -107,7 +111,7 @@ func (p *Part) setEpeed(espeed int64) {
 }
 
 func (p *Part) download(headers Headers, ioff, foff int64, force bool) (slow bool, err error) {
-	req, er := http.NewRequest(http.MethodGet, p.url, nil)
+	req, er := http.NewRequestWithContext(p.ctx, http.MethodGet, p.url, nil)
 	if er != nil {
 		err = er
 		return

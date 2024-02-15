@@ -2,6 +2,8 @@ module github.com/warpdl/warpdl
 
 go 1.21
 
+toolchain go1.21.4
+
 require (
 	github.com/kkdai/youtube/v2 v2.9.0
 	github.com/urfave/cli v1.22.14
