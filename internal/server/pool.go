@@ -28,7 +28,7 @@ func (p *Pool) AddDownload(uid string, conn net.Conn) {
 	p.m[uid] = []net.Conn{conn}
 }
 
-func (p *Pool) AddConnection(uid string, conns []net.Conn) {
+func (p *Pool) AddConnections(uid string, conns []net.Conn) {
 	p.mu.RLock()
 	_conns := p.m[uid]
 	p.mu.RUnlock()
@@ -42,15 +42,20 @@ func (p *Pool) AddConnection(uid string, conns []net.Conn) {
 }
 
 func (p *Pool) Broadcast(uid string, data []byte) {
+	head := intToBytes(uint32(len(data)))
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	for i, conn := range p.m[uid] {
-		_, err := conn.Write(data)
-		if err == nil {
-			continue
+		_, err := conn.Write(head)
+		if err != nil {
+			p.log.Printf("[%s]Error writing: %s\n", uid, err.Error())
+			p.removeConn(uid, i)
 		}
-		p.log.Printf("[%s]Error writing: %s\n", uid, err.Error())
-		p.removeConn(uid, i)
+		_, err = conn.Write(data)
+		if err != nil {
+			p.log.Printf("[%s]Error writing: %s\n", uid, err.Error())
+			p.removeConn(uid, i)
+		}
 	}
 }
 
@@ -58,6 +63,7 @@ func (p *Pool) WriteError(uid string, errType ErrorType, errMessage string) {
 	p.mu.RLock()
 	err, ok := p.e[uid]
 	if ok && err.Type == ErrorTypeCritical && errType != ErrorTypeCritical {
+		p.mu.RUnlock()
 		return
 	}
 	p.mu.RUnlock()
@@ -81,10 +87,10 @@ func (p *Pool) GetError(uid string) *Error {
 func (p *Pool) removeConn(uid string, connIndex int) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	for i := range p.m[uid] {
-		if i == connIndex {
-			p.m[uid] = append(p.m[uid][:i], p.m[uid][i+1:]...)
-			return
-		}
-	}
+	conns := p.m[uid]
+	_ = conns[connIndex].Close()
+	// shift last connection to the current connIndex
+	conns[connIndex] = conns[len(conns)-1]
+	// slice the last connection
+	p.m[uid] = conns[:len(conns)-1]
 }

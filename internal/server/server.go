@@ -1,10 +1,11 @@
 package server
 
 import (
-	"bufio"
-	"fmt"
+	"errors"
 	"log"
 	"net"
+	"os"
+	"path/filepath"
 )
 
 type Server struct {
@@ -28,7 +29,12 @@ func (s *Server) RegisterHandler(method string, handler HandlerFunc) {
 }
 
 func (s *Server) Start() error {
-	l, err := net.Listen("tcp", fmt.Sprintf(":%d", s.port))
+	socketPath := filepath.Join(os.TempDir(), "warpdl.sock")
+	_ = os.Remove(socketPath)
+	l, err := net.ListenUnix("unix", &net.UnixAddr{
+		Name: socketPath,
+		Net:  "unix",
+	})
 	if err != nil {
 		return err
 	}
@@ -40,40 +46,50 @@ func (s *Server) Start() error {
 			continue
 		}
 		// Handle connections in a new goroutine.
-		go func(conn net.Conn) {
-			for {
-				b, err := bufio.NewReader(conn).ReadBytes(0)
-				if err != nil {
-					s.log.Println("Error reading:", err.Error())
-					return
-				}
-				_ = s.handlerWrapper(conn, b[:len(b)-1])
-				s.transmitEnd(conn)
-			}
-		}(conn)
+		go s.handleConnection(conn)
 	}
 }
 
-func (s *Server) transmitEnd(conn net.Conn) {
-	conn.Write([]byte{0})
+func (s *Server) handleConnection(conn net.Conn) {
+	defer conn.Close()
+	for {
+		buf, err := read(conn)
+		if err != nil {
+			s.log.Println("Error reading:", err.Error())
+			break
+		}
+		err = s.handlerWrapper(conn, buf)
+		if err != nil {
+			s.log.Println("Error handling:", err.Error())
+			break
+		}
+	}
 }
 
-func (s *Server) handlerWrapper(conn net.Conn, b []byte) bool {
+func (s *Server) handlerWrapper(conn net.Conn, b []byte) error {
 	req, err := ParseRequest(b)
 	if err != nil {
-		s.log.Println("Error parsing request:", err.Error())
-		return false
+		return errors.Join(err, errors.New("error parsing request"))
 	}
 	rHandler, ok := s.handler[req.Method]
 	if !ok {
-		conn.Write(CreateError("unknown method: " + req.Method))
-		return false
+		err = write(conn, CreateError("unknown method: "+req.Method))
+		if err != nil {
+			return errors.Join(err, errors.New("error writing response"))
+		}
+		return nil
 	}
 	msg, err := rHandler(conn, s.pool, req.Message)
 	if err != nil {
-		conn.Write(InitError(err))
-		return false
+		err = write(conn, InitError(err))
+		if err != nil {
+			return errors.Join(err, errors.New("error writing response"))
+		}
+		return nil
 	}
-	conn.Write(MakeResult(msg))
-	return true
+	err = write(conn, MakeResult(msg))
+	if err != nil {
+		return errors.Join(err, errors.New("error writing response"))
+	}
+	return nil
 }
