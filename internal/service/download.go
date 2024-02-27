@@ -54,47 +54,65 @@ func (s *Service) downloadHandler(conn net.Conn, pool *server.Pool, body json.Ra
 		Handlers: &warplib.Handlers{
 			ErrorHandler: func(_ string, err error) {
 				uid := d.GetHash()
-				pool.Broadcast(uid, server.InitError(err))
+				er := pool.Broadcast(uid, server.InitError(err))
 				pool.WriteError(uid, server.ErrorTypeCritical, err.Error())
+				if er != nil {
+					s.log.Printf("[%s]: %s", uid, er.Error())
+				}
 			},
 			DownloadProgressHandler: func(hash string, nread int) {
 				uid := d.GetHash()
-				pool.Broadcast(uid, server.MakeResult(&DownloadingResponse{
+				er := pool.Broadcast(uid, server.MakeResult(&DownloadingResponse{
 					Action: "download_progress",
 					Value:  int64(nread),
 					Hash:   hash,
 				}))
+				if er != nil {
+					s.log.Printf("[%s]: %s", uid, er.Error())
+				}
 			},
 			DownloadCompleteHandler: func(hash string, tread int64) {
 				uid := d.GetHash()
-				pool.Broadcast(uid, server.MakeResult(&DownloadingResponse{
+				er := pool.Broadcast(uid, server.MakeResult(&DownloadingResponse{
 					Action: "download_complete",
 					Value:  tread,
 					Hash:   hash,
 				}))
+				if er != nil {
+					s.log.Printf("[%s]: %s", uid, er.Error())
+				}
 			},
 			CompileStartHandler: func(hash string) {
 				uid := d.GetHash()
-				pool.Broadcast(uid, server.MakeResult(&DownloadingResponse{
+				er := pool.Broadcast(uid, server.MakeResult(&DownloadingResponse{
 					Action: "compile_start",
 					Hash:   hash,
 				}))
+				if er != nil {
+					s.log.Printf("[%s]: %s", uid, er.Error())
+				}
 			},
 			CompileProgressHandler: func(hash string, nread int) {
 				uid := d.GetHash()
-				pool.Broadcast(uid, server.MakeResult(&DownloadingResponse{
+				er := pool.Broadcast(uid, server.MakeResult(&DownloadingResponse{
 					Action: "compile_progress",
 					Value:  int64(nread),
 					Hash:   hash,
 				}))
+				if er != nil {
+					s.log.Printf("[%s]: %s", uid, er.Error())
+				}
 			},
 			CompileCompleteHandler: func(hash string, tread int64) {
 				uid := d.GetHash()
-				pool.Broadcast(uid, server.MakeResult(&DownloadingResponse{
+				er := pool.Broadcast(uid, server.MakeResult(&DownloadingResponse{
 					Action: "compile_complete",
 					Value:  tread,
 					Hash:   hash,
 				}))
+				if er != nil {
+					s.log.Printf("[%s]: %s", uid, er.Error())
+				}
 			},
 		},
 	})
