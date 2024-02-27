@@ -4,7 +4,7 @@ import "encoding/json"
 
 type Request struct {
 	Method  string          `json:"method"`
-	Message json.RawMessage `json:"data"`
+	Message json.RawMessage `json:"message,omitempty"`
 }
 
 func ParseRequest(b []byte) (*Request, error) {

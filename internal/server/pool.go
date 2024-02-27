@@ -1,24 +1,23 @@
 package server
 
 import (
+	"fmt"
 	"log"
 	"net"
 	"sync"
 )
 
 type Pool struct {
-	log *log.Logger
-	mu  *sync.RWMutex
-	m   map[string][]net.Conn
-	e   map[string]*Error
+	mu *sync.RWMutex
+	m  map[string][]net.Conn
+	e  map[string]*Error
 }
 
 func NewPool(l *log.Logger) *Pool {
 	return &Pool{
-		log: l,
-		mu:  &sync.RWMutex{},
-		m:   make(map[string][]net.Conn),
-		e:   make(map[string]*Error),
+		mu: &sync.RWMutex{},
+		m:  make(map[string][]net.Conn),
+		e:  make(map[string]*Error),
 	}
 }
 
@@ -41,22 +40,23 @@ func (p *Pool) AddConnections(uid string, conns []net.Conn) {
 	p.m[uid] = _conns
 }
 
-func (p *Pool) Broadcast(uid string, data []byte) {
+func (p *Pool) Broadcast(uid string, data []byte) error {
 	head := intToBytes(uint32(len(data)))
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	for i, conn := range p.m[uid] {
 		_, err := conn.Write(head)
 		if err != nil {
-			p.log.Printf("[%s]Error writing: %s\n", uid, err.Error())
 			p.removeConn(uid, i)
+			return fmt.Errorf("error writing: %s", err.Error())
 		}
 		_, err = conn.Write(data)
 		if err != nil {
-			p.log.Printf("[%s]Error writing: %s\n", uid, err.Error())
 			p.removeConn(uid, i)
+			return fmt.Errorf("error writing: %s", err.Error())
 		}
 	}
+	return nil
 }
 
 func (p *Pool) WriteError(uid string, errType ErrorType, errMessage string) {

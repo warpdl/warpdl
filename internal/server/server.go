@@ -1,7 +1,7 @@
 package server
 
 import (
-	"errors"
+	"fmt"
 	"log"
 	"net"
 	"os"
@@ -69,13 +69,13 @@ func (s *Server) handleConnection(conn net.Conn) {
 func (s *Server) handlerWrapper(conn net.Conn, b []byte) error {
 	req, err := ParseRequest(b)
 	if err != nil {
-		return errors.Join(err, errors.New("error parsing request"))
+		return fmt.Errorf("error parsing request: %s", err.Error())
 	}
 	rHandler, ok := s.handler[req.Method]
 	if !ok {
 		err = write(conn, CreateError("unknown method: "+req.Method))
 		if err != nil {
-			return errors.Join(err, errors.New("error writing response"))
+			return fmt.Errorf("error writing response: %s", err.Error())
 		}
 		return nil
 	}
@@ -83,13 +83,13 @@ func (s *Server) handlerWrapper(conn net.Conn, b []byte) error {
 	if err != nil {
 		err = write(conn, InitError(err))
 		if err != nil {
-			return errors.Join(err, errors.New("error writing response"))
+			return fmt.Errorf("error writing response: %s", err.Error())
 		}
 		return nil
 	}
 	err = write(conn, MakeResult(msg))
 	if err != nil {
-		return errors.Join(err, errors.New("error writing response"))
+		return fmt.Errorf("error writing response: %s", err.Error())
 	}
 	return nil
 }
