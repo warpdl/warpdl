@@ -10,16 +10,18 @@ import (
 
 type DownloadMessage struct {
 	Url               string          `json:"url"`
-	Headers           warplib.Headers `json:"headers"`
-	ForceParts        bool            `json:"force_parts"`
-	FileName          string          `json:"file_name"`
 	DownloadDirectory string          `json:"download_directory"`
-	MaxConnections    int             `json:"max_connections"`
-	MaxSegments       int             `json:"max_segments"`
-	ChildHash         string          `json:"child_hash"`
-	IsHidden          bool            `json:"is_hidden"`
-	IsChildren        bool            `json:"is_children"`
+	FileName          string          `json:"file_name"`
+	Headers           warplib.Headers `json:"headers,omitempty"`
+	ForceParts        bool            `json:"force_parts,omitempty"`
+	MaxConnections    int             `json:"max_connections,omitempty"`
+	MaxSegments       int             `json:"max_segments,omitempty"`
+	ChildHash         string          `json:"child_hash,omitempty"`
+	IsHidden          bool            `json:"is_hidden,omitempty"`
+	IsChildren        bool            `json:"is_children,omitempty"`
 }
+
+const UPDATE_NEW_DOWNLOAD = "new_download"
 
 type NewDownloadResponse struct {
 	Uid               string                `json:"uid"`
@@ -29,16 +31,18 @@ type NewDownloadResponse struct {
 	ContentLength     warplib.ContentLength `json:"content_length"`
 }
 
+const UPDATE_DOWNLOADING = "downloading"
+
 type DownloadingResponse struct {
 	Action string `json:"action"`
 	Hash   string `json:"hash"`
 	Value  int64  `json:"value,omitempty"`
 }
 
-func (s *Service) downloadHandler(conn net.Conn, pool *server.Pool, body json.RawMessage) (any, error) {
+func (s *Service) downloadHandler(conn net.Conn, pool *server.Pool, body json.RawMessage) (string, any, error) {
 	var m DownloadMessage
 	if err := json.Unmarshal(body, &m); err != nil {
-		return nil, err
+		return UPDATE_NEW_DOWNLOAD, nil, err
 	}
 	var (
 		d   *warplib.Downloader
@@ -62,7 +66,7 @@ func (s *Service) downloadHandler(conn net.Conn, pool *server.Pool, body json.Ra
 			},
 			DownloadProgressHandler: func(hash string, nread int) {
 				uid := d.GetHash()
-				er := pool.Broadcast(uid, server.MakeResult(&DownloadingResponse{
+				er := pool.Broadcast(uid, server.MakeResult(UPDATE_DOWNLOADING, &DownloadingResponse{
 					Action: "download_progress",
 					Value:  int64(nread),
 					Hash:   hash,
@@ -73,7 +77,7 @@ func (s *Service) downloadHandler(conn net.Conn, pool *server.Pool, body json.Ra
 			},
 			DownloadCompleteHandler: func(hash string, tread int64) {
 				uid := d.GetHash()
-				er := pool.Broadcast(uid, server.MakeResult(&DownloadingResponse{
+				er := pool.Broadcast(uid, server.MakeResult(UPDATE_DOWNLOADING, &DownloadingResponse{
 					Action: "download_complete",
 					Value:  tread,
 					Hash:   hash,
@@ -84,7 +88,7 @@ func (s *Service) downloadHandler(conn net.Conn, pool *server.Pool, body json.Ra
 			},
 			CompileStartHandler: func(hash string) {
 				uid := d.GetHash()
-				er := pool.Broadcast(uid, server.MakeResult(&DownloadingResponse{
+				er := pool.Broadcast(uid, server.MakeResult(UPDATE_DOWNLOADING, &DownloadingResponse{
 					Action: "compile_start",
 					Hash:   hash,
 				}))
@@ -94,7 +98,7 @@ func (s *Service) downloadHandler(conn net.Conn, pool *server.Pool, body json.Ra
 			},
 			CompileProgressHandler: func(hash string, nread int) {
 				uid := d.GetHash()
-				er := pool.Broadcast(uid, server.MakeResult(&DownloadingResponse{
+				er := pool.Broadcast(uid, server.MakeResult(UPDATE_DOWNLOADING, &DownloadingResponse{
 					Action: "compile_progress",
 					Value:  int64(nread),
 					Hash:   hash,
@@ -105,7 +109,7 @@ func (s *Service) downloadHandler(conn net.Conn, pool *server.Pool, body json.Ra
 			},
 			CompileCompleteHandler: func(hash string, tread int64) {
 				uid := d.GetHash()
-				er := pool.Broadcast(uid, server.MakeResult(&DownloadingResponse{
+				er := pool.Broadcast(uid, server.MakeResult(UPDATE_DOWNLOADING, &DownloadingResponse{
 					Action: "compile_complete",
 					Value:  tread,
 					Hash:   hash,
@@ -117,7 +121,7 @@ func (s *Service) downloadHandler(conn net.Conn, pool *server.Pool, body json.Ra
 		},
 	})
 	if err != nil {
-		return nil, err
+		return UPDATE_NEW_DOWNLOAD, nil, err
 	}
 	pool.AddDownload(d.GetHash(), conn)
 	err = s.manager.AddDownload(d, &warplib.AddDownloadOpts{
@@ -127,10 +131,10 @@ func (s *Service) downloadHandler(conn net.Conn, pool *server.Pool, body json.Ra
 		AbsoluteLocation: d.GetDownloadDirectory(),
 	})
 	if err != nil {
-		return nil, err
+		return UPDATE_NEW_DOWNLOAD, nil, err
 	}
 	go d.Start()
-	return &NewDownloadResponse{
+	return UPDATE_NEW_DOWNLOAD, &NewDownloadResponse{
 		ContentLength:     d.GetContentLength(),
 		Uid:               d.GetHash(),
 		FileName:          d.GetFileName(),

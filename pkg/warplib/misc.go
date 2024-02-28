@@ -131,7 +131,7 @@ var ConfigDir = func() (warpDir string) {
 			panic(err)
 		}
 	}
-	warpDir = cdr + "/warp"
+	warpDir = cdr + "/warpdl"
 	if dirExists(warpDir) {
 		return
 	}

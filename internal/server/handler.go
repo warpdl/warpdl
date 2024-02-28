@@ -10,6 +10,7 @@ type HandlerFunc func(
 	pool *Pool,
 	body json.RawMessage,
 ) (
+	string,
 	any,
 	error,
 )

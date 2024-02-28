@@ -9,15 +9,13 @@ import (
 )
 
 type Server struct {
-	port    int
 	log     *log.Logger
 	pool    *Pool
 	handler map[string]HandlerFunc
 }
 
-func NewServer(l *log.Logger, port int) *Server {
+func NewServer(l *log.Logger) *Server {
 	return &Server{
-		port:    port,
 		log:     l,
 		pool:    NewPool(l),
 		handler: make(map[string]HandlerFunc),
@@ -79,7 +77,7 @@ func (s *Server) handlerWrapper(conn net.Conn, b []byte) error {
 		}
 		return nil
 	}
-	msg, err := rHandler(conn, s.pool, req.Message)
+	utype, msg, err := rHandler(conn, s.pool, req.Message)
 	if err != nil {
 		err = write(conn, InitError(err))
 		if err != nil {
@@ -87,7 +85,7 @@ func (s *Server) handlerWrapper(conn net.Conn, b []byte) error {
 		}
 		return nil
 	}
-	err = write(conn, MakeResult(msg))
+	err = write(conn, MakeResult(utype, msg))
 	if err != nil {
 		return fmt.Errorf("error writing response: %s", err.Error())
 	}

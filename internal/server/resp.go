@@ -3,15 +3,23 @@ package server
 import "encoding/json"
 
 type Response struct {
-	Ok      bool   `json:"ok"`
-	Error   string `json:"error,omitempty"`
-	Message any    `json:"message,omitempty"`
+	Ok     bool    `json:"ok"`
+	Error  string  `json:"error,omitempty"`
+	Update *Update `json:"update,omitempty"`
 }
 
-func MakeResult(res any) []byte {
+type Update struct {
+	Type    string `json:"type"`
+	Message any    `json:"message"`
+}
+
+func MakeResult(utype string, res any) []byte {
 	b, _ := json.Marshal(Response{
-		Ok:      true,
-		Message: res,
+		Ok: true,
+		Update: &Update{
+			Type:    utype,
+			Message: res,
+		},
 	})
 	return b
 }

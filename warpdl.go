@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"runtime"
 	"strings"
@@ -9,6 +10,8 @@ import (
 	"github.com/urfave/cli"
 	"github.com/vbauerster/mpb/v8"
 	"github.com/vbauerster/mpb/v8/decor"
+	"github.com/warpdl/warpdl/internal/server"
+	"github.com/warpdl/warpdl/internal/service"
 )
 
 func initBars(p *mpb.Progress, prefix string, cLength int64) (dbar *mpb.Bar, cbar *mpb.Bar) {
@@ -161,6 +164,18 @@ func main() {
 				CustomHelpTemplate: CMD_HELP_TEMPL,
 				Description:        InfoDescription,
 				Flags:              infoFlags,
+			},
+			{
+				Name: "daemon",
+				Action: func(ctx *cli.Context) error {
+					s, err := service.NewService(log.Default())
+					if err != nil {
+						panic(err)
+					}
+					serv := server.NewServer(log.Default())
+					s.RegisterHandlers(serv)
+					return serv.Start()
+				},
 			},
 			{
 				Name:                   "download",

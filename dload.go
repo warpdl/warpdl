@@ -10,6 +10,7 @@ import (
 
 	"github.com/urfave/cli"
 	"github.com/vbauerster/mpb/v8"
+	"github.com/warpdl/warpdl/pkg/warpcli"
 	"github.com/warpdl/warpdl/pkg/warplib"
 )
 
@@ -28,12 +29,6 @@ func download(ctx *cli.Context) (err error) {
 	}
 	fmt.Println(">> Initiating a WARP download << ")
 	url = strings.TrimSpace(url)
-	m, err := warplib.InitManager()
-	if err != nil {
-		printRuntimeErr(ctx, "info", "init_manager", err)
-		return nil
-	}
-	defer m.Close()
 
 	var headers warplib.Headers
 	if userAgent != "" {
@@ -41,80 +36,24 @@ func download(ctx *cli.Context) (err error) {
 			Key: warplib.USER_AGENT_KEY, Value: getUserAgent(userAgent),
 		}}
 	}
-
-	if vInfo, er := processVideo(url); er == nil {
-		if vInfo.AudioFName != "" {
-			nt := time.Now()
-			er = downloadVideo(getHTTPClient(), headers, m, vInfo)
-			if er != nil {
-				printRuntimeErr(ctx, "info", "download_video", er)
-			}
-			if !timeTaken {
-				return nil
-			}
-			fmt.Printf("\nTime Taken: %s\n", time.Since(nt).String())
-			return nil
-		}
-		url = vInfo.VideoUrl
-		fileName = vInfo.VideoFName
-	}
-	var (
-		dbar, cbar *mpb.Bar
-	)
-	sc := NewSpeedCounter(4350 * time.Microsecond)
-
-	d, err := warplib.NewDownloader(
-		getHTTPClient(),
-		url,
-		&warplib.DownloaderOpts{
-			ForceParts: forceParts,
-			Handlers: &warplib.Handlers{
-				ErrorHandler: func(hash string, err error) {
-					sc.bar.Abort(false)
-					fmt.Println("Failed to continue downloading:", rectifyError(err))
-					os.Exit(0)
-				},
-				DownloadProgressHandler: func(_ string, nread int) {
-					// dbar.IncrBy(nread)
-					sc.IncrBy(nread)
-				},
-				CompileProgressHandler: func(hash string, nread int) {
-					cbar.IncrBy(nread)
-				},
-				DownloadCompleteHandler: func(hash string, tread int64) {
-					if hash != warplib.MAIN_HASH {
-						return
-					}
-					sc.Stop()
-					// fill download bar
-					if dbar.Completed() {
-						return
-					}
-					dbar.SetCurrent(tread)
-					// fill compile bar
-					if cbar.Completed() {
-						return
-					}
-					cbar.SetCurrent(tread)
-				},
-			},
-			MaxConnections:    maxConns,
-			MaxSegments:       maxParts,
-			FileName:          fileName,
-			DownloadDirectory: dlPath,
-			Headers:           headers,
-		},
-	)
-	if err != nil {
-		printRuntimeErr(ctx, "info", "create_downloader", err)
-		return nil
-	}
-	m.AddDownload(d, nil)
-
-	fileName = d.GetFileName()
 	if fileName == "" {
 		printRuntimeErr(ctx, "info", "get_file_name", errors.New("file name cannot be empty"))
 		return
+	}
+	client, err := warpcli.NewClient()
+	if err != nil {
+		printRuntimeErr(ctx, "info", "new_client", err)
+		return
+	}
+	d, err := client.Download(url, fileName, dlPath, &warpcli.DownloadOpts{
+		ForceParts:     forceParts,
+		MaxConnections: maxConns,
+		MaxSegments:    maxParts,
+		Headers:        headers,
+	})
+	if err != nil {
+		printRuntimeErr(ctx, "info", "create_downloader", err)
+		return nil
 	}
 	txt := fmt.Sprintf(`
 Download Info
@@ -124,30 +63,15 @@ Save Location`+"\t"+`: %s/
 Max Connections`+"\t"+`: %d
 `,
 		fileName,
-		d.GetContentLengthAsString(),
-		d.GetDownloadDirectory(),
+		d.ContentLength.String(),
+		d.DownloadDirectory,
 		maxConns,
 	)
 	if maxParts != 0 {
 		txt += fmt.Sprintf("Max Segments\t: %d\n", maxParts)
 	}
 	fmt.Println(txt)
-
-	p := mpb.New(mpb.WithWidth(64), mpb.WithRefreshRate(time.Millisecond*100))
-	dbar, cbar = initBars(p, "", d.GetContentLengthAsInt())
-	sc.SetBar(dbar)
-	sc.Start()
-	nt := time.Now()
-	err = d.Start()
-	if err != nil {
-		return err
-	}
-	p.Wait()
-	if !timeTaken {
-		return nil
-	}
-	fmt.Printf("\nTime Taken: %s\n", time.Since(nt).String())
-	return nil
+	return client.Listen()
 }
 
 func resume(ctx *cli.Context) (err error) {
