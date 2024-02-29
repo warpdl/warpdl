@@ -50,13 +50,14 @@ type Downloader struct {
 	// headers to use for http requests
 	headers Headers
 	// total downloaded bytes
-	nread  int64
-	dlPath string
-	wg     *sync.WaitGroup
-	ohmap  VMap[int64, string]
-	l      *log.Logger
-	lw     io.WriteCloser
-	f      *os.File
+	nread   int64
+	dlPath  string
+	wg      *sync.WaitGroup
+	ohmap   VMap[int64, string]
+	l       *log.Logger
+	lw      io.WriteCloser
+	f       *os.File
+	stopped bool
 }
 
 // Optional fields of downloader
@@ -246,8 +247,8 @@ func (d *Downloader) Start() (err error) {
 		go d.newPartDownload(ioff, foff, 4*MB)
 	}
 	d.wg.Wait()
-	if d.contentLength.v() != d.nread {
-		d.Log("Download failed", "Expected bytes:", d.contentLength, "Found bytes:", d.nread)
+	if !d.stopped && d.contentLength.v() != d.nread {
+		d.Log("Download failed | Expected bytes: %d Found bytes: %d", d.contentLength.v(), d.nread)
 		return
 	}
 	d.handlers.DownloadCompleteHandler(MAIN_HASH, d.contentLength.v())
@@ -521,6 +522,7 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 }
 
 func (d *Downloader) Stop() {
+	d.stopped = true
 	d.cancel()
 }
 

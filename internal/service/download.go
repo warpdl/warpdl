@@ -63,6 +63,8 @@ func (s *Service) downloadHandler(conn net.Conn, pool *server.Pool, body json.Ra
 				if er != nil {
 					s.log.Printf("[%s]: %s", uid, er.Error())
 				}
+				pool.StopDownload(uid)
+				d.Stop()
 			},
 			DownloadProgressHandler: func(hash string, nread int) {
 				uid := d.GetHash()
