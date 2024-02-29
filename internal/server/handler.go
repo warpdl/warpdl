@@ -2,11 +2,10 @@ package server
 
 import (
 	"encoding/json"
-	"net"
 )
 
 type HandlerFunc func(
-	conn net.Conn,
+	conn *SyncConn,
 	pool *Pool,
 	body json.RawMessage,
 ) (

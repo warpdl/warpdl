@@ -51,12 +51,13 @@ func (s *Server) Start() error {
 func (s *Server) handleConnection(conn net.Conn) {
 	defer conn.Close()
 	for {
-		buf, err := read(conn)
+		sconn := NewSyncConn(conn)
+		buf, err := sconn.Read()
 		if err != nil {
 			s.log.Println("Error reading:", err.Error())
 			break
 		}
-		err = s.handlerWrapper(conn, buf)
+		err = s.handlerWrapper(sconn, buf)
 		if err != nil {
 			s.log.Println("Error handling:", err.Error())
 			break
@@ -64,28 +65,28 @@ func (s *Server) handleConnection(conn net.Conn) {
 	}
 }
 
-func (s *Server) handlerWrapper(conn net.Conn, b []byte) error {
+func (s *Server) handlerWrapper(sconn *SyncConn, b []byte) error {
 	req, err := ParseRequest(b)
 	if err != nil {
 		return fmt.Errorf("error parsing request: %s", err.Error())
 	}
 	rHandler, ok := s.handler[req.Method]
 	if !ok {
-		err = write(conn, CreateError("unknown method: "+req.Method))
+		err = sconn.Write(CreateError("unknown method: " + req.Method))
 		if err != nil {
 			return fmt.Errorf("error writing response: %s", err.Error())
 		}
 		return nil
 	}
-	utype, msg, err := rHandler(conn, s.pool, req.Message)
+	utype, msg, err := rHandler(sconn, s.pool, req.Message)
 	if err != nil {
-		err = write(conn, InitError(err))
+		err = sconn.Write(InitError(err))
 		if err != nil {
 			return fmt.Errorf("error writing response: %s", err.Error())
 		}
 		return nil
 	}
-	err = write(conn, MakeResult(utype, msg))
+	err = sconn.Write(MakeResult(utype, msg))
 	if err != nil {
 		return fmt.Errorf("error writing response: %s", err.Error())
 	}

@@ -2,7 +2,6 @@ package service
 
 import (
 	"encoding/json"
-	"net"
 
 	"github.com/warpdl/warpdl/internal/server"
 	"github.com/warpdl/warpdl/pkg/warplib"
@@ -39,7 +38,7 @@ type DownloadingResponse struct {
 	Value  int64  `json:"value,omitempty"`
 }
 
-func (s *Service) downloadHandler(conn net.Conn, pool *server.Pool, body json.RawMessage) (string, any, error) {
+func (s *Service) downloadHandler(sconn *server.SyncConn, pool *server.Pool, body json.RawMessage) (string, any, error) {
 	var m DownloadMessage
 	if err := json.Unmarshal(body, &m); err != nil {
 		return UPDATE_NEW_DOWNLOAD, nil, err
@@ -125,7 +124,7 @@ func (s *Service) downloadHandler(conn net.Conn, pool *server.Pool, body json.Ra
 	if err != nil {
 		return UPDATE_NEW_DOWNLOAD, nil, err
 	}
-	pool.AddDownload(d.GetHash(), conn)
+	pool.AddDownload(d.GetHash(), sconn)
 	err = s.manager.AddDownload(d, &warplib.AddDownloadOpts{
 		ChildHash:        m.ChildHash,
 		IsHidden:         m.IsHidden,

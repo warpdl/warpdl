@@ -1,6 +1,9 @@
 package server
 
-import "net"
+import (
+	"net"
+	"sync"
+)
 
 func intToBytes(v uint32) []byte {
 	b := make([]byte, 4)
@@ -15,7 +18,9 @@ func bytesToInt(b []byte) uint32 {
 	return uint32(b[0]) | uint32(b[1])<<8 | uint32(b[2])<<16 | uint32(b[3])<<24
 }
 
-func read(conn net.Conn) ([]byte, error) {
+func read(mu *sync.Mutex, conn net.Conn) ([]byte, error) {
+	mu.Lock()
+	defer mu.Unlock()
 	head := make([]byte, 4)
 	_, err := conn.Read(head)
 	if err != nil {
@@ -29,7 +34,9 @@ func read(conn net.Conn) ([]byte, error) {
 	return buf, nil
 }
 
-func write(conn net.Conn, b []byte) error {
+func write(mu *sync.Mutex, conn net.Conn, b []byte) error {
+	mu.Lock()
+	defer mu.Unlock()
 	_, err := conn.Write(intToBytes(uint32(len(b))))
 	if err != nil {
 		return err

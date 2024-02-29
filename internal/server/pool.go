@@ -3,28 +3,27 @@ package server
 import (
 	"fmt"
 	"log"
-	"net"
 	"sync"
 )
 
 type Pool struct {
 	mu *sync.RWMutex
-	m  map[string][]net.Conn
+	m  map[string][]*SyncConn
 	e  map[string]*Error
 }
 
 func NewPool(l *log.Logger) *Pool {
 	return &Pool{
 		mu: &sync.RWMutex{},
-		m:  make(map[string][]net.Conn),
+		m:  make(map[string][]*SyncConn),
 		e:  make(map[string]*Error),
 	}
 }
 
-func (p *Pool) AddDownload(uid string, conn net.Conn) {
+func (p *Pool) AddDownload(uid string, sconn *SyncConn) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.m[uid] = []net.Conn{conn}
+	p.m[uid] = []*SyncConn{sconn}
 }
 
 func (p *Pool) StopDownload(uid string) {
@@ -33,12 +32,12 @@ func (p *Pool) StopDownload(uid string) {
 	delete(p.m, uid)
 }
 
-func (p *Pool) AddConnections(uid string, conns []net.Conn) {
+func (p *Pool) AddConnections(uid string, conns []*SyncConn) {
 	p.mu.RLock()
 	_conns := p.m[uid]
 	p.mu.RUnlock()
 	if _conns == nil {
-		_conns = []net.Conn{}
+		_conns = []*SyncConn{}
 	}
 	_conns = append(_conns, conns...)
 	p.mu.Lock()
@@ -50,17 +49,19 @@ func (p *Pool) Broadcast(uid string, data []byte) error {
 	head := intToBytes(uint32(len(data)))
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	for i, conn := range p.m[uid] {
-		_, err := conn.Write(head)
+	for i, sconn := range p.m[uid] {
+		sconn.wmu.Lock()
+		_, err := sconn.Conn.Write(head)
 		if err != nil {
 			p.removeConn(uid, i)
 			return fmt.Errorf("error writing: %s", err.Error())
 		}
-		_, err = conn.Write(data)
+		_, err = sconn.Conn.Write(data)
 		if err != nil {
 			p.removeConn(uid, i)
 			return fmt.Errorf("error writing: %s", err.Error())
 		}
+		sconn.wmu.Unlock()
 	}
 	return nil
 }
@@ -94,7 +95,7 @@ func (p *Pool) removeConn(uid string, connIndex int) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	conns := p.m[uid]
-	_ = conns[connIndex].Close()
+	_ = conns[connIndex].Conn.Close()
 	// shift last connection to the current connIndex
 	conns[connIndex] = conns[len(conns)-1]
 	// slice the last connection

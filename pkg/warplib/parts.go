@@ -138,26 +138,12 @@ func (p *Part) download(headers Headers, ioff, foff int64, force bool) (body io.
 
 func (p *Part) copyBuffer(src io.Reader, foff int64, force bool) (slow bool, err error) {
 	var (
-		te  time.Duration
 		buf = make([]byte, p.chunk)
+		n   int
 	)
-	var n int
 	for {
 		n++
-		if !force && n%10 == 0 {
-			te, err = getSpeed(func() error {
-				return p.copyBufferChunk(src, p.pf, buf)
-			})
-			if err != nil {
-				break
-			}
-			if te > p.etime {
-				slow = true
-				return
-			}
-			continue
-		}
-		err = p.copyBufferChunk(src, p.pf, buf)
+		slow, err = p.copyBufferChunkWithTime(src, p.pf, buf, !force && n%10 == 0)
 		if err != nil {
 			break
 		}
@@ -166,8 +152,12 @@ func (p *Part) copyBuffer(src io.Reader, foff int64, force bool) (slow bool, err
 			err = io.EOF
 			break
 		}
-		if lchunk < 1024 {
-			buf = make([]byte, lchunk)
+		if lchunk < p.chunk {
+			if lchunk < 0 {
+				err = errors.New("corrupted")
+				break
+			}
+			buf = make([]byte, lchunk+1)
 		}
 	}
 	// wait for all part progress to be sent via progress handlers
@@ -179,6 +169,23 @@ func (p *Part) copyBuffer(src io.Reader, foff int64, force bool) (slow bool, err
 		p.ofunc(p.hash, p.read)
 	}
 	return
+}
+
+func (p *Part) copyBufferChunkWithTime(src io.Reader, dst io.Writer, buf []byte, timed bool) (slow bool, err error) {
+	if timed {
+		var te time.Duration
+		te, err = getSpeed(func() error {
+			return p.copyBufferChunk(src, p.pf, buf)
+		})
+		if err != nil {
+			return
+		}
+		if te > p.etime {
+			slow = true
+		}
+		return
+	}
+	return false, p.copyBufferChunk(src, dst, buf)
 }
 
 func (p *Part) copyBufferChunk(src io.Reader, dst io.Writer, buf []byte) (err error) {
