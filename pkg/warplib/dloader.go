@@ -305,11 +305,10 @@ func (d *Downloader) openFile() (err error) {
 func (d *Downloader) spawnPart(ioff, foff int64) (part *Part, err error) {
 	part, err = newPart(
 		d.ctx,
-		d.wg,
 		d.client,
 		d.url,
 		partArgs{
-			d.chunk,
+			int64(d.chunk),
 			d.dlPath,
 			d.handlers.ResumeProgressHandler,
 			d.handlers.DownloadProgressHandler,
@@ -334,12 +333,11 @@ func (d *Downloader) spawnPart(ioff, foff int64) (part *Part, err error) {
 func (d *Downloader) initPart(hash string, ioff, foff int64) (part *Part, err error) {
 	part, err = initPart(
 		d.ctx,
-		d.wg,
 		d.client,
 		hash,
 		d.url,
 		partArgs{
-			d.chunk,
+			int64(d.chunk),
 			d.dlPath,
 			d.handlers.ResumeProgressHandler,
 			d.handlers.DownloadProgressHandler,
@@ -373,7 +371,8 @@ func (d *Downloader) resumePartDownload(hash string, ioff, foff, espeed int64) {
 		d.Log("%s: part offset (%d) greater than final offset (%d)", hash, poff, foff)
 		return
 	}
-	err = d.runPart(part, poff, foff, espeed, false)
+	// CHANGE IMPL
+	err = d.runPart(part, poff, foff, espeed, false, nil)
 	d.nread += part.read
 	if err != nil {
 		return
@@ -416,7 +415,8 @@ func (d *Downloader) newPartDownload(ioff, foff, espeed int64) {
 	hash := part.hash
 
 	defer func() { d.numConn--; d.wg.Done() }()
-	err = d.runPart(part, ioff, foff, espeed, false)
+	// CHANGE IMPL
+	err = d.runPart(part, ioff, foff, espeed, false, nil)
 	d.nread += part.read
 	if err != nil {
 		return
@@ -450,25 +450,39 @@ func (d *Downloader) newPartDownload(ioff, foff, espeed int64) {
 	d.Log("%s: remove: %w", hash, err)
 }
 
+// TODO: fix making request again and again for the same part.
+// just stop reading body when the final offset for that part occurs instead of getting the modified content length by making a new request?
+
 // runPart downloads the content starting from ioff till foff bytes
 // offset. espeed stands for expected download speed which, slower
 // download speed than this espeed will result in spawning a new part
 // if a slot is available for it and maximum parts limit is not reached.
-func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool) error {
+func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool, body io.Reader) error {
 	hash := part.hash
-	// set espeed each time the runPart function is called to update
-	// the older espeed present in respawned parts.
-	part.setEpeed(espeed)
 	if !repeated {
+		// set espeed each time the runPart function is called to update
+		// the older espeed present in respawned parts.
+		part.setEpeed(espeed)
 		d.Log("%s: Set part espeed to %s", hash, ContentLength(espeed))
 		d.Log("%s: Started downloading part", hash)
 	}
 
-	// start downloading the content in provided
-	// offset range until part becomes slower than
-	// expected speed.
-	fmt.Println("maxConn", d.maxConn)
-	slow, err := part.download(d.headers, ioff, foff, d.maxConn < 2)
+	var (
+		slow bool
+		err  error
+	)
+
+	force := d.maxConn < 2
+
+	if body == nil {
+		// start downloading the content in provided
+		// offset range until part becomes slower than
+		// expected speed.
+		body, slow, err = part.download(d.headers, ioff, foff, force)
+	} else {
+		slow, err = part.copyBuffer(body, foff, force)
+	}
+
 	if err != nil {
 		d.handlers.ErrorHandler(hash, err)
 		return err
@@ -479,7 +493,7 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 	d.Log("%s: Detected part as running slow", hash)
 
 	// add read bytes to part offset to determine
-	// starting offset for a resplit download.
+	// starting offset for a respawned part.
 	poff := part.offset + part.read
 
 	if d.maxParts != 0 && d.numParts >= d.maxParts {
@@ -487,11 +501,12 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 		// don't spawn new parts and forcefully download
 		// rest of the content in slow part.
 		d.Log("%s: Max part limit reached, continuing slow part...", hash)
-		_, err = part.download(d.headers, poff, foff, true)
+		_, err = part.copyBuffer(body, foff, true)
 		if err != nil {
 			d.handlers.ErrorHandler(hash, err)
-			return err
 		}
+		// return to prevent spawning further parts
+		return err
 	}
 	if d.maxConn != 0 && d.numConn >= d.maxConn {
 		// It waits until a connection is
@@ -499,7 +514,7 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 		// a slot is available.
 		// Part is continued if the speed gets
 		// better before it gets a new slot.
-		return d.runPart(part, poff, foff, espeed, true)
+		return d.runPart(part, poff, foff, espeed, true, body)
 	}
 
 	// divide the pending bytes of current slow
@@ -519,7 +534,7 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 
 	d.Log("%s: part respawned", hash)
 	d.handlers.RespawnPartHandler(hash, part.offset, poff, foff)
-	return d.runPart(part, poff, foff, espeed/2, false)
+	return d.runPart(part, poff, foff, espeed/2, false, body)
 }
 
 func (d *Downloader) Stop() {

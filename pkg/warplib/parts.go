@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -21,7 +20,7 @@ type Part struct {
 	// URL
 	url string
 	// size of a bytes chunk to be used for copying
-	chunk int
+	chunk int64
 	// unique hash for this part
 	hash string
 	// number of bytes downloaded
@@ -43,14 +42,14 @@ type Part struct {
 	// expected speed
 	etime time.Duration
 	// logger
-	l  *log.Logger
-	wg *sync.WaitGroup
+	l   *log.Logger
+	pwg sync.WaitGroup
 	// main download file
 	f *os.File
 }
 
 type partArgs struct {
-	copyChunk int
+	copyChunk int64
 	preName   string
 	rpHandler ResumeProgressHandlerFunc
 	pHandler  DownloadProgressHandlerFunc
@@ -61,7 +60,7 @@ type partArgs struct {
 	f         *os.File
 }
 
-func initPart(ctx context.Context, wg *sync.WaitGroup, client *http.Client, hash, url string, args partArgs) (*Part, error) {
+func initPart(ctx context.Context, client *http.Client, hash, url string, args partArgs) (*Part, error) {
 	p := Part{
 		ctx:     ctx,
 		url:     url,
@@ -74,7 +73,6 @@ func initPart(ctx context.Context, wg *sync.WaitGroup, client *http.Client, hash
 		l:       args.logger,
 		offset:  args.offset,
 		hash:    hash,
-		wg:      wg,
 		f:       args.f,
 	}
 	err := p.openPartFile()
@@ -88,7 +86,7 @@ func initPart(ctx context.Context, wg *sync.WaitGroup, client *http.Client, hash
 	return &p, nil
 }
 
-func newPart(ctx context.Context, wg *sync.WaitGroup, client *http.Client, url string, args partArgs) (*Part, error) {
+func newPart(ctx context.Context, client *http.Client, url string, args partArgs) (*Part, error) {
 	p := Part{
 		ctx:     ctx,
 		url:     url,
@@ -100,7 +98,6 @@ func newPart(ctx context.Context, wg *sync.WaitGroup, client *http.Client, url s
 		cfunc:   args.cpHandler,
 		l:       args.logger,
 		offset:  args.offset,
-		wg:      wg,
 		f:       args.f,
 	}
 	p.setHash()
@@ -108,10 +105,10 @@ func newPart(ctx context.Context, wg *sync.WaitGroup, client *http.Client, url s
 }
 
 func (p *Part) setEpeed(espeed int64) {
-	p.etime = getDownloadTime(espeed, int64(p.chunk))
+	p.etime = getDownloadTime(espeed, p.chunk)
 }
 
-func (p *Part) download(headers Headers, ioff, foff int64, force bool) (slow bool, err error) {
+func (p *Part) download(headers Headers, ioff, foff int64, force bool) (body io.Reader, slow bool, err error) {
 	req, er := http.NewRequestWithContext(p.ctx, http.MethodGet, p.url, nil)
 	if er != nil {
 		err = er
@@ -129,22 +126,27 @@ func (p *Part) download(headers Headers, ioff, foff int64, force bool) (slow boo
 		err = er
 		return
 	}
-	defer resp.Body.Close()
-	return p.copyBuffer(resp.Body, p.pf, force)
+	slow, err = p.copyBuffer(resp.Body, foff, force)
+	// resp.Body.Close() do it only if slow is false
+	if !slow {
+		_ = resp.Body.Close()
+		return
+	}
+	body = resp.Body
+	return
 }
 
-func (p *Part) copyBuffer(src io.Reader, dst io.Writer, force bool) (slow bool, err error) {
+func (p *Part) copyBuffer(src io.Reader, foff int64, force bool) (slow bool, err error) {
 	var (
 		te  time.Duration
 		buf = make([]byte, p.chunk)
 	)
-	fmt.Println("forcing download", force)
 	var n int
 	for {
 		n++
 		if !force && n%10 == 0 {
 			te, err = getSpeed(func() error {
-				return p.copyBufferChunk(src, dst, buf)
+				return p.copyBufferChunk(src, p.pf, buf)
 			})
 			if err != nil {
 				break
@@ -155,19 +157,26 @@ func (p *Part) copyBuffer(src io.Reader, dst io.Writer, force bool) (slow bool, 
 			}
 			continue
 		}
-		err = p.copyBufferChunk(src, dst, buf)
+		err = p.copyBufferChunk(src, p.pf, buf)
 		if err != nil {
 			break
 		}
+		lchunk := foff - p.read
+		if lchunk == 0 {
+			err = io.EOF
+			break
+		}
+		if lchunk < 1024 {
+			buf = make([]byte, lchunk)
+		}
 	}
+	// wait for all part progress to be sent via progress handlers
+	p.pwg.Wait()
+
 	if err == io.EOF {
 		err = nil
 		p.log("%s: part download complete", p.hash)
-		p.wg.Add(1)
-		go func() {
-			p.ofunc(p.hash, p.read)
-			p.wg.Done()
-		}()
+		p.ofunc(p.hash, p.read)
 	}
 	return
 }
@@ -183,10 +192,10 @@ func (p *Part) copyBufferChunk(src io.Reader, dst io.Writer, buf []byte) (err er
 			}
 		}
 		p.read += int64(nw)
-		p.wg.Add(1)
+		p.pwg.Add(1)
 		go func() {
+			defer p.pwg.Done()
 			p.pfunc(p.hash, nw)
-			p.wg.Done()
 		}()
 		if ew != nil {
 			err = ew
@@ -202,7 +211,6 @@ func (p *Part) copyBufferChunk(src io.Reader, dst io.Writer, buf []byte) (err er
 }
 
 func (p *Part) compile() (read, written int64, err error) {
-	wg := &sync.WaitGroup{}
 	// take the reader to origin from end
 	p.pf.Seek(0, 0)
 
@@ -220,10 +228,10 @@ func (p *Part) compile() (read, written int64, err error) {
 				}
 			}
 			written += int64(nw)
-			wg.Add(1)
+			p.pwg.Add(1)
 			go func() {
+				defer p.pwg.Done()
 				p.cfunc(p.hash, nw)
-				wg.Done()
 			}()
 			if ew != nil {
 				err = ew
@@ -242,7 +250,7 @@ func (p *Part) compile() (read, written int64, err error) {
 			break
 		}
 	}
-	wg.Wait()
+	p.pwg.Wait()
 	return
 }
 
