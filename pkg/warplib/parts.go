@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -137,6 +138,7 @@ func (p *Part) copyBuffer(src io.Reader, dst io.Writer, force bool) (slow bool, 
 		te  time.Duration
 		buf = make([]byte, p.chunk)
 	)
+	fmt.Println("forcing download", force)
 	var n int
 	for {
 		n++

@@ -467,7 +467,8 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 	// start downloading the content in provided
 	// offset range until part becomes slower than
 	// expected speed.
-	slow, err := part.download(d.headers, ioff, foff, false)
+	fmt.Println("maxConn", d.maxConn)
+	slow, err := part.download(d.headers, ioff, foff, d.maxConn < 2)
 	if err != nil {
 		d.handlers.ErrorHandler(hash, err)
 		return err
