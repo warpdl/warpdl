@@ -13,6 +13,7 @@ type (
 	CompileProgressHandlerFunc  func(hash string, nread int)
 	CompileSkippedHandlerFunc   func(hash string, tread int64)
 	CompileCompleteHandlerFunc  func(hash string, tread int64)
+	DownloadStoppedHandlerFunc  func()
 )
 
 type Handlers struct {
@@ -26,6 +27,7 @@ type Handlers struct {
 	CompileProgressHandler  CompileProgressHandlerFunc
 	CompileSkippedHandler   CompileSkippedHandlerFunc
 	CompileCompleteHandler  CompileCompleteHandlerFunc
+	DownloadStoppedHandler  DownloadStoppedHandlerFunc
 }
 
 func (h *Handlers) setDefault(l *log.Logger) {
@@ -66,5 +68,8 @@ func (h *Handlers) setDefault(l *log.Logger) {
 			wlog(l, "%s: Error: %s", hash, err.Error())
 			errHandler(hash, err)
 		}
+	}
+	if h.DownloadStoppedHandler == nil {
+		h.DownloadStoppedHandler = func() {}
 	}
 }

@@ -252,7 +252,7 @@ func (d *Downloader) Start() (err error) {
 	d.wg.Wait()
 	if d.stopped {
 		d.Log("Download stopped")
-		// TODO: create a download stopped handler
+		d.handlers.DownloadStoppedHandler()
 		return
 	}
 	if d.contentLength.v() != d.nread {
@@ -463,7 +463,7 @@ func (d *Downloader) newPartDownload(ioff, foff, espeed int64) {
 // offset. espeed stands for expected download speed which, slower
 // download speed than this espeed will result in spawning a new part
 // if a slot is available for it and maximum parts limit is not reached.
-func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool, body io.Reader) error {
+func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool, body io.ReadCloser) error {
 	hash := part.hash
 	if !repeated {
 		// set espeed each time the runPart function is called to update

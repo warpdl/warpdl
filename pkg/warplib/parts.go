@@ -108,7 +108,7 @@ func (p *Part) setEpeed(espeed int64) {
 	p.etime = getDownloadTime(espeed, p.chunk)
 }
 
-func (p *Part) download(headers Headers, ioff, foff int64, force bool) (body io.Reader, slow bool, err error) {
+func (p *Part) download(headers Headers, ioff, foff int64, force bool) (body io.ReadCloser, slow bool, err error) {
 	req, er := http.NewRequestWithContext(p.ctx, http.MethodGet, p.url, nil)
 	if er != nil {
 		err = er
@@ -127,16 +127,11 @@ func (p *Part) download(headers Headers, ioff, foff int64, force bool) (body io.
 		return
 	}
 	slow, err = p.copyBuffer(resp.Body, foff, force)
-	// resp.Body.Close() do it only if slow is false
-	if !slow {
-		_ = resp.Body.Close()
-		return
-	}
 	body = resp.Body
 	return
 }
 
-func (p *Part) copyBuffer(src io.Reader, foff int64, force bool) (slow bool, err error) {
+func (p *Part) copyBuffer(src io.ReadCloser, foff int64, force bool) (slow bool, err error) {
 	var (
 		// number of bytes this part should read
 		tread  = foff - p.offset
@@ -171,7 +166,7 @@ func (p *Part) copyBuffer(src io.Reader, foff int64, force bool) (slow bool, err
 	}
 	// wait for all part progress to be sent via progress handlers
 	p.pwg.Wait()
-
+	_ = src.Close()
 	if err == io.EOF {
 		err = nil
 		p.log("%s: part download complete", p.hash)

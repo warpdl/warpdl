@@ -87,6 +87,15 @@ func (s *Service) downloadHandler(sconn *server.SyncConn, pool *server.Pool, bod
 					s.log.Printf("[%s]: %s", uid, er.Error())
 				}
 			},
+			DownloadStoppedHandler: func() {
+				uid := d.GetHash()
+				er := pool.Broadcast(uid, server.MakeResult(UPDATE_DOWNLOADING, &DownloadingResponse{
+					Action: "download_stopped",
+				}))
+				if er != nil {
+					s.log.Printf("[%s]: %s", uid, er.Error())
+				}
+			},
 			CompileStartHandler: func(hash string) {
 				uid := d.GetHash()
 				er := pool.Broadcast(uid, server.MakeResult(UPDATE_DOWNLOADING, &DownloadingResponse{

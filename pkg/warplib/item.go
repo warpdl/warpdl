@@ -7,28 +7,28 @@ import (
 )
 
 type Item struct {
-	Hash             string
-	Name             string
-	Url              string
-	Headers          Headers
-	DateAdded        time.Time
-	TotalSize        ContentLength
-	Downloaded       ContentLength
-	DownloadLocation string
-	AbsoluteLocation string
-	ChildHash        string
-	Hidden           bool
-	Children         bool
-	Parts            map[int64]*ItemPart
+	Hash             string              `json:"hash"`
+	Name             string              `json:"name"`
+	Url              string              `json:"url"`
+	Headers          Headers             `json:"headers"`
+	DateAdded        time.Time           `json:"date_added"`
+	TotalSize        ContentLength       `json:"total_size"`
+	Downloaded       ContentLength       `json:"downloaded"`
+	DownloadLocation string              `json:"download_location"`
+	AbsoluteLocation string              `json:"absolute_location"`
+	ChildHash        string              `json:"child_hash"`
+	Hidden           bool                `json:"hidden"`
+	Children         bool                `json:"children"`
+	Parts            map[int64]*ItemPart `json:"parts"`
 	mu               *sync.RWMutex
 	dAlloc           *Downloader
 	memPart          map[string]int64
 }
 
 type ItemPart struct {
-	Hash        string
-	FinalOffset int64
-	Compiled    bool
+	Hash        string `json:"hash"`
+	FinalOffset int64  `json:"final_offset"`
+	Compiled    bool   `json:"compiled"`
 }
 
 type ItemsMap map[string]*Item
