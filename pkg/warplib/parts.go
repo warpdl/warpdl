@@ -138,7 +138,16 @@ func (p *Part) download(headers Headers, ioff, foff int64, force bool) (body io.
 
 func (p *Part) copyBuffer(src io.Reader, foff int64, force bool) (slow bool, err error) {
 	var (
-		buf = make([]byte, p.chunk)
+		// number of bytes this part should read
+		tread  = foff - p.offset
+		chunk  = p.chunk
+		lchunk = tread - p.read
+	)
+	if lchunk < chunk {
+		chunk = lchunk
+	}
+	var (
+		buf = make([]byte, chunk)
 		n   int
 	)
 	for {
@@ -147,17 +156,17 @@ func (p *Part) copyBuffer(src io.Reader, foff int64, force bool) (slow bool, err
 		if err != nil {
 			break
 		}
-		lchunk := foff - p.read
+		if slow {
+			return
+		}
+		lchunk = tread - p.read
 		if lchunk == 0 {
+			// fmt.Println(p.hash, ":", "lchunk: ", lchunk)
 			err = io.EOF
 			break
 		}
-		if lchunk < p.chunk {
-			if lchunk < 0 {
-				err = errors.New("corrupted")
-				break
-			}
-			buf = make([]byte, lchunk+1)
+		if lchunk < chunk {
+			buf = make([]byte, lchunk)
 		}
 	}
 	// wait for all part progress to be sent via progress handlers
@@ -166,6 +175,7 @@ func (p *Part) copyBuffer(src io.Reader, foff int64, force bool) (slow bool, err
 	if err == io.EOF {
 		err = nil
 		p.log("%s: part download complete", p.hash)
+		// fmt.Print("[", p.hash, "]: ", "lchunk: ", tread-p.read, " p.read: ", p.read, " ioff: ", p.offset, " foff: ", foff, " p.chunk: ", p.chunk, " n: ", n, "\n")
 		p.ofunc(p.hash, p.read)
 	}
 	return

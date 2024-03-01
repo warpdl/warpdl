@@ -147,6 +147,9 @@ func NewDownloader(client *http.Client, url string, opts *DownloaderOpts) (d *Do
 	if err != nil {
 		return
 	}
+	d.l.Println("GET:", d.url)
+	d.l.Println("CONTENT-LENGTH:", d.contentLength.v(), "(", d.contentLength, ")")
+	d.l.Println("FILE-NAME:", d.fileName)
 	d.handlers.setDefault(d.l)
 	if opts.NumBaseParts != 0 {
 		d.numBaseParts = opts.NumBaseParts
@@ -247,9 +250,14 @@ func (d *Downloader) Start() (err error) {
 		go d.newPartDownload(ioff, foff, 4*MB)
 	}
 	d.wg.Wait()
-	if !d.stopped && d.contentLength.v() != d.nread {
-		d.Log("Download failed | Expected bytes: %d Found bytes: %d", d.contentLength.v(), d.nread)
+	if d.stopped {
+		d.Log("Download stopped")
+		// TODO: create a download stopped handler
 		return
+	}
+	if d.contentLength.v() != d.nread {
+		d.Log("Download might be corrupted | Expected bytes: %d Found bytes: %d", d.contentLength.v(), d.nread)
+		// return
 	}
 	d.handlers.DownloadCompleteHandler(MAIN_HASH, d.contentLength.v())
 	d.Log("All segments downloaded!")
@@ -325,7 +333,7 @@ func (d *Downloader) spawnPart(ioff, foff int64) (part *Part, err error) {
 	// part.offset = ioff
 	d.ohmap.Set(ioff, part.hash)
 	d.numParts++
-	d.Log("%s: Created new part", part.hash)
+	d.Log("%s: created new part | %d => %d", part.hash, ioff, foff)
 	d.handlers.SpawnPartHandler(part.hash, ioff, foff)
 	return
 }
@@ -373,7 +381,7 @@ func (d *Downloader) resumePartDownload(hash string, ioff, foff, espeed int64) {
 	}
 	// CHANGE IMPL
 	err = d.runPart(part, poff, foff, espeed, false, nil)
-	d.nread += part.read
+	d.nread += part.read + 1
 	if err != nil {
 		return
 	}
@@ -417,7 +425,8 @@ func (d *Downloader) newPartDownload(ioff, foff, espeed int64) {
 	defer func() { d.numConn--; d.wg.Done() }()
 	// CHANGE IMPL
 	err = d.runPart(part, ioff, foff, espeed, false, nil)
-	d.nread += part.read
+	// part.read + 1 because the first offset is 0
+	d.nread += part.read + 1
 	if err != nil {
 		return
 	}
@@ -449,9 +458,6 @@ func (d *Downloader) newPartDownload(ioff, foff, espeed int64) {
 	}
 	d.Log("%s: remove: %w", hash, err)
 }
-
-// TODO: fix making request again and again for the same part.
-// just stop reading body when the final offset for that part occurs instead of getting the modified content length by making a new request?
 
 // runPart downloads the content starting from ioff till foff bytes
 // offset. espeed stands for expected download speed which, slower
@@ -490,13 +496,9 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 	if !slow {
 		return nil
 	}
-	d.Log("%s: Detected part as running slow", hash)
-
-	// add read bytes to part offset to determine
-	// starting offset for a respawned part.
-	poff := part.offset + part.read
 
 	if d.maxParts != 0 && d.numParts >= d.maxParts {
+		d.Log("%s: Detected part as running slow", hash)
 		// Max part limit has been reached and hence
 		// don't spawn new parts and forcefully download
 		// rest of the content in slow part.
@@ -508,6 +510,11 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 		// return to prevent spawning further parts
 		return err
 	}
+
+	// add read bytes to part offset to determine
+	// starting offset for a respawned part.
+	poff := part.offset + part.read
+
 	if d.maxConn != 0 && d.numConn >= d.maxConn {
 		// It waits until a connection is
 		// freed and spawns a new part once
@@ -516,6 +523,7 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 		// better before it gets a new slot.
 		return d.runPart(part, poff, foff, espeed, true, body)
 	}
+	d.Log("%s: Detected part as running slow", hash)
 
 	// divide the pending bytes of current slow
 	// part among the current part and a newly
@@ -534,6 +542,7 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 
 	d.Log("%s: part respawned", hash)
 	d.handlers.RespawnPartHandler(hash, part.offset, poff, foff)
+	d.Log("%s: slow | %d | %d => %d", part.hash, part.read, part.offset, foff)
 	return d.runPart(part, poff, foff, espeed/2, false, body)
 }
 
