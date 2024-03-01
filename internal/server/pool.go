@@ -20,6 +20,13 @@ func NewPool(l *log.Logger) *Pool {
 	}
 }
 
+func (p *Pool) HasDownload(uid string) bool {
+	p.mu.RLock()
+	_, ok := p.m[uid]
+	p.mu.RUnlock()
+	return ok
+}
+
 func (p *Pool) AddDownload(uid string, sconn *SyncConn) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
