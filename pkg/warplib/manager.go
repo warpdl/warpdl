@@ -260,7 +260,7 @@ func (m *Manager) ResumeDownload(client *http.Client, hash string, opts *ResumeD
 func (m *Manager) Flush() {
 	// add a write lock to prevent data modification while flushing
 	m.mu.Lock()
-	defer m.mu.RUnlock()
+	defer m.mu.Unlock()
 	for hash, item := range m.items {
 		if item.TotalSize != item.Downloaded && item.dAlloc != nil {
 			continue

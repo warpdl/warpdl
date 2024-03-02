@@ -29,6 +29,7 @@ func NewService(l *log.Logger) (*Service, error) {
 
 func (s *Service) RegisterHandlers(server *server.Server) {
 	server.RegisterHandler(UPDATE_DOWNLOAD, s.downloadHandler)
+	server.RegisterHandler(UPDATE_RESUME, s.resumeHandler)
 	server.RegisterHandler(UPDATE_CONNECT, s.connectHandler)
 	server.RegisterHandler(UPDATE_FLUSH, s.flushHandler)
 	server.RegisterHandler(UPDATE_LIST, s.listHandler)

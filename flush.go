@@ -4,32 +4,26 @@ import (
 	"fmt"
 
 	"github.com/urfave/cli"
-	"github.com/warpdl/warpdl/pkg/warplib"
+	"github.com/warpdl/warpdl/pkg/warpcli"
 )
 
 func flush(ctx *cli.Context) error {
 	if !confirm(command("flush"), forceFlush) {
 		return nil
 	}
-	m, err := warplib.InitManager()
+	client, err := warpcli.NewClient()
 	if err != nil {
-		printRuntimeErr(ctx, "flush", "init_manager", err)
+		printRuntimeErr(ctx, "flush", "new_client", err)
+	}
+	_, err = client.Flush(hashToFlush)
+	if err != nil {
+		printRuntimeErr(ctx, "flush", "flush", err)
 		return nil
 	}
-	defer m.Close()
-	if hashToFlush != "" && hashToFlush != "all" {
-		err = m.FlushOne(hashToFlush)
-		if err != nil {
-			printRuntimeErr(ctx, "flush", "hash", err)
-			return nil
-		}
-		fmt.Println("Flushed that item!")
-		return nil
+	if hashToFlush == "" {
+		fmt.Println("Flushed all download history!")
+	} else {
+		fmt.Printf("Flushed %s\n", hashToFlush)
 	}
-	// err = m.Flush()
-	if err != nil {
-		printRuntimeErr(ctx, "flush", "execute", err)
-	}
-	fmt.Println("Flushed all download history!")
 	return nil
 }

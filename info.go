@@ -3,8 +3,10 @@ package main
 import (
 	"errors"
 	"fmt"
+	"net/http"
 
 	"github.com/urfave/cli"
+	"github.com/warpdl/warpdl/pkg/warpcli"
 	"github.com/warpdl/warpdl/pkg/warplib"
 )
 
@@ -26,7 +28,7 @@ func info(ctx *cli.Context) error {
 		}}
 	}
 	d, err := warplib.NewDownloader(
-		getHTTPClient(),
+		&http.Client{},
 		url,
 		&warplib.DownloaderOpts{
 			Headers:   headers,
@@ -53,26 +55,24 @@ func list(ctx *cli.Context) error {
 	if ctx.Args().First() == "help" {
 		return cli.ShowCommandHelp(ctx, ctx.Command.Name)
 	}
-	m, err := warplib.InitManager()
+	client, err := warpcli.NewClient()
 	if err != nil {
-		printRuntimeErr(ctx, "list", "init_manager", err)
+		printRuntimeErr(ctx, "list", "new_client", err)
 		return nil
 	}
-	defer m.Close()
-	var items []*warplib.Item
-	switch {
-	case showAll, showCompleted && showPending:
-		items = m.GetItems()
-	case showCompleted:
-		items = m.GetCompletedItems()
-	default:
-		items = m.GetIncompleteItems()
+	l, err := client.List(&warpcli.ListOpts{
+		ShowCompleted: showCompleted || showAll,
+		ShowPending:   showPending || showAll,
+	})
+	if err != nil {
+		printRuntimeErr(ctx, "list", "get_list", err)
+		return nil
 	}
 	fback := func() error {
 		fmt.Println("warp: no downloads found")
 		return nil
 	}
-	if len(items) == 0 {
+	if len(l.Items) == 0 {
 		return fback()
 	}
 	txt := "Here are your downloads:"
@@ -80,7 +80,7 @@ func list(ctx *cli.Context) error {
 	txt += "\n|Num|\t         Name         | Unique Hash | Status |"
 	txt += "\n|---|-------------------------|-------------|--------|"
 	var i int
-	for _, item := range items {
+	for _, item := range l.Items {
 		if !showHidden && (item.Hidden || item.Children) {
 			continue
 		}

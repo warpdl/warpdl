@@ -292,9 +292,14 @@ func (d *Downloader) Resume(parts map[int64]*ItemPart) (err error) {
 		go d.resumePartDownload(ip.Hash, ioff, ip.FinalOffset, espeed)
 	}
 	d.wg.Wait()
-	if d.contentLength.v() != d.nread {
-		d.Log("Download failed", "Expected bytes:", d.contentLength, "Found bytes:", d.nread)
+	if d.stopped {
+		d.Log("Download stopped")
+		d.handlers.DownloadStoppedHandler()
 		return
+	}
+	if d.contentLength.v() != d.nread {
+		d.Log("Download might be corrupted | Expected bytes: %d Found bytes: %d", d.contentLength.v(), d.nread)
+		// return
 	}
 	d.handlers.DownloadCompleteHandler(MAIN_HASH, d.contentLength.v())
 	d.Log("All segments downloaded!")

@@ -9,7 +9,7 @@ import (
 const UPDATE_FLUSH = "flush"
 
 type FlushMessage struct {
-	Hash string `json:"hash,omitempty"`
+	DownloadId string `json:"download_id,omitempty"`
 }
 
 func (s *Service) flushHandler(sconn *server.SyncConn, pool *server.Pool, body json.RawMessage) (string, any, error) {
@@ -18,10 +18,10 @@ func (s *Service) flushHandler(sconn *server.SyncConn, pool *server.Pool, body j
 	if err = json.Unmarshal(body, &m); err != nil {
 		return UPDATE_FLUSH, nil, err
 	}
-	if m.Hash == "" {
+	if m.DownloadId == "" {
 		s.manager.Flush()
 	} else {
-		err = s.manager.FlushOne(m.Hash)
+		err = s.manager.FlushOne(m.DownloadId)
 	}
 	return UPDATE_FLUSH, nil, err
 }

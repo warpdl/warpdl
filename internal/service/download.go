@@ -23,7 +23,7 @@ type DownloadMessage struct {
 }
 
 type NewDownloadResponse struct {
-	Uid               string                `json:"uid"`
+	DownloadId        string                `json:"download_id"`
 	FileName          string                `json:"file_name"`
 	SavePath          string                `json:"save_path"`
 	DownloadDirectory string                `json:"download_directory"`
@@ -33,9 +33,10 @@ type NewDownloadResponse struct {
 const UPDATE_DOWNLOADING = "downloading"
 
 type DownloadingResponse struct {
-	Action string `json:"action"`
-	Hash   string `json:"hash"`
-	Value  int64  `json:"value,omitempty"`
+	DownloadId string `json:"download_id"`
+	Action     string `json:"action"`
+	Hash       string `json:"hash"`
+	Value      int64  `json:"value,omitempty"`
 }
 
 func (s *Service) downloadHandler(sconn *server.SyncConn, pool *server.Pool, body json.RawMessage) (string, any, error) {
@@ -68,9 +69,10 @@ func (s *Service) downloadHandler(sconn *server.SyncConn, pool *server.Pool, bod
 			DownloadProgressHandler: func(hash string, nread int) {
 				uid := d.GetHash()
 				er := pool.Broadcast(uid, server.MakeResult(UPDATE_DOWNLOADING, &DownloadingResponse{
-					Action: "download_progress",
-					Value:  int64(nread),
-					Hash:   hash,
+					DownloadId: uid,
+					Action:     "download_progress",
+					Value:      int64(nread),
+					Hash:       hash,
 				}))
 				if er != nil {
 					s.log.Printf("[%s]: %s", uid, er.Error())
@@ -79,9 +81,10 @@ func (s *Service) downloadHandler(sconn *server.SyncConn, pool *server.Pool, bod
 			DownloadCompleteHandler: func(hash string, tread int64) {
 				uid := d.GetHash()
 				er := pool.Broadcast(uid, server.MakeResult(UPDATE_DOWNLOADING, &DownloadingResponse{
-					Action: "download_complete",
-					Value:  tread,
-					Hash:   hash,
+					DownloadId: uid,
+					Action:     "download_complete",
+					Value:      tread,
+					Hash:       hash,
 				}))
 				if er != nil {
 					s.log.Printf("[%s]: %s", uid, er.Error())
@@ -90,7 +93,8 @@ func (s *Service) downloadHandler(sconn *server.SyncConn, pool *server.Pool, bod
 			DownloadStoppedHandler: func() {
 				uid := d.GetHash()
 				er := pool.Broadcast(uid, server.MakeResult(UPDATE_DOWNLOADING, &DownloadingResponse{
-					Action: "download_stopped",
+					DownloadId: uid,
+					Action:     "download_stopped",
 				}))
 				if er != nil {
 					s.log.Printf("[%s]: %s", uid, er.Error())
@@ -99,8 +103,9 @@ func (s *Service) downloadHandler(sconn *server.SyncConn, pool *server.Pool, bod
 			CompileStartHandler: func(hash string) {
 				uid := d.GetHash()
 				er := pool.Broadcast(uid, server.MakeResult(UPDATE_DOWNLOADING, &DownloadingResponse{
-					Action: "compile_start",
-					Hash:   hash,
+					DownloadId: uid,
+					Action:     "compile_start",
+					Hash:       hash,
 				}))
 				if er != nil {
 					s.log.Printf("[%s]: %s", uid, er.Error())
@@ -109,9 +114,10 @@ func (s *Service) downloadHandler(sconn *server.SyncConn, pool *server.Pool, bod
 			CompileProgressHandler: func(hash string, nread int) {
 				uid := d.GetHash()
 				er := pool.Broadcast(uid, server.MakeResult(UPDATE_DOWNLOADING, &DownloadingResponse{
-					Action: "compile_progress",
-					Value:  int64(nread),
-					Hash:   hash,
+					DownloadId: uid,
+					Action:     "compile_progress",
+					Value:      int64(nread),
+					Hash:       hash,
 				}))
 				if er != nil {
 					s.log.Printf("[%s]: %s", uid, er.Error())
@@ -120,9 +126,10 @@ func (s *Service) downloadHandler(sconn *server.SyncConn, pool *server.Pool, bod
 			CompileCompleteHandler: func(hash string, tread int64) {
 				uid := d.GetHash()
 				er := pool.Broadcast(uid, server.MakeResult(UPDATE_DOWNLOADING, &DownloadingResponse{
-					Action: "compile_complete",
-					Value:  tread,
-					Hash:   hash,
+					DownloadId: uid,
+					Action:     "compile_complete",
+					Value:      tread,
+					Hash:       hash,
 				}))
 				if er != nil {
 					s.log.Printf("[%s]: %s", uid, er.Error())
@@ -146,7 +153,7 @@ func (s *Service) downloadHandler(sconn *server.SyncConn, pool *server.Pool, bod
 	go d.Start()
 	return UPDATE_DOWNLOAD, &NewDownloadResponse{
 		ContentLength:     d.GetContentLength(),
-		Uid:               d.GetHash(),
+		DownloadId:        d.GetHash(),
 		FileName:          d.GetFileName(),
 		SavePath:          d.GetSavePath(),
 		DownloadDirectory: d.GetDownloadDirectory(),

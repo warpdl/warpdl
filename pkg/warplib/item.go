@@ -1,6 +1,7 @@
 package warplib
 
 import (
+	"errors"
 	"path/filepath"
 	"sync"
 	"time"
@@ -109,5 +110,15 @@ func (i *Item) GetAbsolutePath() (aPath string) {
 }
 
 func (i *Item) Resume() error {
+	if i.dAlloc == nil {
+		return errors.New("downloader not found")
+	}
 	return i.dAlloc.Resume(i.Parts)
+}
+
+func (i *Item) StopDownload() {
+	if i.dAlloc == nil {
+		return
+	}
+	i.dAlloc.Stop()
 }

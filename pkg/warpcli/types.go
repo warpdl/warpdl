@@ -36,9 +36,39 @@ type DownloadRequest struct {
 }
 
 type DownloadResponse struct {
-	Uid               string                `json:"uid"`
+	DownloadId        string                `json:"download_id"`
 	FileName          string                `json:"file_name"`
 	SavePath          string                `json:"save_path"`
 	DownloadDirectory string                `json:"download_directory"`
 	ContentLength     warplib.ContentLength `json:"content_length"`
+}
+
+type ResumeRequest struct {
+	DownloadId     string          `json:"download_id"`
+	Headers        warplib.Headers `json:"headers,omitempty"`
+	ForceParts     bool            `json:"force_parts,omitempty"`
+	MaxConnections int             `json:"max_connections,omitempty"`
+	MaxSegments    int             `json:"max_segments,omitempty"`
+}
+
+type ResumeResponse struct {
+	ChildHash         string                `json:"child_hash,omitempty"`
+	FileName          string                `json:"file_name"`
+	SavePath          string                `json:"save_path"`
+	DownloadDirectory string                `json:"download_directory"`
+	AbsoluteLocation  string                `json:"absolute_location"`
+	ContentLength     warplib.ContentLength `json:"content_length"`
+}
+
+type ListRequest struct {
+	ShowCompleted bool `json:"show_completed,omitempty"`
+	ShowPending   bool `json:"show_pending,omitempty"`
+}
+
+type ListResponse struct {
+	Items []*warplib.Item `json:"items"`
+}
+
+type FlushRequest struct {
+	DownloadId string `json:"download_id,omitempty"`
 }
