@@ -7,6 +7,8 @@ import (
 	"github.com/warpdl/warpdl/pkg/warplib"
 )
 
+const UPDATE_DOWNLOAD = "download"
+
 type DownloadMessage struct {
 	Url               string          `json:"url"`
 	DownloadDirectory string          `json:"download_directory"`
@@ -19,8 +21,6 @@ type DownloadMessage struct {
 	IsHidden          bool            `json:"is_hidden,omitempty"`
 	IsChildren        bool            `json:"is_children,omitempty"`
 }
-
-const UPDATE_NEW_DOWNLOAD = "new_download"
 
 type NewDownloadResponse struct {
 	Uid               string                `json:"uid"`
@@ -41,7 +41,7 @@ type DownloadingResponse struct {
 func (s *Service) downloadHandler(sconn *server.SyncConn, pool *server.Pool, body json.RawMessage) (string, any, error) {
 	var m DownloadMessage
 	if err := json.Unmarshal(body, &m); err != nil {
-		return UPDATE_NEW_DOWNLOAD, nil, err
+		return UPDATE_DOWNLOAD, nil, err
 	}
 	var (
 		d   *warplib.Downloader
@@ -131,7 +131,7 @@ func (s *Service) downloadHandler(sconn *server.SyncConn, pool *server.Pool, bod
 		},
 	})
 	if err != nil {
-		return UPDATE_NEW_DOWNLOAD, nil, err
+		return UPDATE_DOWNLOAD, nil, err
 	}
 	pool.AddDownload(d.GetHash(), sconn)
 	err = s.manager.AddDownload(d, &warplib.AddDownloadOpts{
@@ -141,10 +141,10 @@ func (s *Service) downloadHandler(sconn *server.SyncConn, pool *server.Pool, bod
 		AbsoluteLocation: d.GetDownloadDirectory(),
 	})
 	if err != nil {
-		return UPDATE_NEW_DOWNLOAD, nil, err
+		return UPDATE_DOWNLOAD, nil, err
 	}
 	go d.Start()
-	return UPDATE_NEW_DOWNLOAD, &NewDownloadResponse{
+	return UPDATE_DOWNLOAD, &NewDownloadResponse{
 		ContentLength:     d.GetContentLength(),
 		Uid:               d.GetHash(),
 		FileName:          d.GetFileName(),

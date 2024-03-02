@@ -14,17 +14,12 @@ type Manager struct {
 	items ItemsMap
 	f     *os.File
 	mu    *sync.RWMutex
-	wg    *sync.WaitGroup
-	// flush-mutex
-	fmu *sync.RWMutex
 }
 
 func InitManager() (m *Manager, err error) {
 	m = &Manager{
 		items: make(ItemsMap),
 		mu:    new(sync.RWMutex),
-		wg:    new(sync.WaitGroup),
-		fmu:   new(sync.RWMutex),
 	}
 	m.f, err = os.OpenFile(
 		__USERDATA_FILE_NAME,
@@ -59,8 +54,6 @@ func (m *Manager) populateMemPart() {
 }
 
 func (m *Manager) AddDownload(d *Downloader, opts *AddDownloadOpts) (err error) {
-	m.fmu.RLock()
-	defer m.fmu.RUnlock()
 	if opts == nil {
 		opts = &AddDownloadOpts{}
 	}
@@ -84,7 +77,6 @@ func (m *Manager) AddDownload(d *Downloader, opts *AddDownloadOpts) (err error) 
 	}
 	// item.dAlloc = d
 	m.UpdateItem(item)
-	m.wg.Add(1)
 	m.patchHandlers(d, item)
 	return
 }
@@ -124,7 +116,6 @@ func (m *Manager) patchHandlers(d *Downloader, item *Item) {
 		if hash != MAIN_HASH {
 			return
 		}
-		defer m.wg.Done()
 		item.Parts = nil
 		item.Downloaded = item.TotalSize
 		m.UpdateItem(item)
@@ -226,8 +217,6 @@ type ResumeDownloadOpts struct {
 }
 
 func (m *Manager) ResumeDownload(client *http.Client, hash string, opts *ResumeDownloadOpts) (item *Item, err error) {
-	m.fmu.RLock()
-	defer m.fmu.RUnlock()
 	if opts == nil {
 		opts = &ResumeDownloadOpts{}
 	}
@@ -262,31 +251,37 @@ func (m *Manager) ResumeDownload(client *http.Client, hash string, opts *ResumeD
 		err = er
 		return
 	}
-	m.wg.Add(1)
 	m.patchHandlers(d, item)
 	item.dAlloc = d
 	// m.UpdateItem(item)
 	return
 }
 
-func (m *Manager) Flush() error {
-	m.wg.Wait()
-	m.fmu.Lock()
-	defer m.fmu.Unlock()
-	m.items = make(ItemsMap)
-	m.encode(m.items)
-	return os.RemoveAll(DlDataDir)
+func (m *Manager) Flush() {
+	// add a write lock to prevent data modification while flushing
+	m.mu.Lock()
+	defer m.mu.RUnlock()
+	for hash, item := range m.items {
+		if item.TotalSize != item.Downloaded && item.dAlloc != nil {
+			continue
+		}
+		delete(m.items, hash)
+		_ = os.RemoveAll(GetPath(DlDataDir, hash))
+	}
+	m.f.Seek(0, 0)
+	gob.NewEncoder(m.f).Encode(m.items)
 }
 
 // TODO: make FlushOne safe for flushing while the item is being downloaded
 func (m *Manager) FlushOne(hash string) error {
-	m.fmu.RLock()
-	defer m.fmu.RUnlock()
 	m.mu.RLock()
-	_, found := m.items[hash]
+	item, found := m.items[hash]
 	m.mu.RUnlock()
 	if !found {
 		return ErrFlushHashNotFound
+	}
+	if item.TotalSize != item.Downloaded && item.dAlloc != nil {
+		return ErrFlushItemDownloading
 	}
 	m.deleteItem(hash)
 	m.encode(m.items)

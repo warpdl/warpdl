@@ -26,7 +26,7 @@ func flush(ctx *cli.Context) error {
 		fmt.Println("Flushed that item!")
 		return nil
 	}
-	err = m.Flush()
+	// err = m.Flush()
 	if err != nil {
 		printRuntimeErr(ctx, "flush", "execute", err)
 	}

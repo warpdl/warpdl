@@ -9,5 +9,6 @@ var (
 
 	ErrDownloadNotFound = errors.New("Item you are trying to download is not found")
 
-	ErrFlushHashNotFound = errors.New("Item you are trying to flush is not found")
+	ErrFlushHashNotFound    = errors.New("Item you are trying to flush is not found")
+	ErrFlushItemDownloading = errors.New("Item you are trying to flush is currently downloading")
 )

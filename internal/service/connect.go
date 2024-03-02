@@ -13,10 +13,6 @@ type ConnectMessage struct {
 
 const UPDATE_CONNECT = "connect"
 
-type ConnectResponse struct {
-	Connected bool `json:"connected"`
-}
-
 func (s *Service) connectHandler(sconn *server.SyncConn, pool *server.Pool, body json.RawMessage) (string, any, error) {
 	var m ConnectMessage
 	if err := json.Unmarshal(body, &m); err != nil {
@@ -29,7 +25,5 @@ func (s *Service) connectHandler(sconn *server.SyncConn, pool *server.Pool, body
 		return UPDATE_CONNECT, nil, errors.New("download not running")
 	}
 	pool.AddDownload(m.DownloadId, sconn)
-	return UPDATE_CONNECT, &ConnectResponse{
-		Connected: true,
-	}, nil
+	return UPDATE_CONNECT, nil, nil
 }

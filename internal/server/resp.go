@@ -10,7 +10,7 @@ type Response struct {
 
 type Update struct {
 	Type    string `json:"type"`
-	Message any    `json:"message"`
+	Message any    `json:"message,omitempty"`
 }
 
 func MakeResult(utype string, res any) []byte {
