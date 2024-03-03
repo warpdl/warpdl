@@ -22,12 +22,13 @@ type DownloadMessage struct {
 	IsChildren        bool            `json:"is_children,omitempty"`
 }
 
-type NewDownloadResponse struct {
+type DownloadResponse struct {
 	DownloadId        string                `json:"download_id"`
 	FileName          string                `json:"file_name"`
 	SavePath          string                `json:"save_path"`
 	DownloadDirectory string                `json:"download_directory"`
 	ContentLength     warplib.ContentLength `json:"content_length"`
+	Downloaded        warplib.ContentLength `json:"downloaded,omitempty"`
 }
 
 const UPDATE_DOWNLOADING = "downloading"
@@ -151,7 +152,7 @@ func (s *Service) downloadHandler(sconn *server.SyncConn, pool *server.Pool, bod
 		return UPDATE_DOWNLOAD, nil, err
 	}
 	go d.Start()
-	return UPDATE_DOWNLOAD, &NewDownloadResponse{
+	return UPDATE_DOWNLOAD, &DownloadResponse{
 		ContentLength:     d.GetContentLength(),
 		DownloadId:        d.GetHash(),
 		FileName:          d.GetFileName(),

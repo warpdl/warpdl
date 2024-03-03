@@ -76,3 +76,11 @@ func (c *Client) Flush(downloadId string) (bool, error) {
 	_, err := c.invoke("flush", &FlushRequest{DownloadId: downloadId})
 	return err == nil, err
 }
+
+type AttachRequest struct {
+	DownloadId string `json:"download_id"`
+}
+
+func (c *Client) AttachDownload(downloadId string) (*DownloadResponse, error) {
+	return invoke[DownloadResponse](c, "attach", &AttachRequest{DownloadId: downloadId})
+}

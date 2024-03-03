@@ -178,6 +178,10 @@ func main() {
 				},
 			},
 			{
+				Name:   "attach",
+				Action: attach,
+			},
+			{
 				Name:                   "download",
 				Aliases:                []string{"d"},
 				Usage:                  "fastly download a file ",

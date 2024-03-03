@@ -39,14 +39,11 @@ func (p *Pool) StopDownload(uid string) {
 	delete(p.m, uid)
 }
 
-func (p *Pool) AddConnections(uid string, conns []*SyncConn) {
+func (p *Pool) AddConnection(uid string, sconn *SyncConn) {
 	p.mu.RLock()
 	_conns := p.m[uid]
 	p.mu.RUnlock()
-	if _conns == nil {
-		_conns = []*SyncConn{}
-	}
-	_conns = append(_conns, conns...)
+	_conns = append(_conns, sconn)
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.m[uid] = _conns

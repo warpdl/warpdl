@@ -41,6 +41,7 @@ type DownloadResponse struct {
 	SavePath          string                `json:"save_path"`
 	DownloadDirectory string                `json:"download_directory"`
 	ContentLength     warplib.ContentLength `json:"content_length"`
+	Downloaded        warplib.ContentLength `json:"downloaded,omitempty"`
 }
 
 type ResumeRequest struct {

@@ -286,6 +286,7 @@ func (d *Downloader) Resume(parts map[int64]*ItemPart) (err error) {
 	for ioff, ip := range parts {
 		if ip.Compiled {
 			d.handlers.CompileSkippedHandler(ip.Hash, ip.FinalOffset-ioff)
+			d.nread += ip.FinalOffset - ioff
 			continue
 		}
 		d.wg.Add(1)
@@ -301,6 +302,7 @@ func (d *Downloader) Resume(parts map[int64]*ItemPart) (err error) {
 		d.Log("Download might be corrupted | Expected bytes: %d Found bytes: %d", d.contentLength.v(), d.nread)
 		// return
 	}
+	fmt.Println("d compl")
 	d.handlers.DownloadCompleteHandler(MAIN_HASH, d.contentLength.v())
 	d.Log("All segments downloaded!")
 	return
@@ -373,12 +375,12 @@ func (d *Downloader) initPart(hash string, ioff, foff int64) (part *Part, err er
 
 func (d *Downloader) resumePartDownload(hash string, ioff, foff, espeed int64) {
 	d.numConn++
+	defer func() { d.numConn--; d.wg.Done() }()
 	part, err := d.initPart(hash, ioff, foff)
 	if err != nil {
-		d.Log("%s: init: %w", hash, err)
+		d.Log("%s: init: %s", hash, err.Error())
 		return
 	}
-	defer func() { d.numConn--; d.wg.Done() }()
 	poff := part.offset + part.read
 	if poff >= foff {
 		d.Log("%s: part offset (%d) greater than final offset (%d)", hash, poff, foff)
