@@ -1,12 +1,12 @@
 package server
 
 import (
-	"fmt"
 	"log"
 	"sync"
 )
 
 type Pool struct {
+	l  *log.Logger
 	mu *sync.RWMutex
 	m  map[string][]*SyncConn
 	e  map[string]*Error
@@ -14,6 +14,7 @@ type Pool struct {
 
 func NewPool(l *log.Logger) *Pool {
 	return &Pool{
+		l:  l,
 		mu: &sync.RWMutex{},
 		m:  make(map[string][]*SyncConn),
 		e:  make(map[string]*Error),
@@ -49,25 +50,29 @@ func (p *Pool) AddConnection(uid string, sconn *SyncConn) {
 	p.m[uid] = _conns
 }
 
-func (p *Pool) Broadcast(uid string, data []byte) error {
+func (p *Pool) writeBroadcastedMessage(uid string, i int, sconn *SyncConn, head []byte, data []byte) {
+	sconn.wmu.Lock()
+	_, err := sconn.Conn.Write(head)
+	if err != nil {
+		p.removeConn(uid, i)
+		return
+	}
+	_, err = sconn.Conn.Write(data)
+	if err != nil {
+		p.removeConn(uid, i)
+		return
+	}
+	sconn.wmu.Unlock()
+}
+
+func (p *Pool) Broadcast(uid string, data []byte) {
 	head := intToBytes(uint32(len(data)))
 	p.mu.RLock()
-	defer p.mu.RUnlock()
-	for i, sconn := range p.m[uid] {
-		sconn.wmu.Lock()
-		_, err := sconn.Conn.Write(head)
-		if err != nil {
-			p.removeConn(uid, i)
-			return fmt.Errorf("error writing: %s", err.Error())
-		}
-		_, err = sconn.Conn.Write(data)
-		if err != nil {
-			p.removeConn(uid, i)
-			return fmt.Errorf("error writing: %s", err.Error())
-		}
-		sconn.wmu.Unlock()
+	sconns := p.m[uid]
+	p.mu.RUnlock()
+	for i, sconn := range sconns {
+		p.writeBroadcastedMessage(uid, i, sconn, head, data)
 	}
-	return nil
 }
 
 func (p *Pool) WriteError(uid string, errType ErrorType, errMessage string) {

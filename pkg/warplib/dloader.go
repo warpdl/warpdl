@@ -302,7 +302,6 @@ func (d *Downloader) Resume(parts map[int64]*ItemPart) (err error) {
 		d.Log("Download might be corrupted | Expected bytes: %d Found bytes: %d", d.contentLength.v(), d.nread)
 		// return
 	}
-	fmt.Println("d compl")
 	d.handlers.DownloadCompleteHandler(MAIN_HASH, d.contentLength.v())
 	d.Log("All segments downloaded!")
 	return

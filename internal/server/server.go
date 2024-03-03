@@ -49,9 +49,9 @@ func (s *Server) Start() error {
 }
 
 func (s *Server) handleConnection(conn net.Conn) {
+	sconn := NewSyncConn(conn)
 	defer conn.Close()
 	for {
-		sconn := NewSyncConn(conn)
 		buf, err := sconn.Read()
 		if err != nil {
 			s.log.Println("Error reading:", err.Error())
