@@ -73,3 +73,10 @@ type ListResponse struct {
 type FlushRequest struct {
 	DownloadId string `json:"download_id,omitempty"`
 }
+
+type DownloadingResponse struct {
+	DownloadId string `json:"download_id"`
+	Action     string `json:"action"`
+	Hash       string `json:"hash"`
+	Value      int64  `json:"value,omitempty"`
+}
