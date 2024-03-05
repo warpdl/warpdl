@@ -32,6 +32,7 @@ func (s *Service) RegisterHandlers(server *server.Server) {
 	server.RegisterHandler(UPDATE_RESUME, s.resumeHandler)
 	server.RegisterHandler(UPDATE_ATTACH, s.attachHandler)
 	server.RegisterHandler(UPDATE_FLUSH, s.flushHandler)
+	server.RegisterHandler(UPDATE_STOP, s.stopHandler)
 	server.RegisterHandler(UPDATE_LIST, s.listHandler)
 }
 
