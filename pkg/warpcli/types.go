@@ -74,6 +74,14 @@ type FlushRequest struct {
 	DownloadId string `json:"download_id,omitempty"`
 }
 
+type AttachRequest struct {
+	DownloadId string `json:"download_id"`
+}
+
+type StopRequest struct {
+	DownloadId string `json:"download_id"`
+}
+
 type DownloadingResponse struct {
 	DownloadId string `json:"download_id"`
 	Action     string `json:"action"`

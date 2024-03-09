@@ -178,6 +178,10 @@ func main() {
 				},
 			},
 			{
+				Name:   "stop",
+				Action: stop,
+			},
+			{
 				Name:   "attach",
 				Action: attach,
 			},

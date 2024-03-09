@@ -116,9 +116,10 @@ func (i *Item) Resume() error {
 	return i.dAlloc.Resume(i.Parts)
 }
 
-func (i *Item) StopDownload() {
+func (i *Item) StopDownload() error {
 	if i.dAlloc == nil {
-		return
+		return errors.New("downloader not found")
 	}
 	i.dAlloc.Stop()
+	return nil
 }

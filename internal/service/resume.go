@@ -26,7 +26,7 @@ type ResumeResponse struct {
 	ContentLength     warplib.ContentLength `json:"content_length"`
 }
 
-func getHandler(s *Service, pool *server.Pool, uidPtr *string, stopDownloadPtr *func()) *warplib.Handlers {
+func getHandler(s *Service, pool *server.Pool, uidPtr *string, stopDownloadPtr *func() error) *warplib.Handlers {
 	return &warplib.Handlers{
 		ErrorHandler: func(_ string, err error) {
 			uid := *uidPtr
@@ -105,7 +105,7 @@ func resumeItem(i *warplib.Item) error {
 	return i.Resume()
 }
 
-var __stop = func() {}
+var __stop = func() error { return nil }
 
 func (s *Service) resumeHandler(sconn *server.SyncConn, pool *server.Pool, body json.RawMessage) (string, any, error) {
 	var m ResumeMessage
@@ -133,9 +133,7 @@ func (s *Service) resumeHandler(sconn *server.SyncConn, pool *server.Pool, body 
 	*stopDownload = item.StopDownload
 	var cItem *warplib.Item
 	if item.ChildHash != "" {
-		var (
-			cStopDownload *func() = &__stop
-		)
+		var cStopDownload = &__stop
 		cItem, err = s.manager.ResumeDownload(s.client, item.ChildHash, &warplib.ResumeDownloadOpts{
 			Headers:        m.Headers,
 			ForceParts:     m.ForceParts,

@@ -77,10 +77,11 @@ func (c *Client) Flush(downloadId string) (bool, error) {
 	return err == nil, err
 }
 
-type AttachRequest struct {
-	DownloadId string `json:"download_id"`
-}
-
 func (c *Client) AttachDownload(downloadId string) (*DownloadResponse, error) {
 	return invoke[DownloadResponse](c, "attach", &AttachRequest{DownloadId: downloadId})
+}
+
+func (c *Client) StopDownload(downloadId string) (bool, error) {
+	_, err := c.invoke("stop", &StopRequest{DownloadId: downloadId})
+	return err == nil, err
 }

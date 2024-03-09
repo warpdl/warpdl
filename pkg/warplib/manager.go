@@ -75,7 +75,7 @@ func (m *Manager) AddDownload(d *Downloader, opts *AddDownloadOpts) (err error) 
 	if err != nil {
 		return err
 	}
-	// item.dAlloc = d
+	item.dAlloc = d
 	m.UpdateItem(item)
 	m.patchHandlers(d, item)
 	return
@@ -199,8 +199,12 @@ func (m *Manager) GetItem(hash string) (item *Item) {
 	if item == nil {
 		return
 	}
-	item.memPart = make(map[string]int64)
-	item.mu = m.mu
+	if item.memPart == nil {
+		item.memPart = make(map[string]int64)
+	}
+	if item.mu == nil {
+		item.mu = m.mu
+	}
 	return
 }
 
