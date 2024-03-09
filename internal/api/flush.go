@@ -12,7 +12,7 @@ type FlushMessage struct {
 	DownloadId string `json:"download_id,omitempty"`
 }
 
-func (s *Service) flushHandler(sconn *server.SyncConn, pool *server.Pool, body json.RawMessage) (string, any, error) {
+func (s *Api) flushHandler(sconn *server.SyncConn, pool *server.Pool, body json.RawMessage) (string, any, error) {
 	var m FlushMessage
 	var err error
 	if err = json.Unmarshal(body, &m); err != nil {

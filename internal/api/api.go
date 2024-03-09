@@ -8,26 +8,26 @@ import (
 	"github.com/warpdl/warpdl/pkg/warplib"
 )
 
-type Service struct {
+type Api struct {
 	log     *log.Logger
 	manager *warplib.Manager
 	client  *http.Client
 }
 
-func NewService(l *log.Logger) (*Service, error) {
+func NewApi(l *log.Logger) (*Api, error) {
 	m, err := warplib.InitManager()
 	if err != nil {
 		return nil, err
 	}
 	client := &http.Client{}
-	return &Service{
+	return &Api{
 		log:     l,
 		manager: m,
 		client:  client,
 	}, nil
 }
 
-func (s *Service) RegisterHandlers(server *server.Server) {
+func (s *Api) RegisterHandlers(server *server.Server) {
 	server.RegisterHandler(UPDATE_DOWNLOAD, s.downloadHandler)
 	server.RegisterHandler(UPDATE_RESUME, s.resumeHandler)
 	server.RegisterHandler(UPDATE_ATTACH, s.attachHandler)
@@ -36,6 +36,6 @@ func (s *Service) RegisterHandlers(server *server.Server) {
 	server.RegisterHandler(UPDATE_LIST, s.listHandler)
 }
 
-func (s *Service) Close() error {
+func (s *Api) Close() error {
 	return s.manager.Close()
 }

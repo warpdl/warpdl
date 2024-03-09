@@ -10,8 +10,8 @@ import (
 	"github.com/urfave/cli"
 	"github.com/vbauerster/mpb/v8"
 	"github.com/vbauerster/mpb/v8/decor"
+	api "github.com/warpdl/warpdl/internal/api"
 	"github.com/warpdl/warpdl/internal/server"
-	"github.com/warpdl/warpdl/internal/service"
 )
 
 func initBars(p *mpb.Progress, prefix string, cLength int64) (dbar *mpb.Bar, cbar *mpb.Bar) {
@@ -168,7 +168,7 @@ func Execute(args []string) error {
 			{
 				Name: "daemon",
 				Action: func(ctx *cli.Context) error {
-					s, err := service.NewService(log.Default())
+					s, err := api.NewApi(log.Default())
 					if err != nil {
 						panic(err)
 					}

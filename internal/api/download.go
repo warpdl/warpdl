@@ -40,7 +40,7 @@ type DownloadingResponse struct {
 	Value      int64  `json:"value,omitempty"`
 }
 
-func (s *Service) downloadHandler(sconn *server.SyncConn, pool *server.Pool, body json.RawMessage) (string, any, error) {
+func (s *Api) downloadHandler(sconn *server.SyncConn, pool *server.Pool, body json.RawMessage) (string, any, error) {
 	var m DownloadMessage
 	if err := json.Unmarshal(body, &m); err != nil {
 		return UPDATE_DOWNLOAD, nil, err

@@ -18,7 +18,7 @@ type ListResponse struct {
 	Items []*warplib.Item `json:"items"`
 }
 
-func (s *Service) listHandler(sconn *server.SyncConn, pool *server.Pool, body json.RawMessage) (string, any, error) {
+func (s *Api) listHandler(sconn *server.SyncConn, pool *server.Pool, body json.RawMessage) (string, any, error) {
 	var m ListMessage
 	if err := json.Unmarshal(body, &m); err != nil {
 		return UPDATE_LIST, nil, err

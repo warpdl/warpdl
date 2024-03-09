@@ -11,7 +11,7 @@ type AttachMessage InputDownloadId
 
 const UPDATE_ATTACH = "attach"
 
-func (s *Service) attachHandler(sconn *server.SyncConn, pool *server.Pool, body json.RawMessage) (string, any, error) {
+func (s *Api) attachHandler(sconn *server.SyncConn, pool *server.Pool, body json.RawMessage) (string, any, error) {
 	var m AttachMessage
 	if err := json.Unmarshal(body, &m); err != nil {
 		return UPDATE_ATTACH, nil, err

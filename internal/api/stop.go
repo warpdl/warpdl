@@ -11,7 +11,7 @@ const UPDATE_STOP = "stop"
 
 type StopMessage InputDownloadId
 
-func (s *Service) stopHandler(sconn *server.SyncConn, pool *server.Pool, body json.RawMessage) (string, any, error) {
+func (s *Api) stopHandler(sconn *server.SyncConn, pool *server.Pool, body json.RawMessage) (string, any, error) {
 	var m StopMessage
 	var err error
 	if err = json.Unmarshal(body, &m); err != nil {
