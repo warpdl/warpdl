@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/warpdl/warpdl/common"
 	"github.com/warpdl/warpdl/internal/server"
 	"github.com/warpdl/warpdl/pkg/warplib"
 )
@@ -28,12 +29,12 @@ func NewApi(l *log.Logger) (*Api, error) {
 }
 
 func (s *Api) RegisterHandlers(server *server.Server) {
-	server.RegisterHandler(UPDATE_DOWNLOAD, s.downloadHandler)
-	server.RegisterHandler(UPDATE_RESUME, s.resumeHandler)
-	server.RegisterHandler(UPDATE_ATTACH, s.attachHandler)
-	server.RegisterHandler(UPDATE_FLUSH, s.flushHandler)
-	server.RegisterHandler(UPDATE_STOP, s.stopHandler)
-	server.RegisterHandler(UPDATE_LIST, s.listHandler)
+	server.RegisterHandler(common.UPDATE_DOWNLOAD, s.downloadHandler)
+	server.RegisterHandler(common.UPDATE_RESUME, s.resumeHandler)
+	server.RegisterHandler(common.UPDATE_ATTACH, s.attachHandler)
+	server.RegisterHandler(common.UPDATE_FLUSH, s.flushHandler)
+	server.RegisterHandler(common.UPDATE_STOP, s.stopHandler)
+	server.RegisterHandler(common.UPDATE_LIST, s.listHandler)
 }
 
 func (s *Api) Close() error {

@@ -3,47 +3,15 @@ package service
 import (
 	"encoding/json"
 
+	"github.com/warpdl/warpdl/common"
 	"github.com/warpdl/warpdl/internal/server"
 	"github.com/warpdl/warpdl/pkg/warplib"
 )
 
-const UPDATE_DOWNLOAD = "download"
-
-type DownloadMessage struct {
-	Url               string          `json:"url"`
-	DownloadDirectory string          `json:"download_directory"`
-	FileName          string          `json:"file_name"`
-	Headers           warplib.Headers `json:"headers,omitempty"`
-	ForceParts        bool            `json:"force_parts,omitempty"`
-	MaxConnections    int             `json:"max_connections,omitempty"`
-	MaxSegments       int             `json:"max_segments,omitempty"`
-	ChildHash         string          `json:"child_hash,omitempty"`
-	IsHidden          bool            `json:"is_hidden,omitempty"`
-	IsChildren        bool            `json:"is_children,omitempty"`
-}
-
-type DownloadResponse struct {
-	DownloadId        string                `json:"download_id"`
-	FileName          string                `json:"file_name"`
-	SavePath          string                `json:"save_path"`
-	DownloadDirectory string                `json:"download_directory"`
-	ContentLength     warplib.ContentLength `json:"content_length"`
-	Downloaded        warplib.ContentLength `json:"downloaded,omitempty"`
-}
-
-const UPDATE_DOWNLOADING = "downloading"
-
-type DownloadingResponse struct {
-	DownloadId string `json:"download_id"`
-	Action     string `json:"action"`
-	Hash       string `json:"hash"`
-	Value      int64  `json:"value,omitempty"`
-}
-
 func (s *Api) downloadHandler(sconn *server.SyncConn, pool *server.Pool, body json.RawMessage) (string, any, error) {
-	var m DownloadMessage
+	var m common.DownloadParams
 	if err := json.Unmarshal(body, &m); err != nil {
-		return UPDATE_DOWNLOAD, nil, err
+		return common.UPDATE_DOWNLOAD, nil, err
 	}
 	var (
 		d   *warplib.Downloader
@@ -66,7 +34,7 @@ func (s *Api) downloadHandler(sconn *server.SyncConn, pool *server.Pool, body js
 			},
 			DownloadProgressHandler: func(hash string, nread int) {
 				uid := d.GetHash()
-				pool.Broadcast(uid, server.MakeResult(UPDATE_DOWNLOADING, &DownloadingResponse{
+				pool.Broadcast(uid, server.MakeResult(common.UPDATE_DOWNLOADING, &common.DownloadingResponse{
 					DownloadId: uid,
 					Action:     "download_progress",
 					Value:      int64(nread),
@@ -75,7 +43,7 @@ func (s *Api) downloadHandler(sconn *server.SyncConn, pool *server.Pool, body js
 			},
 			DownloadCompleteHandler: func(hash string, tread int64) {
 				uid := d.GetHash()
-				pool.Broadcast(uid, server.MakeResult(UPDATE_DOWNLOADING, &DownloadingResponse{
+				pool.Broadcast(uid, server.MakeResult(common.UPDATE_DOWNLOADING, &common.DownloadingResponse{
 					DownloadId: uid,
 					Action:     "download_complete",
 					Value:      tread,
@@ -84,14 +52,14 @@ func (s *Api) downloadHandler(sconn *server.SyncConn, pool *server.Pool, body js
 			},
 			DownloadStoppedHandler: func() {
 				uid := d.GetHash()
-				pool.Broadcast(uid, server.MakeResult(UPDATE_DOWNLOADING, &DownloadingResponse{
+				pool.Broadcast(uid, server.MakeResult(common.UPDATE_DOWNLOADING, &common.DownloadingResponse{
 					DownloadId: uid,
 					Action:     "download_stopped",
 				}))
 			},
 			CompileStartHandler: func(hash string) {
 				uid := d.GetHash()
-				pool.Broadcast(uid, server.MakeResult(UPDATE_DOWNLOADING, &DownloadingResponse{
+				pool.Broadcast(uid, server.MakeResult(common.UPDATE_DOWNLOADING, &common.DownloadingResponse{
 					DownloadId: uid,
 					Action:     "compile_start",
 					Hash:       hash,
@@ -99,7 +67,7 @@ func (s *Api) downloadHandler(sconn *server.SyncConn, pool *server.Pool, body js
 			},
 			CompileProgressHandler: func(hash string, nread int) {
 				uid := d.GetHash()
-				pool.Broadcast(uid, server.MakeResult(UPDATE_DOWNLOADING, &DownloadingResponse{
+				pool.Broadcast(uid, server.MakeResult(common.UPDATE_DOWNLOADING, &common.DownloadingResponse{
 					DownloadId: uid,
 					Action:     "compile_progress",
 					Value:      int64(nread),
@@ -108,7 +76,7 @@ func (s *Api) downloadHandler(sconn *server.SyncConn, pool *server.Pool, body js
 			},
 			CompileCompleteHandler: func(hash string, tread int64) {
 				uid := d.GetHash()
-				pool.Broadcast(uid, server.MakeResult(UPDATE_DOWNLOADING, &DownloadingResponse{
+				pool.Broadcast(uid, server.MakeResult(common.UPDATE_DOWNLOADING, &common.DownloadingResponse{
 					DownloadId: uid,
 					Action:     "compile_complete",
 					Value:      tread,
@@ -118,7 +86,7 @@ func (s *Api) downloadHandler(sconn *server.SyncConn, pool *server.Pool, body js
 		},
 	})
 	if err != nil {
-		return UPDATE_DOWNLOAD, nil, err
+		return common.UPDATE_DOWNLOAD, nil, err
 	}
 	pool.AddDownload(d.GetHash(), sconn)
 	err = s.manager.AddDownload(d, &warplib.AddDownloadOpts{
@@ -128,10 +96,11 @@ func (s *Api) downloadHandler(sconn *server.SyncConn, pool *server.Pool, body js
 		AbsoluteLocation: d.GetDownloadDirectory(),
 	})
 	if err != nil {
-		return UPDATE_DOWNLOAD, nil, err
+		return common.UPDATE_DOWNLOAD, nil, err
 	}
+	// todo: handle download start error
 	go d.Start()
-	return UPDATE_DOWNLOAD, &DownloadResponse{
+	return common.UPDATE_DOWNLOAD, &common.DownloadResponse{
 		ContentLength:     d.GetContentLength(),
 		DownloadId:        d.GetHash(),
 		FileName:          d.GetFileName(),

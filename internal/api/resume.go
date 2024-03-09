@@ -3,28 +3,10 @@ package service
 import (
 	"encoding/json"
 
+	"github.com/warpdl/warpdl/common"
 	"github.com/warpdl/warpdl/internal/server"
 	"github.com/warpdl/warpdl/pkg/warplib"
 )
-
-const UPDATE_RESUME = "resume"
-
-type ResumeMessage struct {
-	DownloadId     string          `json:"download_id"`
-	Headers        warplib.Headers `json:"headers,omitempty"`
-	ForceParts     bool            `json:"force_parts,omitempty"`
-	MaxConnections int             `json:"max_connections,omitempty"`
-	MaxSegments    int             `json:"max_segments,omitempty"`
-}
-
-type ResumeResponse struct {
-	ChildHash         string                `json:"child_hash,omitempty"`
-	FileName          string                `json:"file_name"`
-	SavePath          string                `json:"save_path"`
-	DownloadDirectory string                `json:"download_directory"`
-	AbsoluteLocation  string                `json:"absolute_location"`
-	ContentLength     warplib.ContentLength `json:"content_length"`
-}
 
 func getHandler(s *Api, pool *server.Pool, uidPtr *string, stopDownloadPtr *func() error) *warplib.Handlers {
 	return &warplib.Handlers{
@@ -37,7 +19,7 @@ func getHandler(s *Api, pool *server.Pool, uidPtr *string, stopDownloadPtr *func
 		},
 		ResumeProgressHandler: func(hash string, nread int) {
 			uid := *uidPtr
-			pool.Broadcast(uid, server.MakeResult(UPDATE_DOWNLOADING, &DownloadingResponse{
+			pool.Broadcast(uid, server.MakeResult(common.UPDATE_DOWNLOADING, &common.DownloadingResponse{
 				DownloadId: uid,
 				Action:     "resume_progress",
 				Value:      int64(nread),
@@ -46,7 +28,7 @@ func getHandler(s *Api, pool *server.Pool, uidPtr *string, stopDownloadPtr *func
 		},
 		DownloadProgressHandler: func(hash string, nread int) {
 			uid := *uidPtr
-			pool.Broadcast(uid, server.MakeResult(UPDATE_DOWNLOADING, &DownloadingResponse{
+			pool.Broadcast(uid, server.MakeResult(common.UPDATE_DOWNLOADING, &common.DownloadingResponse{
 				DownloadId: uid,
 				Action:     "download_progress",
 				Value:      int64(nread),
@@ -55,7 +37,7 @@ func getHandler(s *Api, pool *server.Pool, uidPtr *string, stopDownloadPtr *func
 		},
 		DownloadCompleteHandler: func(hash string, tread int64) {
 			uid := *uidPtr
-			pool.Broadcast(uid, server.MakeResult(UPDATE_DOWNLOADING, &DownloadingResponse{
+			pool.Broadcast(uid, server.MakeResult(common.UPDATE_DOWNLOADING, &common.DownloadingResponse{
 				DownloadId: uid,
 				Action:     "download_complete",
 				Value:      tread,
@@ -64,14 +46,14 @@ func getHandler(s *Api, pool *server.Pool, uidPtr *string, stopDownloadPtr *func
 		},
 		DownloadStoppedHandler: func() {
 			uid := *uidPtr
-			pool.Broadcast(uid, server.MakeResult(UPDATE_DOWNLOADING, &DownloadingResponse{
+			pool.Broadcast(uid, server.MakeResult(common.UPDATE_DOWNLOADING, &common.DownloadingResponse{
 				DownloadId: uid,
 				Action:     "download_stopped",
 			}))
 		},
 		CompileStartHandler: func(hash string) {
 			uid := *uidPtr
-			pool.Broadcast(uid, server.MakeResult(UPDATE_DOWNLOADING, &DownloadingResponse{
+			pool.Broadcast(uid, server.MakeResult(common.UPDATE_DOWNLOADING, &common.DownloadingResponse{
 				DownloadId: uid,
 				Action:     "compile_start",
 				Hash:       hash,
@@ -79,7 +61,7 @@ func getHandler(s *Api, pool *server.Pool, uidPtr *string, stopDownloadPtr *func
 		},
 		CompileProgressHandler: func(hash string, nread int) {
 			uid := *uidPtr
-			pool.Broadcast(uid, server.MakeResult(UPDATE_DOWNLOADING, &DownloadingResponse{
+			pool.Broadcast(uid, server.MakeResult(common.UPDATE_DOWNLOADING, &common.DownloadingResponse{
 				DownloadId: uid,
 				Action:     "compile_progress",
 				Value:      int64(nread),
@@ -88,7 +70,7 @@ func getHandler(s *Api, pool *server.Pool, uidPtr *string, stopDownloadPtr *func
 		},
 		CompileCompleteHandler: func(hash string, tread int64) {
 			uid := *uidPtr
-			pool.Broadcast(uid, server.MakeResult(UPDATE_DOWNLOADING, &DownloadingResponse{
+			pool.Broadcast(uid, server.MakeResult(common.UPDATE_DOWNLOADING, &common.DownloadingResponse{
 				DownloadId: uid,
 				Action:     "compile_complete",
 				Value:      tread,
@@ -108,9 +90,9 @@ func resumeItem(i *warplib.Item) error {
 var __stop = func() error { return nil }
 
 func (s *Api) resumeHandler(sconn *server.SyncConn, pool *server.Pool, body json.RawMessage) (string, any, error) {
-	var m ResumeMessage
+	var m common.ResumeParams
 	if err := json.Unmarshal(body, &m); err != nil {
-		return UPDATE_RESUME, nil, err
+		return common.UPDATE_RESUME, nil, err
 	}
 	var (
 		err          error
@@ -126,7 +108,7 @@ func (s *Api) resumeHandler(sconn *server.SyncConn, pool *server.Pool, body json
 		Handlers:       getHandler(s, pool, hash, stopDownload),
 	})
 	if err != nil {
-		return UPDATE_RESUME, nil, err
+		return common.UPDATE_RESUME, nil, err
 	}
 	pool.AddDownload(m.DownloadId, sconn)
 	*hash = item.Hash
@@ -142,7 +124,7 @@ func (s *Api) resumeHandler(sconn *server.SyncConn, pool *server.Pool, body json
 			Handlers:       getHandler(s, pool, &item.ChildHash, cStopDownload),
 		})
 		if err != nil {
-			return UPDATE_RESUME, nil, err
+			return common.UPDATE_RESUME, nil, err
 		}
 		pool.AddDownload(item.ChildHash, sconn)
 		*cStopDownload = cItem.StopDownload
@@ -153,7 +135,7 @@ func (s *Api) resumeHandler(sconn *server.SyncConn, pool *server.Pool, body json
 	if cItem != nil {
 		go resumeItem(cItem)
 	}
-	return UPDATE_DOWNLOAD, &ResumeResponse{
+	return common.UPDATE_RESUME, &common.ResumeResponse{
 		ChildHash:         item.ChildHash,
 		ContentLength:     item.TotalSize,
 		FileName:          item.Name,

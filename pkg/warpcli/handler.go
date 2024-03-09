@@ -1,12 +1,16 @@
 package warpcli
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"github.com/warpdl/warpdl/common"
+)
 
 type Handler interface {
 	Handle(json.RawMessage) error
 }
 
-func NewDownloadingHandler(action string, callback func(*DownloadingResponse) error) *DownloadingHandler {
+func NewDownloadingHandler(action string, callback func(*common.DownloadingResponse) error) *DownloadingHandler {
 	return &DownloadingHandler{
 		Action:   action,
 		Callback: callback,
@@ -15,11 +19,11 @@ func NewDownloadingHandler(action string, callback func(*DownloadingResponse) er
 
 type DownloadingHandler struct {
 	Action   string
-	Callback func(*DownloadingResponse) error
+	Callback func(*common.DownloadingResponse) error
 }
 
 func (h *DownloadingHandler) Handle(m json.RawMessage) error {
-	var v DownloadingResponse
+	var v common.DownloadingResponse
 	err := json.Unmarshal(m, &v)
 	if err != nil {
 		return err

@@ -3,25 +3,15 @@ package service
 import (
 	"encoding/json"
 
+	"github.com/warpdl/warpdl/common"
 	"github.com/warpdl/warpdl/internal/server"
 	"github.com/warpdl/warpdl/pkg/warplib"
 )
 
-const UPDATE_LIST = "list"
-
-type ListMessage struct {
-	ShowCompleted bool `json:"show_completed"`
-	ShowPending   bool `json:"show_pending"`
-}
-
-type ListResponse struct {
-	Items []*warplib.Item `json:"items"`
-}
-
 func (s *Api) listHandler(sconn *server.SyncConn, pool *server.Pool, body json.RawMessage) (string, any, error) {
-	var m ListMessage
+	var m common.ListParams
 	if err := json.Unmarshal(body, &m); err != nil {
-		return UPDATE_LIST, nil, err
+		return common.UPDATE_LIST, nil, err
 	}
 	var items []*warplib.Item
 	switch {
@@ -32,7 +22,7 @@ func (s *Api) listHandler(sconn *server.SyncConn, pool *server.Pool, body json.R
 	default:
 		items = s.manager.GetIncompleteItems()
 	}
-	return UPDATE_LIST, &ListResponse{
+	return common.UPDATE_LIST, &common.ListResponse{
 		Items: items,
 	}, nil
 }

@@ -3,6 +3,7 @@ package warpcli
 import (
 	"encoding/json"
 
+	"github.com/warpdl/warpdl/common"
 	"github.com/warpdl/warpdl/pkg/warplib"
 )
 
@@ -25,11 +26,11 @@ type DownloadOpts struct {
 	IsChildren     bool            `json:"is_children,omitempty"`
 }
 
-func (c *Client) Download(url, fileName, downloadDirectory string, opts *DownloadOpts) (*DownloadResponse, error) {
+func (c *Client) Download(url, fileName, downloadDirectory string, opts *DownloadOpts) (*common.DownloadResponse, error) {
 	if opts == nil {
 		opts = &DownloadOpts{}
 	}
-	return invoke[DownloadResponse](c, "download", &DownloadRequest{
+	return invoke[common.DownloadResponse](c, "download", &common.DownloadParams{
 		Url:               url,
 		DownloadDirectory: downloadDirectory,
 		FileName:          fileName,
@@ -50,11 +51,11 @@ type ResumeOpts struct {
 	MaxSegments    int             `json:"max_segments,omitempty"`
 }
 
-func (c *Client) Resume(downloadId string, opts *ResumeOpts) (*ResumeResponse, error) {
+func (c *Client) Resume(downloadId string, opts *ResumeOpts) (*common.ResumeResponse, error) {
 	if opts == nil {
 		opts = &ResumeOpts{}
 	}
-	return invoke[ResumeResponse](c, "resume", &ResumeRequest{
+	return invoke[common.ResumeResponse](c, "resume", &common.ResumeParams{
 		DownloadId:     downloadId,
 		Headers:        opts.Headers,
 		ForceParts:     opts.ForceParts,
@@ -63,25 +64,25 @@ func (c *Client) Resume(downloadId string, opts *ResumeOpts) (*ResumeResponse, e
 	})
 }
 
-type ListOpts ListRequest
+type ListOpts common.ListParams
 
-func (c *Client) List(opts *ListOpts) (*ListResponse, error) {
+func (c *Client) List(opts *ListOpts) (*common.ListResponse, error) {
 	if opts == nil {
 		opts = &ListOpts{false, true}
 	}
-	return invoke[ListResponse](c, "list", opts)
+	return invoke[common.ListResponse](c, "list", opts)
 }
 
 func (c *Client) Flush(downloadId string) (bool, error) {
-	_, err := c.invoke("flush", &FlushRequest{DownloadId: downloadId})
+	_, err := c.invoke("flush", &common.FlushParams{DownloadId: downloadId})
 	return err == nil, err
 }
 
-func (c *Client) AttachDownload(downloadId string) (*DownloadResponse, error) {
-	return invoke[DownloadResponse](c, "attach", &AttachRequest{DownloadId: downloadId})
+func (c *Client) AttachDownload(downloadId string) (*common.DownloadResponse, error) {
+	return invoke[common.DownloadResponse](c, "attach", &common.InputDownloadId{DownloadId: downloadId})
 }
 
 func (c *Client) StopDownload(downloadId string) (bool, error) {
-	_, err := c.invoke("stop", &StopRequest{DownloadId: downloadId})
+	_, err := c.invoke("stop", &common.InputDownloadId{DownloadId: downloadId})
 	return err == nil, err
 }
