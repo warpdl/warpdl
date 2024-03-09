@@ -146,7 +146,7 @@ func usageErrorCallback(ctx *cli.Context, err error, _ bool) error {
 
 func Execute(args []string) error {
 	app := cli.App{
-		Name:                  "Warp",
+		Name:                  "WarpDL",
 		HelpName:              "warpdl",
 		Usage:                 "An ultra fast download manager.",
 		Version:               fmt.Sprintf("%s-%s", version, BuildType),

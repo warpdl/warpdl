@@ -16,8 +16,8 @@ var (
 )
 
 const DESCRIPTION = `
-Warp is a powerful and versatile cross-platform download manager. 
-With its advanced technology, Warp has the ability to accelerate
+WarpDL is a powerful and versatile cross-platform download manager. 
+With its advanced technology, it has the ability to accelerate
 your download speeds by up to 10 times, revolutionizing the way
 you obtain files on any operating system.
 `
