@@ -3,6 +3,7 @@ package warplib
 import "errors"
 
 var (
+	ErrFileNameNotFound            = errors.New("file name can't be empty")
 	ErrContentLengthInvalid        = errors.New("content length is invalid")
 	ErrContentLengthNotImplemented = errors.New("unknown size downloads not implemented yet")
 	ErrNotSupported                = errors.New("file you're trying to download is not supported yet")

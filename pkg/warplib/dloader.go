@@ -621,12 +621,16 @@ func (d *Downloader) setContentLength(cl int64) error {
 	}
 }
 
-func (d *Downloader) setFileName(r *http.Request, h *http.Header) {
+func (d *Downloader) setFileName(r *http.Request, h *http.Header) error {
 	if d.fileName != "" {
-		return
+		return nil
 	}
 	cd := h.Get("Content-Disposition")
 	d.fileName = parseFileName(r, cd)
+	if d.fileName != "" {
+		return nil
+	}
+	return ErrFileNameNotFound
 }
 
 func (d *Downloader) setHash() {
@@ -688,7 +692,10 @@ func (d *Downloader) fetchInfo() (err error) {
 	if err != nil {
 		return
 	}
-	d.setFileName(resp.Request, &h)
+	err = d.setFileName(resp.Request, &h)
+	if err != nil {
+		return
+	}
 	return d.prepareDownloader()
 }
 
