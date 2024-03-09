@@ -1,4 +1,4 @@
-package main
+package cmd
 
 import (
 	"fmt"
@@ -144,7 +144,7 @@ func usageErrorCallback(ctx *cli.Context, err error, _ bool) error {
 	return printErrWithHelp(ctx, err)
 }
 
-func main() {
+func Execute(args []string) error {
 	app := cli.App{
 		Name:                  "Warp",
 		HelpName:              "warp",
@@ -250,8 +250,5 @@ func main() {
 		HideHelp:               true,
 		HideVersion:            true,
 	}
-	err := app.Run(os.Args)
-	if err != nil {
-		fmt.Printf("warp: %s\n", err.Error())
-	}
+	return app.Run(args)
 }
