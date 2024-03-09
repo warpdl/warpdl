@@ -7,9 +7,7 @@ import (
 	"github.com/warpdl/warpdl/internal/server"
 )
 
-type AttachMessage struct {
-	DownloadId string `json:"download_id"`
-}
+type AttachMessage InputDownloadId
 
 const UPDATE_ATTACH = "attach"
 

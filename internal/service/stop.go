@@ -9,9 +9,7 @@ import (
 
 const UPDATE_STOP = "stop"
 
-type StopMessage struct {
-	DownloadId string `json:"download_id"`
-}
+type StopMessage InputDownloadId
 
 func (s *Service) stopHandler(sconn *server.SyncConn, pool *server.Pool, body json.RawMessage) (string, any, error) {
 	var m StopMessage
