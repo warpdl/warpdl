@@ -7,8 +7,6 @@
 *.dll
 *.so
 *.dylib
-warpdl
-warp
 dist/
 
 # Test binary, built with `go test -c`
@@ -26,3 +24,11 @@ go.work
 dltest/
 
 bin/
+
+warp
+
+warpdl
+!cmd/warpdl
+
+warpd
+!cmd/warpd
