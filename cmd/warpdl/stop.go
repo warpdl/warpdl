@@ -24,10 +24,11 @@ func stop(ctx *cli.Context) (err error) {
 	client, err := warpcli.NewClient()
 	if err != nil {
 		printRuntimeErr(ctx, "stop", "new_client", err)
+		return nil
 	}
 	_, err = client.StopDownload(hash)
 	if err != nil {
-		printRuntimeErr(ctx, "stop", "client-attach", err)
+		printRuntimeErr(ctx, "stop", "stop-download", err)
 		return nil
 	}
 	fmt.Println("Downloading stopped.")

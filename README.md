@@ -56,8 +56,9 @@ You will need the following things for building warpdl binary:
   1. Run the following command in the repo directory of warpdl:
       ```go mod tidy```
   
-  2. Build the binary using standard go build command:
-      ```go build -ldflags="-s -w"```
+  2. Build the daemon and cli using standard go build command:
+      ```go build -ldflags="-s -w" ./cmd/warpd```
+      ```go build -ldflags="-s -w" ./cmd/warpdl```
   
   3. Add the binary to `PATH` environment variable.
 

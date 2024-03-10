@@ -2,12 +2,9 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"os"
 
 	"github.com/urfave/cli"
-	api "github.com/warpdl/warpdl/internal/api"
-	"github.com/warpdl/warpdl/internal/server"
 )
 
 func Execute(args []string) error {
@@ -30,18 +27,6 @@ func Execute(args []string) error {
 				CustomHelpTemplate: CMD_HELP_TEMPL,
 				Description:        InfoDescription,
 				Flags:              infoFlags,
-			},
-			{
-				Name: "daemon",
-				Action: func(ctx *cli.Context) error {
-					s, err := api.NewApi(log.Default())
-					if err != nil {
-						panic(err)
-					}
-					serv := server.NewServer(log.Default())
-					s.RegisterHandlers(serv)
-					return serv.Start()
-				},
 			},
 			{
 				Name:   "stop",
