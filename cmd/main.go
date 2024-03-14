@@ -1,8 +1,7 @@
-package main
+package cmd
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/urfave/cli"
 )
@@ -18,6 +17,10 @@ func Execute(args []string) error {
 		CustomAppHelpTemplate: HELP_TEMPL,
 		OnUsageError:          usageErrorCallback,
 		Commands: []cli.Command{
+			{
+				Name:   "daemon",
+				Action: daemon,
+			},
 			{
 				Name:               "info",
 				Aliases:            []string{"i"},
@@ -102,12 +105,4 @@ func Execute(args []string) error {
 		HideVersion:            true,
 	}
 	return app.Run(args)
-}
-
-func main() {
-	err := Execute(os.Args)
-	if err != nil {
-		fmt.Printf("warpdl: %s\n", err.Error())
-		os.Exit(1)
-	}
 }

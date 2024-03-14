@@ -1,4 +1,4 @@
-package main
+package cmd
 
 func init() {
 	rsFlags = append(rsFlags, infoFlags...)

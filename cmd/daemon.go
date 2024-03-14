@@ -1,25 +1,19 @@
-package main
+package cmd
 
 import (
-	"fmt"
 	"log"
-	"os"
 
+	"github.com/urfave/cli"
 	"github.com/warpdl/warpdl/internal/api"
 	"github.com/warpdl/warpdl/internal/server"
 )
 
-func main() {
+func daemon(ctx *cli.Context) error {
 	s, err := api.NewApi(log.Default())
 	if err != nil {
-		fmt.Println("warpd:", err.Error())
-		os.Exit(1)
+		printRuntimeErr(ctx, "daemon", "new_api", err)
 	}
 	serv := server.NewServer(log.Default())
 	s.RegisterHandlers(serv)
-	err = serv.Start()
-	if err != nil {
-		fmt.Println("warpd:", err.Error())
-		os.Exit(1)
-	}
+	return serv.Start()
 }
