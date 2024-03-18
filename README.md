@@ -14,6 +14,8 @@
     .
     <a href="https://github.com/warpdl/warpdl/issues">Request Feature</a>
   </p>
+  <p><b>Note</b>: WarpDL v1 will only be getting bugs patch updates from now on till the release of v2. Help us build WarpDL v2 faster by contributing to <a href="https://github.com/warpdl/warpdl/tree/dev">dev branch</a>.
+  </p>
 </p>
 
 [![CI](https://github.com/warpdl/warpdl/actions/workflows/ci.yml/badge.svg)](https://github.com/warpdl/warpdl/actions/workflows/ci.yml) [![Release](https://github.com/warpdl/warpdl/actions/workflows/release.yml/badge.svg)](https://github.com/warpdl/warpdl/actions/workflows/release.yml) ![Downloads](https://img.shields.io/github/downloads/warpdl/warp-releases/total) ![Contributors](https://img.shields.io/github/contributors/warpdl/warpdl?color=dark-green) ![Issues](https://img.shields.io/github/issues/warpdl/warpdl) ![License](https://img.shields.io/github/license/warpdl/warpdl) 
