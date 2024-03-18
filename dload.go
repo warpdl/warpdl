@@ -57,6 +57,8 @@ func download(ctx *cli.Context) (err error) {
 		}
 		url = vInfo.VideoUrl
 		fileName = vInfo.VideoFName
+	} else {
+		fmt.Println(er)
 	}
 	var (
 		dbar, cbar *mpb.Bar
