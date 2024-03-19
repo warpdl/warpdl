@@ -27,8 +27,6 @@ jobs:
         - arm64
     steps:
       - uses: docker/setup-qemu-action@v2
-      - name: Set up git
-        run: git config --global url."https://celestix:${GITHUB_TOKEN}@github.com".insteadOf "https://github.com"
       - name: Checkout
         uses: actions/checkout@v4
       - name: Build snaps
