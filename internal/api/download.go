@@ -14,10 +14,14 @@ func (s *Api) downloadHandler(sconn *server.SyncConn, pool *server.Pool, body js
 		return common.UPDATE_DOWNLOAD, nil, err
 	}
 	var (
-		d   *warplib.Downloader
-		err error
+		d *warplib.Downloader
 	)
-	d, err = warplib.NewDownloader(s.client, m.Url, &warplib.DownloaderOpts{
+	url, err := s.elEngine.Extract(m.Url)
+	if err != nil {
+		s.log.Printf("failed to extract URL from extension: %s\n", err.Error())
+		url = m.Url
+	}
+	d, err = warplib.NewDownloader(s.client, url, &warplib.DownloaderOpts{
 		Headers:           m.Headers,
 		ForceParts:        m.ForceParts,
 		FileName:          m.FileName,

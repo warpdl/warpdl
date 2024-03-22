@@ -84,7 +84,10 @@ func (e *Engine) Extract(url string) (string, error) {
 			}
 		}
 	}
-	return url, ErrNoMatchFound
+	// not able to find out any actual usecase of this error
+	// so commenting out for now.
+	// return url, ErrNoMatchFound
+	return url, nil
 }
 
 func (e *Engine) Save() error {

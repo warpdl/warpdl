@@ -32,12 +32,16 @@ func NewApi(l *log.Logger, elEngine *extloader.Engine) (*Api, error) {
 }
 
 func (s *Api) RegisterHandlers(server *server.Server) {
+	// downloader API methods
 	server.RegisterHandler(common.UPDATE_DOWNLOAD, s.downloadHandler)
 	server.RegisterHandler(common.UPDATE_RESUME, s.resumeHandler)
 	server.RegisterHandler(common.UPDATE_ATTACH, s.attachHandler)
 	server.RegisterHandler(common.UPDATE_FLUSH, s.flushHandler)
 	server.RegisterHandler(common.UPDATE_STOP, s.stopHandler)
 	server.RegisterHandler(common.UPDATE_LIST, s.listHandler)
+
+	// extension API methods
+	server.RegisterHandler(common.UPDATE_LOAD_EXT, s.loadExtHandler)
 }
 
 func (s *Api) Close() error {
