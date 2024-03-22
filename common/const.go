@@ -8,4 +8,5 @@ const (
 	UPDATE_FLUSH       = "flush"
 	UPDATE_STOP        = "stop"
 	UPDATE_LIST        = "list"
+	UPDATE_LOAD_EXT    = "load_extension"
 )

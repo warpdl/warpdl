@@ -1,6 +1,8 @@
 package common
 
-import "github.com/warpdl/warpdl/pkg/warplib"
+import (
+	"github.com/warpdl/warpdl/pkg/warplib"
+)
 
 type InputDownloadId struct {
 	DownloadId string `json:"download_id"`
@@ -63,4 +65,16 @@ type ListParams struct {
 
 type ListResponse struct {
 	Items []*warplib.Item `json:"items"`
+}
+
+type LoadExtensionParams struct {
+	Path string `json:"path"`
+}
+
+type ExtensionInfo struct {
+	ExtensionId string   `json:"extension_id"`
+	Name        string   `json:"name"`
+	Version     string   `json:"version"`
+	Description string   `json:"description"`
+	Matches     []string `json:"matches"`
 }
