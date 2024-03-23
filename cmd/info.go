@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/urfave/cli"
+	"github.com/warpdl/warpdl/cmd/common"
 	"github.com/warpdl/warpdl/pkg/warplib"
 )
 
@@ -24,7 +25,7 @@ var (
 func info(ctx *cli.Context) error {
 	url := ctx.Args().First()
 	if url == "" {
-		return printErrWithCmdHelp(
+		return common.PrintErrWithCmdHelp(
 			ctx,
 			errors.New("no url provided"),
 		)
@@ -47,7 +48,7 @@ func info(ctx *cli.Context) error {
 		},
 	)
 	if err != nil {
-		printRuntimeErr(ctx, "info", "new_downloader", err)
+		common.PrintRuntimeErr(ctx, "info", "new_downloader", err)
 		return nil
 	}
 	fName := d.GetFileName()

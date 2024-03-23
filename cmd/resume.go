@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/urfave/cli"
+	"github.com/warpdl/warpdl/cmd/common"
 	"github.com/warpdl/warpdl/pkg/warpcli"
 	"github.com/warpdl/warpdl/pkg/warplib"
 )
@@ -48,9 +49,9 @@ func resume(ctx *cli.Context) (err error) {
 	hash := ctx.Args().First()
 	if hash == "" {
 		if ctx.Command.Name == "" {
-			return help(ctx)
+			return common.Help(ctx)
 		}
-		return printErrWithCmdHelp(
+		return common.PrintErrWithCmdHelp(
 			ctx,
 			errors.New("no hash provided"),
 		)
@@ -65,7 +66,7 @@ func resume(ctx *cli.Context) (err error) {
 	}
 	client, err := warpcli.NewClient()
 	if err != nil {
-		printRuntimeErr(ctx, "resume", "new_client", err)
+		common.PrintRuntimeErr(ctx, "resume", "new_client", err)
 		return
 	}
 	fmt.Println(">> Initiating a WARP download << ")
@@ -76,7 +77,7 @@ func resume(ctx *cli.Context) (err error) {
 		Headers:        headers,
 	})
 	if err != nil {
-		printRuntimeErr(ctx, "resume", "client-resume", err)
+		common.PrintRuntimeErr(ctx, "resume", "client-resume", err)
 		return nil
 	}
 

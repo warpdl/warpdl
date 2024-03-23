@@ -4,6 +4,7 @@ import (
 	"log"
 
 	"github.com/urfave/cli"
+	"github.com/warpdl/warpdl/cmd/common"
 	"github.com/warpdl/warpdl/internal/api"
 	"github.com/warpdl/warpdl/internal/extloader"
 	"github.com/warpdl/warpdl/internal/server"
@@ -25,12 +26,12 @@ func daemon(ctx *cli.Context) error {
 	l := log.Default()
 	elEng, err := extloader.NewEngine(l)
 	if err != nil {
-		printRuntimeErr(ctx, "daemon", "extloader_engine", err)
+		common.PrintRuntimeErr(ctx, "daemon", "extloader_engine", err)
 	}
 	defer elEng.Close()
 	s, err := api.NewApi(l, elEng)
 	if err != nil {
-		printRuntimeErr(ctx, "daemon", "new_api", err)
+		common.PrintRuntimeErr(ctx, "daemon", "new_api", err)
 	}
 	serv := server.NewServer(l)
 	s.RegisterHandlers(serv)

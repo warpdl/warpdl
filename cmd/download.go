@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/urfave/cli"
+	"github.com/warpdl/warpdl/cmd/common"
 	"github.com/warpdl/warpdl/pkg/warpcli"
 	"github.com/warpdl/warpdl/pkg/warplib"
 )
@@ -33,9 +34,9 @@ func download(ctx *cli.Context) (err error) {
 	url := ctx.Args().First()
 	if url == "" {
 		if ctx.Command.Name == "" {
-			return help(ctx)
+			return common.Help(ctx)
 		}
-		return printErrWithCmdHelp(
+		return common.PrintErrWithCmdHelp(
 			ctx,
 			errors.New("no url provided"),
 		)
@@ -44,7 +45,7 @@ func download(ctx *cli.Context) (err error) {
 	}
 	client, err := warpcli.NewClient()
 	if err != nil {
-		printRuntimeErr(ctx, "info", "new_client", err)
+		common.PrintRuntimeErr(ctx, "download", "new_client", err)
 		return
 	}
 	fmt.Println(">> Initiating a WARP download << ")
@@ -63,7 +64,7 @@ func download(ctx *cli.Context) (err error) {
 		Headers:        headers,
 	})
 	if err != nil {
-		printRuntimeErr(ctx, "info", "download", err)
+		common.PrintRuntimeErr(ctx, "info", "download", err)
 		return nil
 	}
 	txt := fmt.Sprintf(`

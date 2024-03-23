@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/urfave/cli"
+	"github.com/warpdl/warpdl/cmd/common"
 	"github.com/warpdl/warpdl/pkg/warpcli"
 )
 
@@ -12,9 +13,9 @@ func attach(ctx *cli.Context) (err error) {
 	hash := ctx.Args().First()
 	if hash == "" {
 		if ctx.Command.Name == "" {
-			return help(ctx)
+			return common.Help(ctx)
 		}
-		return printErrWithCmdHelp(
+		return common.PrintErrWithCmdHelp(
 			ctx,
 			errors.New("no hash provided"),
 		)
@@ -23,12 +24,12 @@ func attach(ctx *cli.Context) (err error) {
 	}
 	client, err := warpcli.NewClient()
 	if err != nil {
-		printRuntimeErr(ctx, "attach", "new_client", err)
+		common.PrintRuntimeErr(ctx, "attach", "new_client", err)
 	}
 	fmt.Println(">> Initiating a WARP download << ")
 	d, err := client.AttachDownload(hash)
 	if err != nil {
-		printRuntimeErr(ctx, "attach", "client-attach", err)
+		common.PrintRuntimeErr(ctx, "attach", "client-attach", err)
 		return nil
 	}
 	txt := fmt.Sprintf(`

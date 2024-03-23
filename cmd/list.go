@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/urfave/cli"
+	"github.com/warpdl/warpdl/cmd/common"
 	"github.com/warpdl/warpdl/pkg/warpcli"
 )
 
@@ -43,7 +44,7 @@ func list(ctx *cli.Context) error {
 	}
 	client, err := warpcli.NewClient()
 	if err != nil {
-		printRuntimeErr(ctx, "list", "new_client", err)
+		common.PrintRuntimeErr(ctx, "list", "new_client", err)
 		return nil
 	}
 	l, err := client.List(&warpcli.ListOpts{
@@ -51,7 +52,7 @@ func list(ctx *cli.Context) error {
 		ShowPending:   showPending || showAll,
 	})
 	if err != nil {
-		printRuntimeErr(ctx, "list", "get_list", err)
+		common.PrintRuntimeErr(ctx, "list", "get_list", err)
 		return nil
 	}
 	fback := func() error {

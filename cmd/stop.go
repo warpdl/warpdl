@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/urfave/cli"
+	"github.com/warpdl/warpdl/cmd/common"
 	"github.com/warpdl/warpdl/pkg/warpcli"
 )
 
@@ -12,9 +13,9 @@ func stop(ctx *cli.Context) (err error) {
 	hash := ctx.Args().First()
 	if hash == "" {
 		if ctx.Command.Name == "" {
-			return help(ctx)
+			return common.Help(ctx)
 		}
-		return printErrWithCmdHelp(
+		return common.PrintErrWithCmdHelp(
 			ctx,
 			errors.New("no hash provided"),
 		)
@@ -23,12 +24,12 @@ func stop(ctx *cli.Context) (err error) {
 	}
 	client, err := warpcli.NewClient()
 	if err != nil {
-		printRuntimeErr(ctx, "stop", "new_client", err)
+		common.PrintRuntimeErr(ctx, "stop", "new_client", err)
 		return nil
 	}
 	_, err = client.StopDownload(hash)
 	if err != nil {
-		printRuntimeErr(ctx, "stop", "stop-download", err)
+		common.PrintRuntimeErr(ctx, "stop", "stop-download", err)
 		return nil
 	}
 	fmt.Println("Downloading stopped.")

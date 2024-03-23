@@ -1,9 +1,8 @@
-package cmd
+package common
 
 import (
 	"fmt"
 	"os"
-	"runtime"
 	"strings"
 
 	"github.com/urfave/cli"
@@ -11,7 +10,9 @@ import (
 	"github.com/vbauerster/mpb/v8/decor"
 )
 
-func initBars(p *mpb.Progress, prefix string, cLength int64) (dbar *mpb.Bar, cbar *mpb.Bar) {
+var VersionCmdStr string
+
+func InitBars(p *mpb.Progress, prefix string, cLength int64) (dbar *mpb.Bar, cbar *mpb.Bar) {
 	barStyle := mpb.BarStyle().Lbound("╢").Filler("█").Tip("█").Padding("░").Rbound("╟")
 
 	name := prefix + "Downloading"
@@ -50,7 +51,7 @@ func initBars(p *mpb.Progress, prefix string, cLength int64) (dbar *mpb.Bar, cba
 	return
 }
 
-func help(ctx *cli.Context) error {
+func Help(ctx *cli.Context) error {
 	arg := ctx.Args().First()
 	if arg == "" || arg == "help" {
 		fmt.Printf("%s %s\n", ctx.App.Name, ctx.App.Version)
@@ -61,26 +62,19 @@ func help(ctx *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	err = printErrWithHelp(ctx, err)
+	err = PrintErrWithHelp(ctx, err)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func getVersion(ctx *cli.Context) error {
-	fmt.Printf(
-		"%s %s (%s_%s)\nBuild: %s=%s\n",
-		ctx.App.Name,
-		ctx.App.Version,
-		runtime.GOOS,
-		runtime.GOARCH,
-		date, commit,
-	)
+func GetVersion(ctx *cli.Context) error {
+	fmt.Println(VersionCmdStr)
 	return nil
 }
 
-func printRuntimeErr(ctx *cli.Context, cmd, action string, err error) {
+func PrintRuntimeErr(ctx *cli.Context, cmd, action string, err error) {
 	if err == nil {
 		fmt.Println("err is nil", "[", cmd, "|", action, "]")
 		return
@@ -94,7 +88,7 @@ func printRuntimeErr(ctx *cli.Context, cmd, action string, err error) {
 	fmt.Printf("%s: %s[%s]: %s\n", name, cmd, action, err.Error())
 }
 
-func printErrWithCmdHelp(ctx *cli.Context, err error) error {
+func PrintErrWithCmdHelp(ctx *cli.Context, err error) error {
 	return printErrWithCallback(
 		ctx,
 		err,
@@ -107,7 +101,7 @@ func printErrWithCmdHelp(ctx *cli.Context, err error) error {
 	)
 }
 
-func printErrWithHelp(ctx *cli.Context, err error) error {
+func PrintErrWithHelp(ctx *cli.Context, err error) error {
 	return printErrWithCallback(
 		ctx,
 		err,
@@ -123,20 +117,20 @@ func printErrWithCallback(ctx *cli.Context, err error, callback func()) error {
 	}
 	estr := strings.ToLower(err.Error())
 	if estr == "flag: help requested" {
-		return help(ctx)
+		return Help(ctx)
 	}
 	if strings.Contains(estr, "-version") ||
 		strings.Contains(estr, "-v") {
-		return getVersion(ctx)
+		return GetVersion(ctx)
 	}
 	fmt.Printf("%s: %s\n\n", ctx.App.HelpName, err.Error())
 	callback()
 	return nil
 }
 
-func usageErrorCallback(ctx *cli.Context, err error, _ bool) error {
+func UsageErrorCallback(ctx *cli.Context, err error, _ bool) error {
 	if ctx.Command.Name != "" {
-		return printErrWithCmdHelp(ctx, err)
+		return PrintErrWithCmdHelp(ctx, err)
 	}
-	return printErrWithHelp(ctx, err)
+	return PrintErrWithHelp(ctx, err)
 }

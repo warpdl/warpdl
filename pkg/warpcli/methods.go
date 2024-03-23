@@ -86,3 +86,7 @@ func (c *Client) StopDownload(downloadId string) (bool, error) {
 	_, err := c.invoke("stop", &common.InputDownloadId{DownloadId: downloadId})
 	return err == nil, err
 }
+
+func (c *Client) LoadExtension(path string) (*common.ExtensionInfo, error) {
+	return invoke[common.ExtensionInfo](c, common.UPDATE_LOAD_EXT, &common.LoadExtensionParams{Path: path})
+}

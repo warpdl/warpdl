@@ -2,8 +2,11 @@ package cmd
 
 import (
 	"fmt"
+	"runtime"
 
 	"github.com/urfave/cli"
+	"github.com/warpdl/warpdl/cmd/common"
+	"github.com/warpdl/warpdl/cmd/ext"
 )
 
 func Execute(args []string) error {
@@ -15,8 +18,17 @@ func Execute(args []string) error {
 		UsageText:             "warpdl <command> [arguments...]",
 		Description:           DESCRIPTION,
 		CustomAppHelpTemplate: HELP_TEMPL,
-		OnUsageError:          usageErrorCallback,
+		OnUsageError:          common.UsageErrorCallback,
 		Commands: []cli.Command{
+			{
+				Name: "ext",
+				Subcommands: []cli.Command{
+					{
+						Name:   "install",
+						Action: ext.Install,
+					},
+				},
+			},
 			{
 				Name:   "daemon",
 				Action: daemon,
@@ -26,7 +38,7 @@ func Execute(args []string) error {
 				Aliases:            []string{"i"},
 				Usage:              "shows info about a file",
 				Action:             info,
-				OnUsageError:       usageErrorCallback,
+				OnUsageError:       common.UsageErrorCallback,
 				CustomHelpTemplate: CMD_HELP_TEMPL,
 				Description:        InfoDescription,
 				Flags:              infoFlags,
@@ -44,7 +56,7 @@ func Execute(args []string) error {
 				Aliases:                []string{"d"},
 				Usage:                  "fastly download a file ",
 				CustomHelpTemplate:     CMD_HELP_TEMPL,
-				OnUsageError:           usageErrorCallback,
+				OnUsageError:           common.UsageErrorCallback,
 				Action:                 download,
 				Flags:                  dlFlags,
 				UseShortOptionHandling: true,
@@ -55,7 +67,7 @@ func Execute(args []string) error {
 				Aliases:                []string{"l"},
 				Usage:                  "display downloads history",
 				Action:                 list,
-				OnUsageError:           usageErrorCallback,
+				OnUsageError:           common.UsageErrorCallback,
 				CustomHelpTemplate:     CMD_HELP_TEMPL,
 				Description:            ListDescription,
 				UseShortOptionHandling: true,
@@ -66,7 +78,7 @@ func Execute(args []string) error {
 				Aliases:                []string{"r"},
 				Usage:                  "resume an incomplete download",
 				Description:            ResumeDescription,
-				OnUsageError:           usageErrorCallback,
+				OnUsageError:           common.UsageErrorCallback,
 				CustomHelpTemplate:     CMD_HELP_TEMPL,
 				Action:                 resume,
 				UseShortOptionHandling: true,
@@ -77,7 +89,7 @@ func Execute(args []string) error {
 				Aliases:                []string{"c"},
 				Usage:                  "flush the user download history",
 				Description:            FlushDescription,
-				OnUsageError:           usageErrorCallback,
+				OnUsageError:           common.UsageErrorCallback,
 				CustomHelpTemplate:     CMD_HELP_TEMPL,
 				Action:                 flush,
 				UseShortOptionHandling: true,
@@ -87,7 +99,7 @@ func Execute(args []string) error {
 				Name:    "help",
 				Aliases: []string{"h"},
 				Usage:   "prints the help message",
-				Action:  help,
+				Action:  common.Help,
 			},
 			{
 				Name:               "version",
@@ -95,7 +107,7 @@ func Execute(args []string) error {
 				Usage:              "prints installed version of warp",
 				UsageText:          " ",
 				CustomHelpTemplate: CMD_HELP_TEMPL,
-				Action:             getVersion,
+				Action:             common.GetVersion,
 			},
 		},
 		Action:                 download,
@@ -104,5 +116,12 @@ func Execute(args []string) error {
 		HideHelp:               true,
 		HideVersion:            true,
 	}
+	common.VersionCmdStr = fmt.Sprintf("%s %s (%s_%s)\nBuild: %s=%s\n",
+		app.Name,
+		app.Version,
+		runtime.GOOS,
+		runtime.GOARCH,
+		date, commit,
+	)
 	return app.Run(args)
 }
