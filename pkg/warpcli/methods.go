@@ -90,3 +90,7 @@ func (c *Client) StopDownload(downloadId string) (bool, error) {
 func (c *Client) LoadExtension(path string) (*common.ExtensionInfo, error) {
 	return invoke[common.ExtensionInfo](c, common.UPDATE_LOAD_EXT, &common.LoadExtensionParams{Path: path})
 }
+
+func (c *Client) GetExtension(extensionId string) (*common.ExtensionInfo, error) {
+	return invoke[common.ExtensionInfo](c, common.UPDATE_GET_EXT, &common.GetExtensionParams{ExtensionId: extensionId})
+}

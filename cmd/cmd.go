@@ -11,7 +11,7 @@ import (
 
 func Execute(args []string) error {
 	app := cli.App{
-		Name:                  "WarpDL",
+		Name:                  "warpdl",
 		HelpName:              "warpdl",
 		Usage:                 "An ultra fast download manager.",
 		Version:               fmt.Sprintf("%s-%s", version, BuildType),
@@ -29,7 +29,7 @@ func Execute(args []string) error {
 					},
 					{
 						Name:   "info",
-						Action: func(ctx *cli.Context) error { return nil },
+						Action: ext.Info,
 					},
 				},
 			},

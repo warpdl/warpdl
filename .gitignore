@@ -32,3 +32,5 @@ warpdl
 
 warpd
 !cmd/warpd
+
+test/
