@@ -15,7 +15,8 @@ type Engine struct {
 	l   *log.Logger
 	// msPath is module storage path
 	msPath       string
-	Modules      []*Module         `json:"-"`
+	modules      []*Module
+	modIndex     map[string]int
 	LoadedModule map[string]string `json:"loaded_modules"`
 }
 
@@ -44,6 +45,7 @@ func NewEngine(l *log.Logger) (*Engine, error) {
 		}
 		return nil, err
 	}
+	var i int
 	for _, m := range e.LoadedModule {
 		m, err := OpenModule(l, filepath.Join(absMsPath, m))
 		if err != nil {
@@ -53,7 +55,9 @@ func NewEngine(l *log.Logger) (*Engine, error) {
 		if err != nil {
 			return nil, err
 		}
-		e.Modules = append(e.Modules, m)
+		e.modIndex[m.ModuleId] = i
+		e.modules = append(e.modules, m)
+		i++
 	}
 	return &e, nil
 }
@@ -71,13 +75,14 @@ func (e *Engine) AddModule(path string) (*Module, error) {
 	if err != nil {
 		return nil, err
 	}
-	e.Modules = append(e.Modules, m)
+	e.modIndex[m.ModuleId] = len(e.modules)
+	e.modules = append(e.modules, m)
 	e.LoadedModule[path] = m.ModuleId
 	return m, e.Save()
 }
 
 func (e *Engine) Extract(url string) (string, error) {
-	for _, m := range e.Modules {
+	for _, m := range e.modules {
 		for _, a := range m.Matches {
 			if ok, err := regexp.MatchString(a, url); ok && err == nil {
 				return m.Extract(url)
@@ -88,6 +93,13 @@ func (e *Engine) Extract(url string) (string, error) {
 	// so commenting out for now.
 	// return url, ErrNoMatchFound
 	return url, nil
+}
+
+func (e *Engine) GetModule(moduleId string) *Module {
+	if i, ok := e.modIndex[moduleId]; ok {
+		return e.modules[i]
+	}
+	return nil
 }
 
 func (e *Engine) Save() error {

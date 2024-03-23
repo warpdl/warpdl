@@ -71,6 +71,10 @@ type LoadExtensionParams struct {
 	Path string `json:"path"`
 }
 
+type GetExtensionParams struct {
+	ExtensionId string `json:"extension_id"`
+}
+
 type ExtensionInfo struct {
 	ExtensionId string   `json:"extension_id"`
 	Name        string   `json:"name"`

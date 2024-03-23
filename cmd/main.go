@@ -27,6 +27,10 @@ func Execute(args []string) error {
 						Name:   "install",
 						Action: ext.Install,
 					},
+					{
+						Name:   "info",
+						Action: func(ctx *cli.Context) error { return nil },
+					},
 				},
 			},
 			{
