@@ -74,7 +74,7 @@ Size`+"\t\t"+`: %s
 Save Location`+"\t"+`: %s/
 Max Connections`+"\t"+`: %d
 `,
-		fileName,
+		d.FileName,
 		d.ContentLength.String(),
 		d.DownloadDirectory,
 		maxConns,
