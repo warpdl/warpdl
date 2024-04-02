@@ -48,11 +48,12 @@ func NewEngine(l *log.Logger) (*Engine, error) {
 		return nil, err
 	}
 	var i int
-	for _, m := range e.LoadedModule {
-		m, err := OpenModule(l, filepath.Join(absMsPath, m))
+	for _, modId := range e.LoadedModule {
+		m, err := OpenModule(l, filepath.Join(absMsPath, modId))
 		if err != nil {
 			return nil, err
 		}
+		m.ModuleId = modId
 		err = m.Load()
 		if err != nil {
 			return nil, err
