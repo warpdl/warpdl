@@ -1,4 +1,4 @@
-package extloader
+package extl
 
 import (
 	"encoding/json"

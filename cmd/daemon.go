@@ -6,7 +6,7 @@ import (
 	"github.com/urfave/cli"
 	"github.com/warpdl/warpdl/cmd/common"
 	"github.com/warpdl/warpdl/internal/api"
-	"github.com/warpdl/warpdl/internal/extloader"
+	"github.com/warpdl/warpdl/internal/extl"
 	"github.com/warpdl/warpdl/internal/server"
 )
 
@@ -24,7 +24,7 @@ import (
 
 func daemon(ctx *cli.Context) error {
 	l := log.Default()
-	elEng, err := extloader.NewEngine(l)
+	elEng, err := extl.NewEngine(l)
 	if err != nil {
 		common.PrintRuntimeErr(ctx, "daemon", "extloader_engine", err)
 	}
