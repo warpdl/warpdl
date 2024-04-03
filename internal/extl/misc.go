@@ -11,6 +11,9 @@ import (
 var (
 	ENGINE_STORE = warplib.ConfigDir
 	MODULE_STORE = ENGINE_STORE + "/extstore/"
+
+	DEBUG_ENGINE_STORE = ENGINE_STORE + "/debugger/"
+	DEBUG_MODULE_STORE = DEBUG_ENGINE_STORE + "/extstore/"
 )
 
 const FUNCTION_REGEXP = `function\s(\w+)\(.*\)\s{(?:\n?.*)+}`

@@ -22,6 +22,7 @@ Once you have made the required changes, make sure you have tested your changes 
 - `api` - For changes in the API specifications.
 - `daemon` - For changes in the daemon.
 - `extl` - For changes in the extension loader.
+- `debug` - For changes in the debugging tools.
 
 **Note**: If your changes fall under multiple major areas, you can use multiple major areas separated by a comma.
 

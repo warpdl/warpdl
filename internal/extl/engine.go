@@ -20,14 +20,24 @@ type Engine struct {
 	LoadedModule map[string]string `json:"loaded_modules"`
 }
 
-func NewEngine(l *log.Logger) (*Engine, error) {
+func NewEngine(l *log.Logger, debugger bool) (*Engine, error) {
 	l.Println("Creating extension engine")
-	mePath := filepath.Join(ENGINE_STORE, "module_engine.json")
+	var mePath string
+	if debugger {
+		mePath = filepath.Join(DEBUG_ENGINE_STORE, "module_engine.json")
+	} else {
+		mePath = filepath.Join(ENGINE_STORE, "module_engine.json")
+	}
 	file, err := os.OpenFile(mePath, os.O_RDWR|os.O_CREATE, 0666)
 	if err != nil {
 		return nil, err
 	}
-	absMsPath, err := filepath.Abs(MODULE_STORE)
+	var absMsPath string
+	if debugger {
+		absMsPath, err = filepath.Abs(DEBUG_MODULE_STORE)
+	} else {
+		absMsPath, err = filepath.Abs(MODULE_STORE)
+	}
 	if err != nil {
 		return nil, err
 	}

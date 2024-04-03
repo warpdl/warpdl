@@ -24,7 +24,7 @@ import (
 
 func daemon(ctx *cli.Context) error {
 	l := log.Default()
-	elEng, err := extl.NewEngine(l)
+	elEng, err := extl.NewEngine(l, false)
 	if err != nil {
 		common.PrintRuntimeErr(ctx, "daemon", "extloader_engine", err)
 	}
