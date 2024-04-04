@@ -135,6 +135,8 @@ func (s *Api) resumeHandler(sconn *server.SyncConn, pool *server.Pool, body json
 	if cItem != nil {
 		go resumeItem(cItem)
 	}
+	maxConn, _ := item.GetMaxConnections()
+	maxParts, _ := item.GetMaxParts()
 	return common.UPDATE_RESUME, &common.ResumeResponse{
 		ChildHash:         item.ChildHash,
 		ContentLength:     item.TotalSize,
@@ -142,5 +144,7 @@ func (s *Api) resumeHandler(sconn *server.SyncConn, pool *server.Pool, body json
 		SavePath:          item.GetSavePath(),
 		DownloadDirectory: item.DownloadLocation,
 		AbsoluteLocation:  item.AbsoluteLocation,
+		MaxConnections:    maxConn,
+		MaxSegments:       maxParts,
 	}, nil
 }

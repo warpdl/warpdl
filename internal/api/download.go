@@ -110,5 +110,7 @@ func (s *Api) downloadHandler(sconn *server.SyncConn, pool *server.Pool, body js
 		FileName:          d.GetFileName(),
 		SavePath:          d.GetSavePath(),
 		DownloadDirectory: d.GetDownloadDirectory(),
+		MaxConnections:    d.GetMaxConnections(),
+		MaxSegments:       d.GetMaxParts(),
 	}, nil
 }

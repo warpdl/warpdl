@@ -24,6 +24,14 @@ func (s *Api) attachHandler(sconn *server.SyncConn, pool *server.Pool, body json
 		return common.UPDATE_ATTACH, nil, errors.New("download not running")
 	}
 	pool.AddConnection(m.DownloadId, sconn)
+	maxConn, err := item.GetMaxConnections()
+	if err != nil {
+		return common.UPDATE_ATTACH, nil, err
+	}
+	maxParts, err := item.GetMaxParts()
+	if err != nil {
+		return common.UPDATE_ATTACH, nil, err
+	}
 	return common.UPDATE_ATTACH, &common.DownloadResponse{
 		ContentLength:     item.TotalSize,
 		DownloadId:        item.Hash,
@@ -31,5 +39,7 @@ func (s *Api) attachHandler(sconn *server.SyncConn, pool *server.Pool, body json
 		SavePath:          item.GetSavePath(),
 		DownloadDirectory: item.DownloadLocation,
 		Downloaded:        item.Downloaded,
+		MaxConnections:    maxConn,
+		MaxSegments:       maxParts,
 	}, nil
 }

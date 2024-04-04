@@ -97,10 +97,10 @@ Max Connections`+"\t"+`: %d
 			}
 			return r.DownloadDirectory
 		}(),
-		maxConns,
+		r.MaxConnections,
 	)
-	if maxParts != 0 {
-		txt += fmt.Sprintf("Max Segments\t: %d\n", maxParts)
+	if r.MaxSegments != 0 {
+		txt += fmt.Sprintf("Max Segments\t: %d\n", r.MaxSegments)
 	}
 	fmt.Println(txt)
 	return client.Listen()

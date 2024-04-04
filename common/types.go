@@ -28,6 +28,8 @@ type DownloadResponse struct {
 	DownloadDirectory string                `json:"download_directory"`
 	ContentLength     warplib.ContentLength `json:"content_length"`
 	Downloaded        warplib.ContentLength `json:"downloaded,omitempty"`
+	MaxConnections    int                   `json:"max_connections"`
+	MaxSegments       int                   `json:"max_segments"`
 }
 
 type DownloadingResponse struct {
@@ -52,6 +54,8 @@ type ResumeResponse struct {
 	DownloadDirectory string                `json:"download_directory"`
 	AbsoluteLocation  string                `json:"absolute_location"`
 	ContentLength     warplib.ContentLength `json:"content_length"`
+	MaxConnections    int                   `json:"max_connections"`
+	MaxSegments       int                   `json:"max_segments"`
 }
 
 type FlushParams struct {

@@ -77,10 +77,10 @@ Max Connections`+"\t"+`: %d
 		d.FileName,
 		d.ContentLength.String(),
 		d.DownloadDirectory,
-		maxConns,
+		d.MaxConnections,
 	)
-	if maxParts != 0 {
-		txt += fmt.Sprintf("Max Segments\t: %d\n", maxParts)
+	if d.MaxSegments != 0 {
+		txt += fmt.Sprintf("Max Segments\t: %d\n", d.MaxSegments)
 	}
 	fmt.Println(txt)
 	return client.Listen()
