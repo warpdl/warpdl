@@ -391,6 +391,10 @@ func (d *Downloader) resumePartDownload(hash string, ioff, foff, espeed int64) {
 	poff := part.offset + part.read
 	if poff >= foff {
 		d.Log("%s: part offset (%d) greater than final offset (%d)", hash, poff, foff)
+		_, _, err = part.compile()
+		if err != nil {
+			d.Log("%s: part compile failed: %s", hash, err.Error())
+		}
 		return
 	}
 	// CHANGE IMPL
@@ -511,6 +515,23 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 		return nil
 	}
 
+	// add read bytes to part offset to determine
+	// starting offset for a respawned part.
+	poff := part.offset + part.read
+
+	if foff-poff <= 2*MIN_PART_SIZE {
+		d.Log("%s: Detected part as running slow", hash)
+		// Min part size has been reached and hence
+		// don't spawn new part out of the current part.
+		d.Log("%s: Min part size reached, continuing as slow part...", hash)
+		_, err = part.copyBuffer(body, foff, true)
+		if err != nil {
+			d.handlers.ErrorHandler(hash, err)
+		}
+		// return to prevent spawning further parts
+		return err
+	}
+
 	if d.maxParts != 0 && d.numParts >= d.maxParts {
 		d.Log("%s: Detected part as running slow", hash)
 		// Max part limit has been reached and hence
@@ -524,10 +545,6 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 		// return to prevent spawning further parts
 		return err
 	}
-
-	// add read bytes to part offset to determine
-	// starting offset for a respawned part.
-	poff := part.offset + part.read
 
 	if d.maxConn != 0 && d.numConn >= d.maxConn {
 		// It waits until a connection is

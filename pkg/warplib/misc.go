@@ -27,6 +27,8 @@ const (
 	DEF_MAX_CONNS  = 1
 	DEF_CHUNK_SIZE = 32 * KB
 	DEF_USER_AGENT = "Warp/1.0"
+
+	MIN_PART_SIZE = 512 * KB
 )
 
 const MAIN_HASH = "main"

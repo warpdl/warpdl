@@ -61,3 +61,9 @@ In order to make a PR, follow the mentioned below steps:
 
 Thanks for reading the guidelines!
 Feel free to ping us in the [discussions](https://github.com/orgs/warpdl/discussions) for any query.
+core: fix: invalid chunk size while creating a bytes slice     
+
+Sometimes the downloads spawn parts which are having very small size.
+This would cause problem if the left amount of size is less than or 
+equal to the default chunk size (32KB). Hence, this fix has been implemented
+to stop spawning parts further in the current part tree.  

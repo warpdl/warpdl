@@ -138,7 +138,7 @@ func (p *Part) copyBuffer(src io.ReadCloser, foff int64, force bool) (slow bool,
 		chunk  = p.chunk
 		lchunk = tread - p.read
 	)
-	if lchunk < chunk {
+	if lchunk > 0 && lchunk < chunk {
 		chunk = lchunk
 	}
 	var (
