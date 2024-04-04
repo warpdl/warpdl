@@ -64,6 +64,7 @@ func (m *Manager) AddDownload(d *Downloader, opts *AddDownloadOpts) (err error) 
 		d.dlLoc,
 		d.hash,
 		d.contentLength,
+		d.resumable,
 		&itemOpts{
 			AbsoluteLocation: opts.AbsoluteLocation,
 			Child:            opts.IsChildren,
@@ -227,6 +228,10 @@ func (m *Manager) ResumeDownload(client *http.Client, hash string, opts *ResumeD
 	item = m.GetItem(hash)
 	if item == nil {
 		err = ErrDownloadNotFound
+		return
+	}
+	if !item.Resumable {
+		err = ErrDownloadNotResumable
 		return
 	}
 	if item.Headers == nil {

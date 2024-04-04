@@ -1,7 +1,6 @@
 package warplib
 
 import (
-	"errors"
 	"path/filepath"
 	"sync"
 	"time"
@@ -21,6 +20,7 @@ type Item struct {
 	Hidden           bool                `json:"hidden"`
 	Children         bool                `json:"children"`
 	Parts            map[int64]*ItemPart `json:"parts"`
+	Resumable        bool                `json:"resumable"`
 	mu               *sync.RWMutex
 	dAlloc           *Downloader
 	memPart          map[string]int64
@@ -41,7 +41,7 @@ type itemOpts struct {
 	Headers          []Header
 }
 
-func newItem(mu *sync.RWMutex, name, url, dlloc, hash string, totalSize ContentLength, opts *itemOpts) (i *Item, err error) {
+func newItem(mu *sync.RWMutex, name, url, dlloc, hash string, totalSize ContentLength, resumable bool, opts *itemOpts) (i *Item, err error) {
 	if opts == nil {
 		opts = &itemOpts{}
 	}
@@ -63,6 +63,7 @@ func newItem(mu *sync.RWMutex, name, url, dlloc, hash string, totalSize ContentL
 		ChildHash:        opts.ChildHash,
 		Hidden:           opts.Hide,
 		Children:         opts.Child,
+		Resumable:        resumable,
 		Parts:            make(map[int64]*ItemPart),
 		memPart:          make(map[string]int64),
 		mu:               mu,
@@ -109,16 +110,30 @@ func (i *Item) GetAbsolutePath() (aPath string) {
 	return
 }
 
+func (i *Item) GetMaxConnections() (int, error) {
+	if i.dAlloc == nil {
+		return 0, ErrItemDownloaderNotFound
+	}
+	return i.dAlloc.GetMaxConnections(), nil
+}
+
+func (i *Item) GetMaxParts() (int, error) {
+	if i.dAlloc == nil {
+		return 0, ErrItemDownloaderNotFound
+	}
+	return i.dAlloc.GetMaxParts(), nil
+}
+
 func (i *Item) Resume() error {
 	if i.dAlloc == nil {
-		return errors.New("downloader not found")
+		return ErrItemDownloaderNotFound
 	}
 	return i.dAlloc.Resume(i.Parts)
 }
 
 func (i *Item) StopDownload() error {
 	if i.dAlloc == nil {
-		return errors.New("downloader not found")
+		return ErrItemDownloaderNotFound
 	}
 	i.dAlloc.Stop()
 	return nil

@@ -50,14 +50,15 @@ type Downloader struct {
 	// headers to use for http requests
 	headers Headers
 	// total downloaded bytes
-	nread   int64
-	dlPath  string
-	wg      *sync.WaitGroup
-	ohmap   VMap[int64, string]
-	l       *log.Logger
-	lw      io.WriteCloser
-	f       *os.File
-	stopped bool
+	nread     int64
+	dlPath    string
+	wg        *sync.WaitGroup
+	ohmap     VMap[int64, string]
+	l         *log.Logger
+	lw        io.WriteCloser
+	f         *os.File
+	stopped   bool
+	resumable bool
 }
 
 // Optional fields of downloader
@@ -116,19 +117,20 @@ func NewDownloader(client *http.Client, url string, opts *DownloaderOpts) (d *Do
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	d = &Downloader{
-		ctx:      ctx,
-		cancel:   cancel,
-		wg:       &sync.WaitGroup{},
-		client:   client,
-		url:      url,
-		maxConn:  opts.MaxConnections,
-		chunk:    int(DEF_CHUNK_SIZE),
-		force:    opts.ForceParts,
-		handlers: opts.Handlers,
-		fileName: opts.FileName,
-		dlLoc:    opts.DownloadDirectory,
-		maxParts: opts.MaxSegments,
-		headers:  opts.Headers,
+		ctx:       ctx,
+		cancel:    cancel,
+		wg:        &sync.WaitGroup{},
+		client:    client,
+		url:       url,
+		maxConn:   opts.MaxConnections,
+		chunk:     int(DEF_CHUNK_SIZE),
+		force:     opts.ForceParts,
+		handlers:  opts.Handlers,
+		fileName:  opts.FileName,
+		dlLoc:     opts.DownloadDirectory,
+		maxParts:  opts.MaxSegments,
+		headers:   opts.Headers,
+		resumable: true,
 	}
 	err = d.fetchInfo()
 	if err != nil {
@@ -240,14 +242,20 @@ func (d *Downloader) Start() (err error) {
 	d.Log("Starting download...")
 	d.ohmap.Make()
 	partSize, rpartSize := d.getPartSize()
-	for i := 0; i < d.numBaseParts; i++ {
-		ioff := int64(i) * partSize
-		foff := ioff + partSize - 1
-		if i == d.numBaseParts-1 {
-			foff += rpartSize
-		}
+	if partSize == -1 {
 		d.wg.Add(1)
-		go d.newPartDownload(ioff, foff, 4*MB)
+		d.Log("Unknown content length, downloading in a single connection...")
+		go d.downloadUnknownSizeFile()
+	} else {
+		for i := 0; i < d.numBaseParts; i++ {
+			ioff := int64(i) * partSize
+			foff := ioff + partSize - 1
+			if i == d.numBaseParts-1 {
+				foff += rpartSize
+			}
+			d.wg.Add(1)
+			go d.newPartDownload(ioff, foff, 4*MB)
+		}
 	}
 	d.wg.Wait()
 	if d.stopped {
@@ -255,7 +263,7 @@ func (d *Downloader) Start() (err error) {
 		d.handlers.DownloadStoppedHandler()
 		return
 	}
-	if d.contentLength.v() != d.nread {
+	if v := d.contentLength.v(); v != -1 && v != d.nread {
 		d.Log("Download might be corrupted | Expected bytes: %d Found bytes: %d", d.contentLength.v(), d.nread)
 		// return
 	}
@@ -557,6 +565,14 @@ func (d *Downloader) Stop() {
 	d.cancel()
 }
 
+func (d *Downloader) GetMaxConnections() int {
+	return d.maxConn
+}
+
+func (d *Downloader) GetMaxParts() int {
+	return d.maxParts
+}
+
 func (d *Downloader) GetFileName() string {
 	return d.fileName
 }
@@ -614,11 +630,14 @@ func (d *Downloader) setContentLength(cl int64) error {
 	case 0:
 		return ErrContentLengthInvalid
 	case -1:
-		return ErrContentLengthNotImplemented
-	default:
-		d.contentLength = ContentLength(cl)
-		return nil
+		d.resumable = false
+		d.numBaseParts = 1
+		d.maxConn = 1
+		d.maxParts = 1
+		// 	return ErrContentLengthNotImplemented
 	}
+	d.contentLength = ContentLength(cl)
+	return nil
 }
 
 func (d *Downloader) setFileName(r *http.Request, h *http.Header) error {
@@ -726,12 +745,17 @@ func (d *Downloader) prepareDownloader() (err error) {
 		err = er
 		return
 	}
-	d.numBaseParts = 1
 	if !d.force && resp.Header.Get("Accept-Ranges") == "" {
+		d.numBaseParts = 1
+		d.resumable = false
 		return
 	}
 	size := d.chunk
 	if d.contentLength.v() < int64(size) {
+		d.numBaseParts = 1
+		return
+	}
+	if d.numBaseParts != 0 {
 		return
 	}
 	te, es := getSpeed(func() (err error) {
@@ -770,4 +794,28 @@ func (d *Downloader) prepareDownloader() (err error) {
 		d.numBaseParts = 10
 	}
 	return
+}
+
+func (d *Downloader) downloadUnknownSizeFile() error {
+	defer d.wg.Done()
+	req, err := http.NewRequestWithContext(d.ctx, http.MethodGet, d.url, nil)
+	if err != nil {
+		return err
+	}
+	header := req.Header
+	d.headers.Set(header)
+	resp, err := d.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	proxiedBody := NewCallbackProxyReader(resp.Body, func(n int) {
+		d.nread += int64(n)
+		d.handlers.DownloadProgressHandler(MAIN_HASH, n)
+	})
+	_, err = io.Copy(d.f, proxiedBody)
+	if err != nil {
+		return err
+	}
+	return nil
 }

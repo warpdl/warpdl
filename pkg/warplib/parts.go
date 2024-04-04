@@ -297,7 +297,7 @@ func (p *Part) openPartFile() (err error) {
 }
 
 func (p *Part) seek(rpFunc ResumeProgressHandlerFunc) (err error) {
-	pReader := NewProxyReader(p.pf, func(n int) {
+	pReader := NewCallbackProxyReader(p.pf, func(n int) {
 		rpFunc(p.hash, n)
 	})
 	n, err := io.Copy(io.Discard, pReader)

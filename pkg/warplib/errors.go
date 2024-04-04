@@ -8,7 +8,10 @@ var (
 	ErrContentLengthNotImplemented = errors.New("unknown size downloads not implemented yet")
 	ErrNotSupported                = errors.New("file you're trying to download is not supported yet")
 
-	ErrDownloadNotFound = errors.New("Item you are trying to download is not found")
+	ErrItemDownloaderNotFound = errors.New("item downloader not found")
+
+	ErrDownloadNotFound     = errors.New("Item you are trying to download is not found")
+	ErrDownloadNotResumable = errors.New("Item you are trying to download is not resumable")
 
 	ErrFlushHashNotFound    = errors.New("Item you are trying to flush is not found")
 	ErrFlushItemDownloading = errors.New("Item you are trying to flush is currently downloading")
