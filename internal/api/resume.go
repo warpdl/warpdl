@@ -21,7 +21,7 @@ func getHandler(s *Api, pool *server.Pool, uidPtr *string, stopDownloadPtr *func
 			uid := *uidPtr
 			pool.Broadcast(uid, server.MakeResult(common.UPDATE_DOWNLOADING, &common.DownloadingResponse{
 				DownloadId: uid,
-				Action:     "resume_progress",
+				Action:     common.ResumeProgress,
 				Value:      int64(nread),
 				Hash:       hash,
 			}))
@@ -30,7 +30,7 @@ func getHandler(s *Api, pool *server.Pool, uidPtr *string, stopDownloadPtr *func
 			uid := *uidPtr
 			pool.Broadcast(uid, server.MakeResult(common.UPDATE_DOWNLOADING, &common.DownloadingResponse{
 				DownloadId: uid,
-				Action:     "download_progress",
+				Action:     common.DownloadProgress,
 				Value:      int64(nread),
 				Hash:       hash,
 			}))
@@ -39,7 +39,7 @@ func getHandler(s *Api, pool *server.Pool, uidPtr *string, stopDownloadPtr *func
 			uid := *uidPtr
 			pool.Broadcast(uid, server.MakeResult(common.UPDATE_DOWNLOADING, &common.DownloadingResponse{
 				DownloadId: uid,
-				Action:     "download_complete",
+				Action:     common.DownloadComplete,
 				Value:      tread,
 				Hash:       hash,
 			}))
@@ -48,14 +48,14 @@ func getHandler(s *Api, pool *server.Pool, uidPtr *string, stopDownloadPtr *func
 			uid := *uidPtr
 			pool.Broadcast(uid, server.MakeResult(common.UPDATE_DOWNLOADING, &common.DownloadingResponse{
 				DownloadId: uid,
-				Action:     "download_stopped",
+				Action:     common.DownloadStopped,
 			}))
 		},
 		CompileStartHandler: func(hash string) {
 			uid := *uidPtr
 			pool.Broadcast(uid, server.MakeResult(common.UPDATE_DOWNLOADING, &common.DownloadingResponse{
 				DownloadId: uid,
-				Action:     "compile_start",
+				Action:     common.CompileStart,
 				Hash:       hash,
 			}))
 		},
@@ -63,7 +63,7 @@ func getHandler(s *Api, pool *server.Pool, uidPtr *string, stopDownloadPtr *func
 			uid := *uidPtr
 			pool.Broadcast(uid, server.MakeResult(common.UPDATE_DOWNLOADING, &common.DownloadingResponse{
 				DownloadId: uid,
-				Action:     "compile_progress",
+				Action:     common.CompileProgress,
 				Value:      int64(nread),
 				Hash:       hash,
 			}))
@@ -72,7 +72,7 @@ func getHandler(s *Api, pool *server.Pool, uidPtr *string, stopDownloadPtr *func
 			uid := *uidPtr
 			pool.Broadcast(uid, server.MakeResult(common.UPDATE_DOWNLOADING, &common.DownloadingResponse{
 				DownloadId: uid,
-				Action:     "compile_complete",
+				Action:     common.CompileComplete,
 				Value:      tread,
 				Hash:       hash,
 			}))

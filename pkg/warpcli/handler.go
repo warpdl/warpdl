@@ -10,7 +10,7 @@ type Handler interface {
 	Handle(json.RawMessage) error
 }
 
-func NewDownloadingHandler(action string, callback func(*common.DownloadingResponse) error) *DownloadingHandler {
+func NewDownloadingHandler(action common.DownloadingAction, callback func(*common.DownloadingResponse) error) *DownloadingHandler {
 	return &DownloadingHandler{
 		Action:   action,
 		Callback: callback,
@@ -18,7 +18,7 @@ func NewDownloadingHandler(action string, callback func(*common.DownloadingRespo
 }
 
 type DownloadingHandler struct {
-	Action   string
+	Action   common.DownloadingAction
 	Callback func(*common.DownloadingResponse) error
 }
 

@@ -33,10 +33,10 @@ type DownloadResponse struct {
 }
 
 type DownloadingResponse struct {
-	DownloadId string `json:"download_id"`
-	Action     string `json:"action"`
-	Hash       string `json:"hash"`
-	Value      int64  `json:"value,omitempty"`
+	DownloadId string            `json:"download_id"`
+	Action     DownloadingAction `json:"action"`
+	Hash       string            `json:"hash"`
+	Value      int64             `json:"value,omitempty"`
 }
 
 type ResumeParams struct {

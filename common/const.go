@@ -12,3 +12,15 @@ const (
 	UPDATE_UNLOAD_EXT  = "unload_extension"
 	UPDATE_GET_EXT     = "get_extension"
 )
+
+type DownloadingAction string
+
+const (
+	ResumeProgress   DownloadingAction = "resume_progress"
+	DownloadProgress DownloadingAction = "download_progress"
+	DownloadComplete DownloadingAction = "download_complete"
+	DownloadStopped  DownloadingAction = "download_stopped"
+	CompileStart     DownloadingAction = "compile_start"
+	CompileProgress  DownloadingAction = "compile_progress"
+	CompileComplete  DownloadingAction = "compile_complete"
+)
