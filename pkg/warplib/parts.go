@@ -177,20 +177,20 @@ func (p *Part) copyBuffer(src io.ReadCloser, foff int64, force bool) (slow bool,
 }
 
 func (p *Part) copyBufferChunkWithTime(src io.Reader, dst io.Writer, buf []byte, timed bool) (slow bool, err error) {
-	if timed {
-		var te time.Duration
-		te, err = getSpeed(func() error {
-			return p.copyBufferChunk(src, p.pf, buf)
-		})
-		if err != nil {
-			return
-		}
-		if te > p.etime {
-			slow = true
-		}
+	if !timed {
+		return false, p.copyBufferChunk(src, dst, buf)
+	}
+	var te time.Duration
+	te, err = getSpeed(func() error {
+		return p.copyBufferChunk(src, p.pf, buf)
+	})
+	if err != nil {
 		return
 	}
-	return false, p.copyBufferChunk(src, dst, buf)
+	if te > p.etime {
+		slow = true
+	}
+	return
 }
 
 func (p *Part) copyBufferChunk(src io.Reader, dst io.Writer, buf []byte) (err error) {
@@ -297,7 +297,7 @@ func (p *Part) openPartFile() (err error) {
 }
 
 func (p *Part) seek(rpFunc ResumeProgressHandlerFunc) (err error) {
-	pReader := NewCallbackProxyReader(p.pf, func(n int) {
+	pReader := NewAsyncCallbackProxyReader(p.pf, func(n int) {
 		rpFunc(p.hash, n)
 	})
 	n, err := io.Copy(io.Discard, pReader)
