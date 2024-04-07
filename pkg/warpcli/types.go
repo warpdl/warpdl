@@ -18,6 +18,6 @@ type Response struct {
 }
 
 type Update struct {
-	Type    string          `json:"type"`
-	Message json.RawMessage `json:"message"`
+	Type    common.UpdateType `json:"type"`
+	Message json.RawMessage   `json:"message"`
 }

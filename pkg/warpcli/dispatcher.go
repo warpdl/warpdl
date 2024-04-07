@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+
+	"github.com/warpdl/warpdl/common"
 )
 
 type Dispatcher struct {
-	Handlers map[string]Handler
+	Handlers map[common.UpdateType]Handler
 	mu       sync.RWMutex
 }
 
@@ -30,13 +32,13 @@ func (d *Dispatcher) process(buf []byte) error {
 	return nil
 }
 
-func (d *Dispatcher) AddHandler(t string, h Handler) {
+func (d *Dispatcher) AddHandler(t common.UpdateType, h Handler) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.Handlers[t] = h
 }
 
-func (d *Dispatcher) RemoveHandler(t string) {
+func (d *Dispatcher) RemoveHandler(t common.UpdateType) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	delete(d.Handlers, t)

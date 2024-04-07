@@ -29,7 +29,7 @@ func NewClient() (*Client, error) {
 		conn: conn,
 		mu:   &sync.RWMutex{},
 		d: &Dispatcher{
-			Handlers: make(map[string]Handler),
+			Handlers: make(map[common.UpdateType]Handler),
 		},
 	}, nil
 }
@@ -57,6 +57,14 @@ func (c *Client) Listen() (err error) {
 		c.mu.RUnlock()
 	}
 	return
+}
+
+func (c *Client) AddHandler(t common.UpdateType, h Handler) {
+	c.d.AddHandler(t, h)
+}
+
+func (c *Client) RemoveHandler(t common.UpdateType) {
+	c.d.RemoveHandler(t)
 }
 
 func (c *Client) invoke(method common.UpdateType, message any) (json.RawMessage, error) {
