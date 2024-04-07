@@ -13,9 +13,10 @@ import (
 )
 
 type Client struct {
-	mu   *sync.RWMutex
-	d    *Dispatcher
-	conn net.Conn
+	mu     *sync.RWMutex
+	d      *Dispatcher
+	conn   net.Conn
+	listen bool
 }
 
 func NewClient() (*Client, error) {
@@ -36,7 +37,8 @@ func NewClient() (*Client, error) {
 
 func (c *Client) Listen() (err error) {
 	defer c.conn.Close()
-	for {
+	c.listen = true
+	for c.listen {
 		c.mu.RLock()
 		var buf []byte
 		buf, err = read(c.conn)
@@ -65,6 +67,10 @@ func (c *Client) AddHandler(t common.UpdateType, h Handler) {
 
 func (c *Client) RemoveHandler(t common.UpdateType) {
 	c.d.RemoveHandler(t)
+}
+
+func (c *Client) Disconnect() {
+	c.listen = false
 }
 
 func (c *Client) invoke(method common.UpdateType, message any) (json.RawMessage, error) {
