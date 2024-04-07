@@ -28,7 +28,9 @@ func NewClient() (*Client, error) {
 	return &Client{
 		conn: conn,
 		mu:   &sync.RWMutex{},
-		d:    &Dispatcher{},
+		d: &Dispatcher{
+			Handlers: make(map[string]Handler),
+		},
 	}, nil
 }
 
