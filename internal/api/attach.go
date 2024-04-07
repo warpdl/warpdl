@@ -8,7 +8,7 @@ import (
 	"github.com/warpdl/warpdl/internal/server"
 )
 
-func (s *Api) attachHandler(sconn *server.SyncConn, pool *server.Pool, body json.RawMessage) (string, any, error) {
+func (s *Api) attachHandler(sconn *server.SyncConn, pool *server.Pool, body json.RawMessage) (common.UpdateType, any, error) {
 	var m common.InputDownloadId
 	if err := json.Unmarshal(body, &m); err != nil {
 		return common.UPDATE_ATTACH, nil, err

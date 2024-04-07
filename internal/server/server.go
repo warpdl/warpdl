@@ -6,23 +6,25 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+
+	"github.com/warpdl/warpdl/common"
 )
 
 type Server struct {
 	log     *log.Logger
 	pool    *Pool
-	handler map[string]HandlerFunc
+	handler map[common.UpdateType]HandlerFunc
 }
 
 func NewServer(l *log.Logger) *Server {
 	return &Server{
 		log:     l,
 		pool:    NewPool(l),
-		handler: make(map[string]HandlerFunc),
+		handler: make(map[common.UpdateType]HandlerFunc),
 	}
 }
 
-func (s *Server) RegisterHandler(method string, handler HandlerFunc) {
+func (s *Server) RegisterHandler(method common.UpdateType, handler HandlerFunc) {
 	s.handler[method] = handler
 }
 
@@ -72,7 +74,7 @@ func (s *Server) handlerWrapper(sconn *SyncConn, b []byte) error {
 	}
 	rHandler, ok := s.handler[req.Method]
 	if !ok {
-		err = sconn.Write(CreateError("unknown method: " + req.Method))
+		err = sconn.Write(CreateError("unknown method: " + string(req.Method)))
 		if err != nil {
 			return fmt.Errorf("error writing response: %s", err.Error())
 		}

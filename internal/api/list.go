@@ -8,7 +8,7 @@ import (
 	"github.com/warpdl/warpdl/pkg/warplib"
 )
 
-func (s *Api) listHandler(sconn *server.SyncConn, pool *server.Pool, body json.RawMessage) (string, any, error) {
+func (s *Api) listHandler(sconn *server.SyncConn, pool *server.Pool, body json.RawMessage) (common.UpdateType, any, error) {
 	var m common.ListParams
 	if err := json.Unmarshal(body, &m); err != nil {
 		return common.UPDATE_LIST, nil, err

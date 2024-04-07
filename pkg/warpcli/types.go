@@ -2,11 +2,13 @@ package warpcli
 
 import (
 	"encoding/json"
+
+	"github.com/warpdl/warpdl/common"
 )
 
 type Request struct {
-	Method  string `json:"method"`
-	Message any    `json:"message,omitempty"`
+	Method  common.UpdateType `json:"method"`
+	Message any               `json:"message,omitempty"`
 }
 
 type Response struct {

@@ -8,7 +8,7 @@ import (
 	"github.com/warpdl/warpdl/internal/server"
 )
 
-func (s *Api) loadExtHandler(sconn *server.SyncConn, pool *server.Pool, body json.RawMessage) (string, any, error) {
+func (s *Api) loadExtHandler(sconn *server.SyncConn, pool *server.Pool, body json.RawMessage) (common.UpdateType, any, error) {
 	var m common.LoadExtensionParams
 	var err error
 	if err = json.Unmarshal(body, &m); err != nil {

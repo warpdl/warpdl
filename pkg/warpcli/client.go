@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/warpdl/warpdl/common"
 )
 
 type Client struct {
@@ -24,9 +26,9 @@ func NewClient() (*Client, error) {
 		return nil, err
 	}
 	return &Client{
+		conn: conn,
 		mu:   &sync.RWMutex{},
 		d:    &Dispatcher{},
-		conn: conn,
 	}, nil
 }
 
@@ -55,7 +57,7 @@ func (c *Client) Listen() (err error) {
 	return
 }
 
-func (c *Client) invoke(method string, message any) (json.RawMessage, error) {
+func (c *Client) invoke(method common.UpdateType, message any) (json.RawMessage, error) {
 	// block updates listener while invoking a method
 	// to retrieve the message update here instead
 	c.mu.Lock()

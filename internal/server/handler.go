@@ -2,6 +2,8 @@ package server
 
 import (
 	"encoding/json"
+
+	"github.com/warpdl/warpdl/common"
 )
 
 type HandlerFunc func(
@@ -9,7 +11,7 @@ type HandlerFunc func(
 	pool *Pool,
 	body json.RawMessage,
 ) (
-	string,
+	common.UpdateType,
 	any,
 	error,
 )

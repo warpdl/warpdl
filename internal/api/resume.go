@@ -89,7 +89,7 @@ func resumeItem(i *warplib.Item) error {
 
 var __stop = func() error { return nil }
 
-func (s *Api) resumeHandler(sconn *server.SyncConn, pool *server.Pool, body json.RawMessage) (string, any, error) {
+func (s *Api) resumeHandler(sconn *server.SyncConn, pool *server.Pool, body json.RawMessage) (common.UpdateType, any, error) {
 	var m common.ResumeParams
 	if err := json.Unmarshal(body, &m); err != nil {
 		return common.UPDATE_RESUME, nil, err

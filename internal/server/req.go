@@ -1,10 +1,14 @@
 package server
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"github.com/warpdl/warpdl/common"
+)
 
 type Request struct {
-	Method  string          `json:"method"`
-	Message json.RawMessage `json:"message,omitempty"`
+	Method  common.UpdateType `json:"method"`
+	Message json.RawMessage   `json:"message,omitempty"`
 }
 
 func ParseRequest(b []byte) (*Request, error) {

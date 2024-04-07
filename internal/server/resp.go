@@ -1,6 +1,10 @@
 package server
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"github.com/warpdl/warpdl/common"
+)
 
 type Response struct {
 	Ok     bool    `json:"ok"`
@@ -9,11 +13,11 @@ type Response struct {
 }
 
 type Update struct {
-	Type    string `json:"type"`
-	Message any    `json:"message,omitempty"`
+	Type    common.UpdateType `json:"type"`
+	Message any               `json:"message,omitempty"`
 }
 
-func MakeResult(utype string, res any) []byte {
+func MakeResult(utype common.UpdateType, res any) []byte {
 	b, _ := json.Marshal(Response{
 		Ok: true,
 		Update: &Update{

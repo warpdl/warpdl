@@ -7,7 +7,7 @@ import (
 	"github.com/warpdl/warpdl/internal/server"
 )
 
-func (s *Api) flushHandler(sconn *server.SyncConn, pool *server.Pool, body json.RawMessage) (string, any, error) {
+func (s *Api) flushHandler(sconn *server.SyncConn, pool *server.Pool, body json.RawMessage) (common.UpdateType, any, error) {
 	var m common.FlushParams
 	var err error
 	if err = json.Unmarshal(body, &m); err != nil {

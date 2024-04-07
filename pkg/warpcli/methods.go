@@ -7,7 +7,7 @@ import (
 	"github.com/warpdl/warpdl/pkg/warplib"
 )
 
-func invoke[T any](c *Client, method string, message any) (*T, error) {
+func invoke[T any](c *Client, method common.UpdateType, message any) (*T, error) {
 	resp, err := c.invoke(method, message)
 	if err != nil {
 		return nil, err
