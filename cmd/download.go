@@ -83,5 +83,6 @@ Max Connections`+"\t"+`: %d
 		txt += fmt.Sprintf("Max Segments\t: %d\n", d.MaxSegments)
 	}
 	fmt.Println(txt)
+	RegisterHandlers(client)
 	return client.Listen()
 }
