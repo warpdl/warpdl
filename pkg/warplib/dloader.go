@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -704,10 +703,6 @@ func (d *Downloader) checkContentType(h *http.Header) (err error) {
 	ct := h.Get("Content-Type")
 	if ct == "" {
 		return
-	}
-	switch ct, _, _ = mime.ParseMediaType(ct); ct {
-	case "text/html", "text/css":
-		err = ErrNotSupported
 	}
 	return
 }
