@@ -25,8 +25,6 @@ func (d *Dispatcher) process(buf []byte) error {
 	if !res.Ok {
 		return errors.New(res.Error)
 	}
-	fmt.Println(res.Update.Type)
-	fmt.Println(string(res.Update.Message))
 	d.mu.RLock()
 	handlers, ok := d.Handlers[res.Update.Type]
 	d.mu.RUnlock()

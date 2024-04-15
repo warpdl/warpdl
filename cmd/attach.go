@@ -43,6 +43,6 @@ Save Location`+"\t"+`: %s/
 		d.DownloadDirectory,
 	)
 	fmt.Println(txt)
-	RegisterHandlers(client)
+	RegisterHandlers(client, int64(d.ContentLength))
 	return client.Listen()
 }
