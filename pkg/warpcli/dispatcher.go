@@ -10,7 +10,7 @@ import (
 )
 
 type Dispatcher struct {
-	Handlers map[common.UpdateType]Handler
+	Handlers map[common.UpdateType][]Handler
 	mu       sync.RWMutex
 }
 
@@ -25,8 +25,19 @@ func (d *Dispatcher) process(buf []byte) error {
 	if !res.Ok {
 		return errors.New(res.Error)
 	}
-	if h, ok := d.Handlers[res.Update.Type]; ok {
-		return h.Handle(res.Update.Message)
+	fmt.Println(res.Update.Type)
+	fmt.Println(string(res.Update.Message))
+	d.mu.RLock()
+	handlers, ok := d.Handlers[res.Update.Type]
+	d.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("no handler for update (type=%s): %s", res.Update.Type, string(res.Update.Message))
+	}
+	for _, h := range handlers {
+		err = h.Handle(res.Update.Message)
+		if err != nil {
+			return err
+		}
 	}
 	// return fmt.Errorf("no handler for update (type=%s): %s", res.Update.Type, string(res.Update.Message))
 	return nil
@@ -35,7 +46,7 @@ func (d *Dispatcher) process(buf []byte) error {
 func (d *Dispatcher) AddHandler(t common.UpdateType, h Handler) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.Handlers[t] = h
+	d.Handlers[t] = append(d.Handlers[t], h)
 }
 
 func (d *Dispatcher) RemoveHandler(t common.UpdateType) {

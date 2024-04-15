@@ -30,7 +30,7 @@ func NewClient() (*Client, error) {
 		conn: conn,
 		mu:   &sync.RWMutex{},
 		d: &Dispatcher{
-			Handlers: make(map[common.UpdateType]Handler),
+			Handlers: make(map[common.UpdateType][]Handler),
 		},
 	}, nil
 }

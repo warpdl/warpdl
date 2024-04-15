@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/warpdl/warpdl/common"
 	"github.com/warpdl/warpdl/pkg/warpcli"
@@ -15,11 +16,13 @@ func downloadStopped(client *warpcli.Client) func(dr *common.DownloadingResponse
 		}
 		fmt.Println("Download Stopped: ", dr.DownloadId)
 		client.Disconnect()
+		os.Exit(0)
 		return nil
 	}
 }
 
 func downloadProgress(dr *common.DownloadingResponse) error {
+	fmt.Println(dr.Action, dr.DownloadId, dr.Hash, dr.Value)
 	return nil
 }
 
@@ -29,6 +32,7 @@ func downloadComplete(client *warpcli.Client) func(dr *common.DownloadingRespons
 		if dr.Hash == warplib.MAIN_HASH {
 			client.Disconnect()
 		}
+		os.Exit(0)
 		return nil
 	}
 }
