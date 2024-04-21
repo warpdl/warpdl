@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+
+	"github.com/warpdl/warpdl/pkg/credman"
 )
 
 type Engine struct {
@@ -17,6 +19,7 @@ type Engine struct {
 	msPath       string
 	modules      []*Module
 	modIndex     map[string]int
+	cookieMan   *credman.CookieManager
 	LoadedModule map[string]string `json:"loaded_modules"`
 }
 

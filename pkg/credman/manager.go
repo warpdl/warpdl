@@ -11,6 +11,7 @@ import (
 )
 
 type CookieManager struct {
+	f *os.File
 	filePath string
 	key      []byte
 	cookies  map[string]*types.Cookie
@@ -32,19 +33,19 @@ func NewCookieManager(filePath string, key []byte) (*CookieManager, error) {
 }
 
 func (cm *CookieManager) loadCookies() error {
-	_, err := os.Stat(cm.filePath)
+/*	_, err := os.Stat(cm.filePath)
 	if os.IsNotExist(err) {
 		return nil
 	}
-
-	file, err := os.Open(cm.filePath)
+*/
+	var err error
+	cm.f, err = os.OpenFile(cm.filePath, os.O_RDWR|os.O_CREATE, 0666)
 	if err != nil {
 		return err
 	}
-	defer file.Close()
 
 	var cookiesData []byte
-	_, err = file.Read(cookiesData)
+	_, err = cm.f.Read(cookiesData)
 	if err != nil {
 		return err
 	}
@@ -55,25 +56,23 @@ func (cm *CookieManager) loadCookies() error {
 	if err != nil {
 		return err
 	}
-
 	return nil
 }
 
 func (cm *CookieManager) saveCookies() error {
-	file, err := os.Create(cm.filePath)
+	/*file, err := os.Create(cm.filePath)
 	if err != nil {
 		return err
 	}
-	defer file.Close()
-
+	defer file.Close()*/
 	var buf bytes.Buffer
 	enc := gob.NewEncoder(&buf)
-	err = enc.Encode(cm.cookies)
+	err := enc.Encode(cm.cookies)
 	if err != nil {
 		return err
 	}
 
-	_, err = file.Write(buf.Bytes())
+	_, err = cm.f.Write(buf.Bytes())
 	if err != nil {
 		return err
 	}
@@ -125,5 +124,6 @@ func (cm *CookieManager) UpdateCookie(cookie *types.Cookie) error {
 }
 
 func (cm *CookieManager) Close() error {
+	defer cm.f.Close()
 	return cm.saveCookies()
 }
