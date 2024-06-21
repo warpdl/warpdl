@@ -9,12 +9,19 @@ import (
 	"github.com/warpdl/warpdl/cmd/ext"
 )
 
-func Execute(args []string) error {
+type BuildArgs struct {
+	Version   string
+	BuildType string
+	Date      string
+	Commit    string
+}
+
+func Execute(args []string, bArgs BuildArgs) error {
 	app := cli.App{
 		Name:                  "warpdl",
 		HelpName:              "warpdl",
 		Usage:                 "An ultra fast download manager.",
-		Version:               fmt.Sprintf("%s-%s", version, BuildType),
+		Version:               fmt.Sprintf("%s-%s", bArgs.Version, bArgs.BuildType),
 		UsageText:             "warpdl <command> [arguments...]",
 		Description:           DESCRIPTION,
 		CustomAppHelpTemplate: HELP_TEMPL,
@@ -125,7 +132,7 @@ func Execute(args []string) error {
 		app.Version,
 		runtime.GOOS,
 		runtime.GOARCH,
-		date, commit,
+		bArgs.Date, bArgs.Commit,
 	)
 	return app.Run(args)
 }

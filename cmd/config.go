@@ -8,13 +8,6 @@ const (
 	DEF_TIMEOUT   = time.Second * 30
 )
 
-var (
-	version   string
-	commit    string
-	date      string
-	BuildType string = "unclassified"
-)
-
 const DESCRIPTION = `
 WarpDL is a powerful and versatile cross-platform download manager. 
 With its advanced technology, it has the ability to accelerate
