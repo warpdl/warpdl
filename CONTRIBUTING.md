@@ -29,12 +29,13 @@ Once you have made the required changes, make sure you have tested your changes 
 **Note**: If your changes fall under multiple major areas, you can use multiple major areas separated by a comma.
 
 **Available types**:
-- `feat` - For adding a new feature.
+- `feat` - For adding a new feature. 
 - `fix` - For a bug fix.
 - `refactor` - For a code refactor.
 - `perf` - For a performance improvement.
 - `test` - For a test case.
 - `chore` - For a chore commit.
+- `temp` - For a temporary change.
 
 **Examples**:
 1. Suppose you have added a feature 'X' in the warplib that includes changes to API as well, then the commit would look like:
