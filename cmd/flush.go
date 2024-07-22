@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/urfave/cli"
@@ -27,6 +28,15 @@ var (
 )
 
 func flush(ctx *cli.Context) error {
+	args := ctx.Args()
+	if len(args) == 1 {
+		hashToFlush = args[0]
+	} else if len(args) > 1 {
+		return common.PrintErrWithCmdHelp(
+			ctx,
+			errors.New("invalid amount of arguments"),
+		)
+	}
 	if !confirm(command("flush"), forceFlush) {
 		return nil
 	}

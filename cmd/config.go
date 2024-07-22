@@ -60,6 +60,7 @@ user, it will also delete incomplete downloads and their date.
 
 Example:
         warpdl flush
+		warpdl flush [HASH]
 
 `
 )
