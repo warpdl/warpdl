@@ -15,15 +15,14 @@ type Engine struct {
 	f   *os.File
 	enc *json.Encoder
 	l   *log.Logger
-	// msPath is module storage path
-	msPath       string
+	msPath       string // msPath is module storage path
 	modules      []*Module
 	modIndex     map[string]int
 	cookieMan   *credman.CookieManager
 	LoadedModule map[string]string `json:"loaded_modules"`
 }
 
-func NewEngine(l *log.Logger, debugger bool) (*Engine, error) {
+func NewEngine(l *log.Logger, cookieManager *credman.CookieManager, debugger bool) (*Engine, error) {
 	l.Println("Creating extension engine")
 	var mePath string
 	if debugger {
@@ -51,6 +50,7 @@ func NewEngine(l *log.Logger, debugger bool) (*Engine, error) {
 		msPath:       absMsPath,
 		LoadedModule: make(map[string]string),
 		modIndex:     make(map[string]int),
+		cookieMan:    cookieManager,
 	}
 	e.enc.SetIndent("", "  ")
 	err = json.NewDecoder(file).Decode(&e)
