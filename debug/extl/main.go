@@ -28,7 +28,8 @@ func main() {
 		println(HELP)
 		return
 	}
-	extEng, err := extl.NewEngine(log.Default(), true)
+
+	extEng, err := extl.NewEngine(log.Default(), nil, true)
 	if err != nil {
 		log.Fatal(err)
 	}
