@@ -10,7 +10,7 @@ type SizeOption struct {
 	fmt string
 }
 
-func (s *SizeOption) string(l int64, sep string) string {
+func (s *SizeOption) string(l int64) string {
 	return strings.Join(
 		[]string{
 			strconv.FormatInt(l, 10),
@@ -33,11 +33,11 @@ func (s *SizeOption) GetFrom(l int64) (siz, rem int64) {
 
 func (s *SizeOption) String(l ContentLength) string {
 	siz, _ := s.Get(l)
-	return s.string(siz, "")
+	return s.string(siz)
 }
 
 func (s *SizeOption) StringFrom(l int64) string {
-	return s.string(l, "")
+	return s.string(l)
 }
 
 var (
