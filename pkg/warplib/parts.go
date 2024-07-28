@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -134,7 +135,7 @@ func (p *Part) download(headers Headers, ioff, foff int64, force bool) (body io.
 func (p *Part) copyBuffer(src io.ReadCloser, foff int64, force bool) (slow bool, err error) {
 	var (
 		// number of bytes this part should read
-		tread  = foff - p.offset
+		tread  = foff + 1 - p.offset
 		chunk  = p.chunk
 		lchunk = tread - p.read
 	)
@@ -156,9 +157,11 @@ func (p *Part) copyBuffer(src io.ReadCloser, foff int64, force bool) (slow bool,
 		}
 		lchunk = tread - p.read
 		if lchunk == 0 {
-			// fmt.Println(p.hash, ":", "lchunk: ", lchunk)
 			err = io.EOF
 			break
+		}
+		if lchunk < 1 {
+			panic("MYSTERIOUS CORRUPTION! Report to github.com/warpdl/warpdl")
 		}
 		if lchunk < chunk {
 			buf = make([]byte, lchunk)
@@ -203,7 +206,7 @@ func (p *Part) copyBufferChunk(src io.Reader, dst io.Writer, buf []byte) (err er
 				ew = errors.New("invalid write results")
 			}
 		}
-		p.read += int64(nw)
+		atomic.AddInt64(&p.read, int64(nw))
 		p.pwg.Add(1)
 		go func() {
 			defer p.pwg.Done()
@@ -230,7 +233,7 @@ func (p *Part) compile() (read, written int64, err error) {
 	off := p.offset
 	for {
 		nr, er := p.pf.Read(buf)
-		read += int64(nr)
+		atomic.AddInt64(&read, int64(nr))
 		if nr > 0 {
 			nw, ew := p.f.WriteAt(buf[0:nr], off)
 			if nw < 0 || nr < nw {
@@ -239,7 +242,7 @@ func (p *Part) compile() (read, written int64, err error) {
 					ew = errors.New("invalid write results")
 				}
 			}
-			written += int64(nw)
+			atomic.AddInt64(&written, int64(nw))
 			p.pwg.Add(1)
 			go func() {
 				defer p.pwg.Done()

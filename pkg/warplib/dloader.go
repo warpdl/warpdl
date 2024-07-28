@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 type Downloader struct {
@@ -293,7 +294,7 @@ func (d *Downloader) Resume(parts map[int64]*ItemPart) (err error) {
 	for ioff, ip := range parts {
 		if ip.Compiled {
 			d.handlers.CompileSkippedHandler(ip.Hash, ip.FinalOffset-ioff)
-			d.nread += ip.FinalOffset - ioff
+			atomic.AddInt64(&d.nread, ip.FinalOffset-ioff)
 			continue
 		}
 		d.wg.Add(1)
@@ -438,12 +439,9 @@ func (d *Downloader) newPartDownload(ioff, foff, espeed int64) {
 		return
 	}
 	hash := part.hash
-
 	defer func() { d.numConn--; d.wg.Done() }()
 	// CHANGE IMPL
 	err = d.runPart(part, ioff, foff, espeed, false, nil)
-	// part.read + 1 because the first offset is 0
-	d.nread += part.read + 1
 	if err != nil {
 		return
 	}
@@ -455,6 +453,7 @@ func (d *Downloader) newPartDownload(ioff, foff, espeed int64) {
 
 	var read, written int64
 	read, written, err = part.compile()
+	atomic.AddInt64(&d.nread, written)
 
 	// close part file
 	part.close()
@@ -511,6 +510,10 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 		return err
 	}
 	if !slow {
+		expectedRead := foff - part.offset + 1
+		if part.read != expectedRead {
+			d.Log("%s: part read bytes (%d) not equal to expected bytes (%d)", hash, part.read, expectedRead)
+		}
 		return nil
 	}
 
@@ -528,7 +531,7 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 			d.handlers.ErrorHandler(hash, err)
 		}
 		// return to prevent spawning further parts
-		return err
+		return nil
 	}
 
 	if d.maxParts != 0 && d.numParts >= d.maxParts {
@@ -542,7 +545,7 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 			d.handlers.ErrorHandler(hash, err)
 		}
 		// return to prevent spawning further parts
-		return err
+		return nil
 	}
 
 	if d.maxConn != 0 && d.numConn >= d.maxConn {
@@ -822,7 +825,7 @@ func (d *Downloader) downloadUnknownSizeFile() error {
 	}
 	defer resp.Body.Close()
 	proxiedBody := NewCallbackProxyReader(resp.Body, func(n int) {
-		d.nread += int64(n)
+		atomic.AddInt64(&d.nread, int64(n))
 		d.handlers.DownloadProgressHandler(MAIN_HASH, n)
 	})
 	_, err = io.Copy(d.f, proxiedBody)

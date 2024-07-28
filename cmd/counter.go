@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/vbauerster/mpb/v8"
@@ -37,7 +38,7 @@ func (s *SpeedCounter) Start() {
 
 func (s *SpeedCounter) IncrBy(n int) {
 	s.mu.RLock()
-	s.bpc += int64(n)
+	atomic.AddInt64(&s.bpc, int64(n))
 	s.mu.RUnlock()
 }
 
