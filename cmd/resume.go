@@ -72,8 +72,8 @@ func resume(ctx *cli.Context) (err error) {
 	fmt.Println(">> Initiating a WARP download << ")
 	r, err := client.Resume(hash, &warpcli.ResumeOpts{
 		ForceParts:     forceParts,
-		MaxConnections: maxConns,
-		MaxSegments:    maxParts,
+		MaxConnections: int32(maxConns),
+		MaxSegments:    int32(maxParts),
 		Headers:        headers,
 	})
 	if err != nil {

@@ -213,10 +213,10 @@ type ResumeDownloadOpts struct {
 	ForceParts bool
 	// MaxConnections sets the maximum number of parallel
 	// network connections to be used for the downloading the file.
-	MaxConnections int
+	MaxConnections int32
 	// MaxSegments sets the maximum number of file segments
 	// to be created for the downloading the file.
-	MaxSegments int
+	MaxSegments int32
 	Headers     Headers
 	Handlers    *Handlers
 }

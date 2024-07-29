@@ -110,14 +110,14 @@ func (i *Item) GetAbsolutePath() (aPath string) {
 	return
 }
 
-func (i *Item) GetMaxConnections() (int, error) {
+func (i *Item) GetMaxConnections() (int32, error) {
 	if i.dAlloc == nil {
 		return 0, ErrItemDownloaderNotFound
 	}
 	return i.dAlloc.GetMaxConnections(), nil
 }
 
-func (i *Item) GetMaxParts() (int, error) {
+func (i *Item) GetMaxParts() (int32, error) {
 	if i.dAlloc == nil {
 		return 0, ErrItemDownloaderNotFound
 	}

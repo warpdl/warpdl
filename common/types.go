@@ -14,8 +14,8 @@ type DownloadParams struct {
 	FileName          string          `json:"file_name"`
 	Headers           warplib.Headers `json:"headers,omitempty"`
 	ForceParts        bool            `json:"force_parts,omitempty"`
-	MaxConnections    int             `json:"max_connections,omitempty"`
-	MaxSegments       int             `json:"max_segments,omitempty"`
+	MaxConnections    int32           `json:"max_connections,omitempty"`
+	MaxSegments       int32           `json:"max_segments,omitempty"`
 	ChildHash         string          `json:"child_hash,omitempty"`
 	IsHidden          bool            `json:"is_hidden,omitempty"`
 	IsChildren        bool            `json:"is_children,omitempty"`
@@ -28,8 +28,8 @@ type DownloadResponse struct {
 	DownloadDirectory string                `json:"download_directory"`
 	ContentLength     warplib.ContentLength `json:"content_length"`
 	Downloaded        warplib.ContentLength `json:"downloaded,omitempty"`
-	MaxConnections    int                   `json:"max_connections"`
-	MaxSegments       int                   `json:"max_segments"`
+	MaxConnections    int32                 `json:"max_connections"`
+	MaxSegments       int32                 `json:"max_segments"`
 }
 
 type DownloadingResponse struct {
@@ -43,8 +43,8 @@ type ResumeParams struct {
 	DownloadId     string          `json:"download_id"`
 	Headers        warplib.Headers `json:"headers,omitempty"`
 	ForceParts     bool            `json:"force_parts,omitempty"`
-	MaxConnections int             `json:"max_connections,omitempty"`
-	MaxSegments    int             `json:"max_segments,omitempty"`
+	MaxConnections int32           `json:"max_connections,omitempty"`
+	MaxSegments    int32           `json:"max_segments,omitempty"`
 }
 
 type ResumeResponse struct {
@@ -54,8 +54,8 @@ type ResumeResponse struct {
 	DownloadDirectory string                `json:"download_directory"`
 	AbsoluteLocation  string                `json:"absolute_location"`
 	ContentLength     warplib.ContentLength `json:"content_length"`
-	MaxConnections    int                   `json:"max_connections"`
-	MaxSegments       int                   `json:"max_segments"`
+	MaxConnections    int32                 `json:"max_connections"`
+	MaxSegments       int32                 `json:"max_segments"`
 }
 
 type FlushParams struct {

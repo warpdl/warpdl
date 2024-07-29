@@ -8,7 +8,7 @@ import (
 	"github.com/warpdl/warpdl/pkg/warplib"
 )
 
-func getHandler(s *Api, pool *server.Pool, uidPtr *string, stopDownloadPtr *func() error) *warplib.Handlers {
+func getHandler(pool *server.Pool, uidPtr *string, stopDownloadPtr *func() error) *warplib.Handlers {
 	return &warplib.Handlers{
 		ErrorHandler: func(_ string, err error) {
 			uid := *uidPtr
@@ -105,7 +105,7 @@ func (s *Api) resumeHandler(sconn *server.SyncConn, pool *server.Pool, body json
 		ForceParts:     m.ForceParts,
 		MaxConnections: m.MaxConnections,
 		MaxSegments:    m.MaxSegments,
-		Handlers:       getHandler(s, pool, hash, stopDownload),
+		Handlers:       getHandler(pool, hash, stopDownload),
 	})
 	if err != nil {
 		return common.UPDATE_RESUME, nil, err
@@ -121,7 +121,7 @@ func (s *Api) resumeHandler(sconn *server.SyncConn, pool *server.Pool, body json
 			ForceParts:     m.ForceParts,
 			MaxConnections: m.MaxConnections,
 			MaxSegments:    m.MaxSegments,
-			Handlers:       getHandler(s, pool, &item.ChildHash, cStopDownload),
+			Handlers:       getHandler(pool, &item.ChildHash, cStopDownload),
 		})
 		if err != nil {
 			return common.UPDATE_RESUME, nil, err

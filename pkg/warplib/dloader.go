@@ -34,11 +34,11 @@ type Downloader struct {
 	// a single copy cycle
 	chunk int
 	// Max connections and number of curr connections
-	maxConn, numConn int
+	maxConn, numConn int32
 	// Max spawnable parts and number of curr parts
-	maxParts, numParts int
+	maxParts, numParts int32
 	// Initial number of parts to be spawned
-	numBaseParts int
+	numBaseParts int32
 	// Setting force as 'true' will make downloader
 	// split the file into segments even if it doesn't
 	// have accept-ranges header.
@@ -64,7 +64,7 @@ type Downloader struct {
 // Optional fields of downloader
 type DownloaderOpts struct {
 	ForceParts   bool
-	NumBaseParts int
+	NumBaseParts int32
 	// FileName is used to set name of to-be-downloaded
 	// file explicitly.
 	//
@@ -76,10 +76,10 @@ type DownloaderOpts struct {
 	DownloadDirectory string
 	// MaxConnections sets the maximum number of parallel
 	// network connections to be used for the downloading the file.
-	MaxConnections int
+	MaxConnections int32
 	// MaxSegments sets the maximum number of file segments
 	// to be created for the downloading the file.
-	MaxSegments int
+	MaxSegments int32
 
 	Headers Headers
 
@@ -247,7 +247,7 @@ func (d *Downloader) Start() (err error) {
 		d.Log("Unknown content length, downloading in a single connection...")
 		go d.downloadUnknownSizeFile()
 	} else {
-		for i := 0; i < d.numBaseParts; i++ {
+		for i := int32(0); i < d.numBaseParts; i++ {
 			ioff := int64(i) * partSize
 			foff := ioff + partSize - 1
 			if i == d.numBaseParts-1 {
@@ -346,7 +346,8 @@ func (d *Downloader) spawnPart(ioff, foff int64) (part *Part, err error) {
 	}
 	// part.offset = ioff
 	d.ohmap.Set(ioff, part.hash)
-	d.numParts++
+	// d.numParts++
+	atomic.AddInt32(&d.numParts, 1)
 	d.Log("%s: created new part | %d => %d", part.hash, ioff, foff)
 	d.handlers.SpawnPartHandler(part.hash, ioff, foff)
 	return
@@ -374,15 +375,17 @@ func (d *Downloader) initPart(hash string, ioff, foff int64) (part *Part, err er
 		return
 	}
 	d.ohmap.Set(ioff, hash)
-	d.numParts++
+	// d.numParts++
+	atomic.AddInt32(&d.numParts, 1)
 	d.Log("%s: Resumed part", hash)
 	d.handlers.SpawnPartHandler(hash, ioff, foff)
 	return
 }
 
 func (d *Downloader) resumePartDownload(hash string, ioff, foff, espeed int64) {
-	d.numConn++
-	defer func() { d.numConn--; d.wg.Done() }()
+	// d.numConn++
+	atomic.AddInt32(&d.numConn, 1)
+	defer func() { atomic.AddInt32(&d.numConn, -1); d.wg.Done() }()
 	part, err := d.initPart(hash, ioff, foff)
 	if err != nil {
 		d.Log("%s: init: %s", hash, err.Error())
@@ -432,14 +435,15 @@ func (d *Downloader) resumePartDownload(hash string, ioff, foff, espeed int64) {
 }
 
 func (d *Downloader) newPartDownload(ioff, foff, espeed int64) {
-	d.numConn++
+	// d.numConn++
+	atomic.AddInt32(&d.numConn, 1)
 	part, err := d.spawnPart(ioff, foff)
 	if err != nil {
 		d.Log("failed to spawn new part: %w", err)
 		return
 	}
 	hash := part.hash
-	defer func() { d.numConn--; d.wg.Done() }()
+	defer func() { atomic.AddInt32(&d.numConn, -1); d.wg.Done() }()
 	// CHANGE IMPL
 	err = d.runPart(part, ioff, foff, espeed, false, nil)
 	if err != nil {
@@ -584,11 +588,11 @@ func (d *Downloader) Stop() {
 	d.cancel()
 }
 
-func (d *Downloader) GetMaxConnections() int {
+func (d *Downloader) GetMaxConnections() int32 {
 	return d.maxConn
 }
 
-func (d *Downloader) GetMaxParts() int {
+func (d *Downloader) GetMaxParts() int32 {
 	return d.maxParts
 }
 
@@ -623,7 +627,7 @@ func (d *Downloader) GetHash() string {
 
 // NumConnections returns the number of connections
 // running currently.
-func (d *Downloader) NumConnections() int {
+func (d *Downloader) NumConnections() int32 {
 	return d.numConn
 }
 

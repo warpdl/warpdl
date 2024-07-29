@@ -59,8 +59,8 @@ func download(ctx *cli.Context) (err error) {
 	}
 	d, err := client.Download(url, fileName, dlPath, &warpcli.DownloadOpts{
 		ForceParts:     forceParts,
-		MaxConnections: maxConns,
-		MaxSegments:    maxParts,
+		MaxConnections: int32(maxConns),
+		MaxSegments:    int32(maxParts),
 		Headers:        headers,
 	})
 	if err != nil {

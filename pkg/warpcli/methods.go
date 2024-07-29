@@ -19,8 +19,8 @@ func invoke[T any](c *Client, method common.UpdateType, message any) (*T, error)
 type DownloadOpts struct {
 	Headers        warplib.Headers `json:"headers,omitempty"`
 	ForceParts     bool            `json:"force_parts,omitempty"`
-	MaxConnections int             `json:"max_connections,omitempty"`
-	MaxSegments    int             `json:"max_segments,omitempty"`
+	MaxConnections int32           `json:"max_connections,omitempty"`
+	MaxSegments    int32           `json:"max_segments,omitempty"`
 	ChildHash      string          `json:"child_hash,omitempty"`
 	IsHidden       bool            `json:"is_hidden,omitempty"`
 	IsChildren     bool            `json:"is_children,omitempty"`
@@ -47,8 +47,8 @@ func (c *Client) Download(url, fileName, downloadDirectory string, opts *Downloa
 type ResumeOpts struct {
 	Headers        warplib.Headers `json:"headers,omitempty"`
 	ForceParts     bool            `json:"force_parts,omitempty"`
-	MaxConnections int             `json:"max_connections,omitempty"`
-	MaxSegments    int             `json:"max_segments,omitempty"`
+	MaxConnections int32           `json:"max_connections,omitempty"`
+	MaxSegments    int32           `json:"max_segments,omitempty"`
 }
 
 func (c *Client) Resume(downloadId string, opts *ResumeOpts) (*common.ResumeResponse, error) {
