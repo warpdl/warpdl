@@ -399,7 +399,6 @@ func (d *Downloader) resumePartDownload(hash string, ioff, foff, espeed int64) {
 	}
 	// CHANGE IMPL
 	err = d.runPart(part, poff, foff, espeed, false, nil)
-	d.nread += part.read + 1
 	if err != nil {
 		return
 	}
@@ -410,6 +409,7 @@ func (d *Downloader) resumePartDownload(hash string, ioff, foff, espeed int64) {
 
 	var read, written int64
 	read, written, err = part.compile()
+	atomic.AddInt64(&d.nread, written)
 
 	// close part file
 	part.close()
