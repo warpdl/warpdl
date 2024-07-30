@@ -11,7 +11,7 @@ import (
 )
 
 type CookieManager struct {
-	f *os.File
+	f        *os.File
 	filePath string
 	key      []byte
 	cookies  map[string]*types.Cookie
@@ -33,11 +33,6 @@ func NewCookieManager(filePath string, key []byte) (*CookieManager, error) {
 }
 
 func (cm *CookieManager) loadCookies() error {
-/*	_, err := os.Stat(cm.filePath)
-	if os.IsNotExist(err) {
-		return nil
-	}
-*/
 	var err error
 	cm.f, err = os.OpenFile(cm.filePath, os.O_RDWR|os.O_CREATE, 0666)
 	if err != nil {
@@ -49,10 +44,13 @@ func (cm *CookieManager) loadCookies() error {
 	if err != nil {
 		return err
 	}
-
+	if len(cookiesData) == 0 { // don't decode empty data
+		return nil
+	}
 	buf := bytes.NewBuffer(cookiesData)
 	dec := gob.NewDecoder(buf)
 	err = dec.Decode(&cm.cookies)
+
 	if err != nil {
 		return err
 	}
@@ -60,11 +58,6 @@ func (cm *CookieManager) loadCookies() error {
 }
 
 func (cm *CookieManager) saveCookies() error {
-	/*file, err := os.Create(cm.filePath)
-	if err != nil {
-		return err
-	}
-	defer file.Close()*/
 	var buf bytes.Buffer
 	enc := gob.NewEncoder(&buf)
 	err := enc.Encode(cm.cookies)
