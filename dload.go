@@ -41,7 +41,6 @@ func download(ctx *cli.Context) (err error) {
 			Key: warplib.USER_AGENT_KEY, Value: getUserAgent(userAgent),
 		}}
 	}
-
 	if vInfo, er := processVideo(url); er == nil {
 		if vInfo.AudioFName != "" {
 			nt := time.Now()
@@ -57,8 +56,6 @@ func download(ctx *cli.Context) (err error) {
 		}
 		url = vInfo.VideoUrl
 		fileName = vInfo.VideoFName
-	} else {
-		fmt.Println(er)
 	}
 	var (
 		dbar, cbar *mpb.Bar
