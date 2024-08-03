@@ -6,6 +6,7 @@ const (
 	DEF_MAX_PARTS = 200
 	DEF_MAX_CONNS = 24
 	DEF_TIMEOUT   = time.Second * 30
+	DEF_PORT      = 3849
 )
 
 const DESCRIPTION = `

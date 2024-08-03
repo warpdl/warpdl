@@ -14,13 +14,15 @@ type Server struct {
 	log     *log.Logger
 	pool    *Pool
 	handler map[common.UpdateType]HandlerFunc
+	port    int
 }
 
-func NewServer(l *log.Logger) *Server {
+func NewServer(l *log.Logger, port int) *Server {
 	return &Server{
 		log:     l,
 		pool:    NewPool(l),
 		handler: make(map[common.UpdateType]HandlerFunc),
+		port:    port,
 	}
 }
 
@@ -31,12 +33,21 @@ func (s *Server) RegisterHandler(method common.UpdateType, handler HandlerFunc) 
 func (s *Server) Start() error {
 	socketPath := filepath.Join(os.TempDir(), "warpdl.sock")
 	_ = os.Remove(socketPath)
-	l, err := net.ListenUnix("unix", &net.UnixAddr{
+	var (
+		l   net.Listener
+		err error
+	)
+	l, err = net.ListenUnix("unix", &net.UnixAddr{
 		Name: socketPath,
 		Net:  "unix",
 	})
 	if err != nil {
-		return err
+		s.log.Println("Error occured while using unix socket: ", err.Error())
+		s.log.Println("Trying to use tcp socket")
+		l, err = net.Listen("tcp", fmt.Sprintf("localhost:%d", s.port))
+		if err != nil {
+			return fmt.Errorf("error listening: %s", err.Error())
+		}
 	}
 	defer l.Close()
 	for {

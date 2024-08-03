@@ -28,7 +28,7 @@ func daemon(ctx *cli.Context) error {
 		common.PrintRuntimeErr(ctx, "daemon", "new_api", err)
 		return nil
 	}
-	serv := server.NewServer(l)
+	serv := server.NewServer(l, DEF_PORT)
 	s.RegisterHandlers(serv)
 	return serv.Start()
 }
