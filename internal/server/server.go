@@ -8,21 +8,25 @@ import (
 	"path/filepath"
 
 	"github.com/warpdl/warpdl/common"
+	"github.com/warpdl/warpdl/pkg/warplib"
 )
 
 type Server struct {
 	log     *log.Logger
 	pool    *Pool
+	ws      *WebServer
 	handler map[common.UpdateType]HandlerFunc
 	port    int
 }
 
-func NewServer(l *log.Logger, port int) *Server {
+func NewServer(l *log.Logger, m *warplib.Manager, port int) *Server {
+	pool := NewPool(l)
 	return &Server{
 		log:     l,
-		pool:    NewPool(l),
+		pool:    pool,
 		handler: make(map[common.UpdateType]HandlerFunc),
 		port:    port,
+		ws:      NewWebServer(l, m, pool, port+1),
 	}
 }
 
@@ -31,6 +35,8 @@ func (s *Server) RegisterHandler(method common.UpdateType, handler HandlerFunc) 
 }
 
 func (s *Server) Start() error {
+	// todo: handle error
+	go s.ws.Start()
 	socketPath := filepath.Join(os.TempDir(), "warpdl.sock")
 	_ = os.Remove(socketPath)
 	var (

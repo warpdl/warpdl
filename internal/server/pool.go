@@ -31,6 +31,10 @@ func (p *Pool) HasDownload(uid string) bool {
 func (p *Pool) AddDownload(uid string, sconn *SyncConn) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if sconn == nil {
+		p.m[uid] = []*SyncConn{}
+		return
+	}
 	p.m[uid] = []*SyncConn{sconn}
 }
 

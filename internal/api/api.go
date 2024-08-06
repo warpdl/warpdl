@@ -17,12 +17,7 @@ type Api struct {
 	client   *http.Client
 }
 
-func NewApi(l *log.Logger, elEngine *extl.Engine) (*Api, error) {
-	m, err := warplib.InitManager()
-	if err != nil {
-		return nil, err
-	}
-	client := &http.Client{}
+func NewApi(l *log.Logger, m *warplib.Manager, client *http.Client, elEngine *extl.Engine) (*Api, error) {
 	return &Api{
 		log:      l,
 		manager:  m,
