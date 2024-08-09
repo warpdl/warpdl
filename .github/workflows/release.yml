@@ -13,43 +13,31 @@ on:
         description: "Snap release channel"
         required: false
         type: choice
-        default: 'edge'
+        default: "edge"
         options:
-            - stable
-            - candidate
-            - beta
-            - edge
+          - stable
+          - candidate
+          - beta
+          - edge
 
 jobs:
   ci:
     name: Goreleaser CI
-    runs-on: ubuntu-20.04
-    env:
-      GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+    runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Configure git
-        run: git config --global url."https://celestix:${GITHUB_TOKEN}@github.com".insteadOf "https://github.com"
       - name: Checkout
         uses: actions/checkout@v4
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
           go-version: "stable"
-      - name: Import GPG key
-        uses: crazy-max/ghaction-import-gpg@v6
-        with:
-          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
-          passphrase: ${{ secrets.GPG_PASSPHRASE }}
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v4
         with:
           version: latest
-          args: release --snapshot --skip=publish --clean
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
-          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          args: release --snapshot --skip=publish --clean --skip=sign
 
   update-install-script:
     name: Update scripts/install.sh in warp-releases
@@ -113,11 +101,11 @@ jobs:
       GITHUB_TOKEN: ${{ secrets.GH_PAT }}
     steps:
       - name: Set up git
-        run: git config --global url."https://celestix:${GITHUB_TOKEN}@github.com".insteadOf "https://github.com"
+        run: git config --global url."https://divkix:${GITHUB_TOKEN}@github.com".insteadOf "https://github.com"
       - name: Checkout
         uses: actions/checkout@v4
       - name: Set up Go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v5
         with:
           go-version: "stable"
       - name: Install UPX
@@ -128,8 +116,8 @@ jobs:
       - if: startsWith(github.ref, 'refs/tags/') != 'true' && github.event.inputs.tag != ''
         name: Create and Push Tag
         run: |-
-          git config --global user.email "73958752+celestix@users.noreply.github.com"
-          git config --global user.name "celestix"
+          git config --global user.email "divkix@divkix.me"
+          git config --global user.name "Divanshu Chauhan"
           tag=${{ github.event.inputs.tag }} # if triggered by workflow_dispatch
           if [ -z "$tag" ]; then
             tag=${GITHUB_REF#refs/tags/}
@@ -137,7 +125,7 @@ jobs:
           git tag -f -a -m "$tag" "$tag"
           git push -f origin "$tag"
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@v2
+        uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -148,18 +136,18 @@ jobs:
           gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
           passphrase: ${{ secrets.GPG_PASSPHRASE }}
       - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v4
+        uses: goreleaser/goreleaser-action@v6
         with:
           version: latest
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
-      - name: Push to fury
-        run: |-
-          ./scripts/gemfury/push.sh
-        env:
-          GEMFURY_PUSH_KEY: ${{ secrets.GEMFURY_PUSH_KEY }}
+      # - name: Push to fury
+      #   run: |-
+      #     ./scripts/gemfury/push.sh
+      #   env:
+      #     GEMFURY_PUSH_KEY: ${{ secrets.GEMFURY_PUSH_KEY }}
 
   snapcraft:
     name: Publish snaps
@@ -170,9 +158,9 @@ jobs:
     strategy:
       matrix:
         platform:
-        - i386
-        - amd64
-        - arm64
+          - i386
+          - amd64
+          - arm64
     steps:
       - uses: docker/setup-qemu-action@v2
       - name: Checkout
@@ -189,7 +177,6 @@ jobs:
         with:
           snap: ${{ steps.build.outputs.snap }}
           release: ${{ github.event.inputs.snap_channel }}
-
 #   run-tests:
 #     name: Run test scripts
 #     runs-on: ubuntu-latest
