@@ -54,6 +54,8 @@ func (s *Server) Start() error {
 		if err != nil {
 			return fmt.Errorf("error listening: %s", err.Error())
 		}
+	} else {
+		_ = os.Chmod(socketPath, 0766)
 	}
 	defer l.Close()
 	for {
