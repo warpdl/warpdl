@@ -20,7 +20,7 @@ func InitBars(p *mpb.Progress, prefix string, cLength int64) (dbar *mpb.Bar, cba
 	dbar = p.New(0,
 		barStyle,
 		mpb.PrependDecorators(
-			decor.Name(name, decor.WC{W: len(name) + 1, C: decor.DidentRight}),
+			decor.Name(name, decor.WC{W: len(name) + 1, C: decor.DindentRight}),
 			decor.OnComplete(
 				decor.EwmaETA(decor.ET_STYLE_GO, 30, decor.WC{W: 4}), "Complete",
 			),
@@ -37,7 +37,7 @@ func InitBars(p *mpb.Progress, prefix string, cLength int64) (dbar *mpb.Bar, cba
 		barStyle,
 		mpb.BarQueueAfter(dbar),
 		mpb.PrependDecorators(
-			decor.Name(name, decor.WC{W: len(name) + 1, C: decor.DidentRight}),
+			decor.Name(name, decor.WC{W: len(name) + 1, C: decor.DindentRight}),
 			decor.OnComplete(
 				decor.AverageETA(decor.ET_STYLE_GO, decor.WC{W: 4}), "Complete",
 			),
