@@ -34,3 +34,5 @@ warpd
 !cmd/warpd
 
 test/
+
+*.bin*
