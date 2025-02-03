@@ -136,5 +136,6 @@ func (i *Item) StopDownload() error {
 		return ErrItemDownloaderNotFound
 	}
 	i.dAlloc.Stop()
+	i.dAlloc = nil // experimental
 	return nil
 }
