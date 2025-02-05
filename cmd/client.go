@@ -69,8 +69,9 @@ func compileProgress(bar *mpb.Bar) func(dr *common.DownloadingResponse) error {
 }
 
 func RegisterHandlers(client *warpcli.Client, contentLength int64) {
-	sc := NewSpeedCounter(4350 * time.Microsecond)
-	p := mpb.New(mpb.WithWidth(64), mpb.WithRefreshRate(time.Millisecond*100))
+	rr := time.Millisecond * 30
+	sc := NewSpeedCounter(rr)
+	p := mpb.New(mpb.WithWidth(64), mpb.WithRefreshRate(rr))
 	dbar, cbar := cmdCommon.InitBars(p, "", contentLength)
 	sc.SetBar(dbar)
 	sc.Start()
