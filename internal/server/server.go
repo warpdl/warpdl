@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
@@ -75,6 +76,9 @@ func (s *Server) handleConnection(conn net.Conn) {
 	for {
 		buf, err := sconn.Read()
 		if err != nil {
+			if err == io.EOF {
+				break
+			}
 			s.log.Println("Error reading:", err.Error())
 			break
 		}
