@@ -18,6 +18,9 @@
 
 [![CI](https://github.com/warpdl/warpdl/actions/workflows/ci.yml/badge.svg)](https://github.com/warpdl/warpdl/actions/workflows/ci.yml) [![Release](https://github.com/warpdl/warpdl/actions/workflows/release.yml/badge.svg)](https://github.com/warpdl/warpdl/actions/workflows/release.yml) ![Downloads](https://img.shields.io/github/downloads/warpdl/warp-releases/total) ![Contributors](https://img.shields.io/github/contributors/warpdl/warpdl?color=dark-green) ![Issues](https://img.shields.io/github/issues/warpdl/warpdl) ![License](https://img.shields.io/github/license/warpdl/warpdl) 
 
+
+**Note**: This branch is the development branch. For the latest stable release, please refer to the [main branch](https://github.com/warpdl/warpdl/tree/main).
+
 ## Table Of Contents
 
 * [About the Project](#about-the-project)
