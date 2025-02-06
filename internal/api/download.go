@@ -34,7 +34,7 @@ func (s *Api) downloadHandler(sconn *server.SyncConn, pool *server.Pool, body js
 				pool.Broadcast(uid, server.InitError(err))
 				pool.WriteError(uid, server.ErrorTypeCritical, err.Error())
 				pool.StopDownload(uid)
-				d.Stop()
+				s.manager.GetItem(uid).StopDownload()
 			},
 			DownloadProgressHandler: func(hash string, nread int) {
 				uid := d.GetHash()
