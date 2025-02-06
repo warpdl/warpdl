@@ -2,10 +2,12 @@ package cmd
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/urfave/cli"
 	"github.com/warpdl/warpdl/cmd/common"
 	"github.com/warpdl/warpdl/pkg/warpcli"
+	"github.com/warpdl/warpdl/pkg/warplib"
 )
 
 var (
@@ -67,6 +69,7 @@ func list(ctx *cli.Context) error {
 	txt += "\n|Num|\t         Name         | Unique Hash | Status |"
 	txt += "\n|---|-------------------------|-------------|--------|"
 	var i int
+	sort.Sort(warplib.ItemSlice(l.Items))
 	for _, item := range l.Items {
 		if !showHidden && (item.Hidden || item.Children) {
 			continue
