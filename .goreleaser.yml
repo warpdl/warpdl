@@ -70,11 +70,12 @@ builds:
     binary: carapace
     tags:
       - release
-    tool: go-termux
+    gobinary: go-termux
 
 archives:
   - id: default
-    builds: default
+    builds: 
+      - default
     rlcp: true
     name_template: >-
       {{ .ProjectName }}_
