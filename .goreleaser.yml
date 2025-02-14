@@ -66,8 +66,7 @@ builds:
       - arm64
       - arm
       - "386"
-    main: ./cmd/carapace
-    binary: carapace
+    binary: warpdl
     tags:
       - release
     gobinary: go-termux
