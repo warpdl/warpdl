@@ -1,3 +1,7 @@
+// Item is a struct that represents a download.
+// It contains all the necessary information about a download.
+// Package warplib provides core structures and utilities for managing download items
+// and their associated metadata in the WarpDL application.
 package warplib
 
 import (
@@ -6,30 +10,56 @@ import (
 	"time"
 )
 
+// Item represents a download item with its associated metadata and state.
+// It includes information such as the item's unique identifier, name, URL,
+// headers, size, download progress, and storage location.
 type Item struct {
-	Hash             string              `json:"hash"`
-	Name             string              `json:"name"`
-	Url              string              `json:"url"`
-	Headers          Headers             `json:"headers"`
-	DateAdded        time.Time           `json:"date_added"`
-	TotalSize        ContentLength       `json:"total_size"`
-	Downloaded       ContentLength       `json:"downloaded"`
-	DownloadLocation string              `json:"download_location"`
-	AbsoluteLocation string              `json:"absolute_location"`
-	ChildHash        string              `json:"child_hash"`
-	Hidden           bool                `json:"hidden"`
-	Children         bool                `json:"children"`
-	Parts            map[int64]*ItemPart `json:"parts"`
-	Resumable        bool                `json:"resumable"`
-	mu               *sync.RWMutex
-	dAlloc           *Downloader
-	memPart          map[string]int64
+	// Hash is the unique identifier of the download item.
+	Hash string `json:"hash"`
+	// Name is the name of the download item.
+	Name string `json:"name"`
+	// Url is the download url of the download item.
+	Url string `json:"url"`
+	// Headers used for the download
+	Headers Headers `json:"headers"`
+	// DateAdded is the time when the download item was added.
+	DateAdded time.Time `json:"date_added"`
+	// TotalSize is the total size of the download item.
+	TotalSize ContentLength `json:"total_size"`
+	// Downloaded is the total size of the download item that has been downloaded.
+	Downloaded ContentLength `json:"downloaded"`
+	// DownloadLocation is the location where the download item is saved.
+	DownloadLocation string `json:"download_location"`
+	// AbsoluteLocation is the absolute path where the download item is saved.
+	AbsoluteLocation string `json:"absolute_location"`
+	// ChildHash is a hash representing the child item, if applicable.
+	ChildHash string `json:"child_hash"`
+	// Hidden is a flag indicating whether the item is hidden.
+	Hidden bool `json:"hidden"`
+	// Children is a flag indicating whether this item is a child of any other download item.
+	Children bool `json:"children"`
+	// Parts is a map of download parts, where each part is represented by an ItemPart.
+	Parts map[int64]*ItemPart `json:"parts"`
+	// Resumable is a flag indicating whether the download can be resumed.
+	Resumable bool `json:"resumable"`
+	// mu is a mutex for synchronizing access to the item's fields.
+	mu *sync.RWMutex
+	// dAlloc is a reference to the Downloader managing this item.
+	dAlloc *Downloader
+	// memPart is an internal map for managing memory allocation of parts.
+	memPart map[string]int64
 }
 
+// ItemPart represents a part of a download item.
+// It contains metadata about a specific segment of the download,
+// including its unique hash, final offset, and compilation status.
 type ItemPart struct {
-	Hash        string `json:"hash"`
-	FinalOffset int64  `json:"final_offset"`
-	Compiled    bool   `json:"compiled"`
+	// Hash is the unique identifier for this part of the download.
+	Hash string `json:"hash"`
+	// FinalOffset is the ending byte offset of this part in the download.
+	FinalOffset int64 `json:"final_offset"`
+	// Compiled indicates whether this part has been successfully compiled or merged.
+	Compiled bool `json:"compiled"`
 }
 
 type ItemsMap map[string]*Item

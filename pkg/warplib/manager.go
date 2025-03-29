@@ -8,9 +8,13 @@ import (
 	"sync"
 )
 
+// Default download data directory
 var __USERDATA_FILE_NAME = ConfigDir + "/userdata.warp"
 
+// Manager is a struct that manages the download items
+// and their respective downloaders.
 type Manager struct {
+	// items is a map of download items
 	items ItemsMap
 	f     *os.File
 	mu    *sync.RWMutex
