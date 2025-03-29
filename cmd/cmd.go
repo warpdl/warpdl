@@ -28,21 +28,25 @@ func Execute(args []string, bArgs BuildArgs) error {
 		OnUsageError:          common.UsageErrorCallback,
 		Commands: []cli.Command{
 			{
-				Name: "ext",
+				Name:  "ext",
+				Usage: "manage warpdl extensions",
 				Subcommands: []cli.Command{
 					{
 						Name:   "install",
 						Action: ext.Install,
+						Usage:  "install a warpdl extension",
 					},
 					{
 						Name:   "info",
 						Action: ext.Info,
+						Usage:  "show info about a warpdl extension",
 					},
 				},
 			},
 			{
 				Name:   "daemon",
 				Action: daemon,
+				Usage:  "start the warpdl daemon",
 			},
 			{
 				Name:               "info",
@@ -57,10 +61,12 @@ func Execute(args []string, bArgs BuildArgs) error {
 			{
 				Name:   "stop",
 				Action: stop,
+				Usage:  "stop a running download",
 			},
 			{
 				Name:   "attach",
 				Action: attach,
+				Usage:  "attach console to a running download",
 			},
 			{
 				Name:                   "download",
