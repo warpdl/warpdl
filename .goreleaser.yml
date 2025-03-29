@@ -25,7 +25,8 @@ before:
 #     brute: true
 
 builds:
-  - binary: warpdl
+  - id: default
+    binary: warpdl
     env:
       - CGO_ENABLED=0
     goos:
@@ -55,9 +56,26 @@ builds:
       - -trimpath
     ldflags:
       - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{ .CommitDate }} -X main.buildType=stable
+  - id: termux
+    env:
+      - CGO_ENABLED=1
+    goos:
+      - android
+    goarch:
+      - amd64
+      - arm64
+      - arm
+      - "386"
+    main: ./cmd/carapace
+    binary: carapace
+    tags:
+      - release
+    tool: go-termux
 
 archives:
-  - rlcp: true
+  - id: default
+    builds: default
+    rlcp: true
     name_template: >-
       {{ .ProjectName }}_
       {{- .Version }}_
@@ -71,6 +89,10 @@ archives:
     format_overrides:
       - goos: windows
         format: zip
+  - id: termux
+    builds:
+      - termux
+    name_template: 'warpdl_{{ .Version }}_termux_{{ .Arch }}{{ with .Arm }}v{{ . }}{{ end }}{{ with .Mips }}_{{ . }}{{ end }}{{ if not (eq .Amd64 "v1") }}{{ .Amd64 }}{{ end }}'
 
 signs:
   - artifacts: all

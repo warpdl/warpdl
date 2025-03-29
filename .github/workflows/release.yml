@@ -24,6 +24,7 @@ jobs:
   ci:
     name: Goreleaser CI
     runs-on: ubuntu-latest
+    container: ghcr.io/carapace-sh/go:1.23.1
     env:
       GITHUB_TOKEN: ${{ secrets.GH_PAT }}
     permissions:
@@ -109,6 +110,7 @@ jobs:
     name: Run GoReleaser
     needs: update-install-script
     runs-on: ubuntu-20.04
+    container: ghcr.io/carapace-sh/go:1.23.1
     env:
       GITHUB_TOKEN: ${{ secrets.GH_PAT }}
     steps:
