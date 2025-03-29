@@ -7,6 +7,7 @@ import (
 	"github.com/warpdl/warpdl/cmd"
 )
 
+// these variable are set at build time
 var (
 	version   string
 	commit    string
