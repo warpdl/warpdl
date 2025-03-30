@@ -20,6 +20,7 @@ type Manager struct {
 	mu    *sync.RWMutex
 }
 
+// InitManager creates a new manager instance.
 func InitManager() (m *Manager, err error) {
 	m = &Manager{
 		items: make(ItemsMap),
@@ -39,13 +40,6 @@ func InitManager() (m *Manager, err error) {
 	return
 }
 
-type AddDownloadOpts struct {
-	IsHidden         bool
-	IsChildren       bool
-	ChildHash        string
-	AbsoluteLocation string
-}
-
 func (m *Manager) populateMemPart() {
 	for _, item := range m.items {
 		if item.memPart == nil {
@@ -57,6 +51,15 @@ func (m *Manager) populateMemPart() {
 	}
 }
 
+// AddDownloadOpts contains optional parameters for AddDownload.
+type AddDownloadOpts struct {
+	IsHidden         bool
+	IsChildren       bool
+	ChildHash        string
+	AbsoluteLocation string
+}
+
+// AddDownload adds a new download item entry.
 func (m *Manager) AddDownload(d *Downloader, opts *AddDownloadOpts) (err error) {
 	if opts == nil {
 		opts = &AddDownloadOpts{}
@@ -86,6 +89,7 @@ func (m *Manager) AddDownload(d *Downloader, opts *AddDownloadOpts) (err error) 
 	return
 }
 
+// patchHandlers patches the handlers of the downloader to update the item.
 func (m *Manager) patchHandlers(d *Downloader, item *Item) {
 	oSPH := d.handlers.SpawnPartHandler
 	d.handlers.SpawnPartHandler = func(hash string, ioff, foff int64) {
@@ -128,6 +132,8 @@ func (m *Manager) patchHandlers(d *Downloader, item *Item) {
 	}
 }
 
+// encode is an internal function of Manager
+// which encodes its state and stores them as a file.
 func (m *Manager) encode(e any) (err error) {
 	m.mu.Lock()
 	m.f.Seek(0, 0)
@@ -135,23 +141,27 @@ func (m *Manager) encode(e any) (err error) {
 	return gob.NewEncoder(m.f).Encode(e)
 }
 
+// mapItem maps the item to the manager's items map.
 func (m *Manager) mapItem(item *Item) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.items[item.Hash] = item
 }
 
+// deleteItem deletes the item from the manager's items map.
 func (m *Manager) deleteItem(hash string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.items, hash)
 }
 
+// UpdateItem updates the item in the manager's items map.
 func (m *Manager) UpdateItem(item *Item) {
 	m.mapItem(item)
 	m.encode(m.items)
 }
 
+// GetItems returns all the items in the manager.
 func (m *Manager) GetItems() []*Item {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -164,6 +174,8 @@ func (m *Manager) GetItems() []*Item {
 	return items
 }
 
+// GetPublicItems returns all the public items in the manager.
+// i.e. it doesn't return childrens.
 func (m *Manager) GetPublicItems() []*Item {
 	var items = []*Item{}
 	for _, item := range m.GetItems() {
@@ -175,6 +187,7 @@ func (m *Manager) GetPublicItems() []*Item {
 	return items
 }
 
+// GetIncompleteItems returns all the incomplete items in the manager.
 func (m *Manager) GetIncompleteItems() []*Item {
 	var items = []*Item{}
 	for _, item := range m.GetItems() {
@@ -186,6 +199,7 @@ func (m *Manager) GetIncompleteItems() []*Item {
 	return items
 }
 
+// GetCompletedItems returns all the completed items in the manager.
 func (m *Manager) GetCompletedItems() []*Item {
 	var items = []*Item{}
 	for _, item := range m.GetItems() {
@@ -197,6 +211,7 @@ func (m *Manager) GetCompletedItems() []*Item {
 	return items
 }
 
+// GetItems returns all the items in the manager.
 func (m *Manager) GetItem(hash string) (item *Item) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -213,6 +228,7 @@ func (m *Manager) GetItem(hash string) (item *Item) {
 	return
 }
 
+// ResumeDownloadOpts contains optional parameters for ResumeDownload.
 type ResumeDownloadOpts struct {
 	ForceParts bool
 	// MaxConnections sets the maximum number of parallel
@@ -225,6 +241,7 @@ type ResumeDownloadOpts struct {
 	Handlers    *Handlers
 }
 
+// ResumeDownload resumes a download item.
 func (m *Manager) ResumeDownload(client *http.Client, hash string, opts *ResumeDownloadOpts) (item *Item, err error) {
 	if opts == nil {
 		opts = &ResumeDownloadOpts{}
@@ -270,6 +287,7 @@ func (m *Manager) ResumeDownload(client *http.Client, hash string, opts *ResumeD
 	return
 }
 
+// Flush flushes away all the inactive download items.
 func (m *Manager) Flush() {
 	// add a write lock to prevent data modification while flushing
 	m.mu.Lock()
@@ -286,6 +304,8 @@ func (m *Manager) Flush() {
 }
 
 // TODO: make FlushOne safe for flushing while the item is being downloaded
+
+// FlushOne flushes away the download item with the given hash.
 func (m *Manager) FlushOne(hash string) error {
 	m.mu.RLock()
 	item, found := m.items[hash]
@@ -301,6 +321,7 @@ func (m *Manager) FlushOne(hash string) error {
 	return os.RemoveAll(GetPath(DlDataDir, hash))
 }
 
+// Close closes the manager safely.
 func (m *Manager) Close() error {
 	return m.f.Close()
 }
