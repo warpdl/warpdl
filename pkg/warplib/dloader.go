@@ -17,6 +17,10 @@ import (
 	"sync/atomic"
 )
 
+// Downloader is a struct that manages the download process
+// of a single file. It includes information such as the
+// download URL, file name, download location, download
+// progress, and download handlers.
 type Downloader struct {
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -50,9 +54,12 @@ type Downloader struct {
 	// headers to use for http requests
 	headers Headers
 	// total downloaded bytes
-	nread     int64
-	dlPath    string
-	wg        *sync.WaitGroup
+	nread int64
+	// dlPath is the path where the downloaded content
+	// is stored.
+	dlPath string
+	wg     *sync.WaitGroup
+	// ohmap is a map of initial offset to part hash
 	ohmap     VMap[int64, string]
 	l         *log.Logger
 	lw        io.WriteCloser
@@ -168,6 +175,8 @@ func NewDownloader(client *http.Client, url string, opts *DownloaderOpts) (d *Do
 	return
 }
 
+// initDownloader initializes a downloader with provided arguments.
+// Use downloader.Start() to download the file.
 func initDownloader(client *http.Client, hash, url string, cLength ContentLength, opts *DownloaderOpts) (d *Downloader, err error) {
 	if opts == nil {
 		opts = &DownloaderOpts{}
@@ -275,6 +284,9 @@ func (d *Downloader) Start() (err error) {
 // TODO: fix concurrent write and iteration if any.
 
 // map[InitialOffset(int64)]ItemPart
+
+// Resume resumes the download of the file with provided parts.
+// It blocks the current goroutine until the download is complete.
 func (d *Downloader) Resume(parts map[int64]*ItemPart) (err error) {
 	defer d.lw.Close()
 	if len(parts) == 0 {
@@ -592,44 +604,54 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 	// return d.runPart(part, poff, foff, espeed/2, false, body)
 }
 
+// Stop stops the download process.
 func (d *Downloader) Stop() {
 	d.stopped = true
 	d.cancel()
 }
 
+// GetMaxConnections returns the maximum number of possible connections.
 func (d *Downloader) GetMaxConnections() int32 {
 	return d.maxConn
 }
 
+// GetMaxParts returns the maximum number of possible parts.
 func (d *Downloader) GetMaxParts() int32 {
 	return d.maxParts
 }
 
+// GetFileName returns the file name this download.
 func (d *Downloader) GetFileName() string {
 	return d.fileName
 }
 
+// GetDownloadDirectory returns the download directory.
 func (d *Downloader) GetDownloadDirectory() string {
 	return d.dlLoc
 }
 
+// GetSavePath returns the final location of file being downloading.
 func (d *Downloader) GetSavePath() (svPath string) {
 	svPath = GetPath(d.dlLoc, d.fileName)
 	return
 }
 
+// GetContentLength returns the content length (size of the downloading item).
 func (d *Downloader) GetContentLength() ContentLength {
 	return d.contentLength
 }
 
+// GetContentLengthAsInt returns the content length as an int64.
 func (d *Downloader) GetContentLengthAsInt() int64 {
 	return d.GetContentLength().v()
 }
 
+// GetContentLengthAsString returns the content length as a string.
 func (d *Downloader) GetContentLengthAsString() string {
 	return d.contentLength.String()
 }
 
+// GetHash returns the unique identifier hash for this download.
 func (d *Downloader) GetHash() string {
 	return d.hash
 }
@@ -646,6 +668,10 @@ func (d *Downloader) Log(s string, a ...any) {
 	wlog(d.l, s, a...)
 }
 
+// getPartSize calculates the part size for this download based on
+// the content length and returns it in 2 variables (partSize, rpartSize)
+// partSize variable is the general size of each part
+// rPartSize variable contains the size of last part
 func (d *Downloader) getPartSize() (partSize, rpartSize int64) {
 	switch cl := d.contentLength.v(); cl {
 	case -1, 0:
@@ -657,6 +683,8 @@ func (d *Downloader) getPartSize() (partSize, rpartSize int64) {
 	return
 }
 
+// setContentLength sets the content length and changes the downloader
+// instance flags appropriately.
 func (d *Downloader) setContentLength(cl int64) error {
 	switch cl {
 	case 0:
@@ -672,6 +700,8 @@ func (d *Downloader) setContentLength(cl int64) error {
 	return nil
 }
 
+// setFileName sets up file name and other flags, along with the headers
+// required for downloading the file.
 func (d *Downloader) setFileName(r *http.Request, h *http.Header) error {
 	if d.fileName != "" {
 		return nil
@@ -684,12 +714,15 @@ func (d *Downloader) setFileName(r *http.Request, h *http.Header) error {
 	return ErrFileNameNotFound
 }
 
+// setHash generates a new unique hash for this downloader instance.
 func (d *Downloader) setHash() {
 	buf := make([]byte, 4)
 	rand.Read(buf)
 	d.hash = hex.EncodeToString(buf)
 }
 
+// setupDlPath sets up the temporary directory where the downlaod segments
+// and logs will be stored.
 func (d *Downloader) setupDlPath() (err error) {
 	dlpath := fmt.Sprintf(
 		"%s/%s/", DlDataDir, d.hash,
@@ -702,6 +735,9 @@ func (d *Downloader) setupDlPath() (err error) {
 	return
 }
 
+// setupLogger initiates a logger instance as a log file
+// named 'logs.txt' with 0666 permission codes.
+// Location of logs is DlDirectory/{Hash}/logs.txt
 func (d *Downloader) setupLogger() (err error) {
 	d.lw, err = os.OpenFile(
 		d.dlPath+"logs.txt",
@@ -715,6 +751,7 @@ func (d *Downloader) setupLogger() (err error) {
 	return
 }
 
+// checkContentType checks the content type of the file to be downloaded.
 func (d *Downloader) checkContentType(h *http.Header) (err error) {
 	ct := h.Get("Content-Type")
 	if ct == "" {
@@ -723,6 +760,8 @@ func (d *Downloader) checkContentType(h *http.Header) (err error) {
 	return
 }
 
+// fetchInfo fetches the information about the file to be downloaded.
+// It sets the content length, file name, and prepares the downloader.
 func (d *Downloader) fetchInfo() (err error) {
 	resp, er := d.makeRequest(http.MethodGet)
 	if er != nil {
@@ -746,6 +785,7 @@ func (d *Downloader) fetchInfo() (err error) {
 	return d.prepareDownloader()
 }
 
+// makeRequest makes a new http request with provided method and headers.
 func (d *Downloader) makeRequest(method string, hdrs ...Header) (*http.Response, error) {
 	req, err := http.NewRequest(method, d.url, nil)
 	if err != nil {
@@ -759,6 +799,9 @@ func (d *Downloader) makeRequest(method string, hdrs ...Header) (*http.Response,
 	return d.client.Do(req)
 }
 
+// prepareDownloader prepares the downloader for downloading the file.
+// It makes an initial request and downloads first chunk and sets up all
+// the things like part size, content length, initial number of parts, etc.
 func (d *Downloader) prepareDownloader() (err error) {
 	resp, er := d.makeRequest(
 		http.MethodGet,
@@ -824,6 +867,8 @@ func (d *Downloader) prepareDownloader() (err error) {
 	return
 }
 
+// downloadUnknownSizeFile is a fallback download handler in case the file
+// to be downloaded doesn't support multipart.
 func (d *Downloader) downloadUnknownSizeFile() error {
 	defer d.wg.Done()
 	req, err := http.NewRequestWithContext(d.ctx, http.MethodGet, d.url, nil)

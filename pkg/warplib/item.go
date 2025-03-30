@@ -62,6 +62,7 @@ type ItemPart struct {
 	Compiled bool `json:"compiled"`
 }
 
+// ItemsMap is a map of download items, where each item is indexed by its unique identifier.
 type ItemsMap map[string]*Item
 
 type itemOpts struct {
@@ -125,21 +126,25 @@ func (i *Item) getPart(hash string) (offset int64, part *ItemPart) {
 	return
 }
 
+// GetPercentage returns the download progress as a percentage.
 func (i *Item) GetPercentage() int64 {
 	p := (i.Downloaded * 100) / i.TotalSize
 	return p.v()
 }
 
+// GetSavePath returns the save path for the download item.
 func (i *Item) GetSavePath() (svPath string) {
 	svPath = GetPath(i.DownloadLocation, i.Name)
 	return
 }
 
+// GetAbsolutePath returns the absolute path for the download item.
 func (i *Item) GetAbsolutePath() (aPath string) {
 	aPath = GetPath(i.AbsoluteLocation, i.Name)
 	return
 }
 
+// GetMaxConnections returns the maximum number of connections for the download item.
 func (i *Item) GetMaxConnections() (int32, error) {
 	if i.dAlloc == nil {
 		return 0, ErrItemDownloaderNotFound
@@ -147,6 +152,7 @@ func (i *Item) GetMaxConnections() (int32, error) {
 	return i.dAlloc.GetMaxConnections(), nil
 }
 
+// GetMaxParts returns the maximum number of parts for the download item.
 func (i *Item) GetMaxParts() (int32, error) {
 	if i.dAlloc == nil {
 		return 0, ErrItemDownloaderNotFound
@@ -154,6 +160,7 @@ func (i *Item) GetMaxParts() (int32, error) {
 	return i.dAlloc.GetMaxParts(), nil
 }
 
+// Resume resumes the download of the item.
 func (i *Item) Resume() error {
 	if i.dAlloc == nil {
 		return ErrItemDownloaderNotFound
@@ -161,6 +168,7 @@ func (i *Item) Resume() error {
 	return i.dAlloc.Resume(i.Parts)
 }
 
+// StopDownload pauses the download of the item.
 func (i *Item) StopDownload() error {
 	if i.dAlloc == nil {
 		return ErrItemDownloaderNotFound
