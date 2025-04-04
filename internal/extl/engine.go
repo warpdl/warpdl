@@ -133,6 +133,28 @@ func (e *Engine) AddModule(path string) (*Module, error) {
 	return m, e.Save()
 }
 
+func (e *Engine) DeactiveModule(moduleId string) error {
+	i, ok := e.modIndex[moduleId]
+	if !ok {
+		return ErrModuleNotFound
+	}
+	// delete it from module index
+	delete(e.modIndex, moduleId)
+	// replace target module with last module
+	e.modules[i] = e.modules[len(e.modules)-1]
+	// resplice the modules array
+	e.modules = e.modules[:len(e.modules)-1]
+	// remove module path -> module id entry
+	for modPath, modId := range e.LoadedModule {
+		if modId == moduleId {
+			delete(e.LoadedModule, modPath)
+			break
+		}
+	}
+	// finally save the engine's state
+	return e.Save()
+}
+
 func (e *Engine) Extract(url string) (string, error) {
 	for _, m := range e.modules {
 		for _, a := range m.Matches {

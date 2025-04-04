@@ -37,6 +37,8 @@ var (
 	ErrInteractionEnded = errors.New("interaction ended")
 
 	ErrNoMatchFound = errors.New("no match found")
+
+	ErrModuleNotFound = errors.New("module not found")
 )
 
 func generateHash(n int) string {
