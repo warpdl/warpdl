@@ -12,28 +12,54 @@ import (
 )
 
 type Engine struct {
-	f   *os.File
+	// file object for module_engine.json
+	f *os.File
+	// shared json encoder for module_engine.json
 	enc *json.Encoder
-	l   *log.Logger
-	msPath       string // msPath is module storage path
-	modules      []*Module
-	modIndex     map[string]int
-	cookieMan   *credman.CookieManager
+	// inherited logger from the main daemon
+	l *log.Logger
+	// msPath is module storage path
+	// ( the */extstore/* directory)
+	// can be overridden by the debugger
+	// to use the */debugger/extstore/* directory
+	msPath string
+	// modules is a list of loaded modules
+	modules []*Module
+	// modIndex is a map of moduleId to index in the modules slice
+	modIndex map[string]int
+	// cookieMan is a reference to the cookie manager
+	// to be used for storing cookies
+	cookieMan *credman.CookieManager
+	// loadedModules is a map of path to moduleId
+	// this is used to store the moduleId
+	// in the module_engine.json file
+	// and to load the module from the module storage
+	// when the engine is started
+	// this is used to load the module from the module storage
+	// when the engine is started
 	LoadedModule map[string]string `json:"loaded_modules"`
 }
 
 func NewEngine(l *log.Logger, cookieManager *credman.CookieManager, debugger bool) (*Engine, error) {
 	l.Println("Creating extension engine")
+	// mePath is the path to the module_engine.json file
+	// this is used to store the moduleId
+	// in the module_engine.json file
 	var mePath string
+	// if the debugger is enabled
+	// use the debugger path (*/debugger/extstore/*)
 	if debugger {
 		mePath = filepath.Join(DEBUG_ENGINE_STORE, "module_engine.json")
 	} else {
 		mePath = filepath.Join(ENGINE_STORE, "module_engine.json")
 	}
+	// create the module_engine.json if it doesn't exist,
+	// otherwise open it with read and write perms.
 	file, err := os.OpenFile(mePath, os.O_RDWR|os.O_CREATE, 0666)
 	if err != nil {
 		return nil, err
 	}
+	// absolute path to the module storage (*/extstore/*)
 	var absMsPath string
 	if debugger {
 		absMsPath, err = filepath.Abs(DEBUG_MODULE_STORE)
@@ -53,6 +79,9 @@ func NewEngine(l *log.Logger, cookieManager *credman.CookieManager, debugger boo
 		cookieMan:    cookieManager,
 	}
 	e.enc.SetIndent("", "  ")
+	// decode the module_engine.json to e
+	// since LoadedModule is the only exported field,
+	// it gets populated.
 	err = json.NewDecoder(file).Decode(&e)
 	if err != nil {
 		if err == io.EOF {
@@ -61,7 +90,10 @@ func NewEngine(l *log.Logger, cookieManager *credman.CookieManager, debugger boo
 		return nil, err
 	}
 	var i int
+	// get module id from the loaded map
 	for _, modId := range e.LoadedModule {
+		// try to open the module
+		// (this reads manifest.json internally and parses the module)
 		m, err := OpenModule(l, filepath.Join(absMsPath, modId))
 		if err != nil {
 			return nil, err

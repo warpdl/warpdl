@@ -11,8 +11,6 @@ type moduleMigrator struct {
 	finalBasePath   string
 }
 
-// type moduleMigratorFunc func(fileName string) error
-
 func (m *moduleMigrator) moduleMigratorHard(fileName string) error {
 	iPath := filepath.Join(m.initialBasePath, fileName)
 	file, err := os.Open(iPath)
