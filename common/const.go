@@ -10,6 +10,7 @@ const (
 	UPDATE_FLUSH       UpdateType = "flush"
 	UPDATE_STOP        UpdateType = "stop"
 	UPDATE_LIST        UpdateType = "list"
+	UPDATE_ADD_EXT     UpdateType = "add_extension"
 	UPDATE_LOAD_EXT    UpdateType = "load_extension"
 	UPDATE_UNLOAD_EXT  UpdateType = "unload_extension"
 	UPDATE_GET_EXT     UpdateType = "get_extension"

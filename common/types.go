@@ -71,11 +71,11 @@ type ListResponse struct {
 	Items []*warplib.Item `json:"items"`
 }
 
-type LoadExtensionParams struct {
+type AddExtensionParams struct {
 	Path string `json:"path"`
 }
 
-type GetExtensionParams struct {
+type InputExtension struct {
 	ExtensionId string `json:"extension_id"`
 }
 

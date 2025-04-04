@@ -36,7 +36,8 @@ func (s *Api) RegisterHandlers(server *server.Server) {
 	server.RegisterHandler(common.UPDATE_LIST, s.listHandler)
 
 	// extension API methods
-	server.RegisterHandler(common.UPDATE_LOAD_EXT, s.loadExtHandler)
+	server.RegisterHandler(common.UPDATE_ADD_EXT, s.addExtHandler)
+	// server.RegisterHandler(common.UPDATE_LOAD_EXT, s.loadExtHandler)
 	server.RegisterHandler(common.UPDATE_GET_EXT, s.getExtHandler)
 }
 

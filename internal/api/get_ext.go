@@ -9,7 +9,7 @@ import (
 )
 
 func (s *Api) getExtHandler(sconn *server.SyncConn, pool *server.Pool, body json.RawMessage) (common.UpdateType, any, error) {
-	var m common.GetExtensionParams
+	var m common.InputExtension
 	var err error
 	if err = json.Unmarshal(body, &m); err != nil {
 		return common.UPDATE_GET_EXT, nil, err
