@@ -87,10 +87,10 @@ func (c *Client) StopDownload(downloadId string) (bool, error) {
 	return err == nil, err
 }
 
-func (c *Client) LoadExtension(path string) (*common.ExtensionInfo, error) {
-	return invoke[common.ExtensionInfo](c, common.UPDATE_LOAD_EXT, &common.LoadExtensionParams{Path: path})
+func (c *Client) AddExtension(path string) (*common.ExtensionInfo, error) {
+	return invoke[common.ExtensionInfo](c, common.UPDATE_ADD_EXT, &common.AddExtensionParams{Path: path})
 }
 
 func (c *Client) GetExtension(extensionId string) (*common.ExtensionInfo, error) {
-	return invoke[common.ExtensionInfo](c, common.UPDATE_GET_EXT, &common.GetExtensionParams{ExtensionId: extensionId})
+	return invoke[common.ExtensionInfo](c, common.UPDATE_GET_EXT, &common.InputExtension{ExtensionId: extensionId})
 }

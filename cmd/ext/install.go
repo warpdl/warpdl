@@ -22,7 +22,7 @@ func Install(ctx *cli.Context) error {
 		common.PrintRuntimeErr(ctx, "ext-install", "new_client", err)
 		return nil
 	}
-	ext, err := client.LoadExtension(path)
+	ext, err := client.AddExtension(path)
 	if err != nil {
 		common.PrintRuntimeErr(ctx, "ext-install", "load-extension", err)
 		return nil
