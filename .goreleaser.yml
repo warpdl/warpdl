@@ -74,7 +74,8 @@ builds:
 
 archives:
   - id: default
-    builds: default
+    builds: 
+      - default
     rlcp: true
     name_template: >-
       {{ .ProjectName }}_
