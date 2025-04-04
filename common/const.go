@@ -3,17 +3,17 @@ package common
 type UpdateType string
 
 const (
-	UPDATE_DOWNLOAD    UpdateType = "download"
-	UPDATE_DOWNLOADING UpdateType = "downloading"
-	UPDATE_ATTACH      UpdateType = "attach"
-	UPDATE_RESUME      UpdateType = "resume"
-	UPDATE_FLUSH       UpdateType = "flush"
-	UPDATE_STOP        UpdateType = "stop"
-	UPDATE_LIST        UpdateType = "list"
-	UPDATE_ADD_EXT     UpdateType = "add_extension"
-	UPDATE_LOAD_EXT    UpdateType = "load_extension"
-	UPDATE_UNLOAD_EXT  UpdateType = "unload_extension"
-	UPDATE_GET_EXT     UpdateType = "get_extension"
+	UPDATE_DOWNLOAD     UpdateType = "download"
+	UPDATE_DOWNLOADING  UpdateType = "downloading"
+	UPDATE_ATTACH       UpdateType = "attach"
+	UPDATE_RESUME       UpdateType = "resume"
+	UPDATE_FLUSH        UpdateType = "flush"
+	UPDATE_STOP         UpdateType = "stop"
+	UPDATE_LIST         UpdateType = "list"
+	UPDATE_ADD_EXT      UpdateType = "add_extension"
+	UPDATE_ACTIVATE_EXT UpdateType = "activate_extension"
+	UPDATE_UNLOAD_EXT   UpdateType = "unload_extension"
+	UPDATE_GET_EXT      UpdateType = "get_extension"
 )
 
 type DownloadingAction string
