@@ -75,6 +75,10 @@ type AddExtensionParams struct {
 	Path string `json:"path"`
 }
 
+type ListExtensionsParams struct {
+	All bool `json:"all"`
+}
+
 type InputExtension struct {
 	ExtensionId string `json:"extension_id"`
 }
@@ -85,4 +89,10 @@ type ExtensionInfo struct {
 	Version     string   `json:"version"`
 	Description string   `json:"description"`
 	Matches     []string `json:"matches"`
+}
+
+type ExtensionInfoShort struct {
+	ExtensionId string `json:"extension_id"`
+	Name        string `json:"name"`
+	Activated   bool   `json:"activated"`
 }

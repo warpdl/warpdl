@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 
+	"github.com/warpdl/warpdl/common"
 	"github.com/warpdl/warpdl/pkg/credman"
 )
 
@@ -42,6 +43,7 @@ type Engine struct {
 
 type LoadedModuleState struct {
 	ModuleId    string `json:"module_id"`
+	Name        string `json:"name"`
 	IsActivated bool   `json:"is_activated"`
 }
 
@@ -136,6 +138,7 @@ func (e *Engine) AddModule(path string) (*Module, error) {
 	e.LoadedModule[path] = LoadedModuleState{
 		ModuleId:    m.ModuleId,
 		IsActivated: true,
+		Name:        m.Name,
 	}
 	e.l.Println("Added Ext: ", m.Name)
 	return m, e.Save()
@@ -259,6 +262,20 @@ func (e *Engine) GetModule(moduleId string) *Module {
 		return e.modules[i]
 	}
 	return nil
+}
+
+func (e *Engine) ListModules(all bool) []common.ExtensionInfoShort {
+	var arr = []common.ExtensionInfoShort{}
+	for _, modState := range e.LoadedModule {
+		if all || modState.IsActivated {
+			arr = append(arr, common.ExtensionInfoShort{
+				ExtensionId: modState.ModuleId,
+				Name:        modState.Name,
+				Activated:   modState.IsActivated,
+			})
+		}
+	}
+	return arr
 }
 
 func (e *Engine) Save() error {
