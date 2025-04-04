@@ -37,7 +37,12 @@ type Engine struct {
 	// when the engine is started
 	// this is used to load the module from the module storage
 	// when the engine is started
-	LoadedModule map[string]string `json:"loaded_modules"`
+	LoadedModule map[string]LoadedModuleState `json:"loaded_modules"`
+}
+
+type LoadedModuleState struct {
+	ModuleId    string `json:"module_id"`
+	IsActivated bool   `json:"is_activated"`
 }
 
 func NewEngine(l *log.Logger, cookieManager *credman.CookieManager, debugger bool) (*Engine, error) {
@@ -74,7 +79,7 @@ func NewEngine(l *log.Logger, cookieManager *credman.CookieManager, debugger boo
 		f:            file,
 		enc:          json.NewEncoder(file),
 		msPath:       absMsPath,
-		LoadedModule: make(map[string]string),
+		LoadedModule: make(map[string]LoadedModuleState),
 		modIndex:     make(map[string]int),
 		cookieMan:    cookieManager,
 	}
@@ -91,14 +96,18 @@ func NewEngine(l *log.Logger, cookieManager *credman.CookieManager, debugger boo
 	}
 	var i int
 	// get module id from the loaded map
-	for _, modId := range e.LoadedModule {
+	for _, modState := range e.LoadedModule {
+		// don't load unactivated modules
+		if !modState.IsActivated {
+			continue
+		}
 		// try to open the module
 		// (this reads manifest.json internally and parses the module)
-		m, err := OpenModule(l, filepath.Join(absMsPath, modId))
+		m, err := OpenModule(l, filepath.Join(absMsPath, modState.ModuleId))
 		if err != nil {
 			return nil, err
 		}
-		m.ModuleId = modId
+		m.ModuleId = modState.ModuleId
 		// allocate a runtime to the module
 		err = m.Load()
 		if err != nil {
@@ -127,13 +136,16 @@ func (e *Engine) AddModule(path string) (*Module, error) {
 	// to ensure that the engine doesn't create a new entry
 	// if the module is already present.
 	// if module id is empty string, it generates a new hash.
-	err = migrateModule(m, e.LoadedModule[path], e.msPath)
+	err = migrateModule(m, e.LoadedModule[path].ModuleId, e.msPath)
 	if err != nil {
 		return nil, err
 	}
 	e.modIndex[m.ModuleId] = len(e.modules)
 	e.modules = append(e.modules, m)
-	e.LoadedModule[path] = m.ModuleId
+	e.LoadedModule[path] = LoadedModuleState{
+		ModuleId:    m.ModuleId,
+		IsActivated: true,
+	}
 	e.l.Println("Added Ext: ", m.Name)
 	return m, e.Save()
 }
@@ -157,8 +169,8 @@ func (e *Engine) DeactiveModule(moduleId string) error {
 	// resplice the modules array
 	e.modules = e.modules[:len(e.modules)-1]
 	// remove module path -> module id entry
-	for modPath, modId := range e.LoadedModule {
-		if modId == moduleId {
+	for modPath, modState := range e.LoadedModule {
+		if modState.ModuleId == moduleId {
 			delete(e.LoadedModule, modPath)
 			break
 		}
