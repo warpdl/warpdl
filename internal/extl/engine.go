@@ -99,6 +99,7 @@ func NewEngine(l *log.Logger, cookieManager *credman.CookieManager, debugger boo
 			return nil, err
 		}
 		m.ModuleId = modId
+		// allocate a runtime to the module
 		err = m.Load()
 		if err != nil {
 			return nil, err
@@ -122,6 +123,10 @@ func (e *Engine) AddModule(path string) (*Module, error) {
 		return nil, err
 	}
 	e.l.Println("Loaded Ext: ", m.Name)
+	// migrateModule function takes module id as an argument
+	// to ensure that the engine doesn't create a new entry
+	// if the module is already present.
+	// if module id is empty string, it generates a new hash.
 	err = migrateModule(m, e.LoadedModule[path], e.msPath)
 	if err != nil {
 		return nil, err
@@ -131,6 +136,13 @@ func (e *Engine) AddModule(path string) (*Module, error) {
 	e.LoadedModule[path] = m.ModuleId
 	e.l.Println("Added Ext: ", m.Name)
 	return m, e.Save()
+}
+
+func (e *Engine) DeleteModule(moduleId string) error {
+	// ignore module deactivation error
+	defer e.DeactiveModule(moduleId)
+	modPath := filepath.Join(e.msPath, moduleId)
+	return os.RemoveAll(modPath)
 }
 
 func (e *Engine) DeactiveModule(moduleId string) error {
