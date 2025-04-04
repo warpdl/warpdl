@@ -121,17 +121,8 @@ func NewEngine(l *log.Logger, cookieManager *credman.CookieManager, debugger boo
 }
 
 func (e *Engine) AddModule(path string) (*Module, error) {
-	e.l.Println("Adding module: ", path)
-	m, err := OpenModule(e.l, path)
-	if err != nil {
-		return nil, err
-	}
-	e.l.Println("Parsed Ext: ", m.Name)
-	err = m.Load()
-	if err != nil {
-		return nil, err
-	}
-	e.l.Println("Loaded Ext: ", m.Name)
+	// add module's runtime to engine
+	m, err := e.loadModule(path)
 	// migrateModule function takes module id as an argument
 	// to ensure that the engine doesn't create a new entry
 	// if the module is already present.
@@ -151,13 +142,90 @@ func (e *Engine) AddModule(path string) (*Module, error) {
 }
 
 func (e *Engine) DeleteModule(moduleId string) error {
-	// ignore module deactivation error
-	defer e.DeactiveModule(moduleId)
+	err := e.offloadModule(moduleId)
+	if err != nil {
+		return err
+	}
+	// delete the module from engine's state
+	for modPath, modState := range e.LoadedModule {
+		if modState.ModuleId == moduleId {
+			delete(e.LoadedModule, modPath)
+			break
+		}
+	}
+	// save engine's state
+	err = e.Save()
+	if err != nil {
+		return err
+	}
 	modPath := filepath.Join(e.msPath, moduleId)
 	return os.RemoveAll(modPath)
 }
 
+func (e *Engine) ActivateModule(moduleId string) (*Module, error) {
+	var (
+		modFound bool   = false
+		modPath  string = ""
+	)
+	for _modPath, modState := range e.LoadedModule {
+		if modState.ModuleId == moduleId {
+			modState.IsActivated = true
+			e.LoadedModule[modPath] = modState
+			modFound = true
+			modPath = _modPath
+			break
+		}
+	}
+	if !modFound {
+		return nil, ErrModuleNotFound
+	}
+	// add module's runtime to engine
+	m, err := e.loadModule(modPath)
+	if err != nil {
+		return nil, err
+	}
+	e.modIndex[m.ModuleId] = len(e.modules)
+	e.modules = append(e.modules, m)
+	e.l.Println("Activated Ext: ", m.Name)
+	return m, e.Save()
+}
+
 func (e *Engine) DeactiveModule(moduleId string) error {
+	err := e.offloadModule(moduleId)
+	if err != nil {
+		return err
+	}
+	// modify the module activation state
+	for modPath, modState := range e.LoadedModule {
+		if modState.ModuleId == moduleId {
+			modState.IsActivated = false
+			e.LoadedModule[modPath] = modState
+			break
+		}
+	}
+	// finally save the engine's state
+	return e.Save()
+}
+
+// loadModule opens the module, parses it, and loads its runtime
+func (e *Engine) loadModule(path string) (*Module, error) {
+	e.l.Println("Adding module: ", path)
+	m, err := OpenModule(e.l, path)
+	if err != nil {
+		return nil, err
+	}
+	e.l.Println("Parsed Ext: ", m.Name)
+	err = m.Load()
+	if err != nil {
+		return nil, err
+	}
+	e.l.Println("Loaded Ext: ", m.Name)
+	return m, nil
+}
+
+// offloadModule function removes the module from
+// the activate engine state by flushing it off the indexes.
+func (e *Engine) offloadModule(moduleId string) error {
 	i, ok := e.modIndex[moduleId]
 	if !ok {
 		return ErrModuleNotFound
@@ -168,15 +236,7 @@ func (e *Engine) DeactiveModule(moduleId string) error {
 	e.modules[i] = e.modules[len(e.modules)-1]
 	// resplice the modules array
 	e.modules = e.modules[:len(e.modules)-1]
-	// remove module path -> module id entry
-	for modPath, modState := range e.LoadedModule {
-		if modState.ModuleId == moduleId {
-			delete(e.LoadedModule, modPath)
-			break
-		}
-	}
-	// finally save the engine's state
-	return e.Save()
+	return nil
 }
 
 func (e *Engine) Extract(url string) (string, error) {
