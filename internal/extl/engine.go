@@ -144,14 +144,16 @@ func (e *Engine) AddModule(path string) (*Module, error) {
 	return m, e.Save()
 }
 
-func (e *Engine) DeleteModule(moduleId string) error {
+func (e *Engine) DeleteModule(moduleId string) (string, error) {
 	err := e.offloadModule(moduleId)
 	if err != nil {
-		return err
+		return "", err
 	}
+	var extName string
 	// delete the module from engine's state
 	for modPath, modState := range e.LoadedModule {
 		if modState.ModuleId == moduleId {
+			extName = modState.Name
 			delete(e.LoadedModule, modPath)
 			break
 		}
@@ -159,10 +161,10 @@ func (e *Engine) DeleteModule(moduleId string) error {
 	// save engine's state
 	err = e.Save()
 	if err != nil {
-		return err
+		return extName, err
 	}
 	modPath := filepath.Join(e.msPath, moduleId)
-	return os.RemoveAll(modPath)
+	return extName, os.RemoveAll(modPath)
 }
 
 func (e *Engine) ActivateModule(moduleId string) (*Module, error) {
@@ -173,7 +175,7 @@ func (e *Engine) ActivateModule(moduleId string) (*Module, error) {
 	for _modPath, modState := range e.LoadedModule {
 		if modState.ModuleId == moduleId {
 			modState.IsActivated = true
-			e.LoadedModule[modPath] = modState
+			e.LoadedModule[_modPath] = modState
 			modFound = true
 			modPath = _modPath
 			break
@@ -187,27 +189,29 @@ func (e *Engine) ActivateModule(moduleId string) (*Module, error) {
 	if err != nil {
 		return nil, err
 	}
-	e.modIndex[m.ModuleId] = len(e.modules)
+	e.modIndex[moduleId] = len(e.modules)
 	e.modules = append(e.modules, m)
-	e.l.Println("Activated Ext: ", m.Name)
+	e.l.Println("Activated Ext: ", m.Name, "(", moduleId, ")")
 	return m, e.Save()
 }
 
-func (e *Engine) DeactiveModule(moduleId string) error {
+func (e *Engine) DeactiveModule(moduleId string) (string, error) {
+	var extName string
 	err := e.offloadModule(moduleId)
 	if err != nil {
-		return err
+		return extName, err
 	}
 	// modify the module activation state
 	for modPath, modState := range e.LoadedModule {
 		if modState.ModuleId == moduleId {
 			modState.IsActivated = false
 			e.LoadedModule[modPath] = modState
+			extName = modState.Name
 			break
 		}
 	}
 	// finally save the engine's state
-	return e.Save()
+	return extName, e.Save()
 }
 
 // loadModule opens the module, parses it, and loads its runtime
@@ -279,7 +283,11 @@ func (e *Engine) ListModules(all bool) []common.ExtensionInfoShort {
 }
 
 func (e *Engine) Save() error {
-	_, err := e.f.Seek(0, 0)
+	err := e.f.Truncate(0)
+	if err != nil {
+		return err
+	}
+	_, err = e.f.Seek(0, 0)
 	if err != nil {
 		return err
 	}

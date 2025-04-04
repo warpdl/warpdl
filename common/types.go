@@ -83,6 +83,10 @@ type InputExtension struct {
 	ExtensionId string `json:"extension_id"`
 }
 
+type ExtensionName struct {
+	Name string `json:"name"`
+}
+
 type ExtensionInfo struct {
 	ExtensionId string   `json:"extension_id"`
 	Name        string   `json:"name"`

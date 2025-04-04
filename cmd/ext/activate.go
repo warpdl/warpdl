@@ -9,27 +9,27 @@ import (
 	"github.com/warpdl/warpdl/pkg/warpcli"
 )
 
-func install(ctx *cli.Context) error {
+func activate(ctx *cli.Context) error {
 	if ctx.Args().First() == "help" {
 		return cli.ShowCommandHelp(ctx, ctx.Command.Name)
 	}
-	path := ctx.Args().First()
-	if path == "" {
+	id := ctx.Args().First()
+	if id == "" {
 		return common.PrintErrWithCmdHelp(
 			ctx,
-			errors.New("no path provided"),
+			errors.New("no extension id provided"),
 		)
 	}
 	client, err := warpcli.NewClient()
 	if err != nil {
-		common.PrintRuntimeErr(ctx, "ext-install", "new_client", err)
+		common.PrintRuntimeErr(ctx, "ext-activate", "new_client", err)
 		return nil
 	}
-	ext, err := client.AddExtension(path)
+	ext, err := client.ActivateExtension(id)
 	if err != nil {
-		common.PrintRuntimeErr(ctx, "ext-install", "load-extension", err)
+		common.PrintRuntimeErr(ctx, "ext-activate", "activate-extension", err)
 		return nil
 	}
-	fmt.Printf("Successfully installed extension: %s (%s)\n", ext.Name, ext.Version)
+	fmt.Printf("Successfully activated extension: %s (%s)\n", ext.Name, ext.Version)
 	return nil
 }

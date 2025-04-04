@@ -134,3 +134,27 @@ func UsageErrorCallback(ctx *cli.Context, err error, _ bool) error {
 	}
 	return PrintErrWithHelp(ctx, err)
 }
+
+func Beaut(s string, n int) (b string) {
+	n1 := len(s)
+	x := n - n1
+	x1 := x / 2
+	w := string(
+		replic(' ', x1),
+	)
+	b = w
+	b += s
+	b += w
+	if x%2 != 0 {
+		b += " "
+	}
+	return
+}
+
+func replic[aT any](v aT, n int) []aT {
+	a := make([]aT, n)
+	for i := range a {
+		a[i] = v
+	}
+	return a
+}

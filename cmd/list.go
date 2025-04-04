@@ -81,10 +81,10 @@ func list(ctx *cli.Context) error {
 		case n > 23:
 			name = name[:20] + "..."
 		case n < 23:
-			name = beaut(name, 23)
+			name = common.Beaut(name, 23)
 		}
 		perc := fmt.Sprintf(`%d%%`, item.GetPercentage())
-		txt += fmt.Sprintf("\n| %d | %s |   %s  |  %s  |", i, name, item.Hash, beaut(perc, 4))
+		txt += fmt.Sprintf("\n| %d | %s |   %s  |  %s  |", i, name, item.Hash, common.Beaut(perc, 4))
 	}
 	if i == 0 {
 		return fback()
@@ -92,28 +92,4 @@ func list(ctx *cli.Context) error {
 	txt += "\n------------------------------------------------------"
 	fmt.Println(txt)
 	return nil
-}
-
-func beaut(s string, n int) (b string) {
-	n1 := len(s)
-	x := n - n1
-	x1 := x / 2
-	w := string(
-		replic(' ', x1),
-	)
-	b = w
-	b += s
-	b += w
-	if x%2 != 0 {
-		b += " "
-	}
-	return
-}
-
-func replic[aT any](v aT, n int) []aT {
-	a := make([]aT, n)
-	for i := range a {
-		a[i] = v
-	}
-	return a
 }

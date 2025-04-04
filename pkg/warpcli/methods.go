@@ -55,7 +55,7 @@ func (c *Client) Resume(downloadId string, opts *ResumeOpts) (*common.ResumeResp
 	if opts == nil {
 		opts = &ResumeOpts{}
 	}
-	return invoke[common.ResumeResponse](c, "resume", &common.ResumeParams{
+	return invoke[common.ResumeResponse](c, common.UPDATE_RESUME, &common.ResumeParams{
 		DownloadId:     downloadId,
 		Headers:        opts.Headers,
 		ForceParts:     opts.ForceParts,
@@ -70,20 +70,20 @@ func (c *Client) List(opts *ListOpts) (*common.ListResponse, error) {
 	if opts == nil {
 		opts = &ListOpts{false, true}
 	}
-	return invoke[common.ListResponse](c, "list", opts)
+	return invoke[common.ListResponse](c, common.UPDATE_LIST, opts)
 }
 
 func (c *Client) Flush(downloadId string) (bool, error) {
-	_, err := c.invoke("flush", &common.FlushParams{DownloadId: downloadId})
+	_, err := c.invoke(common.UPDATE_FLUSH, &common.FlushParams{DownloadId: downloadId})
 	return err == nil, err
 }
 
 func (c *Client) AttachDownload(downloadId string) (*common.DownloadResponse, error) {
-	return invoke[common.DownloadResponse](c, "attach", &common.InputDownloadId{DownloadId: downloadId})
+	return invoke[common.DownloadResponse](c, common.UPDATE_ATTACH, &common.InputDownloadId{DownloadId: downloadId})
 }
 
 func (c *Client) StopDownload(downloadId string) (bool, error) {
-	_, err := c.invoke("stop", &common.InputDownloadId{DownloadId: downloadId})
+	_, err := c.invoke(common.UPDATE_STOP, &common.InputDownloadId{DownloadId: downloadId})
 	return err == nil, err
 }
 
@@ -93,4 +93,20 @@ func (c *Client) AddExtension(path string) (*common.ExtensionInfo, error) {
 
 func (c *Client) GetExtension(extensionId string) (*common.ExtensionInfo, error) {
 	return invoke[common.ExtensionInfo](c, common.UPDATE_GET_EXT, &common.InputExtension{ExtensionId: extensionId})
+}
+
+func (c *Client) DeleteExtension(extensionId string) (*common.ExtensionName, error) {
+	return invoke[common.ExtensionName](c, common.UPDATE_DELETE_EXT, &common.InputExtension{ExtensionId: extensionId})
+}
+
+func (c *Client) DeactivateExtension(extensionId string) (*common.ExtensionName, error) {
+	return invoke[common.ExtensionName](c, common.UPDATE_DEACTIVATE_EXT, &common.InputExtension{ExtensionId: extensionId})
+}
+
+func (c *Client) ActivateExtension(extensionId string) (*common.ExtensionInfo, error) {
+	return invoke[common.ExtensionInfo](c, common.UPDATE_ACTIVATE_EXT, &common.InputExtension{ExtensionId: extensionId})
+}
+
+func (c *Client) ListExtension(all bool) (*[]common.ExtensionInfoShort, error) {
+	return invoke[[]common.ExtensionInfoShort](c, common.UPDATE_LIST_EXT, common.ListExtensionsParams{All: all})
 }

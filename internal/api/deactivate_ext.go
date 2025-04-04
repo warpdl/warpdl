@@ -17,6 +17,6 @@ func (s *Api) deactivateExtHandler(sconn *server.SyncConn, pool *server.Pool, bo
 	if m.ExtensionId == "" {
 		return common.UPDATE_DEACTIVATE_EXT, nil, errors.New("extension id is required")
 	}
-	err = s.elEngine.DeactiveModule(m.ExtensionId)
-	return common.UPDATE_DEACTIVATE_EXT, nil, err
+	extName, err := s.elEngine.DeactiveModule(m.ExtensionId)
+	return common.UPDATE_DEACTIVATE_EXT, &common.ExtensionName{Name: extName}, err
 }

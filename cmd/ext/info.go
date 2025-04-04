@@ -9,7 +9,10 @@ import (
 	"github.com/warpdl/warpdl/pkg/warpcli"
 )
 
-func Info(ctx *cli.Context) (err error) {
+func info(ctx *cli.Context) (err error) {
+	if ctx.Args().First() == "help" {
+		return cli.ShowCommandHelp(ctx, ctx.Command.Name)
+	}
 	id := ctx.Args().First()
 	if id == "" {
 		return common.PrintErrWithCmdHelp(
@@ -19,15 +22,15 @@ func Info(ctx *cli.Context) (err error) {
 	}
 	client, err := warpcli.NewClient()
 	if err != nil {
-		common.PrintRuntimeErr(ctx, "ext-install", "new_client", err)
+		common.PrintRuntimeErr(ctx, "ext-info", "new_client", err)
 		return nil
 	}
 	extInfo, err := client.GetExtension(id)
 	if err != nil {
-		common.PrintRuntimeErr(ctx, "ext-install", "get_extension", err)
+		common.PrintRuntimeErr(ctx, "ext-info", "get_extension", err)
 		return nil
 	}
-	fmt.Printf(`Extension Info:\n
+	fmt.Printf(`Extension Info:
 Name: %s
 Version: %s
 Description: %s`, extInfo.Name, extInfo.Version, extInfo.Description)
