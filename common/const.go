@@ -11,6 +11,7 @@ const (
 	UPDATE_STOP           UpdateType = "stop"
 	UPDATE_LIST           UpdateType = "list"
 	UPDATE_ADD_EXT        UpdateType = "add_extension"
+	UPDATE_DELETE_EXT     UpdateType = "delete_extension"
 	UPDATE_ACTIVATE_EXT   UpdateType = "activate_extension"
 	UPDATE_DEACTIVATE_EXT UpdateType = "deactivate_extension"
 	UPDATE_UNLOAD_EXT     UpdateType = "unload_extension"
