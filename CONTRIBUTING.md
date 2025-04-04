@@ -10,7 +10,7 @@ Before you submit a new issue, check the existing ones to ensure yours is new. I
 Fork the repository and make your changes on a new branch, branched out from `dev`.
 
 ## **Making Changes** 
-Once you have made the required changes, make sure you have tested your changes well. Commit your changes with a message which clearly explains the changes you have made, and try to follow the given format:
+Once you have made the required changes, make sure you have well documented and tested your changes. Commit your changes with a message which clearly explains the changes you have made, and try to follow the given format:
 
     <major_area>...: <type>: <commit-message>
     
