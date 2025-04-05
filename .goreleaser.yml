@@ -28,7 +28,7 @@ builds:
   - id: default
     binary: warpdl
     env:
-      - CGO_ENABLED=1
+      - CGO_ENABLED=0
     goos:
       - darwin
       - freebsd
@@ -36,7 +36,6 @@ builds:
       - netbsd
       - openbsd
       - windows
-      - android
     goarch:
       - "386"
       - amd64
@@ -57,11 +56,31 @@ builds:
       - -trimpath
     ldflags:
       - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{ .CommitDate }} -X main.buildType=stable
+  - id: android
+    binary: warpdl
+    env:
+      - CGO_ENABLED=1
+    goos:
+      - android
+    goarch:
+      - "386"
+      - amd64
+      - arm
+      - arm64
+    goarm:
+      - "6"
+      - "7"
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{ .CommitDate }} -X main.buildType=stable
 
 archives:
   - id: default
     builds: 
       - default
+      - android
     rlcp: true
     name_template: >-
       {{ .ProjectName }}_
@@ -76,7 +95,7 @@ archives:
     format_overrides:
       - goos: windows
         format: zip
-
+    
 signs:
   - artifacts: all
     args:
