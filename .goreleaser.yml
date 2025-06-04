@@ -59,13 +59,10 @@ builds:
   - id: android
     binary: warpdl
     env:
-      - CGO_ENABLED=1
+      - CGO_ENABLED=0
     goos:
       - android
     goarch:
-      - "386"
-      - amd64
-      - arm
       - arm64
     goarm:
       - "6"
