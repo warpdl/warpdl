@@ -3,6 +3,7 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/urfave/cli"
@@ -24,7 +25,7 @@ var (
 		cli.StringFlag{
 			Name:        "download-path, l",
 			Usage:       "set the path where downloaded file should be saved",
-			Value:       ".",
+			Value:       "",
 			Destination: &dlPath,
 		},
 	}
@@ -56,6 +57,14 @@ func download(ctx *cli.Context) (err error) {
 		headers = warplib.Headers{{
 			Key: warplib.USER_AGENT_KEY, Value: getUserAgent(userAgent),
 		}}
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		common.PrintRuntimeErr(ctx, "download", "getwd", err)
+		return nil
+	}
+	if dlPath == "" {
+		dlPath = cwd
 	}
 	d, err := client.Download(url, fileName, dlPath, &warpcli.DownloadOpts{
 		ForceParts:     forceParts,
