@@ -125,6 +125,9 @@ func NewEngine(l *log.Logger, cookieManager *credman.CookieManager, debugger boo
 func (e *Engine) AddModule(path string) (*Module, error) {
 	// add module's runtime to engine
 	m, err := e.loadModule(path)
+	if err != nil {
+		return nil, err
+	}
 	// migrateModule function takes module id as an argument
 	// to ensure that the engine doesn't create a new entry
 	// if the module is already present.
