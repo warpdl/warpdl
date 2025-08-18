@@ -22,7 +22,7 @@ jobs:
       - name: Configure git
         run: git config --global url."https://divkix:${{ secrets.GH_PAT }}@github.com".insteadOf "https://github.com"
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
