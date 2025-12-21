@@ -1,6 +1,6 @@
 module github.com/warpdl/warpdl
 
-go 1.22
+go 1.23.0
 
 toolchain go1.23.1
 
@@ -9,7 +9,7 @@ require (
 	github.com/dop251/goja_nodejs v0.0.0-20240728170619-29b559befffc
 	github.com/urfave/cli v1.22.16
 	github.com/vbauerster/mpb/v8 v8.9.1
-	golang.org/x/net v0.34.0
+	golang.org/x/net v0.38.0
 )
 
 require (
@@ -29,6 +29,6 @@ require (
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/zalando/go-keyring v0.2.6
-	golang.org/x/sys v0.29.0 // indirect
-	golang.org/x/text v0.21.0 // indirect
+	golang.org/x/sys v0.31.0 // indirect
+	golang.org/x/text v0.23.0 // indirect
 )
