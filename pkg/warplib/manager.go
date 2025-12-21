@@ -179,7 +179,7 @@ func (m *Manager) GetItems() []*Item {
 }
 
 // GetPublicItems returns all the public items in the manager.
-// i.e. it doesn't return childrens.
+// It excludes child items from the result.
 func (m *Manager) GetPublicItems() []*Item {
 	var items = []*Item{}
 	for _, item := range m.GetItems() {
@@ -215,7 +215,8 @@ func (m *Manager) GetCompletedItems() []*Item {
 	return items
 }
 
-// GetItems returns all the items in the manager.
+// GetItem returns the item with the given hash from the manager.
+// It returns nil if the item does not exist.
 func (m *Manager) GetItem(hash string) (item *Item) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

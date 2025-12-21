@@ -1,3 +1,6 @@
+// Package credman provides encrypted credential management for HTTP cookies.
+// It handles secure storage, retrieval, and persistence of cookies using
+// AES-GCM encryption backed by the operating system's keyring.
 package credman
 
 import (
@@ -11,6 +14,10 @@ import (
 	"github.com/warpdl/warpdl/pkg/credman/types"
 )
 
+// CookieManager handles encrypted storage and retrieval of HTTP cookies.
+// It persists cookies to a file using GOB encoding, with values encrypted
+// using AES-GCM before storage. The manager maintains an in-memory cache
+// of cookies for efficient access.
 type CookieManager struct {
 	f        *os.File
 	filePath string
@@ -18,6 +25,11 @@ type CookieManager struct {
 	cookies  map[string]*types.Cookie
 }
 
+// NewCookieManager creates a new CookieManager that stores cookies at the
+// specified file path, encrypted with the provided key. The key must be
+// 32 bytes for AES-256 encryption. If the file exists, existing cookies
+// are loaded into memory. Returns an error if the file cannot be opened
+// or if existing cookie data is corrupted.
 func NewCookieManager(filePath string, key []byte) (*CookieManager, error) {
 	cm := &CookieManager{
 		filePath: filePath,
@@ -79,6 +91,10 @@ func (cm *CookieManager) saveCookies() error {
 	return nil
 }
 
+// SetCookie stores a new cookie with its value encrypted. The cookie is
+// identified by its Name field. If a cookie with the same name already
+// exists, it is overwritten. The encrypted cookie is immediately persisted
+// to disk. Returns an error if encryption or persistence fails.
 func (cm *CookieManager) SetCookie(cookie types.Cookie) error {
 	encryptedValue, err := encryption.EncryptValue(cookie.Value, cm.key)
 	if err != nil {
@@ -89,6 +105,10 @@ func (cm *CookieManager) SetCookie(cookie types.Cookie) error {
 	return cm.saveCookies()
 }
 
+// GetCookie retrieves a cookie by name and returns it with its value
+// decrypted. Returns a copy of the cookie to prevent modification of
+// the internal state. Returns an error if the cookie does not exist
+// or if decryption fails.
 func (cm *CookieManager) GetCookie(name string) (*types.Cookie, error) {
 	cookie, ok := cm.cookies[name]
 	if !ok {
@@ -104,6 +124,9 @@ func (cm *CookieManager) GetCookie(name string) (*types.Cookie, error) {
 	return &copyCookie, nil
 }
 
+// DeleteCookie removes a cookie by name from storage. The change is
+// immediately persisted to disk. Returns an error if the cookie does
+// not exist or if persistence fails.
 func (cm *CookieManager) DeleteCookie(name string) error {
 	_, ok := cm.cookies[name]
 	if !ok {
@@ -113,6 +136,10 @@ func (cm *CookieManager) DeleteCookie(name string) error {
 	return cm.saveCookies()
 }
 
+// UpdateCookie updates an existing cookie with new values. The cookie's
+// value is encrypted before storage. Unlike SetCookie, this method accepts
+// a pointer and creates an internal copy. Returns an error if the cookie
+// pointer is nil, encryption fails, or persistence fails.
 func (cm *CookieManager) UpdateCookie(cookie *types.Cookie) error {
 	if cookie == nil {
 		return fmt.Errorf("cookie is nil")
@@ -127,6 +154,9 @@ func (cm *CookieManager) UpdateCookie(cookie *types.Cookie) error {
 	return cm.saveCookies()
 }
 
+// Close persists all cookies to disk and closes the underlying file handle.
+// This method should be called when the CookieManager is no longer needed
+// to ensure all data is saved and resources are released.
 func (cm *CookieManager) Close() error {
 	defer cm.f.Close()
 	return cm.saveCookies()

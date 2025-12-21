@@ -1,3 +1,6 @@
+// Package common provides shared utilities and helper functions for CLI commands.
+// It includes progress bar initialization, error handling, help display,
+// and text formatting utilities used across the WarpDL command-line interface.
 package common
 
 import (
@@ -10,6 +13,9 @@ import (
 	"github.com/vbauerster/mpb/v8/decor"
 )
 
+// VersionCmdStr holds the formatted version string displayed by the version command.
+// It is populated at runtime by the Execute function with build-time information
+// including version, platform, build date, and commit hash.
 var VersionCmdStr string
 
 var (
@@ -17,6 +23,11 @@ var (
 	showCommandHelp    = cli.ShowCommandHelp
 )
 
+// InitBars creates and configures download and compile progress bars.
+// It returns two progress bars: dbar for tracking download progress and
+// cbar for tracking file compilation/assembly progress. The prefix parameter
+// is prepended to bar labels, and cLength specifies the total content length
+// for progress calculation. Both bars use a visual block-style display.
 func InitBars(p *mpb.Progress, prefix string, cLength int64) (dbar *mpb.Bar, cbar *mpb.Bar) {
 	barStyle := mpb.BarStyle().Lbound("╢").Filler("█").Tip("█").Padding("░").Rbound("╟")
 
@@ -56,6 +67,10 @@ func InitBars(p *mpb.Progress, prefix string, cLength int64) (dbar *mpb.Bar, cba
 	return
 }
 
+// Help displays help information for the application or a specific command.
+// If no argument is provided or the argument is "help", it displays the
+// application-level help and exits. Otherwise, it shows help for the
+// specified command name.
 func Help(ctx *cli.Context) error {
 	arg := ctx.Args().First()
 	if arg == "" || arg == "help" {
@@ -74,11 +89,19 @@ func Help(ctx *cli.Context) error {
 	return nil
 }
 
+// GetVersion prints the version string to stdout and returns nil.
+// The version string includes the application name, version, platform,
+// build date, and commit hash as configured in VersionCmdStr.
 func GetVersion(ctx *cli.Context) error {
 	fmt.Println(VersionCmdStr)
 	return nil
 }
 
+// PrintRuntimeErr formats and prints a runtime error message to stdout.
+// It includes the application name, command name, action identifier, and
+// the error message. If err is nil, it prints a diagnostic message indicating
+// no error was present. The ctx parameter may be nil, in which case the
+// application name is derived from os.Args[0].
 func PrintRuntimeErr(ctx *cli.Context, cmd, action string, err error) {
 	if err == nil {
 		fmt.Println("err is nil", "[", cmd, "|", action, "]")
@@ -93,6 +116,9 @@ func PrintRuntimeErr(ctx *cli.Context, cmd, action string, err error) {
 	fmt.Printf("%s: %s[%s]: %s\n", name, cmd, action, err.Error())
 }
 
+// PrintErrWithCmdHelp prints the error message followed by the current
+// command's help text. It is used for errors that occur in the context
+// of a specific subcommand.
 func PrintErrWithCmdHelp(ctx *cli.Context, err error) error {
 	return printErrWithCallback(
 		ctx,
@@ -106,6 +132,9 @@ func PrintErrWithCmdHelp(ctx *cli.Context, err error) error {
 	)
 }
 
+// PrintErrWithHelp prints the error message followed by the application-level
+// help text and exits with status code 1. It is used for errors that occur
+// at the application level rather than within a specific command.
 func PrintErrWithHelp(ctx *cli.Context, err error) error {
 	return printErrWithCallback(
 		ctx,
@@ -133,6 +162,11 @@ func printErrWithCallback(ctx *cli.Context, err error, callback func()) error {
 	return nil
 }
 
+// UsageErrorCallback handles usage errors from the CLI framework.
+// It determines whether the error occurred at the command level or
+// application level and displays the appropriate help text along with
+// the error message. This function is designed to be used as the
+// OnUsageError callback for cli.App and cli.Command.
 func UsageErrorCallback(ctx *cli.Context, err error, _ bool) error {
 	if ctx.Command.Name != "" {
 		return PrintErrWithCmdHelp(ctx, err)
@@ -140,6 +174,10 @@ func UsageErrorCallback(ctx *cli.Context, err error, _ bool) error {
 	return PrintErrWithHelp(ctx, err)
 }
 
+// Beaut centers a string within a field of width n by padding with spaces.
+// If the string length is less than n, spaces are added equally on both sides.
+// If n minus the string length is odd, an extra space is appended at the end.
+// This is useful for creating centered text in fixed-width displays.
 func Beaut(s string, n int) (b string) {
 	n1 := len(s)
 	x := n - n1

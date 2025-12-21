@@ -1,3 +1,6 @@
+// Package encryption provides AES-GCM encryption and decryption functions
+// for securing sensitive credential data. It supports both the current
+// GCM-based format and legacy CFB-based ciphertext for backward compatibility.
 package encryption
 
 import (
@@ -10,6 +13,11 @@ import (
 
 const gcmPrefix = "gcm1"
 
+// EncryptValue encrypts a plaintext string using AES-256-GCM authenticated
+// encryption. The key must be 32 bytes (256 bits). The returned ciphertext
+// includes a version prefix ("gcm1"), a random nonce, and the encrypted data
+// with authentication tag. Returns an error if the key is invalid or if
+// random nonce generation fails.
 func EncryptValue(value string, key []byte) ([]byte, error) {
 	plaintext := []byte(value)
 	block, err := aes.NewCipher(key)
@@ -34,6 +42,12 @@ func EncryptValue(value string, key []byte) ([]byte, error) {
 	return out, nil
 }
 
+// DecryptValue decrypts ciphertext that was encrypted with EncryptValue.
+// It automatically detects the encryption format: if the ciphertext starts
+// with the "gcm1" prefix, it uses AES-GCM decryption; otherwise, it falls
+// back to legacy CFB decryption for backward compatibility. The key must
+// be 32 bytes (256 bits). Returns an error if decryption fails, the
+// ciphertext is malformed, or authentication fails (for GCM).
 func DecryptValue(ciphertext []byte, key []byte) ([]byte, error) {
 	if len(ciphertext) >= len(gcmPrefix) && string(ciphertext[:len(gcmPrefix)]) == gcmPrefix {
 		block, err := aes.NewCipher(key)

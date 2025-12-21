@@ -10,6 +10,9 @@ import (
 	"github.com/warpdl/warpdl/common"
 )
 
+// Client manages communication with the WarpDL daemon over a Unix socket.
+// It provides methods to invoke daemon operations and listen for asynchronous
+// updates such as download progress notifications.
 type Client struct {
 	mu     *sync.RWMutex
 	d      *Dispatcher
@@ -17,6 +20,9 @@ type Client struct {
 	listen bool
 }
 
+// NewClient creates a new client connection to the WarpDL daemon.
+// It connects to the daemon's Unix socket and returns a ready-to-use client.
+// Returns an error if the connection to the daemon fails.
 func NewClient() (*Client, error) {
 	socketPath := socketPath()
 	conn, err := net.Dial("unix", socketPath)
@@ -33,6 +39,10 @@ func NewClient() (*Client, error) {
 	}, nil
 }
 
+// Listen starts the client's event loop to receive updates from the daemon.
+// It blocks until Disconnect is called or an error occurs. Updates received
+// are dispatched to registered handlers based on their update type.
+// Returns an error if reading from the connection or processing updates fails.
 func (c *Client) Listen() (err error) {
 	defer c.conn.Close()
 	c.listen = true
@@ -60,14 +70,20 @@ func (c *Client) Listen() (err error) {
 	return
 }
 
+// AddHandler registers a handler for the specified update type.
+// Multiple handlers can be registered for the same update type and will
+// be called in the order they were added.
 func (c *Client) AddHandler(t common.UpdateType, h Handler) {
 	c.d.AddHandler(t, h)
 }
 
+// RemoveHandler removes all handlers registered for the specified update type.
 func (c *Client) RemoveHandler(t common.UpdateType) {
 	c.d.RemoveHandler(t)
 }
 
+// Disconnect signals the client to stop listening for updates.
+// The Listen method will return after the current update is processed.
 func (c *Client) Disconnect() {
 	c.listen = false
 }

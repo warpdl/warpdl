@@ -38,6 +38,8 @@ type (
 	DownloadStoppedHandlerFunc func()
 )
 
+// Handlers holds callback functions for various download lifecycle events.
+// Each handler is invoked at the corresponding stage of the download process.
 type Handlers struct {
 	SpawnPartHandler        SpawnPartHandlerFunc
 	RespawnPartHandler      RespawnPartHandlerFunc

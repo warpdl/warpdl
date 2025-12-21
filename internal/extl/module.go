@@ -11,32 +11,37 @@ import (
 	"errors"
 )
 
+// Module represents a loaded JavaScript extension with its metadata and runtime.
+// Each module contains URL match patterns and an extract function that transforms
+// URLs for downloading. Modules are isolated from each other via separate
+// JavaScript runtimes.
 type Module struct {
-	// unique identifier for the module, generated automatically.
+	// ModuleId is the unique identifier for the module, generated automatically.
 	ModuleId string `json:"-"`
-	// Name of the module.
+	// Name is the display name of the module.
 	Name string `json:"name"`
-	// Version of the module.
+	// Version is the semantic version of the module.
 	Version string `json:"version"`
-	// Description of the module.
+	// Description provides a brief explanation of what the module does.
 	Description string `json:"description"`
-	// Matches is array of regex patterns that this
-	// module can handle.
+	// Matches is an array of regex patterns that this module can handle.
 	Matches []string `json:"matches"`
-	// main file for the module (default: main.js)
+	// Entrypoint is the main file for the module (default: main.js).
 	Entrypoint string `json:"entrypoint,omitempty"`
-	// Assets should be filled with all the files that
-	// must be loaded with the extension.
-	// For example: any extra js files that are imported in main.js
+	// Assets should be filled with all the files that must be loaded with the extension.
+	// For example: any extra js files that are imported in main.js.
 	Assets []string `json:"assets,omitempty"`
-	// module path (*/extstore/{module_hash}/)
+	// modulePath is the module directory path (*/extstore/{module_hash}/)
 	modulePath string
-	// module exclusive js runtime
+	// runtime is the module exclusive JavaScript runtime
 	runtime *Runtime
 	l       *log.Logger
 }
 
 // OpenModule tries to create a module object by reading its manifest.
+// It parses the manifest.json file from the given path and returns a Module
+// with its metadata populated. Returns ErrInvalidExtension if manifest.json
+// does not exist.
 func OpenModule(l *log.Logger, path string) (*Module, error) {
 	manifestPath := filepath.Join(path, "manifest.json")
 	file, err := os.Open(manifestPath)
@@ -101,7 +106,9 @@ func (m *Module) Load() error {
 	return nil
 }
 
-// Go binding for the extract function
+// Extract invokes the module's JavaScript extract function with the given URL.
+// It returns the transformed download URL or an error if extraction fails.
+// Returns ErrInteractionEnded if the module explicitly ends the interaction.
 func (m *Module) Extract(url string) (string, error) {
 	// call the extract function in js runtime
 	v, err := m.runtime.RunString(EXTRACT_CALLBACK + `("` + url + `")`)

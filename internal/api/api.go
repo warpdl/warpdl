@@ -1,3 +1,6 @@
+// Package api provides HTTP API handlers for the WarpDL daemon server.
+// It coordinates request handling between the server and the download manager,
+// exposing endpoints for download operations and extension management.
 package api
 
 import (
@@ -10,6 +13,9 @@ import (
 	"github.com/warpdl/warpdl/pkg/warplib"
 )
 
+// Api coordinates request handling between the server and download manager.
+// It encapsulates the download manager, extension engine, and HTTP client
+// required to process download and extension management requests.
 type Api struct {
 	log      *log.Logger
 	manager  *warplib.Manager
@@ -17,6 +23,10 @@ type Api struct {
 	client   *http.Client
 }
 
+// NewApi creates a new Api instance with the provided dependencies.
+// It returns an initialized Api ready to handle download and extension requests.
+// The logger is used for diagnostic output, the manager handles download state,
+// the client performs HTTP requests, and the elEngine manages JavaScript extensions.
 func NewApi(l *log.Logger, m *warplib.Manager, client *http.Client, elEngine *extl.Engine) (*Api, error) {
 	return &Api{
 		log:      l,
@@ -26,6 +36,10 @@ func NewApi(l *log.Logger, m *warplib.Manager, client *http.Client, elEngine *ex
 	}, nil
 }
 
+// RegisterHandlers registers all API handlers with the provided server.
+// It sets up handlers for download operations (download, resume, attach, flush,
+// stop, list) and extension management operations (add, get, list, delete,
+// activate, deactivate).
 func (s *Api) RegisterHandlers(server *server.Server) {
 	// downloader API methods
 	server.RegisterHandler(common.UPDATE_DOWNLOAD, s.downloadHandler)
@@ -44,6 +58,9 @@ func (s *Api) RegisterHandlers(server *server.Server) {
 	server.RegisterHandler(common.UPDATE_DEACTIVATE_EXT, s.deactivateExtHandler)
 }
 
+// Close releases resources held by the Api, specifically closing the
+// underlying download manager. It returns any error encountered during
+// the close operation.
 func (s *Api) Close() error {
 	return s.manager.Close()
 }

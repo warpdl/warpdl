@@ -13,12 +13,18 @@ import (
 	"time"
 )
 
+// Size unit constants for byte conversions.
 const (
-	B  int64 = 1
-	KB       = 1024 * B
-	MB       = 1024 * KB
-	GB       = 1024 * MB
-	TB       = 1024 * GB
+	// B represents one byte.
+	B int64 = 1
+	// KB represents one kilobyte (1024 bytes).
+	KB = 1024 * B
+	// MB represents one megabyte (1024 kilobytes).
+	MB = 1024 * KB
+	// GB represents one gigabyte (1024 megabytes).
+	GB = 1024 * MB
+	// TB represents one terabyte (1024 gigabytes).
+	TB = 1024 * GB
 )
 
 const (
@@ -33,12 +39,16 @@ const (
 	MIN_PART_SIZE = 512 * KB
 )
 
+// MAIN_HASH is the identifier used for the main download hash.
 const MAIN_HASH = "main"
 
+// ConfigDirEnv is the environment variable name used to override the default configuration directory.
 const ConfigDirEnv = "WARPDL_CONFIG_DIR"
 
 var (
+	// ConfigDir is the absolute path to the warp configuration directory.
 	ConfigDir string
+	// DlDataDir is the absolute path to the download data directory where segment files are stored.
 	DlDataDir string
 )
 
@@ -86,10 +96,13 @@ func setConfigDir(dir string) error {
 	return nil
 }
 
+// SetConfigDir sets the configuration directory to the specified path.
+// It creates the directory and its subdirectories if they do not exist.
 func SetConfigDir(dir string) error {
 	return setConfigDir(dir)
 }
 
+// GetPath joins a directory and file name using a forward slash separator.
 func GetPath(directory, file string) (path string) {
 	path = strings.Join(
 		[]string{
@@ -150,6 +163,8 @@ func dirExists(name string) bool {
 	return !os.IsNotExist(err)
 }
 
+// Place inserts element e at the specified index in src and returns a new slice.
+// The original slice is not modified.
 func Place[t any](src []t, e t, index int) (dst []t) {
 	dst = make([]t, len(src)+1)
 	var o int

@@ -1,3 +1,6 @@
+// Package cmd implements the command-line interface for WarpDL.
+// It provides commands for downloading files, managing downloads,
+// controlling the daemon, and handling extensions.
 package cmd
 
 import (
@@ -9,13 +12,25 @@ import (
 	"github.com/warpdl/warpdl/cmd/ext"
 )
 
+// BuildArgs contains build-time information passed to the CLI application.
+// These values are typically injected during the build process via ldflags
+// and are used to display version and build information to users.
 type BuildArgs struct {
-	Version   string
+	// Version is the semantic version of the application.
+	Version string
+	// BuildType indicates the build variant (e.g., "release", "debug", "snapshot").
 	BuildType string
-	Date      string
-	Commit    string
+	// Date is the build timestamp in a human-readable format.
+	Date string
+	// Commit is the git commit hash from which the build was created.
+	Commit string
 }
 
+// Execute initializes and runs the CLI application with the provided arguments.
+// It configures all available commands (download, resume, list, daemon, ext, etc.)
+// and their respective flags, then executes the appropriate command based on
+// user input. The default action is the download command when no subcommand
+// is specified. It returns any error encountered during command execution.
 func Execute(args []string, bArgs BuildArgs) error {
 	app := cli.App{
 		Name:                  "warpdl",

@@ -12,6 +12,10 @@ import (
 	"github.com/warpdl/warpdl/pkg/credman"
 )
 
+// Engine manages JavaScript extensions using the Goja runtime.
+// It handles loading, activating, deactivating, and executing extension modules.
+// The engine maintains state in a JSON file and provides URL extraction
+// capabilities through registered extension modules.
 type Engine struct {
 	// file object for module_engine.json
 	f *os.File
@@ -31,22 +35,24 @@ type Engine struct {
 	// cookieMan is a reference to the cookie manager
 	// to be used for storing cookies
 	cookieMan *credman.CookieManager
-	// loadedModules is a map of path to moduleId
-	// this is used to store the moduleId
-	// in the module_engine.json file
-	// and to load the module from the module storage
-	// when the engine is started
-	// this is used to load the module from the module storage
-	// when the engine is started
+	// LoadedModule is a map of path to moduleId.
+	// This is used to store the moduleId in the module_engine.json file
+	// and to load the module from the module storage when the engine is started.
 	LoadedModule map[string]LoadedModuleState `json:"loaded_modules"`
 }
 
+// LoadedModuleState represents the persisted state of a module in the engine.
+// It tracks the module identifier, display name, and activation status.
 type LoadedModuleState struct {
 	ModuleId    string `json:"module_id"`
 	Name        string `json:"name"`
 	IsActivated bool   `json:"is_activated"`
 }
 
+// NewEngine creates and initializes a new extension engine.
+// It loads previously registered modules from the engine state file and
+// activates any modules that were marked as activated.
+// The debugger parameter controls whether to use debug-specific storage paths.
 func NewEngine(l *log.Logger, cookieManager *credman.CookieManager, debugger bool) (*Engine, error) {
 	l.Println("Creating extension engine")
 	// mePath is the path to the module_engine.json file
@@ -122,6 +128,10 @@ func NewEngine(l *log.Logger, cookieManager *credman.CookieManager, debugger boo
 	return &e, nil
 }
 
+// AddModule installs a new extension module from the given path.
+// It loads the module, migrates it to the engine's storage directory,
+// activates it, and persists the engine state.
+// Returns the loaded module or an error if installation fails.
 func (e *Engine) AddModule(path string) (*Module, error) {
 	// add module's runtime to engine
 	m, err := e.loadModule(path)
@@ -147,6 +157,10 @@ func (e *Engine) AddModule(path string) (*Module, error) {
 	return m, e.Save()
 }
 
+// DeleteModule removes an extension module from the engine.
+// It unloads the module from memory, removes it from the engine state,
+// and deletes the module files from disk.
+// Returns the extension name and an error if deletion fails.
 func (e *Engine) DeleteModule(moduleId string) (string, error) {
 	err := e.offloadModule(moduleId)
 	if err != nil {
@@ -170,6 +184,9 @@ func (e *Engine) DeleteModule(moduleId string) (string, error) {
 	return extName, os.RemoveAll(modPath)
 }
 
+// ActivateModule enables a previously deactivated extension module.
+// It loads the module into memory and marks it as activated in the engine state.
+// Returns ErrModuleNotFound if the module does not exist.
 func (e *Engine) ActivateModule(moduleId string) (*Module, error) {
 	var (
 		modFound bool   = false
@@ -198,6 +215,9 @@ func (e *Engine) ActivateModule(moduleId string) (*Module, error) {
 	return m, e.Save()
 }
 
+// DeactiveModule disables an active extension module without removing it.
+// The module is unloaded from memory but remains registered in the engine state.
+// Returns the extension name and an error if deactivation fails.
 func (e *Engine) DeactiveModule(moduleId string) (string, error) {
 	var extName string
 	err := e.offloadModule(moduleId)
@@ -249,6 +269,10 @@ func (e *Engine) offloadModule(moduleId string) error {
 	return nil
 }
 
+// Extract attempts to extract a download URL using registered extension modules.
+// It iterates through active modules and returns the extracted URL from the first
+// module whose match pattern matches the input URL.
+// Returns the original URL unchanged if no matching module is found.
 func (e *Engine) Extract(url string) (string, error) {
 	for _, m := range e.modules {
 		for _, a := range m.Matches {
@@ -264,6 +288,8 @@ func (e *Engine) Extract(url string) (string, error) {
 	return url, nil
 }
 
+// GetModule retrieves an active module by its identifier.
+// Returns nil if the module is not found or not currently active.
 func (e *Engine) GetModule(moduleId string) *Module {
 	if i, ok := e.modIndex[moduleId]; ok {
 		return e.modules[i]
@@ -271,6 +297,9 @@ func (e *Engine) GetModule(moduleId string) *Module {
 	return nil
 }
 
+// ListModules returns information about registered extension modules.
+// If all is true, returns all modules including deactivated ones.
+// If all is false, returns only activated modules.
 func (e *Engine) ListModules(all bool) []common.ExtensionInfoShort {
 	var arr = []common.ExtensionInfoShort{}
 	for _, modState := range e.LoadedModule {
@@ -285,6 +314,8 @@ func (e *Engine) ListModules(all bool) []common.ExtensionInfoShort {
 	return arr
 }
 
+// Save persists the current engine state to the engine configuration file.
+// It truncates the existing file and writes the current state as JSON.
 func (e *Engine) Save() error {
 	err := e.f.Truncate(0)
 	if err != nil {
@@ -297,6 +328,8 @@ func (e *Engine) Save() error {
 	return e.enc.Encode(e)
 }
 
+// Close releases resources held by the engine.
+// It closes the underlying configuration file handle.
 func (e *Engine) Close() error {
 	return e.f.Close()
 }

@@ -11,6 +11,9 @@ import (
 	"github.com/warpdl/warpdl/pkg/warplib"
 )
 
+// Server manages RPC connections from CLI clients over a Unix socket.
+// It dispatches incoming requests to registered handlers and manages
+// the connection pool for active downloads.
 type Server struct {
 	log     *log.Logger
 	pool    *Pool
@@ -19,6 +22,9 @@ type Server struct {
 	port    int
 }
 
+// NewServer creates a new Server instance with the given logger, download manager,
+// and port number. The server uses a Unix socket as the primary transport,
+// falling back to TCP on the specified port if Unix socket creation fails.
 func NewServer(l *log.Logger, m *warplib.Manager, port int) *Server {
 	pool := NewPool(l)
 	return &Server{
@@ -30,6 +36,8 @@ func NewServer(l *log.Logger, m *warplib.Manager, port int) *Server {
 	}
 }
 
+// RegisterHandler associates a handler function with a specific update type method.
+// When a request with the given method is received, the corresponding handler is invoked.
 func (s *Server) RegisterHandler(method common.UpdateType, handler HandlerFunc) {
 	s.handler[method] = handler
 }
@@ -54,6 +62,10 @@ func (s *Server) createListener() (net.Listener, error) {
 	return l, nil
 }
 
+// Start begins listening for incoming connections and blocks until an error occurs.
+// It first starts the web server in a separate goroutine, then creates a Unix socket
+// listener (falling back to TCP if necessary) and accepts connections in a loop.
+// Each connection is handled in its own goroutine.
 func (s *Server) Start() error {
 	// todo: handle error
 	go s.ws.Start()

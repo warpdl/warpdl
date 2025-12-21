@@ -12,6 +12,9 @@ import (
 	requirePkg "github.com/dop251/goja_nodejs/require"
 )
 
+// Runtime wraps a Goja JavaScript runtime with module support.
+// It provides an isolated execution environment for extension modules,
+// including built-in functions for I/O, HTTP requests, and module imports.
 type Runtime struct {
 	*requirePkg.RequireModule
 	*goja.Runtime
@@ -20,6 +23,10 @@ type Runtime struct {
 	imported []string
 }
 
+// NewRuntime creates a new JavaScript runtime for extension execution.
+// It initializes the Goja runtime with built-in functions (print, input, require)
+// and HTTP request capabilities. The wd parameter sets the working directory
+// for module resolution.
 func NewRuntime(l *log.Logger, wd string) (*Runtime, error) {
 	registry := new(requirePkg.Registry)
 	runtime := goja.New()
