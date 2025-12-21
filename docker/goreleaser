@@ -1,4 +1,5 @@
 FROM alpine
+RUN apk add --no-cache ffmpeg
 COPY warpdl /bin/warpdl
 ENTRYPOINT ["/bin/warpdl"]
 
