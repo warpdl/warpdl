@@ -86,6 +86,15 @@ Example: `core,daemon: feat: implemented feature X`
 - `cmd/cookieMan_linux.go` - Linux-specific credential integration
 - Keyring abstraction via `zalando/go-keyring`
 
+## Test Coverage Requirements
+
+- **Minimum coverage**: 80% per package (enforced by CI)
+- Run coverage check: `scripts/check_coverage.sh`
+- Check specific package: `go test -cover ./pkg/warplib/...`
+- Detailed report: `go test -coverprofile=cover.out ./... && go tool cover -func=cover.out`
+
+Note: Coverage may differ slightly between Linux (CI) and macOS (local) due to platform-specific code paths. Aim for ~85% locally to ensure CI passes.
+
 ## Key Dependencies
 
 - `github.com/dop251/goja` - JavaScript runtime for extensions
