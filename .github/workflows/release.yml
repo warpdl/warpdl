@@ -33,7 +33,7 @@ jobs:
       - name: Configure git
         run: git config --global url."https://divkix:${GITHUB_TOKEN}@github.com".insteadOf "https://github.com"
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
@@ -68,11 +68,11 @@ jobs:
           fi
           echo "RELEASE_VERSION=$tag" >> $GITHUB_ENV
       - name: Checkout warp
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           path: ./warpdl
       - name: Checkout warp-releases
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: ${{ env.RELEASES_REPO }}
           persist-credentials: false
@@ -117,7 +117,7 @@ jobs:
       - name: Set up git
         run: git config --global url."https://divkix:${GITHUB_TOKEN}@github.com".insteadOf "https://github.com"
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
@@ -180,7 +180,7 @@ jobs:
       - name: Set up git
         run: git config --global url."https://divkix:${GITHUB_TOKEN}@github.com".insteadOf "https://github.com"
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       - name: Pull changes
         run: git pull origin dev
       - name: Build snaps
@@ -202,7 +202,7 @@ jobs:
 #     needs: snapcraft
 #     steps:
 #       - name: Checkout
-#         uses: actions/checkout@v4
+#         uses: actions/checkout@v6
 #       - name: Test ubuntu docker
 #         run: |-
 #           echo "Testing ubuntu"
