@@ -142,3 +142,89 @@ func TestWebServerHandleConnection(t *testing.T) {
 	}
 	t.Fatalf("expected websocket download to start")
 }
+
+func TestWebServerHandler(t *testing.T) {
+	pool := NewPool(log.New(io.Discard, "", 0))
+	ws := NewWebServer(log.New(io.Discard, "", 0), nil, pool, 8080)
+	h := ws.handler()
+	if h == nil {
+		t.Fatalf("expected non-nil handler")
+	}
+}
+
+func TestWebServerAddr(t *testing.T) {
+	pool := NewPool(log.New(io.Discard, "", 0))
+	ws := NewWebServer(log.New(io.Discard, "", 0), nil, pool, 9999)
+	addr := ws.addr()
+	if addr != ":9999" {
+		t.Fatalf("expected :9999, got %s", addr)
+	}
+}
+
+func TestWebServerHandleConnectionInvalidJSON(t *testing.T) {
+	pool := NewPool(log.New(io.Discard, "", 0))
+	ws := NewWebServer(log.New(io.Discard, "", 0), nil, pool, 0)
+	wsSrv := httptest.NewServer(websocket.Handler(ws.handleConnection))
+	defer wsSrv.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(wsSrv.URL, "http")
+	conn, err := websocket.Dial(wsURL, "", wsSrv.URL)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	// Send invalid JSON to trigger unmarshal error
+	if err := websocket.Message.Send(conn, []byte("not valid json")); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	_ = conn.Close()
+}
+
+func TestWebServerHandleConnectionInvalidURL(t *testing.T) {
+	base := t.TempDir()
+	if err := warplib.SetConfigDir(base); err != nil {
+		t.Fatalf("SetConfigDir: %v", err)
+	}
+	m, err := warplib.InitManager()
+	if err != nil {
+		t.Fatalf("InitManager: %v", err)
+	}
+	defer m.Close()
+
+	pool := NewPool(log.New(io.Discard, "", 0))
+	ws := NewWebServer(log.New(io.Discard, "", 0), m, pool, 0)
+	wsSrv := httptest.NewServer(websocket.Handler(ws.handleConnection))
+	defer wsSrv.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(wsSrv.URL, "http")
+	conn, err := websocket.Dial(wsURL, "", wsSrv.URL)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	// Send valid JSON with invalid URL to trigger processDownload error
+	payload, _ := json.Marshal(capturedDownload{Url: "http://invalid.invalid/file"})
+	if err := websocket.Message.Send(conn, payload); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond) // Give time for error to be processed
+	_ = conn.Close()
+}
+
+func TestWebServerProcessDownloadInvalidURL(t *testing.T) {
+	base := t.TempDir()
+	if err := warplib.SetConfigDir(base); err != nil {
+		t.Fatalf("SetConfigDir: %v", err)
+	}
+	m, err := warplib.InitManager()
+	if err != nil {
+		t.Fatalf("InitManager: %v", err)
+	}
+	defer m.Close()
+
+	pool := NewPool(log.New(io.Discard, "", 0))
+	ws := NewWebServer(log.New(io.Discard, "", 0), m, pool, 0)
+	// Test with malformed URL
+	err = ws.processDownload(&capturedDownload{Url: "://invalid"})
+	if err == nil {
+		t.Fatalf("expected error for invalid URL")
+	}
+}

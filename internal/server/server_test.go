@@ -170,3 +170,42 @@ func TestHandleConnection(t *testing.T) {
 		t.Fatalf("expected ok response")
 	}
 }
+
+func TestCreateListenerUnixSocket(t *testing.T) {
+	tmpDir := t.TempDir()
+	sockPath := tmpDir + "/test.sock"
+	t.Setenv(socketPathEnv, sockPath)
+
+	s := &Server{
+		log:  log.New(io.Discard, "", 0),
+		port: 0,
+	}
+	l, err := s.createListener()
+	if err != nil {
+		t.Fatalf("createListener: %v", err)
+	}
+	defer l.Close()
+
+	if l.Addr().Network() != "unix" {
+		t.Fatalf("expected unix socket, got %s", l.Addr().Network())
+	}
+}
+
+func TestCreateListenerTCPFallback(t *testing.T) {
+	// Use an invalid path to force TCP fallback
+	t.Setenv(socketPathEnv, "/nonexistent/path/test.sock")
+
+	s := &Server{
+		log:  log.New(io.Discard, "", 0),
+		port: 0, // port 0 lets OS pick available port
+	}
+	l, err := s.createListener()
+	if err != nil {
+		t.Fatalf("createListener: %v", err)
+	}
+	defer l.Close()
+
+	if l.Addr().Network() != "tcp" {
+		t.Fatalf("expected tcp socket, got %s", l.Addr().Network())
+	}
+}

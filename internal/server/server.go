@@ -34,28 +34,32 @@ func (s *Server) RegisterHandler(method common.UpdateType, handler HandlerFunc) 
 	s.handler[method] = handler
 }
 
-func (s *Server) Start() error {
-	// todo: handle error
-	go s.ws.Start()
+func (s *Server) createListener() (net.Listener, error) {
 	socketPath := socketPath()
 	_ = os.Remove(socketPath)
-	var (
-		l   net.Listener
-		err error
-	)
-	l, err = net.ListenUnix("unix", &net.UnixAddr{
+	l, err := net.ListenUnix("unix", &net.UnixAddr{
 		Name: socketPath,
 		Net:  "unix",
 	})
 	if err != nil {
 		s.log.Println("Error occured while using unix socket: ", err.Error())
 		s.log.Println("Trying to use tcp socket")
-		l, err = net.Listen("tcp", fmt.Sprintf("localhost:%d", s.port))
-		if err != nil {
-			return fmt.Errorf("error listening: %s", err.Error())
+		tcpListener, tcpErr := net.Listen("tcp", fmt.Sprintf("localhost:%d", s.port))
+		if tcpErr != nil {
+			return nil, fmt.Errorf("error listening: %s", tcpErr.Error())
 		}
-	} else {
-		_ = os.Chmod(socketPath, 0766)
+		return tcpListener, nil
+	}
+	_ = os.Chmod(socketPath, 0766)
+	return l, nil
+}
+
+func (s *Server) Start() error {
+	// todo: handle error
+	go s.ws.Start()
+	l, err := s.createListener()
+	if err != nil {
+		return err
 	}
 	defer l.Close()
 	for {

@@ -156,9 +156,14 @@ func (s *WebServer) handleConnection(conn *websocket.Conn) {
 	}
 }
 
+func (s *WebServer) handler() http.Handler {
+	return websocket.Handler(s.handleConnection)
+}
+
+func (s *WebServer) addr() string {
+	return fmt.Sprintf(":%d", s.port)
+}
+
 func (s *WebServer) Start() error {
-	return http.ListenAndServe(
-		fmt.Sprintf(":%d", s.port),
-		websocket.Handler(s.handleConnection),
-	)
+	return http.ListenAndServe(s.addr(), s.handler())
 }
