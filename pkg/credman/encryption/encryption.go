@@ -8,26 +8,59 @@ import (
 	"io"
 )
 
+const gcmPrefix = "gcm1"
+
 func EncryptValue(value string, key []byte) ([]byte, error) {
 	plaintext := []byte(value)
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, err
 	}
-
-	ciphertext := make([]byte, aes.BlockSize+len(plaintext))
-	iv := ciphertext[:aes.BlockSize]
-	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
 		return nil, err
 	}
 
-	stream := cipher.NewCFBEncrypter(block, iv)
-	stream.XORKeyStream(ciphertext[aes.BlockSize:], plaintext)
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return nil, err
+	}
 
-	return ciphertext, nil
+	ciphertext := gcm.Seal(nil, nonce, plaintext, nil)
+	out := make([]byte, 0, len(gcmPrefix)+len(nonce)+len(ciphertext))
+	out = append(out, gcmPrefix...)
+	out = append(out, nonce...)
+	out = append(out, ciphertext...)
+	return out, nil
 }
 
 func DecryptValue(ciphertext []byte, key []byte) ([]byte, error) {
+	if len(ciphertext) >= len(gcmPrefix) && string(ciphertext[:len(gcmPrefix)]) == gcmPrefix {
+		block, err := aes.NewCipher(key)
+		if err != nil {
+			return nil, err
+		}
+		gcm, err := cipher.NewGCM(block)
+		if err != nil {
+			return nil, err
+		}
+		nonceSize := gcm.NonceSize()
+		if len(ciphertext) < len(gcmPrefix)+nonceSize {
+			return nil, fmt.Errorf("ciphertext too short")
+		}
+		nonce := ciphertext[len(gcmPrefix) : len(gcmPrefix)+nonceSize]
+		data := ciphertext[len(gcmPrefix)+nonceSize:]
+		plaintext, err := gcm.Open(nil, nonce, data, nil)
+		if err != nil {
+			return nil, err
+		}
+		return plaintext, nil
+	}
+
+	return decryptLegacy(ciphertext, key)
+}
+
+func decryptLegacy(ciphertext []byte, key []byte) ([]byte, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, err

@@ -13,9 +13,14 @@ import (
 	"github.com/warpdl/warpdl/pkg/warplib"
 )
 
+var (
+	cookieManagerFunc = getCookieManager
+	startServerFunc   = func(serv *server.Server) error { return serv.Start() }
+)
+
 func daemon(ctx *cli.Context) error {
 	l := log.Default()
-	cm, err := getCookieManager(ctx)
+	cm, err := cookieManagerFunc(ctx)
 	if err != nil {
 		// nil because err has already been handled in getCookieManager function
 		return nil
@@ -46,5 +51,5 @@ func daemon(ctx *cli.Context) error {
 	}
 	serv := server.NewServer(l, m, DEF_PORT)
 	s.RegisterHandlers(serv)
-	return serv.Start()
+	return startServerFunc(serv)
 }

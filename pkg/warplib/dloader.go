@@ -64,7 +64,7 @@ type Downloader struct {
 	l         *log.Logger
 	lw        io.WriteCloser
 	f         *os.File
-	stopped   bool
+	stopped   int32
 	resumable bool
 }
 
@@ -267,7 +267,7 @@ func (d *Downloader) Start() (err error) {
 		}
 	}
 	d.wg.Wait()
-	if d.stopped {
+	if atomic.LoadInt32(&d.stopped) == 1 {
 		d.Log("Download stopped")
 		d.handlers.DownloadStoppedHandler()
 		return
@@ -313,7 +313,7 @@ func (d *Downloader) Resume(parts map[int64]*ItemPart) (err error) {
 		go d.resumePartDownload(ip.Hash, ioff, ip.FinalOffset, espeed)
 	}
 	d.wg.Wait()
-	if d.stopped {
+	if atomic.LoadInt32(&d.stopped) == 1 {
 		d.Log("Download stopped")
 		d.handlers.DownloadStoppedHandler()
 		return
@@ -606,7 +606,7 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 
 // Stop stops the download process.
 func (d *Downloader) Stop() {
-	d.stopped = true
+	atomic.StoreInt32(&d.stopped, 1)
 	d.cancel()
 }
 

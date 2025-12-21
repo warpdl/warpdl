@@ -12,6 +12,11 @@ import (
 
 var VersionCmdStr string
 
+var (
+	showAppHelpAndExit = cli.ShowAppHelpAndExit
+	showCommandHelp    = cli.ShowCommandHelp
+)
+
 func InitBars(p *mpb.Progress, prefix string, cLength int64) (dbar *mpb.Bar, cbar *mpb.Bar) {
 	barStyle := mpb.BarStyle().Lbound("╢").Filler("█").Tip("█").Padding("░").Rbound("╟")
 
@@ -55,10 +60,10 @@ func Help(ctx *cli.Context) error {
 	arg := ctx.Args().First()
 	if arg == "" || arg == "help" {
 		fmt.Printf("%s %s\n", ctx.App.Name, ctx.App.Version)
-		cli.ShowAppHelpAndExit(ctx, 0)
+		showAppHelpAndExit(ctx, 0)
 		return nil
 	}
-	err := cli.ShowCommandHelp(ctx, arg)
+	err := showCommandHelp(ctx, arg)
 	if err != nil {
 		return err
 	}
@@ -93,7 +98,7 @@ func PrintErrWithCmdHelp(ctx *cli.Context, err error) error {
 		ctx,
 		err,
 		func() {
-			err := cli.ShowCommandHelp(ctx, ctx.Command.Name)
+			err := showCommandHelp(ctx, ctx.Command.Name)
 			if err != nil {
 				fmt.Println(err.Error())
 			}
@@ -106,7 +111,7 @@ func PrintErrWithHelp(ctx *cli.Context, err error) error {
 		ctx,
 		err,
 		func() {
-			cli.ShowAppHelpAndExit(ctx, 1)
+			showAppHelpAndExit(ctx, 1)
 		},
 	)
 }

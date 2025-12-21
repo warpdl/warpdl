@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"os"
-	"path/filepath"
 	"sync"
 
 	"github.com/warpdl/warpdl/common"
@@ -20,7 +18,7 @@ type Client struct {
 }
 
 func NewClient() (*Client, error) {
-	socketPath := filepath.Join(os.TempDir(), "warpdl.sock")
+	socketPath := socketPath()
 	conn, err := net.Dial("unix", socketPath)
 	if err != nil {
 		err = fmt.Errorf("error connecting to server: %s", err.Error())
@@ -51,6 +49,7 @@ func (c *Client) Listen() (err error) {
 		if err != nil {
 			c.mu.RUnlock()
 			if err == ErrDisconnect {
+				err = nil
 				break
 			}
 			err = fmt.Errorf("error processing: %s", err.Error())

@@ -13,17 +13,26 @@ var (
 	commit    string
 	date      string
 	buildType string = "unclassified"
+	osExit    = os.Exit
 )
 
 func main() {
-	err := cmd.Execute(os.Args, cmd.BuildArgs{
+	osExit(runMain(os.Args, run))
+}
+
+func run(args []string) error {
+	return cmd.Execute(args, cmd.BuildArgs{
 		Version:   version,
 		Commit:    commit,
 		Date:      date,
 		BuildType: buildType,
 	})
-	if err != nil {
+}
+
+func runMain(args []string, runFunc func([]string) error) int {
+	if err := runFunc(args); err != nil {
 		fmt.Printf("warpdl: %s\n", err.Error())
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }

@@ -37,9 +37,7 @@ func (s *SpeedCounter) Start() {
 }
 
 func (s *SpeedCounter) IncrBy(n int) {
-	s.mu.RLock()
 	atomic.AddInt64(&s.bpc, int64(n))
-	s.mu.RUnlock()
 }
 
 func (s *SpeedCounter) Stop() {
@@ -48,15 +46,17 @@ func (s *SpeedCounter) Stop() {
 
 func (s *SpeedCounter) worker() {
 	for range s.ticker.C {
-		if s.bpc == 0 {
+		if atomic.LoadInt64(&s.bpc) == 0 {
 			continue
 		}
 		if s.bar == nil {
 			continue
 		}
 		s.mu.Lock()
-		s.bar.EwmaIncrInt64(s.bpc, s.refreshRate)
-		s.bpc = 0
+		bpc := atomic.SwapInt64(&s.bpc, 0)
+		if bpc != 0 {
+			s.bar.EwmaIncrInt64(bpc, s.refreshRate)
+		}
 		s.mu.Unlock()
 	}
 }

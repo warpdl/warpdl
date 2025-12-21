@@ -12,6 +12,13 @@ type Keyring struct {
 	KeyField string
 }
 
+var (
+	keyringSet    = keyring.Set
+	keyringGet    = keyring.Get
+	keyringDelete = keyring.Delete
+	randRead      = rand.Read
+)
+
 func NewKeyring() *Keyring {
 	return &Keyring{
 		AppName:  "warpdl",
@@ -21,9 +28,11 @@ func NewKeyring() *Keyring {
 
 func (k *Keyring) SetKey() ([]byte, error) {
 	key := make([]byte, 32)
-	rand.Read(key)
+	if _, err := randRead(key); err != nil {
+		return nil, err
+	}
 	keyString := hex.EncodeToString(key)
-	err := keyring.Set(k.AppName, k.KeyField, keyString)
+	err := keyringSet(k.AppName, k.KeyField, keyString)
 	if err != nil {
 		return nil, err
 	}
@@ -31,7 +40,7 @@ func (k *Keyring) SetKey() ([]byte, error) {
 }
 
 func (k *Keyring) GetKey() ([]byte, error) {
-	key, err := keyring.Get(k.AppName, k.KeyField)
+	key, err := keyringGet(k.AppName, k.KeyField)
 	if err != nil {
 		return nil, err
 	}
@@ -39,5 +48,5 @@ func (k *Keyring) GetKey() ([]byte, error) {
 }
 
 func (k *Keyring) DeleteKey() error {
-	return keyring.Delete(k.AppName, k.KeyField)
+	return keyringDelete(k.AppName, k.KeyField)
 }

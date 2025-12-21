@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/gob"
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/warpdl/warpdl/pkg/credman/encryption"
@@ -39,8 +40,7 @@ func (cm *CookieManager) loadCookies() error {
 		return err
 	}
 
-	var cookiesData []byte
-	_, err = cm.f.Read(cookiesData)
+	cookiesData, err := io.ReadAll(cm.f)
 	if err != nil {
 		return err
 	}
@@ -65,6 +65,12 @@ func (cm *CookieManager) saveCookies() error {
 		return err
 	}
 
+	if err := cm.f.Truncate(0); err != nil {
+		return err
+	}
+	if _, err := cm.f.Seek(0, 0); err != nil {
+		return err
+	}
 	_, err = cm.f.Write(buf.Bytes())
 	if err != nil {
 		return err
@@ -93,8 +99,9 @@ func (cm *CookieManager) GetCookie(name string) (*types.Cookie, error) {
 	if err != nil {
 		return nil, err
 	}
-	cookie.Value = string(decrpytedValue)
-	return cookie, nil
+	copyCookie := *cookie
+	copyCookie.Value = string(decrpytedValue)
+	return &copyCookie, nil
 }
 
 func (cm *CookieManager) DeleteCookie(name string) error {
@@ -107,12 +114,16 @@ func (cm *CookieManager) DeleteCookie(name string) error {
 }
 
 func (cm *CookieManager) UpdateCookie(cookie *types.Cookie) error {
-	encryptedValue, err := encryption.EncryptValue(cookie.Value, cm.key)
+	if cookie == nil {
+		return fmt.Errorf("cookie is nil")
+	}
+	copyCookie := *cookie
+	encryptedValue, err := encryption.EncryptValue(copyCookie.Value, cm.key)
 	if err != nil {
 		return err
 	}
-	cookie.Value = string(encryptedValue)
-	cm.cookies[cookie.Name] = cookie
+	copyCookie.Value = string(encryptedValue)
+	cm.cookies[copyCookie.Name] = &copyCookie
 	return cm.saveCookies()
 }
 

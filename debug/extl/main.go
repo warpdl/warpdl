@@ -2,6 +2,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 
@@ -23,39 +24,44 @@ Commands:
 `
 
 func main() {
-	args := os.Args[1:]
+	if err := run(os.Args[1:]); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func run(args []string) error {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
 		println(HELP)
-		return
+		return nil
 	}
 
 	extEng, err := extl.NewEngine(log.Default(), nil, true)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	switch args[0] {
 	case "extract":
 		if len(args) < 2 {
-			log.Fatal("extract: missing url")
+			return fmt.Errorf("extract: missing url")
 		}
 		url := args[1]
 		eUrl, err := extEng.Extract(url)
 		if err != nil {
-			log.Fatal("extract:", err)
+			return fmt.Errorf("extract: %w", err)
 		}
 		log.Println("Extracted URL:", eUrl)
-
 	case "load":
 		if len(args) < 2 {
-			log.Fatal("load: missing extension path")
+			return fmt.Errorf("load: missing extension path")
 		}
 		extPath := args[1]
 		mod, err := extEng.AddModule(extPath)
 		if err != nil {
-			log.Fatal("load:", err)
+			return fmt.Errorf("load: %w", err)
 		}
 		log.Println("Loaded Module:", mod.Name)
 	case "list", "unload", "reload":
 		log.Println("Not Implemented Yet")
 	}
+	return nil
 }

@@ -6,7 +6,6 @@ import (
 	"log"
 	"net"
 	"os"
-	"path/filepath"
 
 	"github.com/warpdl/warpdl/common"
 	"github.com/warpdl/warpdl/pkg/warplib"
@@ -38,7 +37,7 @@ func (s *Server) RegisterHandler(method common.UpdateType, handler HandlerFunc) 
 func (s *Server) Start() error {
 	// todo: handle error
 	go s.ws.Start()
-	socketPath := filepath.Join(os.TempDir(), "warpdl.sock")
+	socketPath := socketPath()
 	_ = os.Remove(socketPath)
 	var (
 		l   net.Listener

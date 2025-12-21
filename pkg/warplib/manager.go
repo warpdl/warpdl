@@ -9,7 +9,7 @@ import (
 )
 
 // Default download data directory
-var __USERDATA_FILE_NAME = ConfigDir + "/userdata.warp"
+var __USERDATA_FILE_NAME string
 
 // Manager is a struct that manages the download items
 // and their respective downloaders.
@@ -105,7 +105,9 @@ func (m *Manager) patchHandlers(d *Downloader, item *Item) {
 	}
 	oPH := d.handlers.DownloadProgressHandler
 	d.handlers.DownloadProgressHandler = func(hash string, nread int) {
+		item.mu.Lock()
 		item.Downloaded += ContentLength(nread)
+		item.mu.Unlock()
 		m.UpdateItem(item)
 		oPH(hash, nread)
 	}
@@ -125,8 +127,10 @@ func (m *Manager) patchHandlers(d *Downloader, item *Item) {
 		if hash != MAIN_HASH {
 			return
 		}
+		item.mu.Lock()
 		item.Parts = nil
 		item.Downloaded = item.TotalSize
+		item.mu.Unlock()
 		m.UpdateItem(item)
 		oDCH(hash, tread)
 	}

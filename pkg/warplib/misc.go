@@ -1,11 +1,13 @@
 package warplib
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"mime"
 	"net/http"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -32,6 +34,61 @@ const (
 )
 
 const MAIN_HASH = "main"
+
+const ConfigDirEnv = "WARPDL_CONFIG_DIR"
+
+var (
+	ConfigDir string
+	DlDataDir string
+)
+
+func init() {
+	dir := os.Getenv(ConfigDirEnv)
+	if dir == "" {
+		dir = defaultConfigDir()
+	}
+	if err := setConfigDir(dir); err != nil {
+		panic(err)
+	}
+}
+
+func defaultConfigDir() string {
+	cdr, err := os.UserConfigDir()
+	if err != nil {
+		panic(err)
+	}
+	if !dirExists(cdr) {
+		err = os.MkdirAll(cdr, os.ModePerm)
+		if err != nil {
+			panic(err)
+		}
+	}
+	return filepath.Join(cdr, "warpdl")
+}
+
+func setConfigDir(dir string) error {
+	if dir == "" {
+		return errors.New("config dir is empty")
+	}
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(abs, os.ModePerm); err != nil {
+		return err
+	}
+	ConfigDir = abs
+	DlDataDir = filepath.Join(abs, "dldata")
+	if err := os.MkdirAll(DlDataDir, os.ModePerm); err != nil {
+		return err
+	}
+	__USERDATA_FILE_NAME = filepath.Join(abs, "userdata.warp")
+	return nil
+}
+
+func SetConfigDir(dir string) error {
+	return setConfigDir(dir)
+}
 
 func GetPath(directory, file string) (path string) {
 	path = strings.Join(
@@ -120,41 +177,6 @@ func Place[t any](src []t, e t, index int) (dst []t) {
 // 	avg = d.t
 // 	return
 // }
-
-var ConfigDir = func() (warpDir string) {
-	cdr, err := os.UserConfigDir()
-	if err != nil {
-		panic(err)
-	}
-	// weird stuff
-	if !dirExists(cdr) {
-		err = os.Mkdir(cdr, os.ModePerm)
-		if err != nil {
-			panic(err)
-		}
-	}
-	warpDir = cdr + "/warpdl"
-	if dirExists(warpDir) {
-		return
-	}
-	err = os.Mkdir(warpDir, os.ModePerm)
-	if err != nil {
-		panic(err)
-	}
-	return
-}()
-
-var DlDataDir = func() (dlDir string) {
-	dlDir = ConfigDir + "/dldata"
-	if dirExists(dlDir) {
-		return
-	}
-	err := os.Mkdir(dlDir, os.ModePerm)
-	if err != nil {
-		panic(err)
-	}
-	return
-}()
 
 // var CacheDir = func() (warpDir string) {
 // 	cdr, err := os.UserCacheDir()

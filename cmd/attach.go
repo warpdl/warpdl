@@ -25,6 +25,7 @@ func attach(ctx *cli.Context) (err error) {
 	client, err := warpcli.NewClient()
 	if err != nil {
 		common.PrintRuntimeErr(ctx, "attach", "new_client", err)
+		return nil
 	}
 	fmt.Println(">> Initiating a WARP download << ")
 	d, err := client.AttachDownload(hash)

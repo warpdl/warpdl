@@ -1,8 +1,12 @@
 package warplib
 
 import (
+	"bytes"
+	"log"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -60,5 +64,49 @@ func TestGetPath(t *testing.T) {
 				t.Errorf("GetPath() = %v, want %v", gotPath, tt.wantPath)
 			}
 		})
+	}
+}
+
+func TestPlace(t *testing.T) {
+	src := []int{1, 2, 4}
+	got := Place(src, 3, 2)
+	if len(got) != 4 || got[2] != 3 {
+		t.Fatalf("unexpected placement result: %v", got)
+	}
+}
+
+func TestGetDownloadTime(t *testing.T) {
+	d := getDownloadTime(MB, 2*MB)
+	if d <= 0 {
+		t.Fatalf("expected positive duration, got %v", d)
+	}
+}
+
+func TestSetConfigDir(t *testing.T) {
+	base := t.TempDir()
+	if err := SetConfigDir(base); err != nil {
+		t.Fatalf("SetConfigDir: %v", err)
+	}
+	abs, _ := filepath.Abs(base)
+	if ConfigDir != abs {
+		t.Fatalf("expected ConfigDir %s, got %s", abs, ConfigDir)
+	}
+	if _, err := os.Stat(DlDataDir); err != nil {
+		t.Fatalf("expected DlDataDir to exist: %v", err)
+	}
+}
+
+func TestSetConfigDirEmpty(t *testing.T) {
+	if err := setConfigDir(""); err == nil {
+		t.Fatalf("expected error for empty config dir")
+	}
+}
+
+func TestWlog(t *testing.T) {
+	var buf bytes.Buffer
+	logger := log.New(&buf, "", 0)
+	wlog(logger, "hello %s", "world")
+	if got := buf.String(); got == "" || got[len(got)-1] != '\n' {
+		t.Fatalf("expected newline in log output, got %q", got)
 	}
 }

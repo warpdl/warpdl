@@ -43,6 +43,7 @@ func flush(ctx *cli.Context) error {
 	client, err := warpcli.NewClient()
 	if err != nil {
 		common.PrintRuntimeErr(ctx, "flush", "new_client", err)
+		return nil
 	}
 	_, err = client.Flush(hashToFlush)
 	if err != nil {

@@ -12,31 +12,37 @@ on:
 
 jobs:
   ci:
-    name: Goreleaser CI
+    name: Go Tests
     runs-on: ubuntu-latest
-    env:
-      GITHUB_TOKEN: ${{ secrets.GH_PAT }}
     permissions:
-      contents: write
+      contents: read
     steps:
-      - name: Configure git
-        run: git config --global url."https://divkix:${{ secrets.GH_PAT }}@github.com".insteadOf "https://github.com"
       - name: Checkout
         uses: actions/checkout@v4
       - name: Set up Go
+        id: setup-go
         uses: actions/setup-go@v4
         with:
           go-version: "stable"
-      - name: Import GPG key
-        uses: crazy-max/ghaction-import-gpg@v6
+      - name: Go env
+        id: go-env
+        run: |-
+          echo "gomodcache=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+          echo "gocache=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+      - name: Cache Go build and modules
+        uses: actions/cache@v4
         with:
-          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
-          passphrase: ${{ secrets.GPG_PASSPHRASE }}
-      - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v5
-        with:
-          version: latest
-          args: release --snapshot --skip=publish --clean
+          path: |-
+            ${{ steps.go-env.outputs.gomodcache }}
+            ${{ steps.go-env.outputs.gocache }}
+          key: ${{ runner.os }}-go-${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: |-
+            ${{ runner.os }}-go-${{ steps.setup-go.outputs.go-version }}-
+            ${{ runner.os }}-go-
+      - name: Run tests with coverage gating
+        run: scripts/check_coverage.sh
         env:
-          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
-          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          COVERAGE_MIN: "80"
+          COVERAGE_MIN_PER_PKG: "80"
+      - name: Run race tests
+        run: go test -race ./...
