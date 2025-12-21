@@ -149,7 +149,7 @@ checksum:
 snapshot:
   version_template: "{{ incpatch .Version }}-next"
 
-brews:
+homebrew_casks:
   - name: warpdl
     repository:
       owner: warpdl
@@ -157,13 +157,14 @@ brews:
     commit_author:
       name: "Divkix"
       email: divkix@divkix.me
-    directory: Formula
     homepage: "https://warpdl.org"
     description: "The official Warp CLI download manager"
-    install: |-
-      bin.install "warpdl"
-    test: |
-      system "#{bin}/warpdl --version"
+    binaries:
+      - warpdl
+    # Remove quarantine since binary isn't notarized
+    hooks:
+      post:
+        install: "system_command '/usr/bin/xattr', args: ['-d', 'com.apple.quarantine', staged_path/'warpdl']"
 
 scoops:
   - name: warpdl
