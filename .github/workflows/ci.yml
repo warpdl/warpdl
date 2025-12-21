@@ -24,21 +24,6 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version: "stable"
-      - name: Go env
-        id: go-env
-        run: |-
-          echo "gomodcache=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
-          echo "gocache=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
-      - name: Cache Go build and modules
-        uses: actions/cache@v4
-        with:
-          path: |-
-            ${{ steps.go-env.outputs.gomodcache }}
-            ${{ steps.go-env.outputs.gocache }}
-          key: ${{ runner.os }}-go-${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('**/go.sum') }}
-          restore-keys: |-
-            ${{ runner.os }}-go-${{ steps.setup-go.outputs.go-version }}-
-            ${{ runner.os }}-go-
       - name: Run tests with coverage gating
         run: scripts/check_coverage.sh
         env:
