@@ -1,3 +1,5 @@
+version: 2
+
 project_name: warpdl
 
 release:
@@ -49,6 +51,8 @@ builds:
         goarch: "386"
       - goos: windows
         goarch: "386"
+      - goos: windows
+        goarch: arm
       - goos: freebsd
         goarch: "386"
     mod_timestamp: "{{ .CommitTimestamp }}"
@@ -75,10 +79,9 @@ builds:
 
 archives:
   - id: default
-    builds: 
+    ids:
       - default
       - android
-    rlcp: true
     name_template: >-
       {{ .ProjectName }}_
       {{- .Version }}_
@@ -91,7 +94,8 @@ archives:
       {{- if not (eq .Amd64 "v1") }}{{ .Amd64 }}{{ end }}
     format_overrides:
       - goos: windows
-        format: zip
+        formats:
+          - zip
     
 signs:
   - artifacts: all
@@ -125,7 +129,7 @@ checksum:
   algorithm: sha256
 
 snapshot:
-  name_template: "{{ incpatch .Version }}-next"
+  version_template: "{{ incpatch .Version }}-next"
 
 brews:
   - name: warpdl
@@ -135,7 +139,7 @@ brews:
     commit_author:
       name: "Divkix"
       email: divkix@divkix.me
-    folder: Formula
+    directory: Formula
     homepage: "https://warpdl.org"
     description: "The official Warp CLI download manager"
     install: |-
@@ -189,38 +193,20 @@ nfpms:
 #       warpdl:
 #         command: usr/bin/warpdl
 
-dockers:
-  - goarch: amd64
+dockers_v2:
+  - id: warp-cli
     dockerfile: docker/goreleaser
-    use: buildx
-    image_templates:
-      - "ghcr.io/warpdl/warp-cli:{{ .Tag }}-amd64"
-    build_flag_templates:
-      - "--platform=linux/amd64"
-      - "--pull"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title=warp-cli"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-  - goarch: arm64
-    dockerfile: docker/goreleaser
-    use: buildx
-    image_templates:
-      - "ghcr.io/warpdl/warp-cli:{{ .Tag }}-arm64v8"
-    build_flag_templates:
-      - "--platform=linux/arm64/v8"
-      - "--pull"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.title=warp-cli"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-
-docker_manifests:
-  - name_template: "ghcr.io/warpdl/warp-cli:{{ .Version }}"
-    image_templates:
-      - "ghcr.io/warpdl/warp-cli:{{ .Tag }}-amd64"
-      - "ghcr.io/warpdl/warp-cli:{{ .Tag }}-arm64v8"
-  - name_template: "ghcr.io/warpdl/warp-cli:latest"
-    image_templates:
-      - "ghcr.io/warpdl/warp-cli:{{ .Tag }}-amd64"
-      - "ghcr.io/warpdl/warp-cli:{{ .Tag }}-arm64v8"
+    images:
+      - "ghcr.io/warpdl/warp-cli"
+    tags:
+      - "{{ .Tag }}"
+      - "{{ .Version }}"
+      - latest
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    labels:
+      "org.opencontainers.image.created": "{{ .Date }}"
+      "org.opencontainers.image.title": "warp-cli"
+      "org.opencontainers.image.revision": "{{ .FullCommit }}"
+      "org.opencontainers.image.version": "{{ .Version }}"
