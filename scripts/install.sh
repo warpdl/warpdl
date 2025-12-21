@@ -11,7 +11,7 @@ LATEST_RELEASE="v1.0.5"
 OS="unknown"
 ARCH="unknown"
 DL_FILENAME="warpdl_${LATEST_RELEASE}"
-GITHUB_RELEASES_BASE_URL="https://github.com/warpdl/warp-releases/releases/download/${LATEST_RELEASE}/"
+GITHUB_RELEASES_BASE_URL="https://github.com/warpdl/warpdl/releases/download/${LATEST_RELEASE}/"
 DEBUG=0
 INSTALL=1
 CLEAN_EXIT=0
@@ -245,7 +245,7 @@ check_http_status() {
     if [ "$status_code" -eq 404 ]; then
       log ""
       log "Please report this issue:"
-      log "https://github.com/warpdl/warp-releases/issues/new?template=bug_report.md&title=[BUG]%20Unexpected%20404%20using%20CLI%20install%20script"
+      log "https://github.com/warpdl/warpdl/issues/new?template=bug_report.md&title=[BUG]%20Unexpected%20404%20using%20CLI%20install%20script"
     fi
 
     clean_exit 1
@@ -308,7 +308,7 @@ case "$uname_os" in
     log "ERROR: Unsupported OS '$uname_os'"
     log ""
     log "Please report this issue:"
-    log "https://github.com/warpdl/warp-releases/issues/new?template=bug_report.md&title=[BUG]%20Unsupported%20OS"
+    log "https://github.com/warpdl/warpdl/issues/new?template=bug_report.md&title=[BUG]%20Unsupported%20OS"
     clean_exit 1
     ;;
 esac
@@ -332,7 +332,7 @@ else
   log "ERROR: Unsupported architecture '$uname_machine'"
   log ""
   log "Please report this issue:"
-  log "https://github.com/warpdl/warp-releases/issues/new?template=bug_report.md&title=[BUG]%20Unsupported%20architecture"
+  log "https://github.com/warpdl/warpdl/issues/new?template=bug_report.md&title=[BUG]%20Unsupported%20architecture"
   clean_exit 1
 fi
 

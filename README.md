@@ -16,7 +16,7 @@
   </p>
 </p>
 
-[![CI](https://github.com/warpdl/warpdl/actions/workflows/ci.yml/badge.svg)](https://github.com/warpdl/warpdl/actions/workflows/ci.yml) [![Release](https://github.com/warpdl/warpdl/actions/workflows/release.yml/badge.svg)](https://github.com/warpdl/warpdl/actions/workflows/release.yml) ![Downloads](https://img.shields.io/github/downloads/warpdl/warp-releases/total) ![Contributors](https://img.shields.io/github/contributors/warpdl/warpdl?color=dark-green) ![Issues](https://img.shields.io/github/issues/warpdl/warpdl) ![License](https://img.shields.io/github/license/warpdl/warpdl) 
+[![CI](https://github.com/warpdl/warpdl/actions/workflows/ci.yml/badge.svg)](https://github.com/warpdl/warpdl/actions/workflows/ci.yml) [![Release](https://github.com/warpdl/warpdl/actions/workflows/release.yml/badge.svg)](https://github.com/warpdl/warpdl/actions/workflows/release.yml) ![Downloads](https://img.shields.io/github/downloads/warpdl/warpdl/total) ![Contributors](https://img.shields.io/github/contributors/warpdl/warpdl?color=dark-green) ![Issues](https://img.shields.io/github/issues/warpdl/warpdl) ![License](https://img.shields.io/github/license/warpdl/warpdl) 
 
 
 **Note**: This branch is the development branch. For the latest stable release, please refer to the [main branch](https://github.com/warpdl/warpdl/tree/main).
@@ -75,27 +75,15 @@ You will need the following things for building warpdl binary:
       ```
       brew install warpdl/tap/warpdl
       ```
-  - Snap:
-      ```
-      snap install warpdl
-      ```
-  - Yum (Redhat/Centos):
-      ```
-      sudo rpm --import 'https://repo.warpdl.org/rpm/gpg.key'
-      curl -sLf --retry 3 --tlsv1.2 --proto "=https" 'https://raw.githubusercontent.com/warpdl/warp-releases/main/configs/rpm/config.rpm.txt' | sudo tee /etc/yum.repos.d/warpdl.repo
-      sudo yum update && sudo yum install warp
-      ```
 - Installing through official bash script:
   ```
   (curl -Ls --tlsv1.2 --proto "=https" --retry 3 https://cli.warpdl.org/install.sh || wget -t 3 -qO- https://cli.warpdl.org/install.sh) | sudo sh
   ```
 - Other
 
-  You can download all binaries and release artifacts from the [Releases](https://github.com/warpdl/warp-releases/releases/latest) page. Binaries are built for macOS, Linux, Windows, FreeBSD, OpenBSD, and   NetBSD, and for 32-bit, 64-bit, armv6/armv7, and armv6/armv7 64-bit architectures.
+  You can download all binaries and release artifacts from the [Releases](https://github.com/warpdl/warpdl/releases/latest) page. Binaries are built for macOS, Linux, Windows, FreeBSD, OpenBSD, and NetBSD, and for 32-bit, 64-bit, armv6/armv7, and armv6/armv7 64-bit architectures.
 
-  You can also directly download the generated `.deb`, `.rpm`, and `.apk` packages. If a binary does not yet exist for the OS/architecture you use, please open a GitHub Issue.
-
-You can refer to [INSTALL.md](https://github.com/warpdl/warp-releases/blob/main/INSTALL.md) for more detailed information on installation.
+  If a binary does not yet exist for the OS/architecture you use, please open a GitHub Issue.
 ## Usage
 
 Use `warpdl help <command>` for information about various commands.

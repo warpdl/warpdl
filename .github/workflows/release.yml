@@ -9,16 +9,6 @@ on:
       tag:
         description: "Tag to release"
         required: true
-      snap_channel:
-        description: "Snap release channel"
-        required: false
-        type: choice
-        default: 'edge'
-        options:
-            - stable
-            - candidate
-            - beta
-            - edge
 
 jobs:
   ci:
@@ -52,65 +42,14 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
 
-  update-install-script:
-    name: Update scripts/install.sh in warp-releases
-    runs-on: ubuntu-latest
-    needs: ci
-    env:
-      CLI_REPO: warpdl/warpdl
-      RELEASES_REPO: warpdl/warp-releases
-    steps:
-      - name: Get latest tag
-        run: |-
-          tag=${{ github.event.inputs.tag }} # if triggered by workflow_dispatch
-          if [ -z "$tag" ]; then
-            tag=${GITHUB_REF#refs/tags/}
-          fi
-          echo "RELEASE_VERSION=$tag" >> $GITHUB_ENV
-      - name: Checkout warp
-        uses: actions/checkout@v6
-        with:
-          path: ./warpdl
-      - name: Checkout warp-releases
-        uses: actions/checkout@v6
-        with:
-          repository: ${{ env.RELEASES_REPO }}
-          persist-credentials: false
-          fetch-depth: 0
-          path: ./warp-releases
-      - name: Copy existing files from warpdl to releases repo
-        run: |-
-          sed -i "s/LATEST_RELEASE=.*/LATEST_RELEASE=\"${{ env.RELEASE_VERSION }}\"/g" ./warpdl/scripts/install.sh
-          cp ./warpdl/scripts/install.sh ./warp-releases/scripts/install.sh
-          sed -i "s/version:.*/version: '${{ env.RELEASE_VERSION }}'/g" ./warpdl/snap/snapcraft.yaml
-          cp ./warpdl/snap/snapcraft.yaml ./warp-releases/snap/snapcraft.yaml
-          mkdir -p ./warp-releases/configs/rpm/ && cp ./warpdl/configs/rpm/config.rpm.txt ./warp-releases/configs/rpm/config.rpm.txt
-          mkdir -p ./warp-releases/keys/ && cp ./warpdl/keys/key.gpg ./warp-releases/keys/key.gpg
-      - name: Commit changes
-        run: |-
-          git config --global user.email "divkix@divkix.me"
-          git config --global user.name "Divkix"
-          cd warp-releases && git add . && git commit -m "bump to ${{ env.RELEASE_VERSION }}"
-          cd ..
-          cd warpdl && git add . && git commit -m "bump to ${{ env.RELEASE_VERSION }}"
-      - name: Push warp-releases changes
-        uses: ad-m/github-push-action@master
-        with:
-          github_token: ${{ secrets.GH_PAT }}
-          repository: ${{ env.RELEASES_REPO }}
-          directory: ./warp-releases
-      - name: Push warp cli changes
-        uses: ad-m/github-push-action@master
-        with:
-          github_token: ${{ secrets.GH_PAT }}
-          repository: ${{ env.CLI_REPO }}
-          directory: ./warpdl
-
   goreleaser:
     name: Run GoReleaser
-    needs: update-install-script
+    needs: ci
     runs-on: ubuntu-20.04
     container: ghcr.io/carapace-sh/go:1.23.1
+    permissions:
+      contents: write
+      packages: write
     env:
       GITHUB_TOKEN: ${{ secrets.GH_PAT }}
     steps:
@@ -126,16 +65,13 @@ jobs:
         uses: crazy-max/ghaction-upx@v3
         with:
           install-only: true
-        # only run this step when the tag is not already created
-      - if: startsWith(github.ref, 'refs/tags/') != 'true' && github.event.inputs.tag != ''
+      # only run this step when triggered by workflow_dispatch (tag doesn't exist yet)
+      - if: ${{ !startsWith(github.ref, 'refs/tags/') && github.event.inputs.tag != '' }}
         name: Create and Push Tag
         run: |-
           git config --global user.email "divkix@divkix.me"
           git config --global user.name "Divkix"
-          tag=${{ github.event.inputs.tag }} # if triggered by workflow_dispatch
-          if [ -z "$tag" ]; then
-            tag=${GITHUB_REF#refs/tags/}
-          fi
+          tag="${{ github.event.inputs.tag }}"
           git tag -f -a -m "$tag" "$tag"
           git push -f origin "$tag"
       - name: Login to GitHub Container Registry
@@ -157,72 +93,3 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
-      - name: Push to fury
-        run: |-
-          ./scripts/gemfury/push.sh
-        env:
-          GEMFURY_PUSH_KEY: ${{ secrets.GEMFURY_PUSH_KEY }}
-
-  snapcraft:
-    name: Publish snaps
-    runs-on: ubuntu-20.04
-    needs: goreleaser
-    env:
-      GITHUB_TOKEN: ${{ secrets.GH_PAT }}
-    strategy:
-      matrix:
-        platform:
-        - i386
-        - amd64
-        - arm64
-    steps:
-      - uses: docker/setup-qemu-action@v2
-      - name: Set up git
-        run: git config --global url."https://divkix:${GITHUB_TOKEN}@github.com".insteadOf "https://github.com"
-      - name: Checkout
-        uses: actions/checkout@v6
-      - name: Pull changes
-        run: git pull origin dev
-      - name: Build snaps
-        uses: diddlesnaps/snapcraft-multiarch-action@v1
-        id: build
-        with:
-          architecture: ${{ matrix.platform }}
-      - name: Publish snaps
-        uses: snapcore/action-publish@v1
-        env:
-          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
-        with:
-          snap: ${{ steps.build.outputs.snap }}
-          release: ${{ github.event.inputs.snap_channel }}
-
-#   run-tests:
-#     name: Run test scripts
-#     runs-on: ubuntu-latest
-#     needs: snapcraft
-#     steps:
-#       - name: Checkout
-#         uses: actions/checkout@v6
-#       - name: Test ubuntu docker
-#         run: |-
-#           echo "Testing ubuntu"
-#           time docker run --rm -v "$(pwd)/tests/":/app:ro ubuntu /app/distros/ubuntu-debian.sh
-#       - name: Test debian docker
-#         run: |-
-#           echo "Testing debian"
-#           time docker run --rm -v "$(pwd)/tests/":/app:ro debian /app/distros/ubuntu-debian.sh
-#       - name: Test fedora docker
-#         run: |-
-#           echo "Testing fedora"
-#           time docker run --rm -v "$(pwd)/tests/":/app:ro fedora /app/distros/fedora-centos.sh
-#       - name: Test centos docker
-#         run: |-
-#           echo "Testing centos"
-#           time docker run --rm -v "$(pwd)/tests/":/app:ro centos /app/distros/fedora-centos.sh
-#       - name: Test alpine docker
-#         run: |-
-#           echo "Testing alpine"
-#           time docker run --rm -v "$(pwd)/tests/":/app:ro alpine /app/distros/alpine.sh
-#       - name: Test docker image
-#         run: |-
-#           ./tests/test-docker-image.sh

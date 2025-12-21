@@ -5,13 +5,31 @@ project_name: warpdl
 release:
   github:
     owner: warpdl
-    name: warp-releases
+    name: warpdl
   replace_existing_draft: true
   header: |
-    Welcome to this new release!
+    ## Installation
 
-    Docker 🐳 images are available at:
-    `docker pull ghcr.io/warpdl/warp-cli:{{ .Tag }}`
+    **macOS (Homebrew):**
+    ```bash
+    brew tap warpdl/tap && brew install warpdl
+    ```
+
+    **Windows (Scoop):**
+    ```powershell
+    scoop bucket add warpdl https://github.com/warpdl/scoop-bucket
+    scoop install warpdl
+    ```
+
+    **Linux/macOS/BSD (Direct install):**
+    ```bash
+    curl -fsSL https://raw.githubusercontent.com/warpdl/warpdl/dev/scripts/install.sh | sh
+    ```
+
+    **Docker:**
+    ```bash
+    docker pull ghcr.io/warpdl/warp-cli:{{ .Tag }}
+    ```
 
 gomod:
   env:
@@ -157,41 +175,6 @@ scoops:
       email: divkix@divkix.me
     homepage: "https://warpdl.org"
     description: "The official Warp CLI download manager"
-
-nfpms:
-  - file_name_template: >-
-      {{ .PackageName }}_
-      {{- .Version }}_
-      {{- .Os }}_
-      {{- if eq .Arch "386" }}i386
-      {{- else }}{{ .Arch }}{{ end }}
-      {{- with .Arm }}v{{ . }}{{ end }}
-      {{- with .Mips }}_{{ . }}{{ end }}
-      {{- if not (eq .Amd64 "v1") }}{{ .Amd64 }}{{ end }}
-    homepage: "https://warpdl.org"
-    maintainer: Divanshu Chauhan <divkix@divkix.me>
-    description: "The official Warp CLI download manager"
-    bindir: /usr/bin
-    formats:
-      - deb
-      - rpm
-      - apk
-
-# snapcrafts:
-#   - name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
-#     publish: false
-#     summary: An ultra fast download manager
-#     description: |-
-#       Warp is a powerful and versatile cross-platform download manager. 
-#       With its advanced technology, Warp has the ability to accelerate
-#       your download speeds by up to 10 times, revolutionizing the way
-#       you obtain files on any operating system.
-#     grade: stable
-#     confinement: strict
-#     base: core18
-#     apps:
-#       warpdl:
-#         command: usr/bin/warpdl
 
 dockers_v2:
   - id: warp-cli
