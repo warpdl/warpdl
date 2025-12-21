@@ -145,6 +145,70 @@ func TestEngineModuleLifecycle(t *testing.T) {
 	}
 }
 
+func TestGetModuleNotFound(t *testing.T) {
+	base := t.TempDir()
+	if err := SetEngineStore(base); err != nil {
+		t.Fatalf("SetEngineStore: %v", err)
+	}
+	eng, err := NewEngine(log.New(io.Discard, "", 0), nil, false)
+	if err != nil {
+		t.Fatalf("NewEngine: %v", err)
+	}
+	defer eng.Close()
+
+	if got := eng.GetModule("nonexistent"); got != nil {
+		t.Fatalf("expected nil for missing module, got %+v", got)
+	}
+}
+
+func TestActivateModuleNotFound(t *testing.T) {
+	base := t.TempDir()
+	if err := SetEngineStore(base); err != nil {
+		t.Fatalf("SetEngineStore: %v", err)
+	}
+	eng, err := NewEngine(log.New(io.Discard, "", 0), nil, false)
+	if err != nil {
+		t.Fatalf("NewEngine: %v", err)
+	}
+	defer eng.Close()
+
+	if _, err := eng.ActivateModule("nonexistent"); err != ErrModuleNotFound {
+		t.Fatalf("expected ErrModuleNotFound, got %v", err)
+	}
+}
+
+func TestDeactivateModuleNotFound(t *testing.T) {
+	base := t.TempDir()
+	if err := SetEngineStore(base); err != nil {
+		t.Fatalf("SetEngineStore: %v", err)
+	}
+	eng, err := NewEngine(log.New(io.Discard, "", 0), nil, false)
+	if err != nil {
+		t.Fatalf("NewEngine: %v", err)
+	}
+	defer eng.Close()
+
+	if _, err := eng.DeactiveModule("nonexistent"); err != ErrModuleNotFound {
+		t.Fatalf("expected ErrModuleNotFound, got %v", err)
+	}
+}
+
+func TestDeleteModuleNotFound(t *testing.T) {
+	base := t.TempDir()
+	if err := SetEngineStore(base); err != nil {
+		t.Fatalf("SetEngineStore: %v", err)
+	}
+	eng, err := NewEngine(log.New(io.Discard, "", 0), nil, false)
+	if err != nil {
+		t.Fatalf("NewEngine: %v", err)
+	}
+	defer eng.Close()
+
+	if _, err := eng.DeleteModule("nonexistent"); err != ErrModuleNotFound {
+		t.Fatalf("expected ErrModuleNotFound, got %v", err)
+	}
+}
+
 func TestMigrateModule(t *testing.T) {
 	base := t.TempDir()
 	if err := SetEngineStore(base); err != nil {
