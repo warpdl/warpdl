@@ -5,7 +5,7 @@ COPY ${TARGETPLATFORM}/warpdl /bin/warpdl
 ENTRYPOINT ["/bin/warpdl"]
 
 LABEL org.opencontainers.image.authors="Divanshu Chauhan <divkix@divkix.me>"
-LABEL org.opencontainers.image.url="https://warpdl.org"
+LABEL org.opencontainers.image.url="https://github.com/warpdl/warpdl"
 LABEL org.opencontainers.image.source="https://github.com/warpdl/warpdl"
 LABEL org.opencontainers.image.title="Warpdl"
 LABEL org.opencontainers.image.description="Official Warpdl Docker Image"
