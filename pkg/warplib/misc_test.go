@@ -183,4 +183,3 @@ func TestGetMinPartSize(t *testing.T) {
 		})
 	}
 }
-
