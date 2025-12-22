@@ -6,11 +6,34 @@ set -e
 # 1 general
 # 2 insufficient perms
 
-LATEST_RELEASE="v1.1.1"
+# Fetch latest release tag from GitHub API
+get_latest_release() {
+  if command -v curl > /dev/null 2>&1; then
+    curl -sL "https://api.github.com/repos/warpdl/warpdl/releases/latest" |
+      grep '"tag_name":' |
+      sed -E 's/.*"([^"]+)".*/\1/'
+  elif command -v wget > /dev/null 2>&1; then
+    wget -qO- "https://api.github.com/repos/warpdl/warpdl/releases/latest" |
+      grep '"tag_name":' |
+      sed -E 's/.*"([^"]+)".*/\1/'
+  else
+    echo "v1.1.1"  # fallback version
+  fi
+}
+
+# Allow override via WARPDL_VERSION env var, otherwise fetch latest
+LATEST_RELEASE="${WARPDL_VERSION:-$(get_latest_release)}"
+
+# Validate we got a version
+if [ -z "$LATEST_RELEASE" ]; then
+  echo "ERROR: Failed to determine latest release version" >&2
+  exit 1
+fi
+
 # both os and arch are set to unknown by default
 OS="unknown"
 ARCH="unknown"
-DL_FILENAME="warpdl_${LATEST_RELEASE}"
+DL_FILENAME="warpdl_${LATEST_RELEASE#v}"
 GITHUB_RELEASES_BASE_URL="https://github.com/warpdl/warpdl/releases/download/${LATEST_RELEASE}/"
 DEBUG=0
 INSTALL=1
