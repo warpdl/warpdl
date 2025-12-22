@@ -22,13 +22,16 @@ type Client struct {
 
 // NewClient creates a new client connection to the WarpDL daemon.
 // It connects to the daemon's Unix socket and returns a ready-to-use client.
-// Returns an error if the connection to the daemon fails.
+// If the daemon is not running, it will be automatically spawned.
+// Returns an error if the daemon cannot be started or connection fails.
 func NewClient() (*Client, error) {
+	if err := ensureDaemon(); err != nil {
+		return nil, err
+	}
 	socketPath := socketPath()
 	conn, err := net.Dial("unix", socketPath)
 	if err != nil {
-		err = fmt.Errorf("error connecting to server: %s", err.Error())
-		return nil, err
+		return nil, fmt.Errorf("error connecting to server: %w", err)
 	}
 	return &Client{
 		conn: conn,
