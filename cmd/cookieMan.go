@@ -16,6 +16,13 @@ import (
 
 const cookieKeyEnv = "WARPDL_COOKIE_KEY"
 
+type keyringProvider interface {
+	GetKey() ([]byte, error)
+	SetKey() ([]byte, error)
+}
+
+var newKeyring = func() keyringProvider { return keyring.NewKeyring() }
+
 func getCookieManager(ctx *cli.Context) (*credman.CookieManager, error) {
 	if keyHex := os.Getenv(cookieKeyEnv); keyHex != "" {
 		key, err := hex.DecodeString(keyHex)
@@ -33,7 +40,7 @@ func getCookieManager(ctx *cli.Context) (*credman.CookieManager, error) {
 		return cm, nil
 	}
 
-	kr := keyring.NewKeyring()
+	kr := newKeyring()
 	key, err := kr.GetKey()
 	if err != nil {
 		key, err = kr.SetKey()

@@ -6,7 +6,6 @@ import (
 
 	"github.com/urfave/cli"
 	"github.com/warpdl/warpdl/cmd/common"
-	"github.com/warpdl/warpdl/pkg/warpcli"
 )
 
 func info(ctx *cli.Context) (err error) {
@@ -20,7 +19,7 @@ func info(ctx *cli.Context) (err error) {
 			errors.New("no extension id provided"),
 		)
 	}
-	client, err := warpcli.NewClient()
+	client, err := newClient()
 	if err != nil {
 		common.PrintRuntimeErr(ctx, "ext-info", "new_client", err)
 		return nil

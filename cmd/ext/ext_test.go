@@ -2,6 +2,7 @@ package ext
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"io"
 	"net"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/urfave/cli"
 	"github.com/warpdl/warpdl/common"
+	"github.com/warpdl/warpdl/pkg/warpcli"
 )
 
 type fakeServer struct {
@@ -177,6 +179,14 @@ func TestExtHelpPaths(t *testing.T) {
 	_ = install(ctx)
 	ctx = newContext(app, []string{"help"}, "list")
 	_ = list(ctx)
+	ctx = newContext(app, []string{"help"}, "activate")
+	_ = activate(ctx)
+	ctx = newContext(app, []string{"help"}, "deactivate")
+	_ = deactivate(ctx)
+	ctx = newContext(app, []string{"help"}, "uninstall")
+	_ = uninstall(ctx)
+	ctx = newContext(app, []string{"help"}, "info")
+	_ = info(ctx)
 }
 
 func TestExtMissingArgs(t *testing.T) {
@@ -199,12 +209,12 @@ func TestExtCommandsErrorResponse(t *testing.T) {
 		t.Fatalf("Setenv: %v", err)
 	}
 	fail := map[common.UpdateType]string{
-		common.UPDATE_ADD_EXT:       "add failed",
-		common.UPDATE_GET_EXT:       "get failed",
-		common.UPDATE_LIST_EXT:      "list failed",
-		common.UPDATE_ACTIVATE_EXT:  "activate failed",
-		common.UPDATE_DEACTIVATE_EXT:"deactivate failed",
-		common.UPDATE_DELETE_EXT:    "delete failed",
+		common.UPDATE_ADD_EXT:        "add failed",
+		common.UPDATE_GET_EXT:        "get failed",
+		common.UPDATE_LIST_EXT:       "list failed",
+		common.UPDATE_ACTIVATE_EXT:   "activate failed",
+		common.UPDATE_DEACTIVATE_EXT: "deactivate failed",
+		common.UPDATE_DELETE_EXT:     "delete failed",
 	}
 	srv := startFakeServer(t, socketPath, fail)
 	defer srv.close()
@@ -233,5 +243,42 @@ func TestExtCommandsErrorResponse(t *testing.T) {
 	ctx = newContext(app, []string{"ext1"}, "uninstall")
 	if err := uninstall(ctx); err != nil {
 		t.Fatalf("uninstall: %v", err)
+	}
+}
+
+func TestExtInstallGetwdError(t *testing.T) {
+	base := t.TempDir()
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	if err := os.Chdir(base); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	if err := os.RemoveAll(base); err != nil {
+		t.Fatalf("RemoveAll: %v", err)
+	}
+	defer func() {
+		_ = os.Chdir(oldWD)
+	}()
+
+	app := cli.NewApp()
+	ctx := newContext(app, []string{"."}, "install")
+	if err := install(ctx); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+}
+
+func TestExtInstallClientError(t *testing.T) {
+	oldClient := newClient
+	newClient = func() (*warpcli.Client, error) {
+		return nil, errors.New("client error")
+	}
+	defer func() { newClient = oldClient }()
+
+	app := cli.NewApp()
+	ctx := newContext(app, []string{"."}, "install")
+	if err := install(ctx); err != nil {
+		t.Fatalf("install: %v", err)
 	}
 }

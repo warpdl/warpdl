@@ -93,6 +93,21 @@ func TestRuntimeRequire(t *testing.T) {
 	}
 }
 
+func TestRuntimeRequireMissingModule(t *testing.T) {
+	dir := t.TempDir()
+	rt, err := NewRuntime(log.New(io.Discard, "", 0), dir)
+	if err != nil {
+		t.Fatalf("NewRuntime: %v", err)
+	}
+	req := rt.require(dir)
+	if v := req(goja.FunctionCall{Arguments: []goja.Value{rt.ToValue("missing.js")}}); v != nil {
+		t.Fatalf("expected nil for missing module")
+	}
+	if len(rt.imported) != 0 {
+		t.Fatalf("expected no imported modules")
+	}
+}
+
 func TestGetFunctionNameNonMatch(t *testing.T) {
 	runtime := goja.New()
 	val := runtime.ToValue(time.Now())

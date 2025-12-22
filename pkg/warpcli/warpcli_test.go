@@ -407,3 +407,30 @@ func TestDispatcherProcess_HandlerError(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestNewClientEnsureDaemonError(t *testing.T) {
+	oldEnsure := ensureDaemonFunc
+	ensureDaemonFunc = func() error { return errors.New("daemon error") }
+	defer func() { ensureDaemonFunc = oldEnsure }()
+
+	if _, err := NewClient(); err == nil {
+		t.Fatal("expected error from ensureDaemon")
+	}
+}
+
+func TestNewClientDialError(t *testing.T) {
+	oldEnsure := ensureDaemonFunc
+	oldDial := dialFunc
+	ensureDaemonFunc = func() error { return nil }
+	dialFunc = func(string, string) (net.Conn, error) {
+		return nil, errors.New("dial error")
+	}
+	defer func() {
+		ensureDaemonFunc = oldEnsure
+		dialFunc = oldDial
+	}()
+
+	if _, err := NewClient(); err == nil {
+		t.Fatal("expected error from dial")
+	}
+}

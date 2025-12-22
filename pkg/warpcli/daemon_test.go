@@ -134,6 +134,25 @@ func TestEnsureDaemon_AlreadyRunning(t *testing.T) {
 	}
 }
 
+func TestSpawnDaemon_Helper(t *testing.T) {
+	t.Setenv("WARPCLI_DAEMON_HELPER", "1")
+	if err := spawnDaemon(); err != nil {
+		t.Fatalf("spawnDaemon: %v", err)
+	}
+}
+
+func TestEnsureDaemon_SpawnHelper(t *testing.T) {
+	t.Setenv("WARPCLI_DAEMON_HELPER", "1")
+	sockPath := filepath.Join("/tmp", "warpdl_test_spawn.sock")
+	os.Remove(sockPath)
+	defer os.Remove(sockPath)
+	t.Setenv("WARPDL_SOCKET_PATH", sockPath)
+
+	if err := ensureDaemon(); err != nil {
+		t.Fatalf("ensureDaemon: %v", err)
+	}
+}
+
 func TestSpawnDaemon_InvalidExecutable(t *testing.T) {
 	// This test verifies spawnDaemon works with the current executable
 	// We can't easily test failure case without modifying os.Executable

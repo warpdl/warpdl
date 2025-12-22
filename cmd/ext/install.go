@@ -8,7 +8,6 @@ import (
 
 	"github.com/urfave/cli"
 	"github.com/warpdl/warpdl/cmd/common"
-	"github.com/warpdl/warpdl/pkg/warpcli"
 )
 
 func install(ctx *cli.Context) error {
@@ -27,7 +26,7 @@ func install(ctx *cli.Context) error {
 		common.PrintRuntimeErr(ctx, "ext-install", "getwd", err)
 		return nil
 	}
-	client, err := warpcli.NewClient()
+	client, err := newClient()
 	if err != nil {
 		common.PrintRuntimeErr(ctx, "ext-install", "new_client", err)
 		return nil

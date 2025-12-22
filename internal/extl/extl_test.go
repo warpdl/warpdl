@@ -2,6 +2,7 @@ package extl
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"log"
 	"net/http"
@@ -12,6 +13,18 @@ import (
 
 	"github.com/dop251/goja"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
+}
+
+type errReader struct{}
+
+func (errReader) Read([]byte) (int, error) {
+	return 0, errors.New("read error")
+}
 
 func writeTestModule(t *testing.T, dir string) string {
 	t.Helper()
@@ -400,4 +413,100 @@ func TestNewEngineLoadsModules(t *testing.T) {
 	if eng.GetModule(modID) == nil {
 		t.Fatalf("expected module to be loaded")
 	}
+}
+
+func TestNewEngineInvalidJSON(t *testing.T) {
+	base := t.TempDir()
+	if err := SetEngineStore(base); err != nil {
+		t.Fatalf("SetEngineStore: %v", err)
+	}
+	engFile := filepath.Join(ENGINE_STORE, "module_engine.json")
+	if err := os.WriteFile(engFile, []byte("{bad-json"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if _, err := NewEngine(log.New(io.Discard, "", 0), nil, false); err == nil {
+		t.Fatalf("expected error for invalid engine json")
+	}
+}
+
+func TestEngineSaveError(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "module_engine.json")
+	if err := os.WriteFile(filePath, []byte("{}"), 0444); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	f, err := os.Open(filePath)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer f.Close()
+	eng := &Engine{
+		f:   f,
+		enc: json.NewEncoder(f),
+	}
+	if err := eng.Save(); err == nil {
+		t.Fatalf("expected save error for read-only file")
+	}
+}
+
+func TestModuleMigratorHardMissingFile(t *testing.T) {
+	base := t.TempDir()
+	migrator := moduleMigrator{
+		initialBasePath: base,
+		finalBasePath:   filepath.Join(t.TempDir(), "out"),
+	}
+	if err := migrator.moduleMigratorHard("missing.txt"); err == nil {
+		t.Fatalf("expected error for missing file")
+	}
+}
+
+func TestMigrateModuleMissingImportedFile(t *testing.T) {
+	base := t.TempDir()
+	if err := SetEngineStore(base); err != nil {
+		t.Fatalf("SetEngineStore: %v", err)
+	}
+	modDir := writeModuleWithMain(t, t.TempDir(), "main.js", "function extract(url){ return url; }\n")
+	m, err := OpenModule(log.New(io.Discard, "", 0), modDir)
+	if err != nil {
+		t.Fatalf("OpenModule: %v", err)
+	}
+	if err := m.Load(); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	m.runtime.imported = []string{"missing.js"}
+	hash := "missing-import"
+	err = migrateModule(m, hash, MODULE_STORE)
+	if err == nil {
+		t.Fatalf("expected migrateModule error for missing imported file")
+	}
+	if _, statErr := os.Stat(filepath.Join(MODULE_STORE, hash)); !os.IsNotExist(statErr) {
+		t.Fatalf("expected target directory to be cleaned up")
+	}
+}
+
+func TestRequestCallbackErrorsAdditional(t *testing.T) {
+	runtime := goja.New()
+	clientErr := &http.Client{
+		Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return nil, errors.New("client error")
+		}),
+	}
+	cb := _requestCallback(runtime, clientErr)
+	val := runtime.ToValue(Request{Method: http.MethodGet, URL: "http://example.com"})
+	_ = cb(goja.FunctionCall{Arguments: []goja.Value{val}})
+
+	readerErr := &http.Client{
+		Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(errReader{}),
+				Header:     make(http.Header),
+			}, nil
+		}),
+	}
+	cb = _requestCallback(runtime, readerErr)
+	_ = cb(goja.FunctionCall{Arguments: []goja.Value{val}})
+
+	cb = _requestCallback(runtime, &http.Client{})
+	_ = cb(goja.FunctionCall{Arguments: []goja.Value{runtime.ToValue("bad")}})
 }

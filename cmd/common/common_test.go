@@ -77,6 +77,19 @@ func TestPrintErrWithCmdHelp(t *testing.T) {
 	}
 }
 
+func TestPrintErrWithCmdHelp_ShowCommandHelpError(t *testing.T) {
+	ctx := newTestContext()
+	orig := showCommandHelp
+	showCommandHelp = func(*cli.Context, string) error {
+		return errors.New("boom")
+	}
+	defer func() { showCommandHelp = orig }()
+
+	if err := PrintErrWithCmdHelp(ctx, errors.New("oops")); err != nil {
+		t.Fatalf("PrintErrWithCmdHelp: %v", err)
+	}
+}
+
 func TestUsageErrorCallback(t *testing.T) {
 	ctx := newTestContext()
 	orig := showCommandHelp

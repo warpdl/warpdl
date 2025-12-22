@@ -56,3 +56,14 @@ func TestItemBasics(t *testing.T) {
 		t.Fatalf("StopDownload: %v", err)
 	}
 }
+
+func TestItemIsDownloading(t *testing.T) {
+	item := &Item{}
+	if item.IsDownloading() {
+		t.Fatalf("expected IsDownloading to be false")
+	}
+	item.dAlloc = &Downloader{}
+	if !item.IsDownloading() {
+		t.Fatalf("expected IsDownloading to be true")
+	}
+}

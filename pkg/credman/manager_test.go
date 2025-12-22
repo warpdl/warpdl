@@ -314,6 +314,18 @@ func TestCookieManagerOverwriteCookie(t *testing.T) {
 	}
 }
 
+func TestCookieManagerSaveCookiesClosedFile(t *testing.T) {
+	cm, _, cleanup := newTestManager(t)
+	defer cleanup()
+
+	if err := cm.f.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if err := cm.saveCookies(); err == nil {
+		t.Fatalf("expected error for closed file")
+	}
+}
+
 func compareCookies(t *testing.T, expected *types.Cookie, actual *types.Cookie) {
 	t.Helper()
 	expectedValue := reflect.ValueOf(expected).Elem()

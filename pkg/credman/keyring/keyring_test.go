@@ -98,3 +98,16 @@ func TestKeyringSetError(t *testing.T) {
 		t.Fatalf("expected set error")
 	}
 }
+
+func TestKeyringGetError(t *testing.T) {
+	origGet := keyringGet
+	defer func() { keyringGet = origGet }()
+
+	keyringGet = func(string, string) (string, error) {
+		return "", errors.New("get fail")
+	}
+	kr := NewKeyring()
+	if _, err := kr.GetKey(); err == nil {
+		t.Fatalf("expected get error")
+	}
+}

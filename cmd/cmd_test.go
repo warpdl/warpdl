@@ -16,10 +16,10 @@ import (
 	"time"
 
 	"github.com/urfave/cli"
+	"github.com/vbauerster/mpb/v8"
 	cmdcommon "github.com/warpdl/warpdl/cmd/common"
 	"github.com/warpdl/warpdl/common"
 	"github.com/warpdl/warpdl/pkg/warplib"
-	"github.com/vbauerster/mpb/v8"
 )
 
 type fakeServer struct {
@@ -63,8 +63,8 @@ func startFakeServer(t *testing.T, socketPath string, fail ...map[common.UpdateT
 					return
 				}
 				var req struct {
-					Method common.UpdateType `json:"method"`
-					Message json.RawMessage  `json:"message"`
+					Method  common.UpdateType `json:"method"`
+					Message json.RawMessage   `json:"message"`
 				}
 				if err := json.Unmarshal(reqBytes, &req); err != nil {
 					return
@@ -134,15 +134,15 @@ func startFakeServer(t *testing.T, socketPath string, fail ...map[common.UpdateT
 					items := listOverride
 					if items == nil {
 						items = []*warplib.Item{{
-							Hash:        "id",
-							Name:        "file.bin",
-							TotalSize:   10,
-							Downloaded:  10,
-							Hidden:      false,
-							Children:    false,
-							DateAdded:   time.Now(),
-							Resumable:   true,
-							Parts:       make(map[int64]*warplib.ItemPart),
+							Hash:       "id",
+							Name:       "file.bin",
+							TotalSize:  10,
+							Downloaded: 10,
+							Hidden:     false,
+							Children:   false,
+							DateAdded:  time.Now(),
+							Resumable:  true,
+							Parts:      make(map[int64]*warplib.ItemPart),
 						}}
 					}
 					resp := common.ListResponse{Items: items}
@@ -466,9 +466,21 @@ func TestAttachNoHash(t *testing.T) {
 	_ = attach(ctx)
 }
 
+func TestAttachHelpArg(t *testing.T) {
+	app := cli.NewApp()
+	ctx := newContext(app, []string{"help"}, "attach")
+	_ = attach(ctx)
+}
+
 func TestResumeNoHash(t *testing.T) {
 	app := cli.NewApp()
 	ctx := newContext(app, nil, "resume")
+	_ = resume(ctx)
+}
+
+func TestResumeHelpArg(t *testing.T) {
+	app := cli.NewApp()
+	ctx := newContext(app, []string{"help"}, "resume")
 	_ = resume(ctx)
 }
 
@@ -489,6 +501,34 @@ func TestDownloadCustomPath(t *testing.T) {
 		dlPath = oldDlPath
 		fileName = oldFileName
 	}()
+	if err := download(ctx); err != nil {
+		t.Fatalf("download: %v", err)
+	}
+}
+
+func TestDownloadGetwdError(t *testing.T) {
+	socketPath := filepath.Join(t.TempDir(), "warpdl.sock")
+	if err := os.Setenv("WARPDL_SOCKET_PATH", socketPath); err != nil {
+		t.Fatalf("Setenv: %v", err)
+	}
+	srv := startFakeServer(t, socketPath)
+	defer srv.close()
+
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	tmp := t.TempDir()
+	if err := os.Chdir(tmp); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	if err := os.RemoveAll(tmp); err != nil {
+		t.Fatalf("RemoveAll: %v", err)
+	}
+	defer func() { _ = os.Chdir(oldWD) }()
+
+	app := cli.NewApp()
+	ctx := newContext(app, []string{"http://example.com"}, "download")
 	if err := download(ctx); err != nil {
 		t.Fatalf("download: %v", err)
 	}

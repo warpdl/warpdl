@@ -20,16 +20,21 @@ type Client struct {
 	listen bool
 }
 
+var (
+	ensureDaemonFunc = ensureDaemon
+	dialFunc         = net.Dial
+)
+
 // NewClient creates a new client connection to the WarpDL daemon.
 // It connects to the daemon's Unix socket and returns a ready-to-use client.
 // If the daemon is not running, it will be automatically spawned.
 // Returns an error if the daemon cannot be started or connection fails.
 func NewClient() (*Client, error) {
-	if err := ensureDaemon(); err != nil {
+	if err := ensureDaemonFunc(); err != nil {
 		return nil, err
 	}
 	socketPath := socketPath()
-	conn, err := net.Dial("unix", socketPath)
+	conn, err := dialFunc("unix", socketPath)
 	if err != nil {
 		return nil, fmt.Errorf("error connecting to server: %w", err)
 	}

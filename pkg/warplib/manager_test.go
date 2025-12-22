@@ -25,17 +25,17 @@ func newTestManager(t *testing.T) *Manager {
 
 func newTestDownloader() *Downloader {
 	d := &Downloader{
-		fileName:       "file.bin",
-		url:            "http://example.com/file.bin",
-		dlLoc:          ".",
-		hash:           "hash1",
-		contentLength:  100,
-		resumable:      true,
-		maxConn:        2,
-		maxParts:       2,
-		headers:        Headers{{Key: "X-Test", Value: "one"}},
-		handlers:       &Handlers{},
-		wg:             &sync.WaitGroup{},
+		fileName:      "file.bin",
+		url:           "http://example.com/file.bin",
+		dlLoc:         ".",
+		hash:          "hash1",
+		contentLength: 100,
+		resumable:     true,
+		maxConn:       2,
+		maxParts:      2,
+		headers:       Headers{{Key: "X-Test", Value: "one"}},
+		handlers:      &Handlers{},
+		wg:            &sync.WaitGroup{},
 	}
 	d.handlers.setDefault(log.New(io.Discard, "", 0))
 	return d
@@ -143,28 +143,28 @@ func TestManagerGetPublicItems(t *testing.T) {
 	defer m.Close()
 
 	item1 := &Item{
-		Hash:        "h1",
-		Name:        "a",
-		Url:         "u",
-		TotalSize:   10,
-		Downloaded:  10,
-		Resumable:   true,
-		Parts:       make(map[int64]*ItemPart),
-		mu:          m.mu,
-		memPart:     make(map[string]int64),
-		Children:    false,
+		Hash:       "h1",
+		Name:       "a",
+		Url:        "u",
+		TotalSize:  10,
+		Downloaded: 10,
+		Resumable:  true,
+		Parts:      make(map[int64]*ItemPart),
+		mu:         m.mu,
+		memPart:    make(map[string]int64),
+		Children:   false,
 	}
 	item2 := &Item{
-		Hash:        "h2",
-		Name:        "b",
-		Url:         "u",
-		TotalSize:   10,
-		Downloaded:  0,
-		Resumable:   true,
-		Parts:       make(map[int64]*ItemPart),
-		mu:          m.mu,
-		memPart:     make(map[string]int64),
-		Children:    true,
+		Hash:       "h2",
+		Name:       "b",
+		Url:        "u",
+		TotalSize:  10,
+		Downloaded: 0,
+		Resumable:  true,
+		Parts:      make(map[int64]*ItemPart),
+		mu:         m.mu,
+		memPart:    make(map[string]int64),
+		Children:   true,
 	}
 	m.UpdateItem(item1)
 	m.UpdateItem(item2)
@@ -179,12 +179,12 @@ func TestManagerPopulateMemPart(t *testing.T) {
 	defer m.Close()
 
 	item := &Item{
-		Hash:    "h1",
-		Name:    "a",
-		Url:     "u",
-		Parts:   map[int64]*ItemPart{0: {Hash: "p1", FinalOffset: 10}},
+		Hash:      "h1",
+		Name:      "a",
+		Url:       "u",
+		Parts:     map[int64]*ItemPart{0: {Hash: "p1", FinalOffset: 10}},
 		Resumable: true,
-		mu:      m.mu,
+		mu:        m.mu,
 	}
 	m.items[item.Hash] = item
 	m.populateMemPart()
@@ -302,6 +302,57 @@ func TestManagerResumeDownload_MissingPartFile(t *testing.T) {
 	}
 	if !containsString(err.Error(), "part file missing") {
 		t.Fatalf("expected part file missing error, got %v", err)
+	}
+}
+
+func TestManagerResumeDownload_NotResumable(t *testing.T) {
+	m := newTestManager(t)
+	defer m.Close()
+
+	item := &Item{
+		Hash:      "h-notresumable",
+		Name:      "file.bin",
+		Url:       "http://example.com/file.bin",
+		TotalSize: 10,
+		Resumable: false,
+		Parts:     make(map[int64]*ItemPart),
+	}
+	m.UpdateItem(item)
+
+	if _, err := m.ResumeDownload(&http.Client{}, item.Hash, &ResumeDownloadOpts{}); err != ErrDownloadNotResumable {
+		t.Fatalf("expected ErrDownloadNotResumable, got %v", err)
+	}
+}
+
+func TestManagerCompileCompleteMissingPart(t *testing.T) {
+	m := newTestManager(t)
+	defer m.Close()
+
+	d := newTestDownloader()
+	called := false
+	d.handlers.ErrorHandler = func(string, error) { called = true }
+
+	if err := m.AddDownload(d, &AddDownloadOpts{AbsoluteLocation: d.dlLoc}); err != nil {
+		t.Fatalf("AddDownload: %v", err)
+	}
+
+	d.handlers.CompileCompleteHandler("missing", 1)
+	if !called {
+		t.Fatalf("expected error handler to be called for missing part")
+	}
+}
+
+func TestInitManagerInvalidUserDataPath(t *testing.T) {
+	base := t.TempDir()
+	if err := SetConfigDir(base); err != nil {
+		t.Fatalf("SetConfigDir: %v", err)
+	}
+	oldPath := __USERDATA_FILE_NAME
+	__USERDATA_FILE_NAME = filepath.Join(base, "missing", "userdata.warp")
+	defer func() { __USERDATA_FILE_NAME = oldPath }()
+
+	if _, err := InitManager(); err == nil {
+		t.Fatalf("expected error for invalid userdata path")
 	}
 }
 

@@ -134,3 +134,22 @@ func TestStopDaemon_RunningProcess(t *testing.T) {
 		t.Fatal("expected process to be dead after stopDaemon")
 	}
 }
+
+func TestKillDaemon_ForceKill(t *testing.T) {
+	cmd := exec.Command("sh", "-c", "trap '' TERM; sleep 10")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("Failed to start test process: %v", err)
+	}
+	pid := cmd.Process.Pid
+
+	err := killDaemon(pid)
+	if err != nil {
+		t.Fatalf("killDaemon: %v", err)
+	}
+
+	_ = cmd.Wait()
+	time.Sleep(100 * time.Millisecond)
+	if isProcessRunning(pid) {
+		t.Fatal("expected process to be dead after SIGKILL")
+	}
+}

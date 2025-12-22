@@ -33,6 +33,22 @@ func TestDownloadHandlers(t *testing.T) {
 	if err := downloadComplete(client, dbar, cbar, sc)(&common.DownloadingResponse{Hash: warplib.MAIN_HASH, Value: 10}); err != nil {
 		t.Fatalf("downloadComplete main: %v", err)
 	}
+	p2 := mpb.New()
+	dbar2 := p2.AddBar(10)
+	cbar2 := p2.AddBar(1)
+	cbar2.SetTotal(1, true)
+	sc2 := NewSpeedCounter(time.Millisecond)
+	if err := downloadComplete(client, dbar2, cbar2, sc2)(&common.DownloadingResponse{Hash: warplib.MAIN_HASH, Value: 5}); err != nil {
+		t.Fatalf("downloadComplete cbar completed: %v", err)
+	}
+	p3 := mpb.New()
+	dbar3 := p3.AddBar(1)
+	dbar3.SetTotal(1, true)
+	cbar3 := p3.AddBar(10)
+	sc3 := NewSpeedCounter(time.Millisecond)
+	if err := downloadComplete(client, dbar3, cbar3, sc3)(&common.DownloadingResponse{Hash: warplib.MAIN_HASH, Value: 1}); err != nil {
+		t.Fatalf("downloadComplete dbar completed: %v", err)
+	}
 	if err := downloadStopped(client, sc)(&common.DownloadingResponse{Hash: "other"}); err != nil {
 		t.Fatalf("downloadStopped non-main: %v", err)
 	}
