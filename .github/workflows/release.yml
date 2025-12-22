@@ -88,8 +88,8 @@ jobs:
           fi
 
           # Patch the manifest
-          chmod +x scripts/patch-scoop-manifest.sh
-          ./scripts/patch-scoop-manifest.sh /tmp/scoop-bucket/warpdl.json
+          chmod +x "$GITHUB_WORKSPACE/scripts/patch-scoop-manifest.sh"
+          "$GITHUB_WORKSPACE/scripts/patch-scoop-manifest.sh" /tmp/scoop-bucket/warpdl.json
 
           # Commit and push if there are changes
           cd /tmp/scoop-bucket
