@@ -164,6 +164,28 @@ brews:
     license: "MIT"
     install: |
       bin.install "warpdl"
+    post_install: |
+      # Stop any running daemon from a previous version to ensure clean upgrade
+      begin
+        system "#{bin}/warpdl", "stop-daemon"
+      rescue
+        # Daemon wasn't running, that's fine
+      end
+    caveats: |
+      The WarpDL daemon runs in the background to manage downloads.
+
+      Before uninstalling, stop the daemon with:
+        warpdl stop-daemon
+
+      The daemon auto-starts when needed. No manual startup required.
+    custom_block: |
+      def pre_uninstall
+        begin
+          system bin/"warpdl", "stop-daemon"
+        rescue
+          # Daemon may not be running
+        end
+      end
     test: |
       system "#{bin}/warpdl", "--version"
 

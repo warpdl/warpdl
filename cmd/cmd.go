@@ -26,12 +26,18 @@ type BuildArgs struct {
 	Commit string
 }
 
+// currentBuildArgs stores the build arguments for use by daemon and other commands.
+var currentBuildArgs BuildArgs
+
 // Execute initializes and runs the CLI application with the provided arguments.
 // It configures all available commands (download, resume, list, daemon, ext, etc.)
 // and their respective flags, then executes the appropriate command based on
 // user input. The default action is the download command when no subcommand
 // is specified. It returns any error encountered during command execution.
 func Execute(args []string, bArgs BuildArgs) error {
+	// Store build args for use by daemon and other commands
+	currentBuildArgs = bArgs
+
 	app := cli.App{
 		Name:                  "warpdl",
 		HelpName:              "warpdl",

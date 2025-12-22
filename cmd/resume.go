@@ -69,6 +69,7 @@ func resume(ctx *cli.Context) (err error) {
 		common.PrintRuntimeErr(ctx, "resume", "new_client", err)
 		return
 	}
+	client.CheckVersionMismatch(currentBuildArgs.Version)
 	fmt.Println(">> Initiating a WARP download << ")
 	r, err := client.Resume(hash, &warpcli.ResumeOpts{
 		ForceParts:     forceParts,

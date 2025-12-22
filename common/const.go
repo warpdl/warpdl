@@ -35,6 +35,8 @@ const (
 	UPDATE_DEACTIVATE_EXT UpdateType = "deactivate_extension"
 	// UPDATE_UNLOAD_EXT unloads an extension from memory.
 	UPDATE_UNLOAD_EXT UpdateType = "unload_extension"
+	// UPDATE_VERSION requests the daemon's version information.
+	UPDATE_VERSION UpdateType = "version"
 )
 
 // DownloadingAction represents the current state or action occurring during

@@ -57,7 +57,7 @@ func daemon(ctx *cli.Context) error {
 		common.PrintRuntimeErr(ctx, "daemon", "init_manager", err)
 		return nil
 	}
-	s, err := api.NewApi(l, m, client, elEng)
+	s, err := api.NewApi(l, m, client, elEng, currentBuildArgs.Version, currentBuildArgs.Commit, currentBuildArgs.BuildType)
 	if err != nil {
 		common.PrintRuntimeErr(ctx, "daemon", "new_api", err)
 		return nil

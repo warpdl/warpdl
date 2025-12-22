@@ -57,3 +57,27 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+
+      - name: Patch Scoop manifest with pre_uninstall hook
+        run: |
+          # Wait a moment for GoReleaser's commits to propagate
+          sleep 5
+
+          # Clone the scoop bucket repository
+          git clone "https://${{ secrets.GH_PAT }}@github.com/warpdl/scoop-bucket.git" /tmp/scoop-bucket
+
+          # Patch the manifest
+          chmod +x scripts/patch-scoop-manifest.sh
+          ./scripts/patch-scoop-manifest.sh /tmp/scoop-bucket/warpdl.json
+
+          # Commit and push if there are changes
+          cd /tmp/scoop-bucket
+          if git diff --quiet; then
+            echo "No changes to commit"
+          else
+            git config user.name "Divkix"
+            git config user.email "divkix@divkix.me"
+            git add warpdl.json
+            git commit -m "Add pre_uninstall hook for daemon cleanup"
+            git push
+          fi

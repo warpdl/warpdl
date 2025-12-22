@@ -17,22 +17,29 @@ import (
 // It encapsulates the download manager, extension engine, and HTTP client
 // required to process download and extension management requests.
 type Api struct {
-	log      *log.Logger
-	manager  *warplib.Manager
-	elEngine *extl.Engine
-	client   *http.Client
+	log       *log.Logger
+	manager   *warplib.Manager
+	elEngine  *extl.Engine
+	client    *http.Client
+	version   string
+	commit    string
+	buildType string
 }
 
 // NewApi creates a new Api instance with the provided dependencies.
 // It returns an initialized Api ready to handle download and extension requests.
 // The logger is used for diagnostic output, the manager handles download state,
 // the client performs HTTP requests, and the elEngine manages JavaScript extensions.
-func NewApi(l *log.Logger, m *warplib.Manager, client *http.Client, elEngine *extl.Engine) (*Api, error) {
+// Version info (version, commit, buildType) is stored for responding to version queries.
+func NewApi(l *log.Logger, m *warplib.Manager, client *http.Client, elEngine *extl.Engine, version, commit, buildType string) (*Api, error) {
 	return &Api{
-		log:      l,
-		manager:  m,
-		client:   client,
-		elEngine: elEngine,
+		log:       l,
+		manager:   m,
+		client:    client,
+		elEngine:  elEngine,
+		version:   version,
+		commit:    commit,
+		buildType: buildType,
 	}, nil
 }
 
@@ -56,6 +63,9 @@ func (s *Api) RegisterHandlers(server *server.Server) {
 	server.RegisterHandler(common.UPDATE_DELETE_EXT, s.deleteExtHandler)
 	server.RegisterHandler(common.UPDATE_ACTIVATE_EXT, s.activateExtHandler)
 	server.RegisterHandler(common.UPDATE_DEACTIVATE_EXT, s.deactivateExtHandler)
+
+	// daemon info methods
+	server.RegisterHandler(common.UPDATE_VERSION, s.versionHandler)
 }
 
 // Close releases resources held by the Api, specifically closing the

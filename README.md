@@ -27,6 +27,7 @@
 * [Getting Started](#getting-started)
   * [Prerequisites](#prerequisites)
   * [Installation](#installation)
+  * [Uninstallation](#uninstallation)
 * [Usage](#usage)
 * [Roadmap](#roadmap)
 * [Contributing](#contributing)
@@ -84,6 +85,40 @@ You will need the following things for building warpdl binary:
   You can download all binaries and release artifacts from the [Releases](https://github.com/warpdl/warpdl/releases/latest) page. Binaries are built for macOS, Linux, Windows, FreeBSD, OpenBSD, and NetBSD, and for 32-bit, 64-bit, armv6/armv7, and armv6/armv7 64-bit architectures.
 
   If a binary does not yet exist for the OS/architecture you use, please open a GitHub Issue.
+
+### Uninstallation
+
+The WarpDL daemon runs in the background to manage downloads. Before uninstalling, stop the daemon first.
+
+- **Homebrew:**
+  ```
+  brew uninstall warpdl
+  ```
+  Note: The daemon is automatically stopped during uninstallation.
+
+- **Scoop:**
+  ```
+  scoop uninstall warpdl
+  ```
+  Note: The daemon is automatically stopped during uninstallation.
+
+- **Script/Manual Installation:**
+  ```
+  curl -fsSL https://raw.githubusercontent.com/warpdl/warpdl/dev/scripts/uninstall.sh | sh
+  ```
+
+- **Complete Manual Cleanup:**
+  ```bash
+  # Stop the daemon
+  warpdl stop-daemon
+
+  # Remove the binary (path may vary)
+  sudo rm $(which warpdl)
+
+  # Remove configuration and download data
+  rm -rf ~/.config/warpdl
+  ```
+
 ## Usage
 
 Use `warpdl help <command>` for information about various commands.

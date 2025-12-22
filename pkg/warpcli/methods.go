@@ -165,3 +165,10 @@ func (c *Client) ActivateExtension(extensionId string) (*common.ExtensionInfo, e
 func (c *Client) ListExtension(all bool) (*[]common.ExtensionInfoShort, error) {
 	return invoke[[]common.ExtensionInfoShort](c, common.UPDATE_LIST_EXT, common.ListExtensionsParams{All: all})
 }
+
+// GetDaemonVersion retrieves the version information from the running daemon.
+// This is useful for detecting version mismatches between the CLI and daemon.
+// Returns the daemon's version, commit hash, and build type.
+func (c *Client) GetDaemonVersion() (*common.VersionResponse, error) {
+	return invoke[common.VersionResponse](c, common.UPDATE_VERSION, nil)
+}

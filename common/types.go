@@ -171,3 +171,14 @@ type ExtensionInfoShort struct {
 	// Activated indicates whether the extension is currently active.
 	Activated bool `json:"activated"`
 }
+
+// VersionResponse contains the daemon's version information.
+// It is returned in response to UPDATE_VERSION requests.
+type VersionResponse struct {
+	// Version is the semantic version of the daemon (e.g., "1.2.0").
+	Version string `json:"version"`
+	// Commit is the git commit hash from which the daemon was built.
+	Commit string `json:"commit,omitempty"`
+	// BuildType indicates the build variant (e.g., "stable", "dev").
+	BuildType string `json:"build_type,omitempty"`
+}
