@@ -10,6 +10,7 @@ require (
 	github.com/urfave/cli v1.22.16
 	github.com/vbauerster/mpb/v8 v8.9.1
 	golang.org/x/net v0.38.0
+	golang.org/x/sys v0.31.0
 )
 
 require (
@@ -29,6 +30,5 @@ require (
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/zalando/go-keyring v0.2.6
-	golang.org/x/sys v0.31.0 // indirect
 	golang.org/x/text v0.23.0 // indirect
 )

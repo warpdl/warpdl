@@ -577,3 +577,23 @@ func TestListHandlerDefaultCase(t *testing.T) {
         t.Fatalf("expected only incomplete item, got %d items", len(items))
     }
 }
+
+func TestVersionHandler(t *testing.T) {
+    api, pool, cleanup := newTestApi(t)
+    defer cleanup()
+
+    _, msg, err := api.versionHandler(nil, pool, nil)
+    if err != nil {
+        t.Fatalf("versionHandler: %v", err)
+    }
+    resp := msg.(*common.VersionResponse)
+    if resp.Version != "test" {
+        t.Fatalf("expected version 'test', got '%s'", resp.Version)
+    }
+    if resp.Commit != "abc123" {
+        t.Fatalf("expected commit 'abc123', got '%s'", resp.Commit)
+    }
+    if resp.BuildType != "test" {
+        t.Fatalf("expected buildType 'test', got '%s'", resp.BuildType)
+    }
+}

@@ -56,6 +56,7 @@ log_warning() {
 }
 
 # Get the configuration directory path
+# Matches Go's os.UserConfigDir() behavior used in pkg/warplib/misc.go
 get_config_dir() {
     if [ -n "$WARPDL_CONFIG_DIR" ]; then
         echo "$WARPDL_CONFIG_DIR"
@@ -65,8 +66,7 @@ get_config_dir() {
     case "$OS" in
         macos)
             # Go's os.UserConfigDir() returns ~/Library/Application Support on macOS
-            # but WarpDL uses ~/.config/warpdl for consistency
-            echo "$HOME/.config/warpdl"
+            echo "$HOME/Library/Application Support/warpdl"
             ;;
         *)
             echo "${XDG_CONFIG_HOME:-$HOME/.config}/warpdl"

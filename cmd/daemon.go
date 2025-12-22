@@ -22,6 +22,12 @@ var (
 func daemon(ctx *cli.Context) error {
 	l := log.Default()
 
+	// Clean up stale PID file or fail if daemon already running
+	if err := CleanupStalePidFile(); err != nil {
+		common.PrintRuntimeErr(ctx, "daemon", "cleanup_pid", err)
+		return nil
+	}
+
 	// Write PID file
 	if err := WritePidFile(); err != nil {
 		common.PrintRuntimeErr(ctx, "daemon", "write_pid", err)

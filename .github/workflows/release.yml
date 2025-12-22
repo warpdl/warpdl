@@ -60,11 +60,26 @@ jobs:
 
       - name: Patch Scoop manifest with pre_uninstall hook
         run: |
-          # Wait a moment for GoReleaser's commits to propagate
-          sleep 5
-
           # Clone the scoop bucket repository
           git clone "https://${{ secrets.GH_PAT }}@github.com/warpdl/scoop-bucket.git" /tmp/scoop-bucket
+
+          # Wait for manifest to appear with retry logic (max 60 seconds)
+          echo "Waiting for GoReleaser to push manifest..."
+          for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+            cd /tmp/scoop-bucket
+            git pull --quiet
+            if [ -f warpdl.json ]; then
+              echo "Manifest found after attempt $i"
+              break
+            fi
+            echo "Manifest not found, retrying in 5 seconds... ($i/12)"
+            sleep 5
+          done
+
+          if [ ! -f /tmp/scoop-bucket/warpdl.json ]; then
+            echo "Error: Manifest not found after 60 seconds, skipping patch"
+            exit 0
+          fi
 
           # Patch the manifest
           chmod +x scripts/patch-scoop-manifest.sh

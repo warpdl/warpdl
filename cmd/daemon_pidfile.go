@@ -1,6 +1,7 @@
 package cmd
 
 import (
+    "errors"
     "fmt"
     "os"
     "path/filepath"
@@ -12,9 +13,36 @@ import (
 
 const pidFileName = "daemon.pid"
 
+// ErrDaemonAlreadyRunning indicates another daemon instance is already running.
+var ErrDaemonAlreadyRunning = errors.New("daemon already running")
+
 // getPidFilePath returns the path to the daemon PID file.
 func getPidFilePath() string {
     return filepath.Join(warplib.ConfigDir, pidFileName)
+}
+
+// CleanupStalePidFile checks if a PID file exists and removes it if the
+// process is no longer running. Returns ErrDaemonAlreadyRunning if another
+// daemon instance is still active.
+func CleanupStalePidFile() error {
+    pid, err := ReadPidFile()
+    if err != nil {
+        if os.IsNotExist(err) {
+            return nil // No PID file, nothing to clean up
+        }
+        // Invalid PID file, remove it
+        RemovePidFile()
+        return nil
+    }
+
+    // Check if process is still running
+    if isProcessRunning(pid) {
+        return fmt.Errorf("%w with PID %d", ErrDaemonAlreadyRunning, pid)
+    }
+
+    // Process is dead, clean up stale PID file
+    RemovePidFile()
+    return nil
 }
 
 // WritePidFile writes the current process ID to the PID file.
