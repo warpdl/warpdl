@@ -1,12 +1,14 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"log"
 	"net"
 	"testing"
+	"time"
 
 	"github.com/warpdl/warpdl/common"
 	"github.com/warpdl/warpdl/pkg/warplib"
@@ -207,5 +209,185 @@ func TestCreateListenerTCPFallback(t *testing.T) {
 
 	if l.Addr().Network() != "tcp" {
 		t.Fatalf("expected tcp socket, got %s", l.Addr().Network())
+	}
+}
+
+func TestServerStartShutdown(t *testing.T) {
+	if err := warplib.SetConfigDir(t.TempDir()); err != nil {
+		t.Fatalf("SetConfigDir: %v", err)
+	}
+	m, err := warplib.InitManager()
+	if err != nil {
+		t.Fatalf("InitManager: %v", err)
+	}
+	defer m.Close()
+
+	tmpDir := t.TempDir()
+	sockPath := tmpDir + "/start_test.sock"
+	t.Setenv(socketPathEnv, sockPath)
+
+	s := NewServer(log.New(io.Discard, "", 0), m, 0)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Start server in background
+	started := make(chan error, 1)
+	go func() {
+		started <- s.Start(ctx)
+	}()
+
+	// Wait a bit for server to start
+	time.Sleep(100 * time.Millisecond)
+
+	// Shutdown via context cancellation
+	cancel()
+
+	// Wait for server to finish
+	select {
+	case err := <-started:
+		if err != nil {
+			t.Fatalf("Server.Start returned error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Server did not shut down in time")
+	}
+}
+
+func TestServerShutdown_NoListener(t *testing.T) {
+	s := &Server{
+		log: log.New(io.Discard, "", 0),
+		ws:  &WebServer{l: log.New(io.Discard, "", 0)},
+	}
+
+	err := s.Shutdown()
+	if err != nil {
+		t.Fatalf("Shutdown with no listener failed: %v", err)
+	}
+}
+
+func TestServerShutdown_Multiple(t *testing.T) {
+	if err := warplib.SetConfigDir(t.TempDir()); err != nil {
+		t.Fatalf("SetConfigDir: %v", err)
+	}
+	m, err := warplib.InitManager()
+	if err != nil {
+		t.Fatalf("InitManager: %v", err)
+	}
+	defer m.Close()
+
+	tmpDir := t.TempDir()
+	sockPath := tmpDir + "/multi_shutdown_test.sock"
+	t.Setenv(socketPathEnv, sockPath)
+
+	s := NewServer(log.New(io.Discard, "", 0), m, 0)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	go func() {
+		_ = s.Start(ctx)
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+	time.Sleep(50 * time.Millisecond)
+
+	// Second shutdown should be safe
+	err = s.Shutdown()
+	if err != nil {
+		t.Fatalf("Second shutdown failed: %v", err)
+	}
+}
+
+func TestHandleConnection_NonEOFError(t *testing.T) {
+	s := &Server{
+		handler: make(map[common.UpdateType]HandlerFunc),
+		pool:    NewPool(nil),
+		log:     log.New(io.Discard, "", 0),
+	}
+
+	c1, c2 := net.Pipe()
+	defer c1.Close()
+
+	// Start handleConnection
+	done := make(chan struct{})
+	go func() {
+		s.handleConnection(c1)
+		close(done)
+	}()
+
+	// Write invalid header to cause non-EOF error
+	c2.Write([]byte{0xFF, 0xFF, 0xFF, 0xFF}) // Very large size
+	c2.Close()                               // Then close to cause error
+
+	select {
+	case <-done:
+	case <-time.After(1 * time.Second):
+		t.Fatal("handleConnection did not exit")
+	}
+}
+
+func TestHandlerWrapper_ParseError(t *testing.T) {
+	s := &Server{
+		handler: make(map[common.UpdateType]HandlerFunc),
+		pool:    NewPool(nil),
+	}
+	c1, c2 := net.Pipe()
+	defer c1.Close()
+	defer c2.Close()
+
+	err := s.handlerWrapper(NewSyncConn(c1), []byte("invalid json{{{"))
+	if err == nil {
+		t.Fatal("expected error for invalid JSON")
+	}
+}
+
+func TestHandlerWrapper_WriteErrorOnUnknownMethod(t *testing.T) {
+	s := &Server{
+		handler: make(map[common.UpdateType]HandlerFunc),
+		pool:    NewPool(nil),
+	}
+	c1, _ := net.Pipe()
+	c1.Close() // Close to cause write error
+
+	req, _ := json.Marshal(Request{Method: common.UpdateType("unknown")})
+	err := s.handlerWrapper(NewSyncConn(c1), req)
+	if err == nil {
+		t.Fatal("expected error when writing to closed connection")
+	}
+}
+
+func TestHandlerWrapper_WriteErrorOnHandlerError(t *testing.T) {
+	s := &Server{
+		handler: make(map[common.UpdateType]HandlerFunc),
+		pool:    NewPool(nil),
+	}
+	s.handler[common.UPDATE_LIST] = func(conn *SyncConn, pool *Pool, body json.RawMessage) (common.UpdateType, any, error) {
+		return common.UPDATE_LIST, nil, errors.New("handler error")
+	}
+	c1, _ := net.Pipe()
+	c1.Close() // Close to cause write error
+
+	req, _ := json.Marshal(Request{Method: common.UPDATE_LIST})
+	err := s.handlerWrapper(NewSyncConn(c1), req)
+	if err == nil {
+		t.Fatal("expected error when writing error response to closed connection")
+	}
+}
+
+func TestHandlerWrapper_WriteErrorOnSuccess(t *testing.T) {
+	s := &Server{
+		handler: make(map[common.UpdateType]HandlerFunc),
+		pool:    NewPool(nil),
+	}
+	s.handler[common.UPDATE_LIST] = func(conn *SyncConn, pool *Pool, body json.RawMessage) (common.UpdateType, any, error) {
+		return common.UPDATE_LIST, map[string]string{"ok": "1"}, nil
+	}
+	c1, _ := net.Pipe()
+	c1.Close() // Close to cause write error
+
+	req, _ := json.Marshal(Request{Method: common.UPDATE_LIST})
+	err := s.handlerWrapper(NewSyncConn(c1), req)
+	if err == nil {
+		t.Fatal("expected error when writing success response to closed connection")
 	}
 }

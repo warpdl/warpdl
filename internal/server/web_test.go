@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"log"
@@ -226,5 +227,84 @@ func TestWebServerProcessDownloadInvalidURL(t *testing.T) {
 	err = ws.processDownload(&capturedDownload{Url: "://invalid"})
 	if err == nil {
 		t.Fatalf("expected error for invalid URL")
+	}
+}
+
+func TestWebServerStart(t *testing.T) {
+	pool := NewPool(log.New(io.Discard, "", 0))
+	// Use port 0 to get a random available port
+	ws := NewWebServer(log.New(io.Discard, "", 0), nil, pool, 0)
+
+	// Start in background
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- ws.Start()
+	}()
+
+	// Wait a bit for server to start
+	time.Sleep(100 * time.Millisecond)
+
+	// Shutdown
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+	if err := ws.Shutdown(ctx); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+
+	// Check that Start returned without error (ErrServerClosed is expected)
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("Start returned unexpected error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Start did not return after shutdown")
+	}
+}
+
+func TestWebServerShutdown_NilServer(t *testing.T) {
+	pool := NewPool(log.New(io.Discard, "", 0))
+	ws := NewWebServer(log.New(io.Discard, "", 0), nil, pool, 0)
+
+	// Shutdown without starting should be safe
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+	if err := ws.Shutdown(ctx); err != nil {
+		t.Fatalf("Shutdown with nil server failed: %v", err)
+	}
+}
+
+func TestWebServerShutdown_MultipleShutdowns(t *testing.T) {
+	pool := NewPool(log.New(io.Discard, "", 0))
+	ws := NewWebServer(log.New(io.Discard, "", 0), nil, pool, 0)
+
+	go func() {
+		_ = ws.Start()
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+
+	ctx1, cancel1 := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel1()
+	if err := ws.Shutdown(ctx1); err != nil {
+		t.Fatalf("First shutdown failed: %v", err)
+	}
+
+	// Second shutdown should be safe (server is nil after first shutdown returns ErrServerClosed)
+	time.Sleep(50 * time.Millisecond)
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel2()
+	// Note: This may or may not return error depending on timing, but shouldn't panic
+	_ = ws.Shutdown(ctx2)
+}
+
+func TestNewWebServer(t *testing.T) {
+	pool := NewPool(log.New(io.Discard, "", 0))
+	ws := NewWebServer(log.New(io.Discard, "", 0), nil, pool, 8080)
+	if ws == nil {
+		t.Fatal("expected non-nil WebServer")
+	}
+	if ws.port != 8080 {
+		t.Fatalf("expected port 8080, got %d", ws.port)
 	}
 }

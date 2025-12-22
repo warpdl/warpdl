@@ -833,3 +833,251 @@ func TestDownloadTemplates(t *testing.T) {
 		t.Fatalf("expected description")
 	}
 }
+
+func TestGetUserAgent_Firefox(t *testing.T) {
+	ua := getUserAgent("firefox")
+	if ua == "" {
+		t.Fatal("expected Firefox user agent")
+	}
+	if ua == "firefox" {
+		t.Fatal("expected Firefox UA to be expanded")
+	}
+	if !strings.Contains(ua, "Firefox") {
+		t.Fatalf("expected Firefox in UA, got: %s", ua)
+	}
+}
+
+func TestGetUserAgent_Chrome(t *testing.T) {
+	ua := getUserAgent("chrome")
+	if ua == "" {
+		t.Fatal("expected Chrome user agent")
+	}
+	if ua == "chrome" {
+		t.Fatal("expected Chrome UA to be expanded")
+	}
+	if !strings.Contains(ua, "Chrome") {
+		t.Fatalf("expected Chrome in UA, got: %s", ua)
+	}
+}
+
+func TestGetUserAgent_CaseInsensitive(t *testing.T) {
+	ua1 := getUserAgent("FIREFOX")
+	ua2 := getUserAgent("firefox")
+	if ua1 != ua2 {
+		t.Fatalf("expected case insensitive match: %s vs %s", ua1, ua2)
+	}
+}
+
+func TestGetUserAgent_Unknown(t *testing.T) {
+	custom := "MyCustomUA/1.0"
+	ua := getUserAgent(custom)
+	if ua != custom {
+		t.Fatalf("expected passthrough for unknown UA, got: %s", ua)
+	}
+}
+
+func TestConfirm_Force(t *testing.T) {
+	if !confirm(command("test"), true) {
+		t.Fatal("expected confirm to return true with force")
+	}
+}
+
+func TestConfirm_YesInput(t *testing.T) {
+	oldStdin := os.Stdin
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("Pipe: %v", err)
+	}
+	_, _ = w.Write([]byte("yes\n"))
+	_ = w.Close()
+	os.Stdin = r
+	defer func() {
+		os.Stdin = oldStdin
+		_ = r.Close()
+	}()
+
+	if !confirm(command("test")) {
+		t.Fatal("expected confirm to return true for 'yes'")
+	}
+}
+
+func TestConfirm_YInput(t *testing.T) {
+	oldStdin := os.Stdin
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("Pipe: %v", err)
+	}
+	_, _ = w.Write([]byte("y\n"))
+	_ = w.Close()
+	os.Stdin = r
+	defer func() {
+		os.Stdin = oldStdin
+		_ = r.Close()
+	}()
+
+	if !confirm(command("test")) {
+		t.Fatal("expected confirm to return true for 'y'")
+	}
+}
+
+func TestConfirm_TrueInput(t *testing.T) {
+	oldStdin := os.Stdin
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("Pipe: %v", err)
+	}
+	_, _ = w.Write([]byte("true\n"))
+	_ = w.Close()
+	os.Stdin = r
+	defer func() {
+		os.Stdin = oldStdin
+		_ = r.Close()
+	}()
+
+	if !confirm(command("test")) {
+		t.Fatal("expected confirm to return true for 'true'")
+	}
+}
+
+func TestConfirm_OneInput(t *testing.T) {
+	oldStdin := os.Stdin
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("Pipe: %v", err)
+	}
+	_, _ = w.Write([]byte("1\n"))
+	_ = w.Close()
+	os.Stdin = r
+	defer func() {
+		os.Stdin = oldStdin
+		_ = r.Close()
+	}()
+
+	if !confirm(command("test")) {
+		t.Fatal("expected confirm to return true for '1'")
+	}
+}
+
+func TestConfirm_NoInput(t *testing.T) {
+	oldStdin := os.Stdin
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("Pipe: %v", err)
+	}
+	_, _ = w.Write([]byte("no\n"))
+	_ = w.Close()
+	os.Stdin = r
+	defer func() {
+		os.Stdin = oldStdin
+		_ = r.Close()
+	}()
+
+	if confirm(command("test")) {
+		t.Fatal("expected confirm to return false for 'no'")
+	}
+}
+
+func TestConfirm_InvalidInput(t *testing.T) {
+	oldStdin := os.Stdin
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("Pipe: %v", err)
+	}
+	_, _ = w.Write([]byte("maybe\n"))
+	_ = w.Close()
+	os.Stdin = r
+	defer func() {
+		os.Stdin = oldStdin
+		_ = r.Close()
+	}()
+
+	if confirm(command("test")) {
+		t.Fatal("expected confirm to return false for invalid input")
+	}
+}
+
+func TestCommandAction(t *testing.T) {
+	c := command("test")
+	action := c.action()
+	if action != "test command" {
+		t.Fatalf("expected 'test command', got: %s", action)
+	}
+}
+
+func TestUserAgentsMap(t *testing.T) {
+	if len(UserAgents) < 3 {
+		t.Fatal("expected at least 3 user agents")
+	}
+	if _, ok := UserAgents["warp"]; !ok {
+		t.Fatal("expected 'warp' in UserAgents")
+	}
+	if _, ok := UserAgents["firefox"]; !ok {
+		t.Fatal("expected 'firefox' in UserAgents")
+	}
+	if _, ok := UserAgents["chrome"]; !ok {
+		t.Fatal("expected 'chrome' in UserAgents")
+	}
+}
+
+func TestResumeWithUserAgent(t *testing.T) {
+	socketPath := filepath.Join(t.TempDir(), "warpdl.sock")
+	if err := os.Setenv("WARPDL_SOCKET_PATH", socketPath); err != nil {
+		t.Fatalf("Setenv: %v", err)
+	}
+	srv := startFakeServer(t, socketPath)
+	defer srv.close()
+
+	app := cli.NewApp()
+	ctx := newContext(app, []string{"id"}, "resume")
+	oldMaxParts, oldMaxConns, oldForce, oldUA := maxParts, maxConns, forceParts, userAgent
+	maxParts, maxConns, forceParts = 1, 1, false
+	userAgent = "firefox"
+	defer func() {
+		maxParts, maxConns, forceParts = oldMaxParts, oldMaxConns, oldForce
+		userAgent = oldUA
+	}()
+	if err := resume(ctx); err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+}
+
+func TestResumeHelp(t *testing.T) {
+	app := cli.NewApp()
+	ctx := newContext(app, []string{"help"}, "resume")
+	_ = resume(ctx)
+}
+
+func TestAttachHelp(t *testing.T) {
+	app := cli.NewApp()
+	ctx := newContext(app, []string{"help"}, "attach")
+	_ = attach(ctx)
+}
+
+func TestInfoHelp(t *testing.T) {
+	app := cli.NewApp()
+	ctx := newContext(app, []string{"help"}, "info")
+	_ = info(ctx)
+}
+
+func TestFlushHelp(t *testing.T) {
+	app := cli.NewApp()
+	ctx := newContext(app, []string{"help"}, "flush")
+	_ = flush(ctx)
+}
+
+func TestListErrorResponse(t *testing.T) {
+	socketPath := filepath.Join(t.TempDir(), "warpdl.sock")
+	if err := os.Setenv("WARPDL_SOCKET_PATH", socketPath); err != nil {
+		t.Fatalf("Setenv: %v", err)
+	}
+	srv := startFakeServer(t, socketPath, map[common.UpdateType]string{
+		common.UPDATE_LIST: "list failed",
+	})
+	defer srv.close()
+
+	app := cli.NewApp()
+	ctx := newContext(app, nil, "list")
+	if err := list(ctx); err != nil {
+		t.Fatalf("list: %v", err)
+	}
+}
