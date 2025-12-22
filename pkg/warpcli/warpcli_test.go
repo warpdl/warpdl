@@ -100,6 +100,79 @@ func TestClientInvokeDownload(t *testing.T) {
 	}
 }
 
+func TestNewClientWithURI_EmptyUsesDefault(t *testing.T) {
+	// Mock functions to avoid spawning daemon and connecting
+	originalEnsureDaemon := ensureDaemonFunc
+	originalDial := dialFunc
+	defer func() {
+		ensureDaemonFunc = originalEnsureDaemon
+		dialFunc = originalDial
+	}()
+
+	ensureDaemonFunc = func() error { return nil }
+	c1, c2 := net.Pipe()
+	defer c1.Close()
+	defer c2.Close()
+	dialFunc = func(network, address string) (net.Conn, error) {
+		if network != "unix" {
+			t.Errorf("Expected network 'unix', got '%s'", network)
+		}
+		return c1, nil
+	}
+
+	client, err := NewClientWithURI("")
+	if err != nil {
+		t.Fatalf("NewClientWithURI with empty string should succeed: %v", err)
+	}
+	if client == nil {
+		t.Fatal("Expected client to be created")
+	}
+}
+
+func TestNewClientWithURI_TCP(t *testing.T) {
+	// Mock dial function
+	originalDial := dialFunc
+	defer func() { dialFunc = originalDial }()
+
+	c1, c2 := net.Pipe()
+	defer c1.Close()
+	defer c2.Close()
+
+	dialFunc = func(network, address string) (net.Conn, error) {
+		if network != "tcp" {
+			t.Errorf("Expected network 'tcp', got '%s'", network)
+		}
+		if address != "localhost:9090" {
+			t.Errorf("Expected address 'localhost:9090', got '%s'", address)
+		}
+		return c1, nil
+	}
+
+	client, err := NewClientWithURI("tcp://localhost:9090")
+	if err != nil {
+		t.Fatalf("NewClientWithURI with TCP URI failed: %v", err)
+	}
+	if client == nil {
+		t.Fatal("Expected client to be created")
+	}
+}
+
+func TestNewClientWithURI_InvalidURI(t *testing.T) {
+	// Mock dial function to avoid actual connection attempts
+	originalDial := dialFunc
+	defer func() { dialFunc = originalDial }()
+
+	dialFunc = func(network, address string) (net.Conn, error) {
+		t.Error("dial should not be called for invalid URI")
+		return nil, nil
+	}
+
+	_, err := NewClientWithURI("tcp://")
+	if err == nil {
+		t.Fatal("NewClientWithURI with invalid URI should return error")
+	}
+}
+
 func TestClientListenDisconnect(t *testing.T) {
 	c1, c2 := net.Pipe()
 	defer c1.Close()

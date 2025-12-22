@@ -14,6 +14,12 @@ var (
 	hashToFlush string
 
 	flsFlags = []cli.Flag{
+		cli.StringFlag{
+			Name:        "daemon-uri",
+			Usage:       "daemon URI to connect to (e.g., tcp://localhost:9090, unix:///tmp/warpdl.sock, or /path/to/socket)",
+			Destination: &daemonURI,
+			EnvVar:      "WARPDL_DAEMON_URI",
+		},
 		cli.BoolFlag{
 			Name:        "force, f",
 			Usage:       "use this flag to force flush (default: false)",
@@ -40,7 +46,7 @@ func flush(ctx *cli.Context) error {
 	if !confirm(command("flush"), forceFlush) {
 		return nil
 	}
-	client, err := warpcli.NewClient()
+	client, err := warpcli.NewClientWithURI(daemonURI)
 	if err != nil {
 		common.PrintRuntimeErr(ctx, "flush", "new_client", err)
 		return nil

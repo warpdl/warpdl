@@ -9,6 +9,15 @@ import (
 	"github.com/warpdl/warpdl/pkg/warpcli"
 )
 
+var attachFlags = []cli.Flag{
+	cli.StringFlag{
+		Name:        "daemon-uri",
+		Usage:       "daemon URI to connect to (e.g., tcp://localhost:9090, unix:///tmp/warpdl.sock, or /path/to/socket)",
+		Destination: &daemonURI,
+		EnvVar:      "WARPDL_DAEMON_URI",
+	},
+}
+
 func attach(ctx *cli.Context) (err error) {
 	hash := ctx.Args().First()
 	if hash == "" {
@@ -22,7 +31,7 @@ func attach(ctx *cli.Context) (err error) {
 	} else if hash == "help" {
 		return cli.ShowCommandHelp(ctx, ctx.Command.Name)
 	}
-	client, err := warpcli.NewClient()
+	client, err := warpcli.NewClientWithURI(daemonURI)
 	if err != nil {
 		common.PrintRuntimeErr(ctx, "attach", "new_client", err)
 		return nil

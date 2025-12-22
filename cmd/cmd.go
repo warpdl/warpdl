@@ -77,11 +77,13 @@ func Execute(args []string, bArgs BuildArgs) error {
 				Name:   "stop",
 				Action: stop,
 				Usage:  "stop a running download",
+				Flags:  stopFlags,
 			},
 			{
 				Name:   "attach",
 				Action: attach,
 				Usage:  "attach console to a running download",
+				Flags:  attachFlags,
 			},
 			{
 				Name:                   "download",

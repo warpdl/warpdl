@@ -30,11 +30,38 @@ var (
 // If the daemon is not running, it will be automatically spawned.
 // Returns an error if the daemon cannot be started or connection fails.
 func NewClient() (*Client, error) {
-	if err := ensureDaemonFunc(); err != nil {
-		return nil, err
+	return NewClientWithURI("")
+}
+
+// NewClientWithURI creates a new client connection to the WarpDL daemon using the specified URI.
+// If uri is empty, it uses the default socket path.
+// Supported URI formats:
+//   - tcp://host:port (e.g., tcp://localhost:9090)
+//   - unix:///path/to/socket (e.g., unix:///tmp/warpdl.sock)
+//   - /path/to/socket (defaults to unix socket)
+//
+// When using a custom TCP URI, the daemon is NOT automatically spawned.
+// Returns an error if the connection fails.
+func NewClientWithURI(uri string) (*Client, error) {
+	var network, address string
+	var err error
+
+	if uri == "" {
+		// Default behavior: use socket path and ensure daemon is running
+		if err := ensureDaemonFunc(); err != nil {
+			return nil, err
+		}
+		network = "unix"
+		address = socketPath()
+	} else {
+		// Custom URI: parse and connect without spawning daemon
+		network, address, err = ParseDaemonURI(uri)
+		if err != nil {
+			return nil, fmt.Errorf("invalid daemon URI: %w", err)
+		}
 	}
-	socketPath := socketPath()
-	conn, err := dialFunc("unix", socketPath)
+
+	conn, err := dialFunc(network, address)
 	if err != nil {
 		return nil, fmt.Errorf("error connecting to server: %w", err)
 	}

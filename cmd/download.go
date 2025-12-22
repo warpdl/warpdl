@@ -15,8 +15,15 @@ import (
 var (
 	dlPath   string
 	fileName string
+	daemonURI string
 
 	dlFlags = []cli.Flag{
+		cli.StringFlag{
+			Name:        "daemon-uri",
+			Usage:       "daemon URI to connect to (e.g., tcp://localhost:9090, unix:///tmp/warpdl.sock, or /path/to/socket)",
+			Destination: &daemonURI,
+			EnvVar:      "WARPDL_DAEMON_URI",
+		},
 		cli.StringFlag{
 			Name:        "file-name, o",
 			Usage:       "explicitly set the name of file (determined automatically if not specified)",
@@ -44,7 +51,7 @@ func download(ctx *cli.Context) (err error) {
 	} else if url == "help" {
 		return cli.ShowCommandHelp(ctx, ctx.Command.Name)
 	}
-	client, err := warpcli.NewClient()
+	client, err := warpcli.NewClientWithURI(daemonURI)
 	if err != nil {
 		common.PrintRuntimeErr(ctx, "download", "new_client", err)
 		return

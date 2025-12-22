@@ -64,7 +64,7 @@ func resume(ctx *cli.Context) (err error) {
 			Key: warplib.USER_AGENT_KEY, Value: getUserAgent(userAgent),
 		}}
 	}
-	client, err := warpcli.NewClient()
+	client, err := warpcli.NewClientWithURI(daemonURI)
 	if err != nil {
 		common.PrintRuntimeErr(ctx, "resume", "new_client", err)
 		return
