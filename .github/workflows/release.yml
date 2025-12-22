@@ -33,6 +33,12 @@ jobs:
         with:
           go-version: stable
 
+      - name: Run tests with coverage gating
+        run: scripts/check_coverage.sh
+        env:
+          COVERAGE_MIN: "80"
+          COVERAGE_MIN_PER_PKG: "80"
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
