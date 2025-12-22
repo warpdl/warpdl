@@ -159,7 +159,7 @@ brews:
       name: "Divkix"
       email: divkix@divkix.me
     commit_msg_template: "Brew formula update for {{ .ProjectName }} version {{ .Tag }}"
-    homepage: "https://warpdl.org"
+    homepage: "https://github.com/warpdl/warpdl"
     description: "The official Warp CLI download manager"
     license: "MIT"
     install: |
@@ -175,7 +175,7 @@ scoops:
     commit_author:
       name: "Divkix"
       email: divkix@divkix.me
-    homepage: "https://warpdl.org"
+    homepage: "https://github.com/warpdl/warpdl"
     description: "The official Warp CLI download manager"
 
 dockers_v2:

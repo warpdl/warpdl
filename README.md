@@ -68,7 +68,7 @@ You will need the following things for building warpdl binary:
 - Installing through package managers:
   - Scoop (Windows):
       ```
-      scoop bucket add doppler https://github.com/warpdl/scoop-bucket.git
+      scoop bucket add warpdl https://github.com/warpdl/scoop-bucket
       scoop install warpdl
       ```
   - Homebrew:
@@ -77,7 +77,7 @@ You will need the following things for building warpdl binary:
       ```
 - Installing through official bash script:
   ```
-  (curl -Ls --tlsv1.2 --proto "=https" --retry 3 https://cli.warpdl.org/install.sh || wget -t 3 -qO- https://cli.warpdl.org/install.sh) | sudo sh
+  curl -fsSL https://raw.githubusercontent.com/warpdl/warpdl/dev/scripts/install.sh | sh
   ```
 - Other
 
