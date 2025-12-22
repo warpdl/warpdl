@@ -401,6 +401,7 @@ func (d *Downloader) resumePartDownload(hash string, ioff, foff, espeed int64) {
 	part, err := d.initPart(hash, ioff, foff)
 	if err != nil {
 		d.Log("%s: init: %s", hash, err.Error())
+		d.handlers.ErrorHandler(hash, err)
 		return
 	}
 	poff := part.offset + part.read
