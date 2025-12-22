@@ -110,3 +110,77 @@ func TestWlog(t *testing.T) {
 		t.Fatalf("expected newline in log output, got %q", got)
 	}
 }
+
+func TestGetMinPartSize(t *testing.T) {
+	tests := []struct {
+		name     string
+		fileSize int64
+		want     int64
+	}{
+		{
+			name:     "very small file (1 MB)",
+			fileSize: 1 * MB,
+			want:     512 * KB,
+		},
+		{
+			name:     "small file (5 MB)",
+			fileSize: 5 * MB,
+			want:     512 * KB,
+		},
+		{
+			name:     "boundary at 10 MB",
+			fileSize: 10 * MB,
+			want:     1 * MB,
+		},
+		{
+			name:     "medium file (50 MB)",
+			fileSize: 50 * MB,
+			want:     1 * MB,
+		},
+		{
+			name:     "boundary at 100 MB",
+			fileSize: 100 * MB,
+			want:     2 * MB,
+		},
+		{
+			name:     "large file (500 MB)",
+			fileSize: 500 * MB,
+			want:     2 * MB,
+		},
+		{
+			name:     "boundary at 1 GB",
+			fileSize: 1 * GB,
+			want:     4 * MB,
+		},
+		{
+			name:     "very large file (5 GB)",
+			fileSize: 5 * GB,
+			want:     4 * MB,
+		},
+		{
+			name:     "boundary at 10 GB",
+			fileSize: 10 * GB,
+			want:     8 * MB,
+		},
+		{
+			name:     "huge file (50 GB)",
+			fileSize: 50 * GB,
+			want:     8 * MB,
+		},
+		{
+			name:     "very huge file (1 TB)",
+			fileSize: 1 * TB,
+			want:     8 * MB,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := getMinPartSize(tt.fileSize)
+			if got != tt.want {
+				t.Errorf("getMinPartSize(%d) = %d, want %d", tt.fileSize, got, tt.want)
+			}
+		})
+	}
+}
+

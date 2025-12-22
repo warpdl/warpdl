@@ -36,7 +36,7 @@ const (
 	DEF_CHUNK_SIZE = 32 * KB
 	DEF_USER_AGENT = "Warp/1.0"
 
-	MIN_PART_SIZE = 512 * KB
+	MIN_PART_SIZE = 512 * KB // Deprecated: Use getMinPartSize instead
 )
 
 // MAIN_HASH is the identifier used for the main download hash.
@@ -216,4 +216,29 @@ func wlog(l *log.Logger, s string, a ...any) {
 		esc = "\r\n"
 	}
 	l.Printf(s+esc, a...)
+}
+
+// getMinPartSize returns the minimum part size based on the file size.
+// Larger files use larger minimum part sizes to improve stability and reduce
+// the number of parts that need to be managed.
+//
+// Size thresholds:
+// - < 10 MB: 512 KB
+// - 10 MB - 100 MB: 1 MB
+// - 100 MB - 1 GB: 2 MB
+// - 1 GB - 10 GB: 4 MB
+// - > 10 GB: 8 MB
+func getMinPartSize(fileSize int64) int64 {
+	switch {
+	case fileSize < 10*MB:
+		return 512 * KB
+	case fileSize < 100*MB:
+		return 1 * MB
+	case fileSize < 1*GB:
+		return 2 * MB
+	case fileSize < 10*GB:
+		return 4 * MB
+	default:
+		return 8 * MB
+	}
 }
