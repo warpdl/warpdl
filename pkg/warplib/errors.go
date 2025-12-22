@@ -24,4 +24,8 @@ var (
 	ErrFlushHashNotFound = errors.New("Item you are trying to flush is not found")
 	// ErrFlushItemDownloading is returned when attempting to flush a download item that is currently active.
 	ErrFlushItemDownloading = errors.New("Item you are trying to flush is currently downloading")
+
+	// ErrDownloadDataMissing is returned when download data files are missing or corrupted.
+	// User must run 'warpdl flush <hash>' to remove the corrupt entry.
+	ErrDownloadDataMissing = errors.New("download data is missing or corrupted, run 'warpdl flush <hash>' to remove")
 )
