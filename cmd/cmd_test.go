@@ -1121,3 +1121,75 @@ func TestListErrorResponse(t *testing.T) {
 		t.Fatalf("list: %v", err)
 	}
 }
+
+func TestFileExists(t *testing.T) {
+	tmpDir := t.TempDir()
+	
+	// Test non-existent file
+	if fileExists(filepath.Join(tmpDir, "nonexistent.txt")) {
+		t.Fatal("expected fileExists to return false for non-existent file")
+	}
+	
+	// Test existing file
+	testFile := filepath.Join(tmpDir, "test.txt")
+	if err := os.WriteFile(testFile, []byte("test"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if !fileExists(testFile) {
+		t.Fatal("expected fileExists to return true for existing file")
+	}
+	
+	// Test directory (should return false)
+	if fileExists(tmpDir) {
+		t.Fatal("expected fileExists to return false for directory")
+	}
+}
+
+func TestGenerateUniqueFileName(t *testing.T) {
+	tmpDir := t.TempDir()
+	
+	// Test when no file exists
+	name := generateUniqueFileName(tmpDir, "test.txt")
+	if name != "test.txt" {
+		t.Fatalf("expected 'test.txt', got: %s", name)
+	}
+	
+	// Create the first file
+	testFile := filepath.Join(tmpDir, "test.txt")
+	if err := os.WriteFile(testFile, []byte("test"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	
+	// Test when file exists - should get (1)
+	name = generateUniqueFileName(tmpDir, "test.txt")
+	if name != "test (1).txt" {
+		t.Fatalf("expected 'test (1).txt', got: %s", name)
+	}
+	
+	// Create the second file
+	testFile2 := filepath.Join(tmpDir, "test (1).txt")
+	if err := os.WriteFile(testFile2, []byte("test"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	
+	// Test when file and (1) exist - should get (2)
+	name = generateUniqueFileName(tmpDir, "test.txt")
+	if name != "test (2).txt" {
+		t.Fatalf("expected 'test (2).txt', got: %s", name)
+	}
+}
+
+func TestGenerateUniqueFileNameNoExtension(t *testing.T) {
+	tmpDir := t.TempDir()
+	
+	// Test file without extension
+	testFile := filepath.Join(tmpDir, "testfile")
+	if err := os.WriteFile(testFile, []byte("test"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	
+	name := generateUniqueFileName(tmpDir, "testfile")
+	if name != "testfile (1)" {
+		t.Fatalf("expected 'testfile (1)', got: %s", name)
+	}
+}
