@@ -222,3 +222,98 @@ func TestManagerResumeSuccess(t *testing.T) {
 		t.Fatalf("ResumeDownload: %v", err)
 	}
 }
+
+func TestManagerResumeDownload_MissingData(t *testing.T) {
+	base := t.TempDir()
+	if err := SetConfigDir(base); err != nil {
+		t.Fatalf("SetConfigDir: %v", err)
+	}
+	m, err := InitManager()
+	if err != nil {
+		t.Fatalf("InitManager: %v", err)
+	}
+	defer m.Close()
+
+	item := &Item{
+		Hash:             "h2",
+		Name:             "file.bin",
+		Url:              "http://example.com/file.bin",
+		TotalSize:        100,
+		Downloaded:       0,
+		DownloadLocation: base,
+		AbsoluteLocation: base,
+		Resumable:        true,
+		Parts:            make(map[int64]*ItemPart),
+		mu:               m.mu,
+		memPart:          make(map[string]int64),
+	}
+	m.UpdateItem(item)
+
+	// Do NOT create the dldata directory - should fail validation
+	_, err = m.ResumeDownload(&http.Client{}, item.Hash, &ResumeDownloadOpts{})
+	if err == nil {
+		t.Fatal("expected error for missing dldata directory")
+	}
+	if err.Error() == "" || !containsString(err.Error(), "download data") {
+		t.Fatalf("expected ErrDownloadDataMissing context, got %v", err)
+	}
+}
+
+func TestManagerResumeDownload_MissingPartFile(t *testing.T) {
+	base := t.TempDir()
+	if err := SetConfigDir(base); err != nil {
+		t.Fatalf("SetConfigDir: %v", err)
+	}
+	m, err := InitManager()
+	if err != nil {
+		t.Fatalf("InitManager: %v", err)
+	}
+	defer m.Close()
+
+	item := &Item{
+		Hash:             "h3",
+		Name:             "file.bin",
+		Url:              "http://example.com/file.bin",
+		TotalSize:        100,
+		Downloaded:       0,
+		DownloadLocation: base,
+		AbsoluteLocation: base,
+		Resumable:        true,
+		Parts:            make(map[int64]*ItemPart),
+		mu:               m.mu,
+		memPart:          make(map[string]int64),
+	}
+	// Add a part that doesn't have a corresponding file
+	item.Parts[0] = &ItemPart{
+		Hash:        "part1",
+		FinalOffset: 50,
+		Compiled:    false,
+	}
+	m.UpdateItem(item)
+
+	// Create the dldata directory but not the part file
+	if err := os.MkdirAll(filepath.Join(DlDataDir, item.Hash), 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	_, err = m.ResumeDownload(&http.Client{}, item.Hash, &ResumeDownloadOpts{})
+	if err == nil {
+		t.Fatal("expected error for missing part file")
+	}
+	if !containsString(err.Error(), "part file missing") {
+		t.Fatalf("expected part file missing error, got %v", err)
+	}
+}
+
+func containsString(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsSubstring(s, substr))
+}
+
+func containsSubstring(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}

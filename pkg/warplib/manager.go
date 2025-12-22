@@ -260,6 +260,10 @@ func (m *Manager) ResumeDownload(client *http.Client, hash string, opts *ResumeD
 		err = ErrDownloadNotResumable
 		return
 	}
+	// Validate integrity before attempting resume
+	if err = validateDownloadIntegrity(item); err != nil {
+		return
+	}
 	if item.Headers == nil {
 		item.Headers = make(Headers, 0)
 	}
