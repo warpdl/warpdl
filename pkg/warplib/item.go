@@ -177,3 +177,8 @@ func (i *Item) StopDownload() error {
 	i.dAlloc = nil // experimental
 	return nil
 }
+
+// IsDownloading returns true if the item is currently being downloaded.
+func (i *Item) IsDownloading() bool {
+	return i.dAlloc != nil
+}

@@ -53,6 +53,11 @@ func Execute(args []string, bArgs BuildArgs) error {
 				Usage:  "start the warpdl daemon",
 			},
 			{
+				Name:   "stop-daemon",
+				Action: stopDaemon,
+				Usage:  "stop the running daemon gracefully",
+			},
+			{
 				Name:               "info",
 				Aliases:            []string{"i"},
 				Usage:              "shows info about a file",

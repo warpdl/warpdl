@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -8,6 +9,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"sync"
 
 	"github.com/warpdl/warpdl/common"
 	"github.com/warpdl/warpdl/pkg/warplib"
@@ -15,10 +17,12 @@ import (
 )
 
 type WebServer struct {
-	port int
-	l    *log.Logger
-	m    *warplib.Manager
-	pool *Pool
+	port   int
+	l      *log.Logger
+	m      *warplib.Manager
+	pool   *Pool
+	server *http.Server
+	mu     sync.Mutex
 }
 
 type capturedDownload struct {
@@ -165,5 +169,27 @@ func (s *WebServer) addr() string {
 }
 
 func (s *WebServer) Start() error {
-	return http.ListenAndServe(s.addr(), s.handler())
+	s.mu.Lock()
+	s.server = &http.Server{
+		Addr:    s.addr(),
+		Handler: s.handler(),
+	}
+	s.mu.Unlock()
+
+	err := s.server.ListenAndServe()
+	if err == http.ErrServerClosed {
+		return nil // Expected during shutdown
+	}
+	return err
+}
+
+// Shutdown gracefully stops the web server.
+func (s *WebServer) Shutdown(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.server == nil {
+		return nil
+	}
+	return s.server.Shutdown(ctx)
 }

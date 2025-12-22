@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -44,7 +45,7 @@ func TestDaemonStartStub(t *testing.T) {
 		cm = m
 		return m, err
 	}
-	startServerFunc = func(*server.Server) error { return nil }
+	startServerFunc = func(*server.Server, context.Context) error { return nil }
 	defer func() {
 		cookieManagerFunc = oldCookie
 		startServerFunc = oldStart

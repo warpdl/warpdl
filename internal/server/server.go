@@ -1,11 +1,14 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"os"
+	"sync"
+	"time"
 
 	"github.com/warpdl/warpdl/common"
 	"github.com/warpdl/warpdl/pkg/warplib"
@@ -15,11 +18,13 @@ import (
 // It dispatches incoming requests to registered handlers and manages
 // the connection pool for active downloads.
 type Server struct {
-	log     *log.Logger
-	pool    *Pool
-	ws      *WebServer
-	handler map[common.UpdateType]HandlerFunc
-	port    int
+	log      *log.Logger
+	pool     *Pool
+	ws       *WebServer
+	handler  map[common.UpdateType]HandlerFunc
+	port     int
+	listener net.Listener
+	mu       sync.Mutex
 }
 
 // NewServer creates a new Server instance with the given logger, download manager,
@@ -62,27 +67,72 @@ func (s *Server) createListener() (net.Listener, error) {
 	return l, nil
 }
 
-// Start begins listening for incoming connections and blocks until an error occurs.
+// Start begins listening for incoming connections and blocks until the context is canceled.
 // It first starts the web server in a separate goroutine, then creates a Unix socket
 // listener (falling back to TCP if necessary) and accepts connections in a loop.
 // Each connection is handled in its own goroutine.
-func (s *Server) Start() error {
-	// todo: handle error
+func (s *Server) Start(ctx context.Context) error {
+	// Start web server in background
 	go s.ws.Start()
+
 	l, err := s.createListener()
 	if err != nil {
 		return err
 	}
-	defer l.Close()
+
+	s.mu.Lock()
+	s.listener = l
+	s.mu.Unlock()
+
+	// Watch for context cancellation to trigger shutdown
+	go func() {
+		<-ctx.Done()
+		s.Shutdown()
+	}()
+
 	for {
 		conn, err := l.Accept()
 		if err != nil {
+			// Check if we're shutting down
+			select {
+			case <-ctx.Done():
+				return nil // Clean shutdown
+			default:
+			}
 			s.log.Println("Error accepting: ", err.Error())
 			continue
 		}
 		// Handle connections in a new goroutine.
 		go s.handleConnection(conn)
 	}
+}
+
+// Shutdown gracefully stops the server by closing the listener and removing the socket file.
+func (s *Server) Shutdown() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.listener != nil {
+		if err := s.listener.Close(); err != nil {
+			s.log.Printf("Error closing listener: %v", err)
+		}
+		s.listener = nil
+	}
+
+	// Shutdown web server with timeout
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := s.ws.Shutdown(shutdownCtx); err != nil {
+		s.log.Printf("Error shutting down web server: %v", err)
+	}
+
+	// Remove socket file
+	socketPath := socketPath()
+	if err := os.Remove(socketPath); err != nil && !os.IsNotExist(err) {
+		s.log.Printf("Error removing socket file: %v", err)
+	}
+
+	return nil
 }
 
 func (s *Server) handleConnection(conn net.Conn) {
