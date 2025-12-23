@@ -35,6 +35,8 @@ type DownloadOpts struct {
 	IsChildren bool `json:"is_children,omitempty"`
 	// Overwrite allows replacing an existing file at the destination path.
 	Overwrite bool `json:"overwrite,omitempty"`
+	// Proxy specifies the proxy server URL for this download.
+	Proxy string `json:"proxy,omitempty"`
 }
 
 // Download initiates a new download from the specified URL.
@@ -57,6 +59,7 @@ func (c *Client) Download(url, fileName, downloadDirectory string, opts *Downloa
 		IsHidden:          opts.IsHidden,
 		IsChildren:        opts.IsChildren,
 		Overwrite:         opts.Overwrite,
+		Proxy:             opts.Proxy,
 	})
 }
 
@@ -71,6 +74,8 @@ type ResumeOpts struct {
 	MaxConnections int32 `json:"max_connections,omitempty"`
 	// MaxSegments limits the maximum number of download segments.
 	MaxSegments int32 `json:"max_segments,omitempty"`
+	// Proxy specifies the proxy server URL for resuming this download.
+	Proxy string `json:"proxy,omitempty"`
 }
 
 // Resume resumes a previously paused or interrupted download.
@@ -87,6 +92,7 @@ func (c *Client) Resume(downloadId string, opts *ResumeOpts) (*common.ResumeResp
 		ForceParts:     opts.ForceParts,
 		MaxConnections: opts.MaxConnections,
 		MaxSegments:    opts.MaxSegments,
+		Proxy:          opts.Proxy,
 	})
 }
 

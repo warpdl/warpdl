@@ -15,6 +15,7 @@ import (
 var (
 	dlPath   string
 	fileName string
+	proxyURL string
 
 	dlFlags = []cli.Flag{
 		cli.StringFlag{
@@ -31,6 +32,12 @@ var (
 		cli.BoolFlag{
 			Name:  "overwrite, y",
 			Usage: "overwrite existing file at destination path",
+		},
+		cli.StringFlag{
+			Name:        "proxy",
+			Usage:       "proxy server URL (http://host:port, https://host:port, socks5://host:port)",
+			EnvVar:      "WARPDL_PROXY",
+			Destination: &proxyURL,
 		},
 	}
 )
@@ -71,12 +78,19 @@ func download(ctx *cli.Context) (err error) {
 	if dlPath == "" {
 		dlPath = cwd
 	}
+	if proxyURL != "" {
+		if _, err := warplib.ParseProxyURL(proxyURL); err != nil {
+			common.PrintRuntimeErr(ctx, "download", "invalid_proxy", err)
+			return nil
+		}
+	}
 	d, err := client.Download(url, fileName, dlPath, &warpcli.DownloadOpts{
 		ForceParts:     forceParts,
 		MaxConnections: int32(maxConns),
 		MaxSegments:    int32(maxParts),
 		Headers:        headers,
 		Overwrite:      ctx.Bool("overwrite"),
+		Proxy:          proxyURL,
 	})
 	if err != nil {
 		common.PrintRuntimeErr(ctx, "info", "download", err)

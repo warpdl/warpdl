@@ -39,8 +39,19 @@ func info(ctx *cli.Context) error {
 			Key: warplib.USER_AGENT_KEY, Value: getUserAgent(userAgent),
 		}}
 	}
+	var httpClient *http.Client
+	if proxyURL != "" {
+		var err error
+		httpClient, err = warplib.NewHTTPClientWithProxy(proxyURL)
+		if err != nil {
+			common.PrintRuntimeErr(ctx, "info", "invalid_proxy", err)
+			return nil
+		}
+	} else {
+		httpClient = &http.Client{}
+	}
 	d, err := warplib.NewDownloader(
-		&http.Client{},
+		httpClient,
 		url,
 		&warplib.DownloaderOpts{
 			Headers:   headers,

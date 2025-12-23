@@ -71,11 +71,18 @@ func resume(ctx *cli.Context) (err error) {
 	}
 	client.CheckVersionMismatch(currentBuildArgs.Version)
 	fmt.Println(">> Initiating a WARP download << ")
+	if proxyURL != "" {
+		if _, err := warplib.ParseProxyURL(proxyURL); err != nil {
+			common.PrintRuntimeErr(ctx, "resume", "invalid_proxy", err)
+			return nil
+		}
+	}
 	r, err := client.Resume(hash, &warpcli.ResumeOpts{
 		ForceParts:     forceParts,
 		MaxConnections: int32(maxConns),
 		MaxSegments:    int32(maxParts),
 		Headers:        headers,
+		Proxy:          proxyURL,
 	})
 	if err != nil {
 		common.PrintRuntimeErr(ctx, "resume", "client-resume", err)

@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"github.com/warpdl/warpdl/common"
 	"github.com/warpdl/warpdl/internal/server"
@@ -94,13 +95,28 @@ func (s *Api) resumeHandler(sconn *server.SyncConn, pool *server.Pool, body json
 	if err := json.Unmarshal(body, &m); err != nil {
 		return common.UPDATE_RESUME, nil, err
 	}
+
+	// Determine which client to use based on proxy setting
+	rsClient := s.client
+	if m.Proxy != "" {
+		var err error
+		rsClient, err = warplib.NewHTTPClientWithProxy(m.Proxy)
+		if err != nil {
+			return common.UPDATE_RESUME, nil, fmt.Errorf("invalid proxy URL: %w", err)
+		}
+		// Preserve cookie jar from default client
+		if s.client.Jar != nil {
+			rsClient.Jar = s.client.Jar
+		}
+	}
+
 	var (
 		err          error
 		item         *warplib.Item
 		hash         = &m.DownloadId
 		stopDownload = &__stop
 	)
-	item, err = s.manager.ResumeDownload(s.client, m.DownloadId, &warplib.ResumeDownloadOpts{
+	item, err = s.manager.ResumeDownload(rsClient, m.DownloadId, &warplib.ResumeDownloadOpts{
 		Headers:        m.Headers,
 		ForceParts:     m.ForceParts,
 		MaxConnections: m.MaxConnections,
@@ -116,7 +132,7 @@ func (s *Api) resumeHandler(sconn *server.SyncConn, pool *server.Pool, body json
 	var cItem *warplib.Item
 	if item.ChildHash != "" {
 		var cStopDownload = &__stop
-		cItem, err = s.manager.ResumeDownload(s.client, item.ChildHash, &warplib.ResumeDownloadOpts{
+		cItem, err = s.manager.ResumeDownload(rsClient, item.ChildHash, &warplib.ResumeDownloadOpts{
 			Headers:        m.Headers,
 			ForceParts:     m.ForceParts,
 			MaxConnections: m.MaxConnections,

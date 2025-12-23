@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"github.com/warpdl/warpdl/common"
 	"github.com/warpdl/warpdl/internal/server"
@@ -13,6 +14,21 @@ func (s *Api) downloadHandler(sconn *server.SyncConn, pool *server.Pool, body js
 	if err := json.Unmarshal(body, &m); err != nil {
 		return common.UPDATE_DOWNLOAD, nil, err
 	}
+
+	// Determine which client to use based on proxy setting
+	dlClient := s.client
+	if m.Proxy != "" {
+		var err error
+		dlClient, err = warplib.NewHTTPClientWithProxy(m.Proxy)
+		if err != nil {
+			return common.UPDATE_DOWNLOAD, nil, fmt.Errorf("invalid proxy URL: %w", err)
+		}
+		// Preserve cookie jar from default client
+		if s.client.Jar != nil {
+			dlClient.Jar = s.client.Jar
+		}
+	}
+
 	var (
 		d *warplib.Downloader
 	)
@@ -21,7 +37,7 @@ func (s *Api) downloadHandler(sconn *server.SyncConn, pool *server.Pool, body js
 		s.log.Printf("failed to extract URL from extension: %s\n", err.Error())
 		url = m.Url
 	}
-	d, err = warplib.NewDownloader(s.client, url, &warplib.DownloaderOpts{
+	d, err = warplib.NewDownloader(dlClient, url, &warplib.DownloaderOpts{
 		Headers:           m.Headers,
 		ForceParts:        m.ForceParts,
 		FileName:          m.FileName,

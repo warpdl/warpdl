@@ -36,6 +36,8 @@ type DownloadParams struct {
 	IsChildren bool `json:"is_children,omitempty"`
 	// Overwrite allows replacing an existing file at the destination path.
 	Overwrite bool `json:"overwrite,omitempty"`
+	// Proxy specifies the proxy server URL (http, https, or socks5) for the download.
+	Proxy string `json:"proxy,omitempty"`
 }
 
 // DownloadResponse contains the server response after initiating a download.
@@ -82,6 +84,8 @@ type ResumeParams struct {
 	MaxConnections int32 `json:"max_connections,omitempty"`
 	// MaxSegments limits the maximum number of download segments.
 	MaxSegments int32 `json:"max_segments,omitempty"`
+	// Proxy specifies the proxy server URL (http, https, or socks5) for the resume.
+	Proxy string `json:"proxy,omitempty"`
 }
 
 // ResumeResponse contains the server response after resuming a download.

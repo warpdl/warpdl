@@ -117,6 +117,11 @@ type DownloaderOpts struct {
 	// Overwrite allows replacing an existing file at the destination path.
 	// If false and the file exists, the download will fail with ErrFileExists.
 	Overwrite bool
+
+	// ProxyURL specifies the proxy server URL to use for the download.
+	// Supported schemes: http, https, socks5.
+	// Example: "http://proxy.example.com:8080" or "socks5://localhost:1080"
+	ProxyURL string
 }
 
 // NewDownloader creates a new downloader with provided arguments.
