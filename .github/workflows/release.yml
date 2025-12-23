@@ -90,20 +90,18 @@ jobs:
           # Note: Raw archives (tar.gz, zip) are available on GitHub Releases
           # Cloudsmith is used only for native package repositories (deb/rpm/apk)
 
-          # Upload deb packages to multiple distros
+          # Upload deb packages (universal - works on any Debian/Ubuntu)
           for file in dist/*.deb; do
             [ -f "$file" ] || continue
             filename=$(basename "$file")
             echo "Uploading deb: $filename"
-            for distro_release in "ubuntu/focal" "ubuntu/jammy" "ubuntu/noble" "debian/bookworm" "debian/bullseye"; do
-              if cloudsmith push deb "warpdl/warpdl/${distro_release}" "$file" \
-                --republish --no-wait-for-sync; then
-                SUCCESS=$((SUCCESS + 1))
-              else
-                echo "::warning::Failed to upload: $filename to $distro_release"
-                FAILED=$((FAILED + 1))
-              fi
-            done
+            if cloudsmith push deb "warpdl/warpdl/any-distro/any-version" "$file" \
+              --republish --no-wait-for-sync; then
+              SUCCESS=$((SUCCESS + 1))
+            else
+              echo "::warning::Failed to upload: $filename"
+              FAILED=$((FAILED + 1))
+            fi
           done
 
           # Upload rpm packages (any-distro/any-version for universal compatibility)
@@ -120,20 +118,18 @@ jobs:
             fi
           done
 
-          # Upload apk packages to multiple Alpine versions
+          # Upload apk packages (universal - works on any Alpine version)
           for file in dist/*.apk; do
             [ -f "$file" ] || continue
             filename=$(basename "$file")
             echo "Uploading apk: $filename"
-            for alpine_version in "v3.18" "v3.19" "v3.20"; do
-              if cloudsmith push alpine "warpdl/warpdl/alpine/${alpine_version}" "$file" \
-                --republish --no-wait-for-sync; then
-                SUCCESS=$((SUCCESS + 1))
-              else
-                echo "::warning::Failed to upload: $filename to alpine/$alpine_version"
-                FAILED=$((FAILED + 1))
-              fi
-            done
+            if cloudsmith push alpine "warpdl/warpdl/alpine/any-version" "$file" \
+              --republish --no-wait-for-sync; then
+              SUCCESS=$((SUCCESS + 1))
+            else
+              echo "::warning::Failed to upload: $filename"
+              FAILED=$((FAILED + 1))
+            fi
           done
 
           echo "========================================"
