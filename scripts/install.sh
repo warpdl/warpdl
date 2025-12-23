@@ -285,12 +285,16 @@ ensure_sudo() {
 }
 
 # Run a script from stdin with sudo if available
-# Uses sh instead of bash for Alpine/busybox compatibility
+# Cloudsmith setup scripts require bash (they use function keyword, local, etc.)
 run_setup_script() {
+  if ! command -v bash > /dev/null 2>&1; then
+    log_warning "bash not found, skipping Cloudsmith repository setup"
+    return 1
+  fi
   if [ -n "$SUDO" ]; then
-    $SUDO -E sh
+    $SUDO -E bash
   else
-    sh
+    bash
   fi
 }
 
