@@ -16,10 +16,15 @@
   </p>
 </p>
 
-[![CI](https://github.com/warpdl/warpdl/actions/workflows/ci.yml/badge.svg)](https://github.com/warpdl/warpdl/actions/workflows/ci.yml) [![Release](https://github.com/warpdl/warpdl/actions/workflows/release.yml/badge.svg)](https://github.com/warpdl/warpdl/actions/workflows/release.yml) ![Downloads](https://img.shields.io/github/downloads/warpdl/warpdl/total) ![Contributors](https://img.shields.io/github/contributors/warpdl/warpdl?color=dark-green) ![Issues](https://img.shields.io/github/issues/warpdl/warpdl) ![License](https://img.shields.io/github/license/warpdl/warpdl) 
+<div align="center">
 
+[![CI](https://github.com/warpdl/warpdl/actions/workflows/ci.yml/badge.svg)](https://github.com/warpdl/warpdl/actions/workflows/ci.yml) [![Release](https://github.com/warpdl/warpdl/actions/workflows/release.yml/badge.svg)](https://github.com/warpdl/warpdl/actions/workflows/release.yml)
 
-**Note**: This branch is the development branch. For the latest stable release, please refer to the [main branch](https://github.com/warpdl/warpdl/tree/main).
+![Downloads](https://img.shields.io/github/downloads/warpdl/warpdl/total?style=flat-square) ![Contributors](https://img.shields.io/github/contributors/warpdl/warpdl?color=dark-green&style=flat-square) ![Issues](https://img.shields.io/github/issues/warpdl/warpdl?style=flat-square) ![License](https://img.shields.io/github/license/warpdl/warpdl?style=flat-square) [![Hosted By: Cloudsmith](https://img.shields.io/badge/OSS%20hosting%20by-cloudsmith-blue?logo=cloudsmith&style=flat-square)](https://cloudsmith.com)
+
+</div>
+
+**Note**: This branch is the development branch.
 
 ## Table Of Contents
 
