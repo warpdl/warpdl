@@ -33,6 +33,8 @@ type DownloadOpts struct {
 	IsHidden bool `json:"is_hidden,omitempty"`
 	// IsChildren indicates this is a child download of a parent batch.
 	IsChildren bool `json:"is_children,omitempty"`
+	// Overwrite allows replacing an existing file at the destination path.
+	Overwrite bool `json:"overwrite,omitempty"`
 }
 
 // Download initiates a new download from the specified URL.
@@ -54,6 +56,7 @@ func (c *Client) Download(url, fileName, downloadDirectory string, opts *Downloa
 		ChildHash:         opts.ChildHash,
 		IsHidden:          opts.IsHidden,
 		IsChildren:        opts.IsChildren,
+		Overwrite:         opts.Overwrite,
 	})
 }
 

@@ -28,6 +28,10 @@ var (
 			Value:       "",
 			Destination: &dlPath,
 		},
+		cli.BoolFlag{
+			Name:  "overwrite, y",
+			Usage: "overwrite existing file at destination path",
+		},
 	}
 )
 
@@ -72,6 +76,7 @@ func download(ctx *cli.Context) (err error) {
 		MaxConnections: int32(maxConns),
 		MaxSegments:    int32(maxParts),
 		Headers:        headers,
+		Overwrite:      ctx.Bool("overwrite"),
 	})
 	if err != nil {
 		common.PrintRuntimeErr(ctx, "info", "download", err)

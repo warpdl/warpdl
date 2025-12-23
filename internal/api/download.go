@@ -28,6 +28,7 @@ func (s *Api) downloadHandler(sconn *server.SyncConn, pool *server.Pool, body js
 		DownloadDirectory: m.DownloadDirectory,
 		MaxConnections:    m.MaxConnections,
 		MaxSegments:       m.MaxSegments,
+		Overwrite:         m.Overwrite,
 		Handlers: &warplib.Handlers{
 			ErrorHandler: func(_ string, err error) {
 				uid := d.GetHash()

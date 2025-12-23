@@ -34,6 +34,8 @@ type DownloadParams struct {
 	IsHidden bool `json:"is_hidden,omitempty"`
 	// IsChildren indicates whether this download is a child of another download.
 	IsChildren bool `json:"is_children,omitempty"`
+	// Overwrite allows replacing an existing file at the destination path.
+	Overwrite bool `json:"overwrite,omitempty"`
 }
 
 // DownloadResponse contains the server response after initiating a download.

@@ -34,4 +34,7 @@ var (
 
 	// ErrPrematureEOF is returned when EOF occurs before expected bytes are received.
 	ErrPrematureEOF = errors.New("premature EOF: connection closed before download complete")
+
+	// ErrFileExists is returned when attempting to download to a path where a file already exists.
+	ErrFileExists = errors.New("file already exists at destination path")
 )

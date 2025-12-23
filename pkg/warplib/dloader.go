@@ -48,6 +48,9 @@ type Downloader struct {
 	// split the file into segments even if it doesn't
 	// have accept-ranges header.
 	force bool
+	// overwrite controls whether to overwrite existing files
+	// at the destination path.
+	overwrite bool
 	// Handlers to be triggered while different events.
 	handlers *Handlers
 	// unique hash of this download
@@ -69,6 +72,16 @@ type Downloader struct {
 	resumable bool
 	// retryConfig holds retry configuration for transient errors
 	retryConfig *RetryConfig
+}
+
+// DownloaderOptsFunc is a functional option for configuring a Downloader.
+type DownloaderOptsFunc func(*Downloader)
+
+// WithOverwrite sets whether to overwrite existing files at the destination path.
+func WithOverwrite(overwrite bool) DownloaderOptsFunc {
+	return func(d *Downloader) {
+		d.overwrite = overwrite
+	}
 }
 
 // Optional fields of downloader
@@ -100,11 +113,15 @@ type DownloaderOpts struct {
 	// RetryConfig configures retry behavior for transient errors.
 	// If nil, DefaultRetryConfig() is used.
 	RetryConfig *RetryConfig
+
+	// Overwrite allows replacing an existing file at the destination path.
+	// If false and the file exists, the download will fail with ErrFileExists.
+	Overwrite bool
 }
 
 // NewDownloader creates a new downloader with provided arguments.
 // Use downloader.Start() to download the file.
-func NewDownloader(client *http.Client, url string, opts *DownloaderOpts) (d *Downloader, err error) {
+func NewDownloader(client *http.Client, url string, opts *DownloaderOpts, optFuncs ...DownloaderOptsFunc) (d *Downloader, err error) {
 	if opts == nil {
 		opts = &DownloaderOpts{}
 	}
@@ -154,7 +171,14 @@ func NewDownloader(client *http.Client, url string, opts *DownloaderOpts) (d *Do
 		headers:     opts.Headers,
 		resumable:   true,
 		retryConfig: retryConfig,
+		overwrite:   opts.Overwrite,
 	}
+
+	// Apply functional options
+	for _, optFunc := range optFuncs {
+		optFunc(d)
+	}
+
 	err = d.fetchInfo()
 	if err != nil {
 		return
@@ -193,7 +217,7 @@ func NewDownloader(client *http.Client, url string, opts *DownloaderOpts) (d *Do
 
 // initDownloader initializes a downloader with provided arguments.
 // Use downloader.Start() to download the file.
-func initDownloader(client *http.Client, hash, url string, cLength ContentLength, opts *DownloaderOpts) (d *Downloader, err error) {
+func initDownloader(client *http.Client, hash, url string, cLength ContentLength, opts *DownloaderOpts, optFuncs ...DownloaderOptsFunc) (d *Downloader, err error) {
 	if opts == nil {
 		opts = &DownloaderOpts{}
 	}
@@ -245,7 +269,14 @@ func initDownloader(client *http.Client, hash, url string, cLength ContentLength
 		hash:          hash,
 		dlPath:        fmt.Sprintf("%s/%s/", DlDataDir, hash),
 		retryConfig:   retryConfig,
+		overwrite:     opts.Overwrite,
 	}
+
+	// Apply functional options
+	for _, optFunc := range optFuncs {
+		optFunc(d)
+	}
+
 	if !dirExists(d.dlPath) {
 		err = errors.New("path to downloaded content doesn't exist")
 		return
@@ -353,11 +384,20 @@ func (d *Downloader) Resume(parts map[int64]*ItemPart) (err error) {
 }
 
 func (d *Downloader) openFile() (err error) {
-	// d.fName = d.dlPath + "warp.dl"
-	d.f, err = os.OpenFile(d.GetSavePath(),
-		os.O_RDWR|os.O_CREATE,
-		0666,
-	)
+	savePath := d.GetSavePath()
+
+	// Check if file already exists
+	if _, statErr := os.Stat(savePath); statErr == nil {
+		if !d.overwrite {
+			return fmt.Errorf("%w: %s", ErrFileExists, savePath)
+		}
+		// File exists and overwrite=true, truncate it
+		d.f, err = os.OpenFile(savePath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
+		return
+	}
+
+	// File doesn't exist, create normally
+	d.f, err = os.OpenFile(savePath, os.O_RDWR|os.O_CREATE, 0666)
 	return
 }
 
