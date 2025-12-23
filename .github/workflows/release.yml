@@ -66,7 +66,7 @@ jobs:
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
           GORELEASER_CURRENT_TAG: ${{ github.event.inputs.tag || github.ref_name }}
 
-      - name: Upload artifacts to Cloudsmith
+      - name: Upload native packages to Cloudsmith
         env:
           CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
         run: |
@@ -87,39 +87,8 @@ jobs:
           SUCCESS=0
           FAILED=0
 
-          # Upload raw archives (tar.gz)
-          for file in dist/warpdl_${VERSION}_*.tar.gz; do
-            [ -f "$file" ] || continue
-            filename=$(basename "$file")
-            echo "Uploading raw: $filename"
-            if cloudsmith push raw warpdl/warpdl "$file" \
-              --name "warpdl" \
-              --version "$VERSION" \
-              --summary "WarpDL CLI binary archive" \
-              --no-wait-for-sync; then
-              SUCCESS=$((SUCCESS + 1))
-            else
-              echo "::warning::Failed to upload: $filename"
-              FAILED=$((FAILED + 1))
-            fi
-          done
-
-          # Upload raw archives (zip - Windows)
-          for file in dist/warpdl_${VERSION}_*.zip; do
-            [ -f "$file" ] || continue
-            filename=$(basename "$file")
-            echo "Uploading raw: $filename"
-            if cloudsmith push raw warpdl/warpdl "$file" \
-              --name "warpdl" \
-              --version "$VERSION" \
-              --summary "WarpDL CLI binary archive (Windows)" \
-              --no-wait-for-sync; then
-              SUCCESS=$((SUCCESS + 1))
-            else
-              echo "::warning::Failed to upload: $filename"
-              FAILED=$((FAILED + 1))
-            fi
-          done
+          # Note: Raw archives (tar.gz, zip) are available on GitHub Releases
+          # Cloudsmith is used only for native package repositories (deb/rpm/apk)
 
           # Upload deb packages to multiple distros
           for file in dist/*.deb; do
