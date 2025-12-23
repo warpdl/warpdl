@@ -55,36 +55,114 @@ You will need the following things for building warpdl binary:
 
 ### Installation
 
-- Building form source:
+#### Quick Install (Recommended)
 
-  1. Run the following command in the repo directory of warpdl:
-      ```go mod tidy```
-  
-  2. Build the daemon and cli using standard go build command:
-      ```go build -ldflags="-s -w" ./cmd/warpd```
-      ```go build -ldflags="-s -w" ./cmd/warpdl```
-  
-  3. Add the binary to `PATH` environment variable.
+```bash
+curl -fsSL https://raw.githubusercontent.com/warpdl/warpdl/dev/scripts/install.sh | sh
+```
 
-- Installing through package managers:
-  - Scoop (Windows):
-      ```
-      scoop bucket add warpdl https://github.com/warpdl/scoop-bucket
-      scoop install warpdl
-      ```
-  - Homebrew:
-      ```
-      brew install warpdl/tap/warpdl
-      ```
-- Installing through official bash script:
-  ```
-  curl -fsSL https://raw.githubusercontent.com/warpdl/warpdl/dev/scripts/install.sh | sh
-  ```
-- Other
+This automatically:
+- **Linux (Debian/Ubuntu/Fedora/Alpine):** Sets up Cloudsmith repo for auto-updates + systemd service
+- **macOS/BSD:** Downloads binary directly (suggests Homebrew)
+- **Windows (Git Bash):** Downloads binary directly (suggests Scoop)
 
-  You can download all binaries and release artifacts from the [Releases](https://github.com/warpdl/warpdl/releases/latest) page. Binaries are built for macOS, Linux, Windows, FreeBSD, OpenBSD, and NetBSD, and for 32-bit, 64-bit, armv6/armv7, and armv6/armv7 64-bit architectures.
+#### Alternative Methods
 
-  If a binary does not yet exist for the OS/architecture you use, please open a GitHub Issue.
+<details>
+<summary>Homebrew (macOS)</summary>
+
+```bash
+brew install warpdl/tap/warpdl
+```
+</details>
+
+<details>
+<summary>Scoop (Windows)</summary>
+
+```powershell
+scoop bucket add warpdl https://github.com/warpdl/scoop-bucket
+scoop install warpdl
+```
+</details>
+
+<details>
+<summary>Manual Package Manager Setup</summary>
+
+**Debian/Ubuntu:**
+```bash
+curl -1sLf 'https://dl.cloudsmith.io/public/warpdl/warpdl/setup.deb.sh' | sudo bash
+sudo apt install warpdl
+```
+
+**Fedora/RHEL/CentOS:**
+```bash
+curl -1sLf 'https://dl.cloudsmith.io/public/warpdl/warpdl/setup.rpm.sh' | sudo bash
+sudo dnf install warpdl
+```
+
+**Alpine Linux:**
+```bash
+curl -1sLf 'https://dl.cloudsmith.io/public/warpdl/warpdl/setup.alpine.sh' | sudo -E bash
+sudo apk add warpdl
+```
+</details>
+
+<details>
+<summary>Binary Only (no repo setup)</summary>
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/warpdl/warpdl/dev/scripts/install.sh | sh -s -- --no-repo
+```
+</details>
+
+<details>
+<summary>Build from Source</summary>
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/warpdl/warpdl
+   cd warpdl
+   ```
+
+2. Build:
+   ```bash
+   go mod tidy
+   go build -ldflags="-s -w" .
+   ```
+
+3. Add the binary to your `PATH`.
+</details>
+
+<details>
+<summary>Manual Download</summary>
+
+Download binaries from the [Releases](https://github.com/warpdl/warpdl/releases/latest) page. Available for macOS, Linux, Windows, FreeBSD, OpenBSD, and NetBSD across multiple architectures.
+</details>
+
+### Optional: Enable Systemd User Service
+
+WarpDL can optionally run as a systemd user service for auto-start on login:
+
+```bash
+# Reload systemd user daemon to discover new service
+systemctl --user daemon-reload
+
+# Enable and start the service
+systemctl --user enable --now warpdl.service
+
+# Check status
+systemctl --user status warpdl.service
+
+# View logs
+journalctl --user -u warpdl.service
+```
+
+For servers (start at boot without login):
+```bash
+sudo loginctl enable-linger $USER
+```
+
+Note: The systemd service is optional. WarpDL daemon auto-starts when needed for regular CLI usage.
 
 ### Uninstallation
 

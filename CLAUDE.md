@@ -60,8 +60,8 @@ CLI Command → pkg/warpcli → Unix socket → internal/server → internal/api
 
 ### Storage Locations
 
-- Downloads metadata: `~/.config/warp/userdata.warp`
-- Extensions: `~/.local/share/warp/extstore/`
+- Downloads metadata: `~/.config/warpdl/userdata.warp`
+- Extensions: `~/.config/warpdl/extstore/`
 - Daemon socket: `/tmp/warpdl.sock`
 
 ## Commit Message Format

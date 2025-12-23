@@ -22,6 +22,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          ref: ${{ github.event.inputs.tag || github.ref }}
 
       - name: Configure git
         run: |
@@ -63,6 +64,115 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          GORELEASER_CURRENT_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
+      - name: Upload artifacts to Cloudsmith
+        env:
+          CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
+        run: |
+          # Determine version based on trigger type
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # Manual trigger - use the provided tag input
+            VERSION="${{ github.event.inputs.tag }}"
+            VERSION="${VERSION#v}"
+          else
+            # Tag push trigger - use the ref name
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+
+          echo "Release version: $VERSION"
+          pip install cloudsmith-cli
+
+          # Track upload success/failure
+          SUCCESS=0
+          FAILED=0
+
+          # Upload raw archives (tar.gz)
+          for file in dist/warpdl_${VERSION}_*.tar.gz; do
+            [ -f "$file" ] || continue
+            filename=$(basename "$file")
+            echo "Uploading raw: $filename"
+            if cloudsmith push raw warpdl/warpdl "$file" \
+              --name "warpdl" \
+              --version "$VERSION" \
+              --summary "WarpDL CLI binary archive" \
+              --no-wait-for-sync; then
+              SUCCESS=$((SUCCESS + 1))
+            else
+              echo "::warning::Failed to upload: $filename"
+              FAILED=$((FAILED + 1))
+            fi
+          done
+
+          # Upload raw archives (zip - Windows)
+          for file in dist/warpdl_${VERSION}_*.zip; do
+            [ -f "$file" ] || continue
+            filename=$(basename "$file")
+            echo "Uploading raw: $filename"
+            if cloudsmith push raw warpdl/warpdl "$file" \
+              --name "warpdl" \
+              --version "$VERSION" \
+              --summary "WarpDL CLI binary archive (Windows)" \
+              --no-wait-for-sync; then
+              SUCCESS=$((SUCCESS + 1))
+            else
+              echo "::warning::Failed to upload: $filename"
+              FAILED=$((FAILED + 1))
+            fi
+          done
+
+          # Upload deb packages to multiple distros
+          for file in dist/*.deb; do
+            [ -f "$file" ] || continue
+            filename=$(basename "$file")
+            echo "Uploading deb: $filename"
+            for distro_release in "ubuntu/focal" "ubuntu/jammy" "ubuntu/noble" "debian/bookworm" "debian/bullseye"; do
+              if cloudsmith push deb "warpdl/warpdl/${distro_release}" "$file" \
+                --republish --no-wait-for-sync; then
+                SUCCESS=$((SUCCESS + 1))
+              else
+                echo "::warning::Failed to upload: $filename to $distro_release"
+                FAILED=$((FAILED + 1))
+              fi
+            done
+          done
+
+          # Upload rpm packages (any-distro/any-version for universal compatibility)
+          for file in dist/*.rpm; do
+            [ -f "$file" ] || continue
+            filename=$(basename "$file")
+            echo "Uploading rpm: $filename"
+            if cloudsmith push rpm warpdl/warpdl/any-distro/any-version "$file" \
+              --republish --no-wait-for-sync; then
+              SUCCESS=$((SUCCESS + 1))
+            else
+              echo "::warning::Failed to upload: $filename"
+              FAILED=$((FAILED + 1))
+            fi
+          done
+
+          # Upload apk packages to multiple Alpine versions
+          for file in dist/*.apk; do
+            [ -f "$file" ] || continue
+            filename=$(basename "$file")
+            echo "Uploading apk: $filename"
+            for alpine_version in "v3.18" "v3.19" "v3.20"; do
+              if cloudsmith push alpine "warpdl/warpdl/alpine/${alpine_version}" "$file" \
+                --republish --no-wait-for-sync; then
+                SUCCESS=$((SUCCESS + 1))
+              else
+                echo "::warning::Failed to upload: $filename to alpine/$alpine_version"
+                FAILED=$((FAILED + 1))
+              fi
+            done
+          done
+
+          echo "========================================"
+          echo "Cloudsmith upload summary: $SUCCESS succeeded, $FAILED failed"
+          echo "========================================"
+          if [ "$FAILED" -gt 0 ]; then
+            echo "::warning::Some Cloudsmith uploads failed ($FAILED). Check logs above for details."
+          fi
 
       - name: Patch Scoop manifest with pre_uninstall hook
         run: |

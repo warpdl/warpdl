@@ -1,0 +1,19 @@
+[Unit]
+Description=WarpDL Download Manager Daemon
+Documentation=https://github.com/warpdl/warpdl
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/warpdl daemon
+ExecStop=/usr/local/bin/warpdl stop-daemon
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=no
+ReadWritePaths=%h/.config/warpdl /tmp
+Environment=HOME=%h
+
+[Install]
+WantedBy=default.target

@@ -11,11 +11,13 @@ get_latest_release() {
   if command -v curl > /dev/null 2>&1; then
     curl -sL "https://api.github.com/repos/warpdl/warpdl/releases/latest" |
       grep '"tag_name":' |
-      sed -E 's/.*"([^"]+)".*/\1/'
+      sed 's/.*"tag_name": *"//' |
+      sed 's/".*//'
   elif command -v wget > /dev/null 2>&1; then
     wget -qO- "https://api.github.com/repos/warpdl/warpdl/releases/latest" |
       grep '"tag_name":' |
-      sed -E 's/.*"([^"]+)".*/\1/'
+      sed 's/.*"tag_name": *"//' |
+      sed 's/".*//'
   else
     echo "v1.1.1"  # fallback version
   fi
@@ -35,12 +37,21 @@ OS="unknown"
 ARCH="unknown"
 DL_FILENAME="warpdl_${LATEST_RELEASE#v}"
 GITHUB_RELEASES_BASE_URL="https://github.com/warpdl/warpdl/releases/download/${LATEST_RELEASE}/"
+# Cloudsmith download base URL for raw packages
+# Format: https://dl.cloudsmith.io/public/OWNER/REPO/raw/names/NAME/versions/VERSION/FILENAME
+CLOUDSMITH_BASE_URL="https://dl.cloudsmith.io/public/warpdl/warpdl/raw/names/warpdl/versions"
+DOWNLOAD_SOURCE=""
 DEBUG=0
 INSTALL=1
 CLEAN_EXIT=0
 DISABLE_CURL=0
 CUSTOM_INSTALL_PATH=""
 BINARY_INSTALLED_PATH=""
+NO_REPO=0
+DISTRO_ID=""
+DISTRO_ID_LIKE=""
+DISTRO_VERSION=""
+SUDO=""
 
 tempdir=""
 filename=""
@@ -93,6 +104,360 @@ delete_tempdir() {
   tempdir=""
 }
 
+# Detect Linux distribution by parsing /etc/os-release
+# Sets DISTRO_ID, DISTRO_ID_LIKE, and DISTRO_VERSION globals
+detect_distro() {
+  if [ ! -f /etc/os-release ]; then
+    log_debug "No /etc/os-release found, cannot detect distro"
+    return 1
+  fi
+
+  # Parse /etc/os-release by sourcing it in a subshell
+  # /etc/os-release is designed to be shell-sourceable per freedesktop.org spec
+  DISTRO_ID=$(
+    ID=""
+    # shellcheck disable=SC1091
+    . /etc/os-release 2>/dev/null || true
+    printf '%s' "$ID"
+  )
+  DISTRO_ID_LIKE=$(
+    ID_LIKE=""
+    # shellcheck disable=SC1091
+    . /etc/os-release 2>/dev/null || true
+    printf '%s' "$ID_LIKE"
+  )
+  DISTRO_VERSION=$(
+    VERSION_ID=""
+    # shellcheck disable=SC1091
+    . /etc/os-release 2>/dev/null || true
+    printf '%s' "$VERSION_ID"
+  )
+
+  log_debug "Detected distro: ID=$DISTRO_ID, ID_LIKE=$DISTRO_ID_LIKE, VERSION=$DISTRO_VERSION"
+  return 0
+}
+
+# Detect if running inside a container (Docker, Podman, LXC, systemd-nspawn, etc.)
+# Returns 0 if in container, 1 otherwise
+is_container() {
+  # Check 1: Docker-specific file
+  if [ -f /.dockerenv ]; then
+    log_debug "Detected Docker container (/.dockerenv exists)"
+    return 0
+  fi
+
+  # Check 2: Podman-specific file
+  if [ -f /run/.containerenv ]; then
+    log_debug "Detected Podman container (/run/.containerenv exists)"
+    return 0
+  fi
+
+  # Check 3: container environment variable (systemd-nspawn, some podman setups)
+  if [ -n "${container:-}" ]; then
+    log_debug "Detected container via \$container env var: $container"
+    return 0
+  fi
+
+  # Check 4: /run/systemd/container - set by systemd in containers
+  if [ -f /run/systemd/container ]; then
+    log_debug "Detected container via /run/systemd/container"
+    return 0
+  fi
+
+  # Check 5: cgroup v1 - look for container indicators
+  # Using multiple greps for POSIX compatibility (no -E flag)
+  if [ -f /proc/1/cgroup ]; then
+    if grep -q docker /proc/1/cgroup 2>/dev/null || \
+       grep -q lxc /proc/1/cgroup 2>/dev/null || \
+       grep -q kubepods /proc/1/cgroup 2>/dev/null || \
+       grep -q containerd /proc/1/cgroup 2>/dev/null; then
+      log_debug "Detected container via /proc/1/cgroup (cgroup v1)"
+      return 0
+    fi
+  fi
+
+  # Check 6: cgroup v2 - check the cgroup path
+  # On cgroup v2, /proc/1/cgroup contains "0::<path>"
+  # In containers, path is like /docker/abc123, /kubepods/..., etc.
+  if [ -f /proc/1/cgroup ]; then
+    cgroup_path=$(sed -n 's/^0::\(.*\)/\1/p' /proc/1/cgroup 2>/dev/null)
+    if [ -n "$cgroup_path" ]; then
+      case "$cgroup_path" in
+        /docker/*|/lxc/*|/kubepods/*|/libpod-*|/containerd/*|*.slice/docker-*|*.slice/crio-*)
+          log_debug "Detected container via cgroup v2 path: $cgroup_path"
+          return 0
+          ;;
+      esac
+    fi
+  fi
+
+  # Check 7: /proc/1/environ for container hints (may not be readable)
+  if [ -r /proc/1/environ ]; then
+    if tr '\0' '\n' < /proc/1/environ 2>/dev/null | grep -q '^container='; then
+      log_debug "Detected container via /proc/1/environ"
+      return 0
+    fi
+  fi
+
+  log_debug "Not running in a container"
+  return 1
+}
+
+# Check if systemd is running as init system
+# Returns 0 if systemd is running, 1 otherwise
+has_systemd() {
+  if [ -d /run/systemd/system ]; then
+    log_debug "systemd detected (/run/systemd/system exists)"
+    return 0
+  fi
+
+  log_debug "systemd not detected"
+  return 1
+}
+
+# Check if OpenRC is available
+# Returns 0 if OpenRC is available, 1 otherwise
+has_openrc() {
+  if command -v rc-service > /dev/null 2>&1; then
+    log_debug "OpenRC detected (rc-service command available)"
+    return 0
+  fi
+
+  log_debug "OpenRC not detected"
+  return 1
+}
+
+# Determine if native package manager should be used
+# Returns 0 if native pkg should be used, 1 otherwise
+# Native packages are preferred when:
+# - NO_REPO flag is not set (user hasn't disabled it)
+# - Not in a container OR has a proper init system (systemd/openrc)
+should_use_native_pkg() {
+  # User explicitly disabled repo-based installation
+  if [ "$NO_REPO" -eq 1 ]; then
+    log_debug "Native package disabled by NO_REPO flag"
+    return 1
+  fi
+
+  # If not in a container, use native package
+  if ! is_container; then
+    log_debug "Not in container, native package recommended"
+    return 0
+  fi
+
+  # In a container - check for init system
+  # Containers with systemd or openrc can still use native packages
+  if has_systemd; then
+    log_debug "Container with systemd, native package recommended"
+    return 0
+  fi
+
+  if has_openrc; then
+    log_debug "Container with OpenRC, native package recommended"
+    return 0
+  fi
+
+  # Container without proper init system - use binary install
+  log_debug "Container without init system, native package not recommended"
+  return 1
+}
+
+# Ensure sudo access is available
+# Sets SUDO="" if root, SUDO="sudo" otherwise
+# Returns 1 if sudo is required but not available
+ensure_sudo() {
+  if [ "$(id -u)" -eq 0 ]; then
+    SUDO=""
+    log_debug "Running as root, no sudo needed"
+    return 0
+  fi
+
+  if ! command -v sudo > /dev/null 2>&1; then
+    log_warning "sudo command not found and not running as root"
+    return 1
+  fi
+
+  # Test sudo access
+  if ! sudo -v > /dev/null 2>&1; then
+    log_warning "Unable to obtain sudo access"
+    return 1
+  fi
+
+  SUDO="sudo"
+  log_debug "Using sudo for privileged operations"
+  return 0
+}
+
+# Clean up existing binary installations not managed by package managers
+# Stops running daemon and removes socket file
+cleanup_existing_binary() {
+  log_debug "Checking for existing warpdl installations..."
+
+  # Stop any running daemon first
+  if command -v warpdl > /dev/null 2>&1; then
+    log_debug "Stopping warpdl daemon if running..."
+    warpdl stop-daemon 2>/dev/null || true
+  fi
+
+  # Remove daemon socket if it exists
+  if [ -e "/tmp/warpdl.sock" ]; then
+    log_debug "Removing daemon socket /tmp/warpdl.sock"
+    $SUDO rm -f "/tmp/warpdl.sock" 2>/dev/null || true
+  fi
+
+  # Check /usr/local/bin/warpdl
+  if [ -f "/usr/local/bin/warpdl" ]; then
+    is_managed=0
+    # Check if managed by dpkg
+    if command -v dpkg > /dev/null 2>&1; then
+      if dpkg -S "/usr/local/bin/warpdl" > /dev/null 2>&1; then
+        is_managed=1
+        log_debug "/usr/local/bin/warpdl is managed by dpkg"
+      fi
+    fi
+    # Check if managed by rpm
+    if [ "$is_managed" -eq 0 ] && command -v rpm > /dev/null 2>&1; then
+      if rpm -qf "/usr/local/bin/warpdl" > /dev/null 2>&1; then
+        is_managed=1
+        log_debug "/usr/local/bin/warpdl is managed by rpm"
+      fi
+    fi
+    # Check if managed by apk
+    if [ "$is_managed" -eq 0 ] && command -v apk > /dev/null 2>&1; then
+      if apk info --who-owns "/usr/local/bin/warpdl" > /dev/null 2>&1; then
+        is_managed=1
+        log_debug "/usr/local/bin/warpdl is managed by apk"
+      fi
+    fi
+    # Remove if not managed by any package manager
+    if [ "$is_managed" -eq 0 ]; then
+      log_debug "Removing unmanaged binary /usr/local/bin/warpdl"
+      $SUDO rm -f "/usr/local/bin/warpdl"
+    fi
+  fi
+
+  # Check /usr/bin/warpdl
+  if [ -f "/usr/bin/warpdl" ]; then
+    is_managed=0
+    # Check if managed by dpkg
+    if command -v dpkg > /dev/null 2>&1; then
+      if dpkg -S "/usr/bin/warpdl" > /dev/null 2>&1; then
+        is_managed=1
+        log_debug "/usr/bin/warpdl is managed by dpkg"
+      fi
+    fi
+    # Check if managed by rpm
+    if [ "$is_managed" -eq 0 ] && command -v rpm > /dev/null 2>&1; then
+      if rpm -qf "/usr/bin/warpdl" > /dev/null 2>&1; then
+        is_managed=1
+        log_debug "/usr/bin/warpdl is managed by rpm"
+      fi
+    fi
+    # Check if managed by apk
+    if [ "$is_managed" -eq 0 ] && command -v apk > /dev/null 2>&1; then
+      if apk info --who-owns "/usr/bin/warpdl" > /dev/null 2>&1; then
+        is_managed=1
+        log_debug "/usr/bin/warpdl is managed by apk"
+      fi
+    fi
+    # Remove if not managed by any package manager
+    if [ "$is_managed" -eq 0 ]; then
+      log_debug "Removing unmanaged binary /usr/bin/warpdl"
+      $SUDO rm -f "/usr/bin/warpdl"
+    fi
+  fi
+}
+
+# Set up Debian/Ubuntu APT repository and install warpdl
+# Returns 1 on failure
+setup_deb_repo() {
+  log "Setting up Cloudsmith APT repository..."
+
+  if ! curl -fsSL --tlsv1.2 --proto "=https" "https://dl.cloudsmith.io/public/warpdl/warpdl/setup.deb.sh" | $SUDO bash; then
+    log_warning "Failed to set up Cloudsmith APT repository"
+    return 1
+  fi
+
+  log "Updating package lists..."
+  if ! $SUDO apt-get update; then
+    log_warning "Failed to update package lists"
+    return 1
+  fi
+
+  log "Installing warpdl..."
+  if ! $SUDO apt-get install -y warpdl; then
+    log_warning "Failed to install warpdl via apt-get"
+    return 1
+  fi
+
+  return 0
+}
+
+# Set up RPM repository (Fedora/RHEL/CentOS) and install warpdl
+# Returns 1 on failure
+setup_rpm_repo() {
+  log "Setting up Cloudsmith RPM repository..."
+
+  if ! curl -fsSL --tlsv1.2 --proto "=https" "https://dl.cloudsmith.io/public/warpdl/warpdl/setup.rpm.sh" | $SUDO bash; then
+    log_warning "Failed to set up Cloudsmith RPM repository"
+    return 1
+  fi
+
+  log "Installing warpdl..."
+  # Prefer dnf over yum
+  if command -v dnf > /dev/null 2>&1; then
+    if ! $SUDO dnf install -y warpdl; then
+      log_warning "Failed to install warpdl via dnf"
+      return 1
+    fi
+  elif command -v yum > /dev/null 2>&1; then
+    if ! $SUDO yum install -y warpdl; then
+      log_warning "Failed to install warpdl via yum"
+      return 1
+    fi
+  else
+    log_warning "Neither dnf nor yum found"
+    return 1
+  fi
+
+  return 0
+}
+
+# Set up Alpine APK repository and install warpdl
+# Returns 1 on failure
+setup_alpine_repo() {
+  log "Setting up Cloudsmith Alpine repository..."
+
+  if ! curl -fsSL --tlsv1.2 --proto "=https" "https://dl.cloudsmith.io/public/warpdl/warpdl/setup.alpine.sh" | $SUDO -E bash; then
+    log_warning "Failed to set up Cloudsmith Alpine repository"
+    return 1
+  fi
+
+  log "Installing warpdl..."
+  if ! $SUDO apk add warpdl; then
+    log_warning "Failed to install warpdl via apk"
+    return 1
+  fi
+
+  return 0
+}
+
+# Suggest package manager alternatives for platforms without native package support
+suggest_package_manager() {
+  case "$uname_os" in
+    Darwin)
+      log "TIP: On macOS, you can install warpdl via Homebrew:"
+      log "  brew install warpdl/tap/warpdl"
+      ;;
+    *MINGW*|*MSYS*)
+      log "TIP: On Windows, you can install warpdl via Scoop:"
+      log "  scoop bucket add warpdl https://github.com/warpdl/scoop-bucket"
+      log "  scoop install warpdl"
+      ;;
+  esac
+  log "Proceeding with direct binary install..."
+}
+
 linux_shell() {
   user="$(whoami)"
   grep -E "^$user:" < /etc/passwd | cut -f 7 -d ":" | head -1
@@ -106,6 +471,70 @@ macos_shell() {
 # so the shell will always be /usr/bin/bash
 windows_shell() {
   echo "/usr/bin/bash"
+}
+
+# Download with Cloudsmith primary, GitHub fallback
+# Returns HTTP status code
+download_with_fallback() {
+  local_output_file="$1"
+  local_component="$2"
+
+  # Strip 'v' prefix from version for Cloudsmith URL
+  version_no_v="${LATEST_RELEASE#v}"
+
+  # Construct URLs
+  # Cloudsmith: /names/warpdl/versions/VERSION/FILENAME
+  cloudsmith_url="${CLOUDSMITH_BASE_URL}/${version_no_v}/${DL_FILENAME}"
+  github_url="${GITHUB_RELEASES_BASE_URL}${DL_FILENAME}"
+
+  log_debug "Trying Cloudsmith: $cloudsmith_url"
+
+  if [ "$curl_installed" -eq 0 ]; then
+    # Try Cloudsmith first with curl
+    set +e
+    cs_headers=$(curl --tlsv1.2 --proto "=https" -w "%{http_code}" --silent --retry 2 --connect-timeout 10 -o "$local_output_file" -LN -D - "$cloudsmith_url" 2>&1)
+    cs_status="$(echo "$cs_headers" | tail -1)"
+    set -e
+
+    if [ "$cs_status" = "200" ]; then
+      DOWNLOAD_SOURCE="Cloudsmith"
+      log_debug "Downloaded from Cloudsmith"
+      echo "200"
+      return
+    fi
+
+    log_debug "Cloudsmith failed (status: $cs_status), falling back to GitHub Releases"
+
+    # Fallback to GitHub
+    status_code=$(curl_download "$github_url" "$local_output_file" "$local_component")
+    if [ "$status_code" = "200" ]; then
+      DOWNLOAD_SOURCE="GitHub Releases"
+    fi
+    echo "$status_code"
+
+  elif [ "$wget_installed" -eq 0 ]; then
+    # Try Cloudsmith first with wget
+    set +e
+    wget --secure-protocol=TLSv1_2 --https-only -q -t 2 --connect-timeout=10 -O "$local_output_file" "$cloudsmith_url" 2>/dev/null
+    wget_exit=$?
+    set -e
+
+    if [ "$wget_exit" -eq 0 ] && [ -f "$local_output_file" ] && [ -s "$local_output_file" ]; then
+      DOWNLOAD_SOURCE="Cloudsmith"
+      log_debug "Downloaded from Cloudsmith"
+      echo "200"
+      return
+    fi
+
+    log_debug "Cloudsmith failed, falling back to GitHub Releases"
+
+    # Fallback to GitHub
+    status_code=$(wget_download "$github_url" "$local_output_file" "$local_component")
+    if [ "$status_code" = "200" ]; then
+      DOWNLOAD_SOURCE="GitHub Releases"
+    fi
+    echo "$status_code"
+  fi
 }
 
 # exit code
@@ -287,6 +716,216 @@ is_path_writable() {
   test -w "$dir"
 }
 
+# Binary download and install logic
+do_binary_install() {
+  set +e
+  curl_binary="$(command -v curl)"
+  wget_binary="$(command -v wget)"
+
+  # check if curl is available
+  [ "$DISABLE_CURL" -eq 0 ] && [ -x "$curl_binary" ]
+  curl_installed=$? # 0 = yes
+
+  # check if wget is available
+  [ -x "$wget_binary" ]
+  wget_installed=$? # 0 = yes
+  set -e
+
+  if [ "$curl_installed" -eq 0 ] || [ "$wget_installed" -eq 0 ]; then
+    # create hidden temp dir in user's home directory to ensure no other users have write perms
+    tempdir="$(mktemp -d ~/.tmp.XXXXXXXX)"
+    log_debug "Using temp directory $tempdir"
+
+    log "Downloading Warpdl CLI"
+    file="${DL_FILENAME}"
+    filename="$tempdir/$file"
+
+    if [ "$curl_installed" -eq 0 ]; then
+      log_debug "Using $curl_binary for requests"
+      log_debug "Downloading binary..."
+      status_code=$(download_with_fallback "$filename" "Binary")
+      check_http_status "$status_code" "Binary"
+
+    elif [ "$wget_installed" -eq 0 ]; then
+      log_debug "Using $wget_binary for requests"
+      log_debug "Downloading binary..."
+      status_code=$(download_with_fallback "$filename" "Binary")
+      check_http_status "$status_code" "Binary"
+    fi
+  else
+    log "ERROR: You must have curl or wget installed"
+    clean_exit 1
+  fi
+
+  if [ "$format" = "tar.gz" ] || [ "$format" = "zip" ]; then
+    if [ "$format" = "tar.gz" ]; then
+      filename="${tempdir}/${DL_FILENAME}"
+
+      # extract
+      extract_dir="$tempdir/x"
+      mkdir "$extract_dir"
+      log_debug "Extracting tarball to $extract_dir"
+      tar -xzf "$filename" -C "$extract_dir"
+
+      # set appropriate perms
+      chown "$(id -u):$(id -g)" "$extract_dir/warpdl"
+      chmod 755 "$extract_dir/warpdl"
+    elif [ "$format" = "zip" ]; then
+      mv -f "$filename" "$filename.zip"
+      filename="$filename.zip"
+
+      # extract
+      extract_dir="$tempdir/x"
+      mkdir "$extract_dir"
+      log_debug "Extracting zip to $extract_dir"
+      unzip -d "$extract_dir" "$filename"
+
+      # set appropriate perms
+      chown "$(id -u):$(id -g)" "$extract_dir/warpdl"
+      chmod 755 "$extract_dir/warpdl"
+    fi
+
+    # install
+    if [ "$INSTALL" -eq 1 ]; then
+      log "Installing..."
+      binary_installed=0
+      found_non_writable_path=0
+
+      if [ "$CUSTOM_INSTALL_PATH" != "" ]; then
+        # install to this directory or fail; don't try any other paths
+
+        # capture exit code without exiting
+        set +e
+        install_binary "$CUSTOM_INSTALL_PATH" "false" "false"
+        exit_code=$?
+        set -e
+        if [ $exit_code -eq 0 ]; then
+          binary_installed=1
+          BINARY_INSTALLED_PATH="$CUSTOM_INSTALL_PATH"
+        elif [ $exit_code -eq 1 ]; then
+          log "Install path is not writable: \"$CUSTOM_INSTALL_PATH\""
+          clean_exit 2
+        elif [ $exit_code -eq 4 ]; then
+          log "Install path does not exist: \"$CUSTOM_INSTALL_PATH\""
+          clean_exit 1
+        else
+          log "Install path is not a valid directory: \"$CUSTOM_INSTALL_PATH\""
+          clean_exit 1
+        fi
+      fi
+
+      # check for an existing warpdl binary
+      if [ "$binary_installed" -eq 0 ]; then
+        existing_install_dir="$(command -v warpdl || true)"
+        if [ "$existing_install_dir" != "" ]; then
+          install_dir="$(dirname "$existing_install_dir")"
+          # capture exit code without exiting
+          set +e
+          install_binary "$install_dir"
+          exit_code=$?
+          set -e
+          if [ $exit_code -eq 0 ]; then
+            binary_installed=1
+            BINARY_INSTALLED_PATH="$install_dir"
+          elif [ $exit_code -eq 1 ]; then
+            found_non_writable_path=1
+          fi
+        fi
+      fi
+
+      if [ "$binary_installed" -eq 0 ]; then
+        install_dir="/usr/local/bin"
+        # capture exit code without exiting
+        set +e
+        install_binary "$install_dir"
+        exit_code=$?
+        set -e
+        if [ $exit_code -eq 0 ]; then
+          binary_installed=1
+          BINARY_INSTALLED_PATH="$install_dir"
+        elif [ $exit_code -eq 1 ]; then
+          found_non_writable_path=1
+        fi
+      fi
+
+      if [ "$binary_installed" -eq 0 ]; then
+        install_dir="/usr/bin"
+        # capture exit code without exiting
+        set +e
+        install_binary "$install_dir"
+        exit_code=$?
+        set -e
+        if [ $exit_code -eq 0 ]; then
+          binary_installed=1
+          BINARY_INSTALLED_PATH="$install_dir"
+        elif [ $exit_code -eq 1 ]; then
+          found_non_writable_path=1
+        fi
+      fi
+
+      if [ "$binary_installed" -eq 0 ]; then
+        install_dir="/usr/sbin"
+        # capture exit code without exiting
+        set +e
+        install_binary "$install_dir"
+        exit_code=$?
+        set -e
+        if [ $exit_code -eq 0 ]; then
+          binary_installed=1
+          BINARY_INSTALLED_PATH="$install_dir"
+        elif [ $exit_code -eq 1 ]; then
+          found_non_writable_path=1
+        fi
+      fi
+
+      if [ "$binary_installed" -eq 0 ]; then
+        # run again for this directory, but this time create it if it doesn't exist
+        # this fixes an issue with clean installs on macOS 12+
+        install_dir="/usr/local/bin"
+        # capture exit code without exiting
+        set +e
+        install_binary "$install_dir" "true" "true"
+        exit_code=$?
+        set -e
+        if [ $exit_code -eq 0 ]; then
+          binary_installed=1
+          BINARY_INSTALLED_PATH="$install_dir"
+        elif [ $exit_code -eq 1 ]; then
+          found_non_writable_path=1
+        fi
+      fi
+
+      if [ "$binary_installed" -eq 0 ]; then
+        if [ "$found_non_writable_path" -eq 1 ]; then
+          log "Unable to write to bin directory; please re-run with \`sudo\` or adjust your PATH"
+          clean_exit 2
+        else
+          log "No supported bin directories are available; please adjust your PATH"
+          clean_exit 1
+        fi
+      fi
+    else
+      log_debug "Moving binary to $(pwd) (cwd)"
+      mv -f "$extract_dir/warpdl" .
+    fi
+
+    delete_tempdir
+
+    if [ "$INSTALL" -eq 1 ]; then
+      message="Installed Warpdl CLI $("$BINARY_INSTALLED_PATH"/warpdl -v)"
+      if [ "$CUSTOM_INSTALL_PATH" != "" ]; then
+        message="$message to $BINARY_INSTALLED_PATH"
+      fi
+      if [ -n "$DOWNLOAD_SOURCE" ]; then
+        message="$message (from $DOWNLOAD_SOURCE)"
+      fi
+      echo "$message"
+    else
+      echo "Warpdl CLI saved to ./warpdl"
+    fi
+  fi
+}
+
 find_install_path_arg=0
 # flag parsing
 for arg; do
@@ -296,21 +935,23 @@ for arg; do
     continue
   fi
 
-  if [ "$arg" = "--debug" ]; then
-    DEBUG=1
-  fi
-
-  if [ "$arg" = "--no-install" ]; then
-    INSTALL=0
-  fi
-
-  if [ "$arg" = "--disable-curl" ]; then
-    DISABLE_CURL=1
-  fi
-
-  if [ "$arg" = "--install-path" ]; then
-    find_install_path_arg=1
-  fi
+  case "$arg" in
+    --debug)
+      DEBUG=1
+      ;;
+    --no-install)
+      INSTALL=0
+      ;;
+    --disable-curl)
+      DISABLE_CURL=1
+      ;;
+    --install-path)
+      find_install_path_arg=1
+      ;;
+    --no-repo)
+      NO_REPO=1
+      ;;
+  esac
 done
 
 if [ "$find_install_path_arg" -eq 1 ]; then
@@ -321,12 +962,14 @@ fi
 # identify OS
 uname_os=$(uname -s)
 case "$uname_os" in
-  Darwin)    OS="macos"   ;;
+  Darwin)    OS="macOS"   ;;
   Linux)     OS="linux"   ;;
   FreeBSD)   OS="freebsd" ;;
   OpenBSD)   OS="openbsd" ;;
   NetBSD)    OS="netbsd"  ;;
   *MINGW64*) OS="windows" ;;
+  *MINGW*|*MSYS*)
+             OS="windows" ;;
   *)
     log "ERROR: Unsupported OS '$uname_os'"
     log ""
@@ -373,209 +1016,80 @@ log_debug "Detected format '$format'"
 DL_FILENAME="${DL_FILENAME}_${OS}_${ARCH}.$format"
 url="${GITHUB_RELEASES_BASE_URL}${DL_FILENAME}"
 
-set +e
-curl_binary="$(command -v curl)"
-wget_binary="$(command -v wget)"
+# Main execution flow - handle OS-specific installation strategies
+case "$OS" in
+  linux)
+    detect_distro
 
-# check if curl is available
-[ "$DISABLE_CURL" -eq 0 ] && [ -x "$curl_binary" ]
-curl_installed=$? # 0 = yes
+    native_pkg_success=0
+    if should_use_native_pkg && ensure_sudo; then
+      cleanup_existing_binary
 
-# check if wget is available
-[ -x "$wget_binary" ]
-wget_installed=$? # 0 = yes
-set -e
-
-if [ "$curl_installed" -eq 0 ] || [ "$wget_installed" -eq 0 ]; then
-  # create hidden temp dir in user's home directory to ensure no other users have write perms
-  tempdir="$(mktemp -d ~/.tmp.XXXXXXXX)"
-  log_debug "Using temp directory $tempdir"
-
-  log "Downloading Warpdl CLI"
-  file="${DL_FILENAME}"
-  filename="$tempdir/$file"
-
-  if [ "$curl_installed" -eq 0 ]; then
-    log_debug "Using $curl_binary for requests"
-
-    # download binary
-    log_debug "Downloading binary from $url"
-    status_code=$( curl_download "$url" "$filename" "Binary" )
-    check_http_status "$status_code" "Binary"
-
-  elif [ "$wget_installed" -eq 0 ]; then
-    log_debug "Using $wget_binary for requests"
-
-    log_debug "Downloading binary from $url"
-    status_code=$( wget_download "$url" "$filename" "Binary" )
-    check_http_status "$status_code" "Binary"
-  fi
-else
-  log "ERROR: You must have curl or wget installed"
-  clean_exit 1
-fi
-
-if [ "$format" = "tar.gz" ] || [ "$format" = "zip" ]; then
-  if [ "$format" = "tar.gz" ]; then
-    filename="${tempdir}/${DL_FILENAME}"
-
-    # extract
-    extract_dir="$tempdir/x"
-    mkdir "$extract_dir"
-    log_debug "Extracting tarball to $extract_dir"
-    tar -xzf "$filename" -C "$extract_dir"
-
-    # set appropriate perms
-    chown "$(id -u):$(id -g)" "$extract_dir/warpdl"
-    chmod 755 "$extract_dir/warpdl"
-  elif [ "$format" = "zip" ]; then
-    mv -f "$filename" "$filename.zip"
-    filename="$filename.zip"
-
-    # extract
-    extract_dir="$tempdir/x"
-    mkdir "$extract_dir"
-    log_debug "Extracting zip to $extract_dir"
-    unzip -d "$extract_dir" "$filename"
-
-    # set appropriate perms
-    chown "$(id -u):$(id -g)" "$extract_dir/warpdl"
-    chmod 755 "$extract_dir/warpdl"
-  fi
-
-  # install
-  if [ "$INSTALL" -eq 1 ]; then
-    log "Installing..."
-    binary_installed=0
-    found_non_writable_path=0
-
-    if [ "$CUSTOM_INSTALL_PATH" != "" ]; then
-      # install to this directory or fail; don't try any other paths
-
-      # capture exit code without exiting
+      # Try native package install based on distro
       set +e
-      install_binary "$CUSTOM_INSTALL_PATH" "false" "false"
-      exit_code=$?
+      case "$DISTRO_ID" in
+        ubuntu|debian|linuxmint|pop|elementary|zorin|raspbian)
+          log_debug "Attempting APT package install for $DISTRO_ID"
+          if setup_deb_repo; then
+            native_pkg_success=1
+          fi
+          ;;
+        fedora|rhel|centos|rocky|almalinux|ol)
+          log_debug "Attempting RPM package install for $DISTRO_ID"
+          if setup_rpm_repo; then
+            native_pkg_success=1
+          fi
+          ;;
+        alpine)
+          log_debug "Attempting Alpine package install"
+          if setup_alpine_repo; then
+            native_pkg_success=1
+          fi
+          ;;
+        *)
+          # Check ID_LIKE for derivative distros
+          case "$DISTRO_ID_LIKE" in
+            *debian*|*ubuntu*)
+              log_debug "Attempting APT package install for $DISTRO_ID (like debian/ubuntu)"
+              if setup_deb_repo; then
+                native_pkg_success=1
+              fi
+              ;;
+            *fedora*|*rhel*)
+              log_debug "Attempting RPM package install for $DISTRO_ID (like fedora/rhel)"
+              if setup_rpm_repo; then
+                native_pkg_success=1
+              fi
+              ;;
+          esac
+          ;;
+      esac
       set -e
-      if [ $exit_code -eq 0 ]; then
-        binary_installed=1
-        BINARY_INSTALLED_PATH="$CUSTOM_INSTALL_PATH"
-      elif [ $exit_code -eq 1 ]; then
-        log "Install path is not writable: \"$CUSTOM_INSTALL_PATH\""
-        clean_exit 2
-      elif [ $exit_code -eq 4 ]; then
-        log "Install path does not exist: \"$CUSTOM_INSTALL_PATH\""
-        clean_exit 1
+
+      if [ "$native_pkg_success" -eq 1 ]; then
+        log "Installed Warpdl CLI via native package manager"
+        clean_exit 0
       else
-        log "Install path is not a valid directory: \"$CUSTOM_INSTALL_PATH\""
-        clean_exit 1
+        log_debug "Native package install failed, falling back to binary install"
       fi
     fi
 
-    # check for an existing warpdl binary
-    if [ "$binary_installed" -eq 0 ]; then
-      existing_install_dir="$(command -v warpdl || true)"
-      if [ "$existing_install_dir" != "" ]; then
-        install_dir="$(dirname "$existing_install_dir")"
-        # capture exit code without exiting
-        set +e
-        install_binary "$install_dir"
-        exit_code=$?
-        set -e
-        if [ $exit_code -eq 0 ]; then
-          binary_installed=1
-          BINARY_INSTALLED_PATH="$install_dir"
-        elif [ $exit_code -eq 1 ]; then
-          found_non_writable_path=1
-        fi
-      fi
-    fi
+    # Fall through to binary install
+    do_binary_install
+    ;;
 
-    if [ "$binary_installed" -eq 0 ]; then
-      install_dir="/usr/local/bin"
-      # capture exit code without exiting
-      set +e
-      install_binary "$install_dir"
-      exit_code=$?
-      set -e
-      if [ $exit_code -eq 0 ]; then
-        binary_installed=1
-        BINARY_INSTALLED_PATH="$install_dir"
-      elif [ $exit_code -eq 1 ]; then
-        found_non_writable_path=1
-      fi
-    fi
+  macOS)
+    suggest_package_manager
+    do_binary_install
+    ;;
 
-    if [ "$binary_installed" -eq 0 ]; then
-      install_dir="/usr/bin"
-      # capture exit code without exiting
-      set +e
-      install_binary "$install_dir"
-      exit_code=$?
-      set -e
-      if [ $exit_code -eq 0 ]; then
-        binary_installed=1
-        BINARY_INSTALLED_PATH="$install_dir"
-      elif [ $exit_code -eq 1 ]; then
-        found_non_writable_path=1
-      fi
-    fi
+  windows)
+    suggest_package_manager
+    do_binary_install
+    ;;
 
-    if [ "$binary_installed" -eq 0 ]; then
-      install_dir="/usr/sbin"
-      # capture exit code without exiting
-      set +e
-      install_binary "$install_dir"
-      exit_code=$?
-      set -e
-      if [ $exit_code -eq 0 ]; then
-        binary_installed=1
-        BINARY_INSTALLED_PATH="$install_dir"
-      elif [ $exit_code -eq 1 ]; then
-        found_non_writable_path=1
-      fi
-    fi
-
-    if [ "$binary_installed" -eq 0 ]; then
-      # run again for this directory, but this time create it if it doesn't exist
-      # this fixes an issue with clean installs on macOS 12+
-      install_dir="/usr/local/bin"
-      # capture exit code without exiting
-      set +e
-      install_binary "$install_dir" "true" "true"
-      exit_code=$?
-      set -e
-      if [ $exit_code -eq 0 ]; then
-        binary_installed=1
-        BINARY_INSTALLED_PATH="$install_dir"
-      elif [ $exit_code -eq 1 ]; then
-        found_non_writable_path=1
-      fi
-    fi
-
-    if [ "$binary_installed" -eq 0 ]; then
-      if [ "$found_non_writable_path" -eq 1 ]; then
-        log "Unable to write to bin directory; please re-run with \`sudo\` or adjust your PATH"
-        clean_exit 2
-      else
-        log "No supported bin directories are available; please adjust your PATH"
-        clean_exit 1
-      fi
-    fi
-  else
-    log_debug "Moving binary to $(pwd) (cwd)"
-    mv -f "$extract_dir/warpdl" .
-  fi
-
-  delete_tempdir
-
-  if [ "$INSTALL" -eq 1 ]; then
-    message="Installed Warpdl CLI $("$BINARY_INSTALLED_PATH"/warpdl -v)"
-    if [ "$CUSTOM_INSTALL_PATH" != "" ]; then
-      message="$message to $BINARY_INSTALLED_PATH"
-    fi
-    echo "$message"
-  else
-    echo "Warpdl CLI saved to ./warpdl"
-  fi
-fi
+  *)
+    # FreeBSD, OpenBSD, NetBSD, etc.
+    do_binary_install
+    ;;
+esac
