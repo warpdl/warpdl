@@ -27,6 +27,7 @@ func attach(ctx *cli.Context) (err error) {
 		common.PrintRuntimeErr(ctx, "attach", "new_client", err)
 		return nil
 	}
+	defer client.Close()
 	client.CheckVersionMismatch(currentBuildArgs.Version)
 	fmt.Println(">> Initiating a WARP download << ")
 	d, err := client.AttachDownload(hash)

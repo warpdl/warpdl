@@ -45,6 +45,7 @@ func flush(ctx *cli.Context) error {
 		common.PrintRuntimeErr(ctx, "flush", "new_client", err)
 		return nil
 	}
+	defer client.Close()
 	_, err = client.Flush(hashToFlush)
 	if err != nil {
 		common.PrintRuntimeErr(ctx, "flush", "flush", err)

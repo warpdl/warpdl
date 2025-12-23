@@ -96,6 +96,14 @@ func (c *Client) Disconnect() {
 	c.listen = false
 }
 
+// Close closes the client's connection to the daemon.
+// This should be called when the client is no longer needed,
+// especially if Listen() will not be called.
+// Safe to call multiple times (subsequent calls return an error but have no effect).
+func (c *Client) Close() error {
+	return c.conn.Close()
+}
+
 func (c *Client) invoke(method common.UpdateType, message any) (json.RawMessage, error) {
 	// block updates listener while invoking a method
 	// to retrieve the message update here instead

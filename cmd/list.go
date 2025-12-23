@@ -49,6 +49,7 @@ func list(ctx *cli.Context) error {
 		common.PrintRuntimeErr(ctx, "list", "new_client", err)
 		return nil
 	}
+	defer client.Close()
 	l, err := client.List(&warpcli.ListOpts{
 		ShowCompleted: showCompleted || showAll,
 		ShowPending:   showPending || showAll,

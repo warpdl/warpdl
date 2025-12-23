@@ -60,6 +60,7 @@ func download(ctx *cli.Context) (err error) {
 		common.PrintRuntimeErr(ctx, "download", "new_client", err)
 		return
 	}
+	defer client.Close()
 	client.CheckVersionMismatch(currentBuildArgs.Version)
 	fmt.Println(">> Initiating a WARP download << ")
 	url = strings.TrimSpace(url)
