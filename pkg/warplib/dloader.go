@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // Downloader is a struct that manages the download process
@@ -66,6 +67,8 @@ type Downloader struct {
 	f         *os.File
 	stopped   int32
 	resumable bool
+	// retryConfig holds retry configuration for transient errors
+	retryConfig *RetryConfig
 }
 
 // Optional fields of downloader
@@ -93,6 +96,10 @@ type DownloaderOpts struct {
 	Handlers *Handlers
 
 	SkipSetup bool
+
+	// RetryConfig configures retry behavior for transient errors.
+	// If nil, DefaultRetryConfig() is used.
+	RetryConfig *RetryConfig
 }
 
 // NewDownloader creates a new downloader with provided arguments.
@@ -122,22 +129,31 @@ func NewDownloader(client *http.Client, url string, opts *DownloaderOpts) (d *Do
 	if err != nil {
 		return
 	}
+
+	// Initialize retry config with defaults if not provided
+	retryConfig := opts.RetryConfig
+	if retryConfig == nil {
+		defaultConfig := DefaultRetryConfig()
+		retryConfig = &defaultConfig
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	d = &Downloader{
-		ctx:       ctx,
-		cancel:    cancel,
-		wg:        &sync.WaitGroup{},
-		client:    client,
-		url:       url,
-		maxConn:   opts.MaxConnections,
-		chunk:     int(DEF_CHUNK_SIZE),
-		force:     opts.ForceParts,
-		handlers:  opts.Handlers,
-		fileName:  opts.FileName,
-		dlLoc:     opts.DownloadDirectory,
-		maxParts:  opts.MaxSegments,
-		headers:   opts.Headers,
-		resumable: true,
+		ctx:         ctx,
+		cancel:      cancel,
+		wg:          &sync.WaitGroup{},
+		client:      client,
+		url:         url,
+		maxConn:     opts.MaxConnections,
+		chunk:       int(DEF_CHUNK_SIZE),
+		force:       opts.ForceParts,
+		handlers:    opts.Handlers,
+		fileName:    opts.FileName,
+		dlLoc:       opts.DownloadDirectory,
+		maxParts:    opts.MaxSegments,
+		headers:     opts.Headers,
+		resumable:   true,
+		retryConfig: retryConfig,
 	}
 	err = d.fetchInfo()
 	if err != nil {
@@ -203,6 +219,14 @@ func initDownloader(client *http.Client, hash, url string, cLength ContentLength
 	if err != nil {
 		return
 	}
+
+	// Initialize retry config with defaults if not provided
+	retryConfig := opts.RetryConfig
+	if retryConfig == nil {
+		defaultConfig := DefaultRetryConfig()
+		retryConfig = &defaultConfig
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	d = &Downloader{
 		ctx:           ctx,
@@ -220,6 +244,7 @@ func initDownloader(client *http.Client, hash, url string, cLength ContentLength
 		contentLength: cLength,
 		hash:          hash,
 		dlPath:        fmt.Sprintf("%s/%s/", DlDataDir, hash),
+		retryConfig:   retryConfig,
 	}
 	if !dirExists(d.dlPath) {
 		err = errors.New("path to downloaded content doesn't exist")
@@ -498,6 +523,7 @@ func (d *Downloader) newPartDownload(ioff, foff, espeed int64) {
 // if a slot is available for it and maximum parts limit is not reached.
 func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool, body io.ReadCloser) (err error) {
 	hash := part.hash
+	retryState := &RetryState{}
 	for {
 		if !repeated {
 			// set espeed each time the runPart function is called to update
@@ -523,8 +549,43 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 		}
 
 		if err != nil {
-			d.handlers.ErrorHandler(hash, err)
-			break
+			category := ClassifyError(err)
+
+			// Fatal errors - no retry
+			if category == ErrCategoryFatal {
+				d.handlers.ErrorHandler(hash, err)
+				break
+			}
+
+			retryState.Attempts++
+			retryState.LastError = err
+			retryState.LastAttempt = time.Now()
+
+			// Check if we should retry
+			if !d.retryConfig.ShouldRetry(retryState, err) {
+				d.handlers.RetryExhaustedHandler(hash, retryState.Attempts, err)
+				d.handlers.ErrorHandler(hash, fmt.Errorf("%w: %v", ErrMaxRetriesExceeded, err))
+				break
+			}
+
+			// Calculate delay and notify
+			delay := d.retryConfig.CalculateBackoff(retryState.Attempts)
+			d.Log("%s: Retry attempt %d/%d after %v (error: %s)",
+				hash, retryState.Attempts, d.retryConfig.MaxRetries, delay, err.Error())
+			d.handlers.RetryHandler(hash, retryState.Attempts, d.retryConfig.MaxRetries, delay, err)
+
+			// Wait for retry (context-aware)
+			if waitErr := d.retryConfig.WaitForRetry(d.ctx, retryState, category); waitErr != nil {
+				// Context cancelled during wait
+				d.handlers.ErrorHandler(hash, waitErr)
+				break
+			}
+
+			// Resume from where we left off
+			body = nil
+			ioff = part.offset + part.read
+			repeated = false
+			continue
 		}
 		if !slow {
 			expectedRead := foff - part.offset + 1

@@ -249,3 +249,6 @@ Contributions are what make the open source community such an amazing place to b
 ## License
 
 Distributed under the MIT License. See [LICENSE](https://github.com/warpdl/warpdl/blob/dev/LICENSE) for more information.
+
+## Acknowledgements
+Package repository hosting is graciously provided by https://cloudsmith.com.

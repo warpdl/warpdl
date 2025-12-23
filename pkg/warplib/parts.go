@@ -171,6 +171,14 @@ func (p *Part) copyBuffer(src io.ReadCloser, foff int64, force bool) (slow bool,
 	p.pwg.Wait()
 	_ = src.Close()
 	if err == io.EOF {
+		expectedBytes := foff + 1 - p.offset
+		if p.read < expectedBytes {
+			// Premature EOF - connection closed before all bytes received
+			// Don't treat as success, return error for retry
+			err = io.ErrUnexpectedEOF
+			return
+		}
+		// Real EOF - we got all expected bytes
 		err = nil
 		p.log("%s: part download complete", p.hash)
 		// fmt.Print("[", p.hash, "]: ", "lchunk: ", tread-p.read, " p.read: ", p.read, " ioff: ", p.offset, " foff: ", foff, " p.chunk: ", p.chunk, " n: ", n, "\n")

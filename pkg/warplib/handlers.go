@@ -1,6 +1,9 @@
 package warplib
 
-import "log"
+import (
+	"log"
+	"time"
+)
 
 type (
 	// ErrorHandlerFunc is a function that handles errors.
@@ -36,6 +39,13 @@ type (
 	CompileCompleteHandlerFunc func(hash string, tread int64)
 	// DownloadStoppedHandlerFunc is a function that handles the stopping of a download.
 	DownloadStoppedHandlerFunc func()
+
+	// RetryHandlerFunc is called when a part retry is attempted.
+	// Parameters: hash (part id), attempt (current attempt number), maxAttempts, delay (wait time), err (triggering error)
+	RetryHandlerFunc func(hash string, attempt, maxAttempts int, delay time.Duration, err error)
+
+	// RetryExhaustedHandlerFunc is called when all retries are exhausted for a part.
+	RetryExhaustedHandlerFunc func(hash string, attempts int, lastErr error)
 )
 
 // Handlers holds callback functions for various download lifecycle events.
@@ -52,6 +62,9 @@ type Handlers struct {
 	CompileSkippedHandler   CompileSkippedHandlerFunc
 	CompileCompleteHandler  CompileCompleteHandlerFunc
 	DownloadStoppedHandler  DownloadStoppedHandlerFunc
+
+	RetryHandler          RetryHandlerFunc
+	RetryExhaustedHandler RetryExhaustedHandlerFunc
 }
 
 func (h *Handlers) setDefault(l *log.Logger) {
@@ -95,5 +108,13 @@ func (h *Handlers) setDefault(l *log.Logger) {
 	}
 	if h.DownloadStoppedHandler == nil {
 		h.DownloadStoppedHandler = func() {}
+	}
+	if h.RetryHandler == nil {
+		h.RetryHandler = func(hash string, attempt, maxAttempts int, delay time.Duration, err error) {}
+	}
+	if h.RetryExhaustedHandler == nil {
+		h.RetryExhaustedHandler = func(hash string, attempts int, lastErr error) {
+			wlog(l, "%s: Retry exhausted after %d attempts: %s", hash, attempts, lastErr.Error())
+		}
 	}
 }

@@ -28,4 +28,10 @@ var (
 	// ErrDownloadDataMissing is returned when download data files are missing or corrupted.
 	// User must run 'warpdl flush <hash>' to remove the corrupt entry.
 	ErrDownloadDataMissing = errors.New("download data is missing or corrupted, run 'warpdl flush <hash>' to remove")
+
+	// ErrMaxRetriesExceeded is returned when all retry attempts have been exhausted.
+	ErrMaxRetriesExceeded = errors.New("maximum retry attempts exceeded")
+
+	// ErrPrematureEOF is returned when EOF occurs before expected bytes are received.
+	ErrPrematureEOF = errors.New("premature EOF: connection closed before download complete")
 )
