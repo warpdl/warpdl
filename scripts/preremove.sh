@@ -37,12 +37,10 @@ if command -v systemctl >/dev/null 2>&1; then
         # Running as root during package removal
         echo "Stopping systemd user services for all users..."
 
-        for user_home in /home/* /root; do
-            [ -d "$user_home" ] || continue
-            username=$(basename "$user_home")
-
-            # Get the user's UID
-            uid=$(id -u "$username" 2>/dev/null) || continue
+        # Helper function to stop service for a user
+        stop_user_service() {
+            username="$1"
+            uid=$(id -u "$username" 2>/dev/null) || return
 
             # Check if user's runtime dir exists (user has lingering or is logged in)
             user_runtime_dir="/run/user/$uid"
@@ -57,6 +55,7 @@ if command -v systemctl >/dev/null 2>&1; then
             fi
 
             # Also check user's PID file as fallback
+            user_home=$(eval echo "~$username" 2>/dev/null) || return
             user_pid_file="$user_home/.config/warpdl/daemon.pid"
             if [ -f "$user_pid_file" ]; then
                 pid=$(cat "$user_pid_file" 2>/dev/null || echo "")
@@ -68,6 +67,21 @@ if command -v systemctl >/dev/null 2>&1; then
                 fi
                 rm -f "$user_pid_file" 2>/dev/null || true
             fi
+        }
+
+        # Prefer loginctl for robust user enumeration (handles non-standard home dirs)
+        if command -v loginctl >/dev/null 2>&1; then
+            echo "Using loginctl for user enumeration..."
+            loginctl list-users --no-legend 2>/dev/null | while read -r uid username rest; do
+                [ -n "$username" ] && stop_user_service "$username"
+            done
+        fi
+
+        # Fallback: iterate /home/* and /root for users without active sessions
+        for user_home in /home/* /root; do
+            [ -d "$user_home" ] || continue
+            username=$(basename "$user_home")
+            stop_user_service "$username"
         done
     else
         # Running as regular user
