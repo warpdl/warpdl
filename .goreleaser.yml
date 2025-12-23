@@ -239,9 +239,7 @@ nfpms:
         dependencies:
           - systemd
         group: Applications/Internet
-      apk:
-        dependencies:
-          - openrc
+      apk: {}
 
 dockers_v2:
   - id: warp-cli

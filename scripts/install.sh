@@ -11,11 +11,13 @@ get_latest_release() {
   if command -v curl > /dev/null 2>&1; then
     curl -sL "https://api.github.com/repos/warpdl/warpdl/releases/latest" |
       grep '"tag_name":' |
-      sed -E 's/.*"([^"]+)".*/\1/'
+      sed 's/.*"tag_name": *"//' |
+      sed 's/".*//'
   elif command -v wget > /dev/null 2>&1; then
     wget -qO- "https://api.github.com/repos/warpdl/warpdl/releases/latest" |
       grep '"tag_name":' |
-      sed -E 's/.*"([^"]+)".*/\1/'
+      sed 's/.*"tag_name": *"//' |
+      sed 's/".*//'
   else
     echo "v1.1.1"  # fallback version
   fi
@@ -110,35 +112,89 @@ detect_distro() {
     return 1
   fi
 
-  # Parse /etc/os-release - extract ID, ID_LIKE, and VERSION_ID
-  # Using sed to handle the format: KEY="value" or KEY=value
-  DISTRO_ID=$(sed -n 's/^ID="\?\([^"]*\)"\?$/\1/p' /etc/os-release | head -1)
-  DISTRO_ID_LIKE=$(sed -n 's/^ID_LIKE="\?\([^"]*\)"\?$/\1/p' /etc/os-release | head -1)
-  DISTRO_VERSION=$(sed -n 's/^VERSION_ID="\?\([^"]*\)"\?$/\1/p' /etc/os-release | head -1)
+  # Parse /etc/os-release by sourcing it in a subshell
+  # /etc/os-release is designed to be shell-sourceable per freedesktop.org spec
+  DISTRO_ID=$(
+    ID=""
+    # shellcheck disable=SC1091
+    . /etc/os-release 2>/dev/null || true
+    printf '%s' "$ID"
+  )
+  DISTRO_ID_LIKE=$(
+    ID_LIKE=""
+    # shellcheck disable=SC1091
+    . /etc/os-release 2>/dev/null || true
+    printf '%s' "$ID_LIKE"
+  )
+  DISTRO_VERSION=$(
+    VERSION_ID=""
+    # shellcheck disable=SC1091
+    . /etc/os-release 2>/dev/null || true
+    printf '%s' "$VERSION_ID"
+  )
 
   log_debug "Detected distro: ID=$DISTRO_ID, ID_LIKE=$DISTRO_ID_LIKE, VERSION=$DISTRO_VERSION"
   return 0
 }
 
-# Detect if running inside a container (Docker, Podman, LXC)
+# Detect if running inside a container (Docker, Podman, LXC, systemd-nspawn, etc.)
 # Returns 0 if in container, 1 otherwise
 is_container() {
-  # Check for Docker
+  # Check 1: Docker-specific file
   if [ -f /.dockerenv ]; then
     log_debug "Detected Docker container (/.dockerenv exists)"
     return 0
   fi
 
-  # Check for Podman
+  # Check 2: Podman-specific file
   if [ -f /run/.containerenv ]; then
     log_debug "Detected Podman container (/run/.containerenv exists)"
     return 0
   fi
 
-  # Check cgroup for container indicators (docker, lxc, kubepods)
+  # Check 3: container environment variable (systemd-nspawn, some podman setups)
+  if [ -n "${container:-}" ]; then
+    log_debug "Detected container via \$container env var: $container"
+    return 0
+  fi
+
+  # Check 4: /run/systemd/container - set by systemd in containers
+  if [ -f /run/systemd/container ]; then
+    log_debug "Detected container via /run/systemd/container"
+    return 0
+  fi
+
+  # Check 5: cgroup v1 - look for container indicators
+  # Using multiple greps for POSIX compatibility (no -E flag)
   if [ -f /proc/1/cgroup ]; then
-    if grep -qE '(docker|lxc|kubepods|containerd)' /proc/1/cgroup 2>/dev/null; then
-      log_debug "Detected container via /proc/1/cgroup"
+    if grep -q docker /proc/1/cgroup 2>/dev/null || \
+       grep -q lxc /proc/1/cgroup 2>/dev/null || \
+       grep -q kubepods /proc/1/cgroup 2>/dev/null || \
+       grep -q containerd /proc/1/cgroup 2>/dev/null; then
+      log_debug "Detected container via /proc/1/cgroup (cgroup v1)"
+      return 0
+    fi
+  fi
+
+  # Check 6: cgroup v2 - check the cgroup path
+  # On cgroup v2, /proc/1/cgroup contains "0::<path>"
+  # In containers, path is like /docker/abc123, /kubepods/..., etc.
+  if [ -f /proc/1/cgroup ]; then
+    cgroup_path=$(sed -n 's/^0::\(.*\)/\1/p' /proc/1/cgroup 2>/dev/null)
+    if [ -n "$cgroup_path" ]; then
+      case "$cgroup_path" in
+        /docker/*|/lxc/*|/kubepods/*|/libpod-*|/containerd/*|*.slice/docker-*|*.slice/crio-*)
+          log_debug "Detected container via cgroup v2 path: $cgroup_path"
+          return 0
+          ;;
+      esac
+    fi
+  fi
+
+  # Check 7: /proc/1/environ for container hints (may not be readable)
+  if [ -r /proc/1/environ ]; then
+    if tr '\0' '\n' < /proc/1/environ 2>/dev/null | grep -q '^container='; then
+      log_debug "Detected container via /proc/1/environ"
       return 0
     fi
   fi
@@ -906,7 +962,7 @@ fi
 # identify OS
 uname_os=$(uname -s)
 case "$uname_os" in
-  Darwin)    OS="macos"   ;;
+  Darwin)    OS="macOS"   ;;
   Linux)     OS="linux"   ;;
   FreeBSD)   OS="freebsd" ;;
   OpenBSD)   OS="openbsd" ;;
@@ -1022,7 +1078,7 @@ case "$OS" in
     do_binary_install
     ;;
 
-  macos)
+  macOS)
     suggest_package_manager
     do_binary_install
     ;;

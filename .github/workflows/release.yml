@@ -22,6 +22,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          ref: ${{ github.event.inputs.tag || github.ref }}
 
       - name: Configure git
         run: |
@@ -63,12 +64,23 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          GORELEASER_CURRENT_TAG: ${{ github.event.inputs.tag || github.ref_name }}
 
       - name: Upload artifacts to Cloudsmith
         env:
           CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          # Determine version based on trigger type
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # Manual trigger - use the provided tag input
+            VERSION="${{ github.event.inputs.tag }}"
+            VERSION="${VERSION#v}"
+          else
+            # Tag push trigger - use the ref name
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+
+          echo "Release version: $VERSION"
           pip install cloudsmith-cli
 
           # Upload raw archives (tar.gz)

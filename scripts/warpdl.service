@@ -11,8 +11,8 @@ Restart=on-failure
 RestartSec=5
 NoNewPrivileges=yes
 ProtectSystem=strict
-ProtectHome=read-only
-ReadWritePaths=%h/.config/warpdl %h/.local/share/warp /tmp
+ProtectHome=no
+ReadWritePaths=%h/.config/warpdl /tmp
 Environment=HOME=%h
 
 [Install]
