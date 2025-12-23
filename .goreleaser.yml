@@ -208,7 +208,7 @@ nfpms:
     maintainer: Divkix <divkix@divkix.me>
     description: WarpDL - High-performance parallel download manager with daemon architecture
     license: MIT
-    builds:
+    ids:
       - default
     formats:
       - deb
