@@ -215,6 +215,10 @@ nfpms:
       - rpm
       - apk
     bindir: /usr/local/bin
+    section: utils
+    priority: optional
+    rpm:
+      group: Applications/Internet
     file_name_template: >-
       {{ .PackageName }}_{{ .Version }}_{{ .Os }}_
       {{- if eq .Arch "386" }}i386
@@ -233,12 +237,9 @@ nfpms:
       deb:
         dependencies:
           - systemd
-        section: utils
-        priority: optional
       rpm:
         dependencies:
           - systemd
-        group: Applications/Internet
       apk: {}
 
 dockers_v2:
