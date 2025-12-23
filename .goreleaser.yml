@@ -222,7 +222,7 @@ nfpms:
     file_name_template: >-
       {{ .PackageName }}_{{ .Version }}_{{ .Os }}_
       {{- if eq .Arch "386" }}i386
-      {{- else if eq .Arch "arm" }}armhf
+      {{- else if eq .Arch "arm" }}armv{{ .Arm }}
       {{- else }}{{ .Arch }}{{ end }}
     contents:
       - src: scripts/warpdl.service
