@@ -64,6 +64,67 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
 
+      - name: Upload artifacts to Cloudsmith
+        env:
+          CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          pip install cloudsmith-cli
+
+          # Upload raw archives (tar.gz)
+          for file in dist/warpdl_${VERSION}_*.tar.gz; do
+            [ -f "$file" ] || continue
+            filename=$(basename "$file")
+            echo "Uploading raw: $filename"
+            cloudsmith push raw warpdl/warpdl "$file" \
+              --name "warpdl" \
+              --version "$VERSION" \
+              --summary "WarpDL CLI binary archive" \
+              --no-wait-for-sync || true
+          done
+
+          # Upload raw archives (zip - Windows)
+          for file in dist/warpdl_${VERSION}_*.zip; do
+            [ -f "$file" ] || continue
+            filename=$(basename "$file")
+            echo "Uploading raw: $filename"
+            cloudsmith push raw warpdl/warpdl "$file" \
+              --name "warpdl" \
+              --version "$VERSION" \
+              --summary "WarpDL CLI binary archive (Windows)" \
+              --no-wait-for-sync || true
+          done
+
+          # Upload deb packages to multiple distros
+          for file in dist/*.deb; do
+            [ -f "$file" ] || continue
+            echo "Uploading deb: $(basename "$file")"
+            for distro_release in "ubuntu/focal" "ubuntu/jammy" "ubuntu/noble" "debian/bookworm" "debian/bullseye"; do
+              cloudsmith push deb "warpdl/warpdl/${distro_release}" "$file" \
+                --republish --no-wait-for-sync || true
+            done
+          done
+
+          # Upload rpm packages (any-distro/any-version for universal compatibility)
+          for file in dist/*.rpm; do
+            [ -f "$file" ] || continue
+            echo "Uploading rpm: $(basename "$file")"
+            cloudsmith push rpm warpdl/warpdl/any-distro/any-version "$file" \
+              --republish --no-wait-for-sync || true
+          done
+
+          # Upload apk packages to multiple Alpine versions
+          for file in dist/*.apk; do
+            [ -f "$file" ] || continue
+            echo "Uploading apk: $(basename "$file")"
+            for alpine_version in "v3.18" "v3.19" "v3.20"; do
+              cloudsmith push alpine "warpdl/warpdl/alpine/${alpine_version}" "$file" \
+                --republish --no-wait-for-sync || true
+            done
+          done
+
+          echo "Cloudsmith upload complete"
+
       - name: Patch Scoop manifest with pre_uninstall hook
         run: |
           # Clone the scoop bucket repository

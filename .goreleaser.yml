@@ -200,6 +200,49 @@ scoops:
     homepage: "https://github.com/warpdl/warpdl"
     description: "The official Warp CLI download manager"
 
+nfpms:
+  - id: default
+    package_name: warpdl
+    vendor: WarpDL
+    homepage: https://github.com/warpdl/warpdl
+    maintainer: Divkix <divkix@divkix.me>
+    description: WarpDL - High-performance parallel download manager with daemon architecture
+    license: MIT
+    builds:
+      - default
+    formats:
+      - deb
+      - rpm
+      - apk
+    bindir: /usr/local/bin
+    file_name_template: >-
+      {{ .PackageName }}_{{ .Version }}_{{ .Os }}_
+      {{- if eq .Arch "386" }}i386
+      {{- else if eq .Arch "arm" }}armhf
+      {{- else }}{{ .Arch }}{{ end }}
+    contents:
+      - src: scripts/warpdl.service
+        dst: /usr/lib/systemd/user/warpdl.service
+        type: config|noreplace
+        file_info:
+          mode: 0644
+    scripts:
+      postinstall: scripts/postinstall.sh
+      preremove: scripts/preremove.sh
+    overrides:
+      deb:
+        dependencies:
+          - systemd
+        section: utils
+        priority: optional
+      rpm:
+        dependencies:
+          - systemd
+        group: Applications/Internet
+      apk:
+        dependencies:
+          - openrc
+
 dockers_v2:
   - id: warp-cli
     dockerfile: docker/goreleaser

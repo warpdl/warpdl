@@ -76,6 +76,31 @@ You will need the following things for building warpdl binary:
       ```
       brew install warpdl/tap/warpdl
       ```
+  - Native Package Managers (Linux):
+
+    **Debian/Ubuntu:**
+    ```bash
+    # Add Cloudsmith repository
+    curl -1sLf 'https://dl.cloudsmith.io/public/warpdl/warpdl/setup.deb.sh' | sudo bash
+    # Install WarpDL
+    sudo apt install warpdl
+    ```
+
+    **Fedora/RHEL/CentOS:**
+    ```bash
+    # Add Cloudsmith repository
+    curl -1sLf 'https://dl.cloudsmith.io/public/warpdl/warpdl/setup.rpm.sh' | sudo bash
+    # Install WarpDL
+    sudo dnf install warpdl
+    ```
+
+    **Alpine Linux:**
+    ```bash
+    # Add Cloudsmith repository
+    curl -1sLf 'https://dl.cloudsmith.io/public/warpdl/warpdl/setup.alpine.sh' | sudo -E bash
+    # Install WarpDL
+    sudo apk add warpdl
+    ```
 - Installing through official bash script:
   ```
   curl -fsSL https://raw.githubusercontent.com/warpdl/warpdl/dev/scripts/install.sh | sh
@@ -85,6 +110,31 @@ You will need the following things for building warpdl binary:
   You can download all binaries and release artifacts from the [Releases](https://github.com/warpdl/warpdl/releases/latest) page. Binaries are built for macOS, Linux, Windows, FreeBSD, OpenBSD, and NetBSD, and for 32-bit, 64-bit, armv6/armv7, and armv6/armv7 64-bit architectures.
 
   If a binary does not yet exist for the OS/architecture you use, please open a GitHub Issue.
+
+### Optional: Enable Systemd User Service
+
+WarpDL can optionally run as a systemd user service for auto-start on login:
+
+```bash
+# Reload systemd user daemon to discover new service
+systemctl --user daemon-reload
+
+# Enable and start the service
+systemctl --user enable --now warpdl.service
+
+# Check status
+systemctl --user status warpdl.service
+
+# View logs
+journalctl --user -u warpdl.service
+```
+
+For servers (start at boot without login):
+```bash
+sudo loginctl enable-linger $USER
+```
+
+Note: The systemd service is optional. WarpDL daemon auto-starts when needed for regular CLI usage.
 
 ### Uninstallation
 

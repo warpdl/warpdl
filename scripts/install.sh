@@ -35,6 +35,10 @@ OS="unknown"
 ARCH="unknown"
 DL_FILENAME="warpdl_${LATEST_RELEASE#v}"
 GITHUB_RELEASES_BASE_URL="https://github.com/warpdl/warpdl/releases/download/${LATEST_RELEASE}/"
+# Cloudsmith download base URL for raw packages
+# Format: https://dl.cloudsmith.io/public/OWNER/REPO/raw/names/NAME/versions/VERSION/FILENAME
+CLOUDSMITH_BASE_URL="https://dl.cloudsmith.io/public/warpdl/warpdl/raw/names/warpdl/versions"
+DOWNLOAD_SOURCE=""
 DEBUG=0
 INSTALL=1
 CLEAN_EXIT=0
@@ -106,6 +110,70 @@ macos_shell() {
 # so the shell will always be /usr/bin/bash
 windows_shell() {
   echo "/usr/bin/bash"
+}
+
+# Download with Cloudsmith primary, GitHub fallback
+# Returns HTTP status code
+download_with_fallback() {
+  local_output_file="$1"
+  local_component="$2"
+
+  # Strip 'v' prefix from version for Cloudsmith URL
+  version_no_v="${LATEST_RELEASE#v}"
+
+  # Construct URLs
+  # Cloudsmith: /names/warpdl/versions/VERSION/FILENAME
+  cloudsmith_url="${CLOUDSMITH_BASE_URL}/${version_no_v}/${DL_FILENAME}"
+  github_url="${GITHUB_RELEASES_BASE_URL}${DL_FILENAME}"
+
+  log_debug "Trying Cloudsmith: $cloudsmith_url"
+
+  if [ "$curl_installed" -eq 0 ]; then
+    # Try Cloudsmith first with curl
+    set +e
+    cs_headers=$(curl --tlsv1.2 --proto "=https" -w "%{http_code}" --silent --retry 2 --connect-timeout 10 -o "$local_output_file" -LN -D - "$cloudsmith_url" 2>&1)
+    cs_status="$(echo "$cs_headers" | tail -1)"
+    set -e
+
+    if [ "$cs_status" = "200" ]; then
+      DOWNLOAD_SOURCE="Cloudsmith"
+      log_debug "Downloaded from Cloudsmith"
+      echo "200"
+      return
+    fi
+
+    log_debug "Cloudsmith failed (status: $cs_status), falling back to GitHub Releases"
+
+    # Fallback to GitHub
+    status_code=$(curl_download "$github_url" "$local_output_file" "$local_component")
+    if [ "$status_code" = "200" ]; then
+      DOWNLOAD_SOURCE="GitHub Releases"
+    fi
+    echo "$status_code"
+
+  elif [ "$wget_installed" -eq 0 ]; then
+    # Try Cloudsmith first with wget
+    set +e
+    wget --secure-protocol=TLSv1_2 --https-only -q -t 2 --connect-timeout=10 -O "$local_output_file" "$cloudsmith_url" 2>/dev/null
+    wget_exit=$?
+    set -e
+
+    if [ "$wget_exit" -eq 0 ] && [ -f "$local_output_file" ] && [ -s "$local_output_file" ]; then
+      DOWNLOAD_SOURCE="Cloudsmith"
+      log_debug "Downloaded from Cloudsmith"
+      echo "200"
+      return
+    fi
+
+    log_debug "Cloudsmith failed, falling back to GitHub Releases"
+
+    # Fallback to GitHub
+    status_code=$(wget_download "$github_url" "$local_output_file" "$local_component")
+    if [ "$status_code" = "200" ]; then
+      DOWNLOAD_SOURCE="GitHub Releases"
+    fi
+    echo "$status_code"
+  fi
 }
 
 # exit code
@@ -397,17 +465,14 @@ if [ "$curl_installed" -eq 0 ] || [ "$wget_installed" -eq 0 ]; then
 
   if [ "$curl_installed" -eq 0 ]; then
     log_debug "Using $curl_binary for requests"
-
-    # download binary
-    log_debug "Downloading binary from $url"
-    status_code=$( curl_download "$url" "$filename" "Binary" )
+    log_debug "Downloading binary..."
+    status_code=$(download_with_fallback "$filename" "Binary")
     check_http_status "$status_code" "Binary"
 
   elif [ "$wget_installed" -eq 0 ]; then
     log_debug "Using $wget_binary for requests"
-
-    log_debug "Downloading binary from $url"
-    status_code=$( wget_download "$url" "$filename" "Binary" )
+    log_debug "Downloading binary..."
+    status_code=$(download_with_fallback "$filename" "Binary")
     check_http_status "$status_code" "Binary"
   fi
 else
@@ -573,6 +638,9 @@ if [ "$format" = "tar.gz" ] || [ "$format" = "zip" ]; then
     message="Installed Warpdl CLI $("$BINARY_INSTALLED_PATH"/warpdl -v)"
     if [ "$CUSTOM_INSTALL_PATH" != "" ]; then
       message="$message to $BINARY_INSTALLED_PATH"
+    fi
+    if [ -n "$DOWNLOAD_SOURCE" ]; then
+      message="$message (from $DOWNLOAD_SOURCE)"
     fi
     echo "$message"
   else
