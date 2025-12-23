@@ -19,8 +19,18 @@ import (
 	"github.com/vbauerster/mpb/v8"
 	cmdcommon "github.com/warpdl/warpdl/cmd/common"
 	"github.com/warpdl/warpdl/common"
+	"github.com/warpdl/warpdl/pkg/warpcli"
 	"github.com/warpdl/warpdl/pkg/warplib"
 )
+
+// suppressVersionCheck sets the environment variable to suppress version
+// mismatch warnings during tests. This prevents test pollution from tests
+// that set currentBuildArgs.Version via Execute().
+func suppressVersionCheck(t *testing.T) {
+	t.Helper()
+	_ = os.Setenv(warpcli.VersionCheckEnv, "1")
+	t.Cleanup(func() { _ = os.Unsetenv(warpcli.VersionCheckEnv) })
+}
 
 type fakeServer struct {
 	listener net.Listener
@@ -36,6 +46,7 @@ func (s *fakeServer) close() {
 
 func startFakeServer(t *testing.T, socketPath string, fail ...map[common.UpdateType]string) *fakeServer {
 	t.Helper()
+	suppressVersionCheck(t) // Prevent test pollution from currentBuildArgs
 	_ = os.Remove(socketPath)
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {
@@ -58,99 +69,112 @@ func startFakeServer(t *testing.T, socketPath string, fail ...map[common.UpdateT
 			go func(c net.Conn) {
 				defer srv.wg.Done()
 				defer c.Close()
-				reqBytes, err := readMessage(c)
-				if err != nil {
-					return
-				}
-				var req struct {
-					Method  common.UpdateType `json:"method"`
-					Message json.RawMessage   `json:"message"`
-				}
-				if err := json.Unmarshal(reqBytes, &req); err != nil {
-					return
-				}
-				if failMap != nil {
-					if msg, ok := failMap[req.Method]; ok {
-						writeError(c, msg)
+				for {
+					reqBytes, err := readMessage(c)
+					if err != nil {
 						return
 					}
-				}
-				switch req.Method {
-				case common.UPDATE_DOWNLOAD:
-					resp := common.DownloadResponse{
-						DownloadId:        "id",
-						FileName:          "file.bin",
-						SavePath:          "file.bin",
-						DownloadDirectory: ".",
-						ContentLength:     warplib.ContentLength(10),
-						MaxConnections:    1,
-						MaxSegments:       1,
+					var req struct {
+						Method  common.UpdateType `json:"method"`
+						Message json.RawMessage   `json:"message"`
 					}
-					writeResponse(c, req.Method, resp)
-					update := common.DownloadingResponse{
-						DownloadId: "id",
-						Action:     common.DownloadComplete,
-						Hash:       warplib.MAIN_HASH,
-						Value:      10,
+					if err := json.Unmarshal(reqBytes, &req); err != nil {
+						return
 					}
-					writeResponse(c, common.UPDATE_DOWNLOADING, update)
-				case common.UPDATE_ATTACH:
-					resp := common.DownloadResponse{
-						DownloadId:        "id",
-						FileName:          "file.bin",
-						SavePath:          "file.bin",
-						DownloadDirectory: ".",
-						ContentLength:     warplib.ContentLength(10),
-						MaxConnections:    1,
-						MaxSegments:       1,
+					if failMap != nil {
+						if msg, ok := failMap[req.Method]; ok {
+							writeError(c, msg)
+							return
+						}
 					}
-					writeResponse(c, req.Method, resp)
-					update := common.DownloadingResponse{
-						DownloadId: "id",
-						Action:     common.DownloadComplete,
-						Hash:       warplib.MAIN_HASH,
-						Value:      10,
+					switch req.Method {
+					case common.UPDATE_VERSION:
+						resp := common.VersionResponse{
+							Version:   "1-test",
+							Commit:    "test",
+							BuildType: "test",
+						}
+						writeResponse(c, req.Method, resp)
+						continue // Keep loop for next request (download/attach/etc.)
+					case common.UPDATE_DOWNLOAD:
+						resp := common.DownloadResponse{
+							DownloadId:        "id",
+							FileName:          "file.bin",
+							SavePath:          "file.bin",
+							DownloadDirectory: ".",
+							ContentLength:     warplib.ContentLength(10),
+							MaxConnections:    1,
+							MaxSegments:       1,
+						}
+						writeResponse(c, req.Method, resp)
+						update := common.DownloadingResponse{
+							DownloadId: "id",
+							Action:     common.DownloadComplete,
+							Hash:       warplib.MAIN_HASH,
+							Value:      10,
+						}
+						writeResponse(c, common.UPDATE_DOWNLOADING, update)
+					case common.UPDATE_ATTACH:
+						resp := common.DownloadResponse{
+							DownloadId:        "id",
+							FileName:          "file.bin",
+							SavePath:          "file.bin",
+							DownloadDirectory: ".",
+							ContentLength:     warplib.ContentLength(10),
+							MaxConnections:    1,
+							MaxSegments:       1,
+						}
+						writeResponse(c, req.Method, resp)
+						update := common.DownloadingResponse{
+							DownloadId: "id",
+							Action:     common.DownloadComplete,
+							Hash:       warplib.MAIN_HASH,
+							Value:      10,
+						}
+						writeResponse(c, common.UPDATE_DOWNLOADING, update)
+					case common.UPDATE_RESUME:
+						resp := common.ResumeResponse{
+							FileName:          "file.bin",
+							SavePath:          "file.bin",
+							DownloadDirectory: ".",
+							AbsoluteLocation:  ".",
+							ContentLength:     warplib.ContentLength(10),
+							MaxConnections:    1,
+							MaxSegments:       1,
+						}
+						writeResponse(c, req.Method, resp)
+						update := common.DownloadingResponse{
+							DownloadId: "id",
+							Action:     common.DownloadComplete,
+							Hash:       warplib.MAIN_HASH,
+							Value:      10,
+						}
+						writeResponse(c, common.UPDATE_DOWNLOADING, update)
+					case common.UPDATE_LIST:
+						items := listOverride
+						if items == nil {
+							items = []*warplib.Item{{
+								Hash:       "id",
+								Name:       "file.bin",
+								TotalSize:  10,
+								Downloaded: 10,
+								Hidden:     false,
+								Children:   false,
+								DateAdded:  time.Now(),
+								Resumable:  true,
+								Parts:      make(map[int64]*warplib.ItemPart),
+							}}
+						}
+						resp := common.ListResponse{Items: items}
+						writeResponse(c, req.Method, resp)
+						return // One-shot command, exit loop
+					case common.UPDATE_STOP, common.UPDATE_FLUSH:
+						writeResponse(c, req.Method, nil)
+						return // One-shot command, exit loop
+					default:
+						writeError(c, "unknown method")
+						return // Exit loop on unknown method
 					}
-					writeResponse(c, common.UPDATE_DOWNLOADING, update)
-				case common.UPDATE_RESUME:
-					resp := common.ResumeResponse{
-						FileName:          "file.bin",
-						SavePath:          "file.bin",
-						DownloadDirectory: ".",
-						AbsoluteLocation:  ".",
-						ContentLength:     warplib.ContentLength(10),
-						MaxConnections:    1,
-						MaxSegments:       1,
-					}
-					writeResponse(c, req.Method, resp)
-					update := common.DownloadingResponse{
-						DownloadId: "id",
-						Action:     common.DownloadComplete,
-						Hash:       warplib.MAIN_HASH,
-						Value:      10,
-					}
-					writeResponse(c, common.UPDATE_DOWNLOADING, update)
-				case common.UPDATE_LIST:
-					items := listOverride
-					if items == nil {
-						items = []*warplib.Item{{
-							Hash:       "id",
-							Name:       "file.bin",
-							TotalSize:  10,
-							Downloaded: 10,
-							Hidden:     false,
-							Children:   false,
-							DateAdded:  time.Now(),
-							Resumable:  true,
-							Parts:      make(map[int64]*warplib.ItemPart),
-						}}
-					}
-					resp := common.ListResponse{Items: items}
-					writeResponse(c, req.Method, resp)
-				case common.UPDATE_STOP, common.UPDATE_FLUSH:
-					writeResponse(c, req.Method, nil)
-				default:
-					writeError(c, "unknown method")
 				}
 			}(conn)
 		}
