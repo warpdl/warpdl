@@ -284,6 +284,16 @@ ensure_sudo() {
   return 0
 }
 
+# Run a script from stdin with sudo if available
+# Uses sh instead of bash for Alpine/busybox compatibility
+run_setup_script() {
+  if [ -n "$SUDO" ]; then
+    $SUDO -E sh
+  else
+    sh
+  fi
+}
+
 # Clean up existing binary installations not managed by package managers
 # Stops running daemon and removes socket file
 cleanup_existing_binary() {
@@ -369,7 +379,7 @@ cleanup_existing_binary() {
 setup_deb_repo() {
   log "Setting up Cloudsmith APT repository..."
 
-  if ! curl -fsSL --tlsv1.2 --proto "=https" "https://dl.cloudsmith.io/public/warpdl/warpdl/setup.deb.sh" | $SUDO bash; then
+  if ! curl -fsSL --tlsv1.2 --proto "=https" "https://dl.cloudsmith.io/public/warpdl/warpdl/setup.deb.sh" | run_setup_script; then
     log_warning "Failed to set up Cloudsmith APT repository"
     return 1
   fi
@@ -394,7 +404,7 @@ setup_deb_repo() {
 setup_rpm_repo() {
   log "Setting up Cloudsmith RPM repository..."
 
-  if ! curl -fsSL --tlsv1.2 --proto "=https" "https://dl.cloudsmith.io/public/warpdl/warpdl/setup.rpm.sh" | $SUDO bash; then
+  if ! curl -fsSL --tlsv1.2 --proto "=https" "https://dl.cloudsmith.io/public/warpdl/warpdl/setup.rpm.sh" | run_setup_script; then
     log_warning "Failed to set up Cloudsmith RPM repository"
     return 1
   fi
@@ -424,7 +434,7 @@ setup_rpm_repo() {
 setup_alpine_repo() {
   log "Setting up Cloudsmith Alpine repository..."
 
-  if ! curl -fsSL --tlsv1.2 --proto "=https" "https://dl.cloudsmith.io/public/warpdl/warpdl/setup.alpine.sh" | $SUDO -E bash; then
+  if ! curl -fsSL --tlsv1.2 --proto "=https" "https://dl.cloudsmith.io/public/warpdl/warpdl/setup.alpine.sh" | run_setup_script; then
     log_warning "Failed to set up Cloudsmith Alpine repository"
     return 1
   fi
