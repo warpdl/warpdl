@@ -212,10 +212,6 @@ func serviceUninstall(ctx *cli.Context) error {
 
 	fmt.Printf("Service '%s' uninstalled successfully\n", daemonpkg.DefaultServiceName)
 	return nil
-	}
-
-	fmt.Printf("Service '%s' uninstalled successfully\n", daemonpkg.DefaultServiceName)
-	return nil
 }
 
 // serviceStart starts the WarpDL Windows service.

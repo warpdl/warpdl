@@ -222,7 +222,7 @@ func TestWindowsHandler_Execute_HandlesStartError(t *testing.T) {
 
 	// Run Execute in a goroutine with timeout protection
 	type result struct {
-		svcCode  uint32
+		svcSpecific bool
 		exitCode uint32
 	}
 	done := make(chan result, 1)
@@ -276,15 +276,15 @@ func TestWindowsHandler_Execute_HandlesShutdownError(t *testing.T) {
 	requests := make(chan svc.ChangeRequest, 2)
 
 	done := make(chan struct {
-		svcCode  uint32
+		svcSpecific bool
 		exitCode uint32
 	}, 1)
 	go func() {
-		svcCode, exitCode := handler.Execute(nil, requests, changes)
+		svcSpecific, exitCode := handler.Execute(nil, requests, changes)
 		done <- struct {
-			svcCode  uint32
+			svcSpecific bool
 			exitCode uint32
-		}{svcCode, exitCode}
+		}{svcSpecific, exitCode}
 	}()
 
 	// Wait for Running state before sending Stop
@@ -298,7 +298,7 @@ func TestWindowsHandler_Execute_HandlesShutdownError(t *testing.T) {
 	select {
 	case result := <-done:
 		// Should indicate failure due to shutdown error
-		if result.exitCode == 0 && result.svcCode == 0 {
+		if result.exitCode == 0 && result.svcSpecific == false {
 			t.Error("Execute() should return non-zero exit code on shutdown failure")
 		}
 	case <-time.After(500 * time.Millisecond):
@@ -316,15 +316,15 @@ func TestWindowsHandler_Execute_HandlesChannelClosure(t *testing.T) {
 	requests := make(chan svc.ChangeRequest, 2)
 
 	done := make(chan struct {
-		svcCode  uint32
+		svcSpecific bool
 		exitCode uint32
 	}, 1)
 	go func() {
-		svcCode, exitCode := handler.Execute(nil, requests, changes)
+		svcSpecific, exitCode := handler.Execute(nil, requests, changes)
 		done <- struct {
-			svcCode  uint32
+			svcSpecific bool
 			exitCode uint32
-		}{svcCode, exitCode}
+		}{svcSpecific, exitCode}
 	}()
 
 	// Wait for Running state before closing channel
@@ -339,8 +339,8 @@ func TestWindowsHandler_Execute_HandlesChannelClosure(t *testing.T) {
 	select {
 	case result := <-done:
 		// Should return successfully even with channel closure
-		if result.exitCode != 0 || result.svcCode != 0 {
-			t.Errorf("Execute() returned unexpected exit codes: svc=%d, exit=%d", result.svcCode, result.exitCode)
+		if result.exitCode != 0 || result.svcSpecific != 0 {
+			t.Errorf("Execute() returned unexpected exit codes: svc=%d, exit=%d", result.svcSpecific, result.exitCode)
 		}
 	case <-time.After(500 * time.Millisecond):
 		t.Fatal("Execute() did not complete on channel closure")
@@ -356,15 +356,15 @@ func TestWindowsHandler_Execute_HandlesShutdown(t *testing.T) {
 	requests := make(chan svc.ChangeRequest, 2)
 
 	done := make(chan struct {
-		svcCode  uint32
+		svcSpecific bool
 		exitCode uint32
 	}, 1)
 	go func() {
-		svcCode, exitCode := handler.Execute(nil, requests, changes)
+		svcSpecific, exitCode := handler.Execute(nil, requests, changes)
 		done <- struct {
-			svcCode  uint32
+			svcSpecific bool
 			exitCode uint32
-		}{svcCode, exitCode}
+		}{svcSpecific, exitCode}
 	}()
 
 	// Wait for Running state before sending Shutdown
@@ -384,8 +384,8 @@ func TestWindowsHandler_Execute_HandlesShutdown(t *testing.T) {
 
 	select {
 	case result := <-done:
-		if result.exitCode != 0 || result.svcCode != 0 {
-			t.Errorf("Execute() returned unexpected exit codes on shutdown: svc=%d, exit=%d", result.svcCode, result.exitCode)
+		if result.exitCode != 0 || result.svcSpecific != 0 {
+			t.Errorf("Execute() returned unexpected exit codes on shutdown: svc=%d, exit=%d", result.svcSpecific, result.exitCode)
 		}
 	case <-time.After(500 * time.Millisecond):
 		t.Fatal("Execute() did not handle Shutdown command")
@@ -425,15 +425,15 @@ func TestWindowsHandler_Execute_IgnoresUnknownCommands(t *testing.T) {
 	requests := make(chan svc.ChangeRequest, 10)
 
 	done := make(chan struct {
-		svcCode  uint32
+		svcSpecific bool
 		exitCode uint32
 	}, 1)
 	go func() {
-		svcCode, exitCode := handler.Execute(nil, requests, changes)
+		svcSpecific, exitCode := handler.Execute(nil, requests, changes)
 		done <- struct {
-			svcCode  uint32
+			svcSpecific bool
 			exitCode uint32
-		}{svcCode, exitCode}
+		}{svcSpecific, exitCode}
 	}()
 
 	// Wait for Running state
@@ -458,8 +458,8 @@ func TestWindowsHandler_Execute_IgnoresUnknownCommands(t *testing.T) {
 
 	select {
 	case result := <-done:
-		if result.exitCode != 0 || result.svcCode != 0 {
-			t.Errorf("Execute() returned unexpected exit codes: svc=%d, exit=%d", result.svcCode, result.exitCode)
+		if result.exitCode != 0 || result.svcSpecific != 0 {
+			t.Errorf("Execute() returned unexpected exit codes: svc=%d, exit=%d", result.svcSpecific, result.exitCode)
 		}
 	case <-time.After(500 * time.Millisecond):
 		t.Fatal("Execute() did not complete after unknown commands")

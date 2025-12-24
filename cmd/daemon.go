@@ -20,6 +20,11 @@ var (
 )
 
 func daemon(ctx *cli.Context) error {
+	// On Windows, check if we're running as a service first
+	if isService, err := checkWindowsService(ctx); isService || err != nil {
+		return err
+	}
+
 	l := log.Default()
 
 	// Clean up stale PID file or fail if daemon already running

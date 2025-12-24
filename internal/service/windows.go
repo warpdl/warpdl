@@ -68,9 +68,9 @@ func NewWindowsHandlerWithLogger(runner RunnerInterface, logger EventLogger) *Wi
 //
 //	StartPending -> Running -> StopPending -> Stopped
 //
-// Returns service-specific exit code and Windows exit code.
-// Both are 0 on successful shutdown, non-zero on error.
-func (h *WindowsHandler) Execute(args []string, requests <-chan svc.ChangeRequest, status chan<- svc.Status) (svcSpecificExitCode uint32, exitCode uint32) {
+// Returns svcSpecificEC (always false) and exitCode.
+// exitCode is 0 on successful shutdown, non-zero on error.
+func (h *WindowsHandler) Execute(args []string, requests <-chan svc.ChangeRequest, status chan<- svc.Status) (svcSpecificEC bool, exitCode uint32) {
 	// args is intentionally unused - WarpDL reads configuration from files,
 	// not from service start arguments. See function documentation above.
 	_ = args
@@ -100,7 +100,7 @@ func (h *WindowsHandler) Execute(args []string, requests <-chan svc.ChangeReques
 		if err != nil {
 			_ = h.logger.Error("Failed to start WarpDL service: " + err.Error())
 			status <- svc.Status{State: svc.Stopped}
-			return 1, 1
+			return false, 1
 		}
 	case <-time.After(50 * time.Millisecond):
 		// Runner is starting asynchronously, continue
@@ -116,7 +116,7 @@ func (h *WindowsHandler) Execute(args []string, requests <-chan svc.ChangeReques
 
 // processControlRequests handles incoming service control requests.
 // It runs until a stop or shutdown command is received.
-func (h *WindowsHandler) processControlRequests(requests <-chan svc.ChangeRequest, status chan<- svc.Status, cancel context.CancelFunc) (svcSpecificExitCode uint32, exitCode uint32) {
+func (h *WindowsHandler) processControlRequests(requests <-chan svc.ChangeRequest, status chan<- svc.Status, cancel context.CancelFunc) (svcSpecificEC bool, exitCode uint32) {
 	for req := range requests {
 		switch req.Cmd {
 		case svc.Interrogate:
@@ -129,12 +129,12 @@ func (h *WindowsHandler) processControlRequests(requests <-chan svc.ChangeReques
 	}
 
 	// Channel closed unexpectedly
-	return 0, 0
+	return false, 0
 }
 
 // handleStopRequest processes a stop or shutdown command.
 // It gracefully shuts down the runner and reports the stopped state.
-func (h *WindowsHandler) handleStopRequest(status chan<- svc.Status, cancel context.CancelFunc) (svcSpecificExitCode uint32, exitCode uint32) {
+func (h *WindowsHandler) handleStopRequest(status chan<- svc.Status, cancel context.CancelFunc) (svcSpecificEC bool, exitCode uint32) {
 	_ = h.logger.Info("WarpDL service stopping...")
 	status <- svc.Status{State: svc.StopPending}
 
@@ -147,12 +147,12 @@ func (h *WindowsHandler) handleStopRequest(status chan<- svc.Status, cancel cont
 		// The service is stopping regardless of cleanup errors
 		_ = h.logger.Error("Error during service shutdown: " + err.Error())
 		status <- svc.Status{State: svc.Stopped}
-		return 1, 1
+		return false, 1
 	}
 
 	_ = h.logger.Info("WarpDL service stopped successfully")
 	status <- svc.Status{State: svc.Stopped}
-	return 0, 0
+	return false, 0
 }
 
 // AcceptedCommands returns the service commands this handler accepts.
