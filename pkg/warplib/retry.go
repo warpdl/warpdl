@@ -85,10 +85,7 @@ func ClassifyError(err error) ErrorCategory {
 	// Check for syscall errors indicating connection issues
 	var sysErr syscall.Errno
 	if errors.As(err, &sysErr) {
-		switch sysErr {
-		case syscall.ECONNRESET, syscall.ECONNREFUSED, syscall.ECONNABORTED,
-			syscall.ETIMEDOUT, syscall.ENETUNREACH, syscall.EHOSTUNREACH,
-			syscall.EPIPE:
+		if isRetryableErrno(sysErr) {
 			return ErrCategoryRetryable
 		}
 	}
