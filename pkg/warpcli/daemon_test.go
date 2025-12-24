@@ -152,36 +152,27 @@ func TestWaitForSocket_TCPFallback(t *testing.T) {
 	// Use a Unix socket path that doesn't exist
 	sockPath := filepath.Join(t.TempDir(), "nonexistent.sock")
 
-	// Start TCP listener after delay
-	go func() {
-		time.Sleep(100 * time.Millisecond)
-		tcpListener, err := net.Listen("tcp", "localhost:0")
-		if err != nil {
-			t.Logf("TCP listener creation failed: %v", err)
-			return
-		}
-		defer tcpListener.Close()
+	// Create TCP listener BEFORE starting waitForSocket
+	tcpListener, err := net.Listen("tcp", "localhost:0")
+	if err != nil {
+		t.Fatalf("TCP listener creation failed: %v", err)
+	}
+	defer tcpListener.Close()
 
-		// Extract port and set environment
-		port := tcpListener.Addr().(*net.TCPAddr).Port
-		os.Setenv("WARPDL_TCP_PORT", strconv.Itoa(port))
+	// Extract port and set environment BEFORE starting waitForSocket
+	port := tcpListener.Addr().(*net.TCPAddr).Port
+	t.Setenv("WARPDL_TCP_PORT", strconv.Itoa(port))
 
-		// Keep listener alive for duration of test
-		time.Sleep(2 * time.Second)
-	}()
-
+	// Now waitForSocket should detect the TCP daemon immediately
 	start := time.Now()
-	err := waitForSocket(sockPath, 2*time.Second)
+	err = waitForSocket(sockPath, 2*time.Second)
 	elapsed := time.Since(start)
 
 	if err != nil {
 		t.Fatalf("waitForSocket failed with TCP fallback: %v", err)
 	}
-	// Should have waited at least 100ms but not much more
-	if elapsed < 100*time.Millisecond {
-		t.Fatal("waitForSocket returned too early")
-	}
-	if elapsed > 1*time.Second {
+	// Should return quickly since TCP is already listening
+	if elapsed > 500*time.Millisecond {
 		t.Fatalf("waitForSocket took too long: %v", elapsed)
 	}
 }

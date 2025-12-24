@@ -50,13 +50,13 @@ func NewClient() (*Client, error) {
 
 	// Try Unix socket first
 	debugLog("Attempting connection via Unix socket at %s", socketPath())
-	conn, err = dialFunc("unix", socketPath())
-	if err != nil {
-		debugLog("Unix socket connection failed: %v, falling back to TCP", err)
+	conn, unixErr := dialFunc("unix", socketPath())
+	if unixErr != nil {
+		debugLog("Unix socket connection failed: %v, falling back to TCP", unixErr)
 		// Fall back to TCP
 		conn, err = dialFunc("tcp", tcpAddress())
 		if err != nil {
-			return nil, fmt.Errorf("failed to connect via Unix socket and TCP: %w", err)
+			return nil, fmt.Errorf("failed to connect: unix socket error: %v; tcp error: %w", unixErr, err)
 		}
 		debugLog("Successfully connected via TCP fallback to %s", tcpAddress())
 		return newClientWithConn(conn), nil

@@ -2,6 +2,17 @@
 // client-server communication layer.
 package common
 
+const (
+	// DefaultTCPPort is the default port for TCP fallback connections.
+	// Both daemon (server) and CLI (client) must use the same port.
+	DefaultTCPPort = 3849
+
+	// TCPHost is the hostname for TCP connections. This is intentionally
+	// hardcoded to localhost for security - the daemon has no authentication
+	// and must not be exposed to external interfaces.
+	TCPHost = "localhost"
+)
+
 // UpdateType represents the type of update message sent between the CLI client
 // and the daemon server over the Unix socket connection.
 type UpdateType string

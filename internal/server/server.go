@@ -57,7 +57,7 @@ func (s *Server) createListener() (net.Listener, error) {
 	if err != nil {
 		s.log.Println("Error occured while using unix socket: ", err.Error())
 		s.log.Println("Trying to use tcp socket")
-		tcpListener, tcpErr := net.Listen("tcp", fmt.Sprintf("localhost:%d", s.port))
+		tcpListener, tcpErr := net.Listen("tcp", fmt.Sprintf("%s:%d", common.TCPHost, s.port))
 		if tcpErr != nil {
 			return nil, fmt.Errorf("error listening: %s", tcpErr.Error())
 		}

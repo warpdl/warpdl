@@ -6,14 +6,15 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+
+	"github.com/warpdl/warpdl/common"
 )
 
 const (
-	socketPathEnv  = "WARPDL_SOCKET_PATH"
-	tcpPortEnv     = "WARPDL_TCP_PORT"
-	forceTCPEnv    = "WARPDL_FORCE_TCP"
-	debugEnv       = "WARPDL_DEBUG"
-	defaultTCPPort = 3849
+	socketPathEnv = "WARPDL_SOCKET_PATH"
+	tcpPortEnv    = "WARPDL_TCP_PORT"
+	forceTCPEnv   = "WARPDL_FORCE_TCP"
+	debugEnv      = "WARPDL_DEBUG"
 )
 
 func socketPath() string {
@@ -27,10 +28,14 @@ func socketPath() string {
 func tcpPort() int {
 	if port := os.Getenv(tcpPortEnv); port != "" {
 		if p, err := strconv.Atoi(port); err == nil {
-			return p
+			// Validate port range (1-65535)
+			if p >= 1 && p <= 65535 {
+				return p
+			}
+			debugLog("invalid TCP port %d, using default %d", p, common.DefaultTCPPort)
 		}
 	}
-	return defaultTCPPort
+	return common.DefaultTCPPort
 }
 
 // forceTCP returns true if WARPDL_FORCE_TCP=1
@@ -45,7 +50,7 @@ func debugMode() bool {
 
 // tcpAddress returns "localhost:{port}"
 func tcpAddress() string {
-	return fmt.Sprintf("localhost:%d", tcpPort())
+	return fmt.Sprintf("%s:%d", common.TCPHost, tcpPort())
 }
 
 // debugLog logs only if debugMode() is true
