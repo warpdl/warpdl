@@ -44,7 +44,7 @@ New-NetFirewallRule -DisplayName "WarpDL Daemon" -Direction Inbound -Action Allo
 ```
 
 Replace `C:\path\to\warpdl.exe` with your actual installation path:
-- **Scoop**: `C:\Users\<YourUsername>\scoop\apps\warpdl\current\warpdl.exe`
+- **Scoop**: `C:\Users\YourUsername\scoop\apps\warpdl\current\warpdl.exe` (replace `YourUsername` with your Windows username)
 - **Manual install**: Path where you placed the binary
 
 **Alternative (netsh for older Windows):**
@@ -96,7 +96,7 @@ These are **false positives**. WarpDL is open-source and does not contain malwar
 3. Under "Virus & threat protection settings", click **Manage settings**
 4. Scroll to **Exclusions** → Click **Add or remove exclusions**
 5. Click **Add an exclusion** and add:
-   - **Folder**: `%USERPROFILE%\.config\warpdl\` (Config directory)
+   - **Folder**: `%USERPROFILE%\.config\warpdl\` (Config directory - use Windows environment variable format)
    - **Folder**: `%LOCALAPPDATA%\warpdl\` (Application data, if exists)
    - **Process**: `warpdl.exe` (The executable itself)
 
@@ -108,7 +108,7 @@ Open PowerShell as Administrator:
 # Add executable exclusion
 Add-MpPreference -ExclusionProcess "warpdl.exe"
 
-# Add config directory exclusion
+# Add config directory exclusion (PowerShell uses $env: syntax)
 Add-MpPreference -ExclusionPath "$env:USERPROFILE\.config\warpdl"
 
 # Add application data exclusion (if needed)
@@ -174,7 +174,9 @@ Only disable if you frequently encounter issues and understand the security impl
 **Symptoms**: `warpdl` commands hang or fail to connect
 
 **Solutions**:
-1. Check if daemon is running: `warpdl status` or `tasklist | findstr warpdl`
+1. Check if daemon is running:
+   - `warpdl status`
+   - Or in PowerShell: `tasklist /FI "IMAGENAME eq warpdl.exe"`
 2. Check if port 3849 is blocked:
    ```powershell
    netstat -ano | findstr :3849
