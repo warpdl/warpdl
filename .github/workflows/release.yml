@@ -88,7 +88,7 @@ jobs:
           FAILED=0
 
           # Note: Raw archives (tar.gz, zip) are available on GitHub Releases
-          # Cloudsmith is used only for native package repositories (deb/rpm/apk)
+          # Cloudsmith is used only for native package repositories (deb/rpm)
 
           # Upload deb packages (universal - works on any Debian/Ubuntu)
           for file in dist/*.deb; do
@@ -110,20 +110,6 @@ jobs:
             filename=$(basename "$file")
             echo "Uploading rpm: $filename"
             if cloudsmith push rpm warpdl/warpdl/any-distro/any-version "$file" \
-              --republish --no-wait-for-sync; then
-              SUCCESS=$((SUCCESS + 1))
-            else
-              echo "::warning::Failed to upload: $filename"
-              FAILED=$((FAILED + 1))
-            fi
-          done
-
-          # Upload apk packages (universal - works on any Alpine version)
-          for file in dist/*.apk; do
-            [ -f "$file" ] || continue
-            filename=$(basename "$file")
-            echo "Uploading apk: $filename"
-            if cloudsmith push alpine "warpdl/warpdl/alpine/any-version" "$file" \
               --republish --no-wait-for-sync; then
               SUCCESS=$((SUCCESS + 1))
             else

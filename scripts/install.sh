@@ -332,13 +332,6 @@ cleanup_existing_binary() {
         log_debug "/usr/local/bin/warpdl is managed by rpm"
       fi
     fi
-    # Check if managed by apk
-    if [ "$is_managed" -eq 0 ] && command -v apk > /dev/null 2>&1; then
-      if apk info --who-owns "/usr/local/bin/warpdl" > /dev/null 2>&1; then
-        is_managed=1
-        log_debug "/usr/local/bin/warpdl is managed by apk"
-      fi
-    fi
     # Remove if not managed by any package manager
     if [ "$is_managed" -eq 0 ]; then
       log_debug "Removing unmanaged binary /usr/local/bin/warpdl"
@@ -361,13 +354,6 @@ cleanup_existing_binary() {
       if rpm -qf "/usr/bin/warpdl" > /dev/null 2>&1; then
         is_managed=1
         log_debug "/usr/bin/warpdl is managed by rpm"
-      fi
-    fi
-    # Check if managed by apk
-    if [ "$is_managed" -eq 0 ] && command -v apk > /dev/null 2>&1; then
-      if apk info --who-owns "/usr/bin/warpdl" > /dev/null 2>&1; then
-        is_managed=1
-        log_debug "/usr/bin/warpdl is managed by apk"
       fi
     fi
     # Remove if not managed by any package manager
@@ -427,25 +413,6 @@ setup_rpm_repo() {
     fi
   else
     log_warning "Neither dnf nor yum found"
-    return 1
-  fi
-
-  return 0
-}
-
-# Set up Alpine APK repository and install warpdl
-# Returns 1 on failure
-setup_alpine_repo() {
-  log "Setting up Cloudsmith Alpine repository..."
-
-  if ! curl -fsSL --tlsv1.2 --proto "=https" "https://dl.cloudsmith.io/public/warpdl/warpdl/setup.alpine.sh" | run_setup_script; then
-    log_warning "Failed to set up Cloudsmith Alpine repository"
-    return 1
-  fi
-
-  log "Installing warpdl..."
-  if ! $SUDO apk add warpdl; then
-    log_warning "Failed to install warpdl via apk"
     return 1
   fi
 
@@ -998,12 +965,6 @@ case "$OS" in
         fedora|rhel|centos|rocky|almalinux|ol)
           log_debug "Attempting RPM package install for $DISTRO_ID"
           if setup_rpm_repo; then
-            native_pkg_success=1
-          fi
-          ;;
-        alpine)
-          log_debug "Attempting Alpine package install"
-          if setup_alpine_repo; then
             native_pkg_success=1
           fi
           ;;

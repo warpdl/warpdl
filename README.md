@@ -68,7 +68,6 @@ curl -fsSL https://raw.githubusercontent.com/warpdl/warpdl/dev/scripts/install.s
 
 This automatically:
 - **Linux (Debian/Ubuntu/Fedora/RHEL):** Sets up Cloudsmith repo for auto-updates + systemd service
-- **Alpine Linux:** Falls back to binary install (see [Alpine note](#alpine-linux) for native packages)
 - **macOS/BSD:** Downloads binary directly (suggests Homebrew)
 - **Windows (Git Bash):** Downloads binary directly (suggests Scoop)
 
@@ -105,32 +104,6 @@ sudo apt install warpdl
 curl -1sLf 'https://dl.cloudsmith.io/public/warpdl/warpdl/setup.rpm.sh' | sudo bash
 sudo dnf install warpdl
 ```
-
-**Alpine Linux:**
-
-See [Alpine Linux](#alpine-linux) section below.
-</details>
-
-<details>
-<summary id="alpine-linux">Alpine Linux</summary>
-
-Alpine Linux doesn't include bash by default, but Cloudsmith's setup scripts require it. You have two options:
-
-**Option 1: Install bash first (enables native apk packages)**
-```bash
-# Install bash, then run the setup script
-sudo apk add bash
-curl -1sLf 'https://dl.cloudsmith.io/public/warpdl/warpdl/setup.alpine.sh' | sudo -E bash
-sudo apk add warpdl
-```
-
-**Option 2: Use binary installation (no bash needed)**
-```bash
-curl -fsSL https://raw.githubusercontent.com/warpdl/warpdl/dev/scripts/install.sh | sh
-```
-This installs the binary directly without package manager integration.
-
-**Note:** For containers, Option 2 (binary) is usually sufficient since containers are ephemeral. Option 1 is better for long-running Alpine servers where you want `apk upgrade` to handle updates.
 </details>
 
 <details>

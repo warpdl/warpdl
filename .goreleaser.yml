@@ -216,7 +216,6 @@ nfpms:
     formats:
       - deb
       - rpm
-      - apk
     bindir: /usr/local/bin
     section: utils
     priority: optional
@@ -243,7 +242,6 @@ nfpms:
       rpm:
         dependencies:
           - systemd
-      apk: {}
 
 dockers_v2:
   - id: warp-cli
