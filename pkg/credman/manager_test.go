@@ -326,6 +326,64 @@ func TestCookieManagerSaveCookiesClosedFile(t *testing.T) {
 	}
 }
 
+// TestCookieManagerLoadErrorClosesFile verifies that file handles are properly
+// closed when loadCookies encounters an error. This test will FAIL initially
+// because the current implementation leaks file handles on error paths.
+func TestCookieManagerLoadErrorClosesFile(t *testing.T) {
+	dir := t.TempDir()
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		t.Fatalf("rand.Read: %v", err)
+	}
+	path := filepath.Join(dir, "cookies.warp")
+
+	// Write corrupt GOB data that will trigger decode error at line 64
+	corruptData := []byte("this is not valid GOB encoded data")
+	if err := os.WriteFile(path, corruptData, 0666); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	// Attempt to create CookieManager - should fail during loadCookies()
+	_, err := NewCookieManager(path, key)
+	if err == nil {
+		t.Fatalf("expected error for corrupt GOB data")
+	}
+
+	// Verify file handle was released by attempting to remove the file.
+	// On Windows, this fails if the file handle is still open.
+	if err := os.Remove(path); err != nil {
+		t.Errorf("failed to remove file after error - file handle leaked: %v", err)
+	}
+}
+
+// TestCookieManagerCloseNilFile verifies that calling Close() on a
+// CookieManager with a nil file pointer does not panic. This can occur
+// if the struct is created manually or if initialization fails partway.
+// This test will FAIL initially because Close() unconditionally dereferences cm.f.
+func TestCookieManagerCloseNilFile(t *testing.T) {
+	// Create CookieManager with nil file pointer to simulate partial initialization
+	cm := &CookieManager{
+		filePath: "/tmp/test.warp",
+		key:      make([]byte, 32),
+		cookies:  make(map[string]*types.Cookie),
+		f:        nil, // Explicitly nil
+	}
+
+	// This should not panic - Close() should handle nil gracefully
+	// Using defer/recover to catch panic
+	defer func() {
+		if r := recover(); r != nil {
+			t.Errorf("Close() panicked with nil file: %v", r)
+		}
+	}()
+
+	err := cm.Close()
+	// We expect an error (can't close nil file), but NOT a panic
+	if err == nil {
+		t.Log("Close returned nil error for nil file - acceptable if defensive")
+	}
+}
+
 func compareCookies(t *testing.T, expected *types.Cookie, actual *types.Cookie) {
 	t.Helper()
 	expectedValue := reflect.ValueOf(expected).Elem()

@@ -218,8 +218,12 @@ func TestManagerResumeSuccess(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(DlDataDir, item.Hash), 0755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
-	if _, err := m.ResumeDownload(&http.Client{}, item.Hash, &ResumeDownloadOpts{}); err != nil {
+	resumedItem, err := m.ResumeDownload(&http.Client{}, item.Hash, &ResumeDownloadOpts{})
+	if err != nil {
 		t.Fatalf("ResumeDownload: %v", err)
+	}
+	if resumedItem.dAlloc != nil {
+		defer resumedItem.dAlloc.Close()
 	}
 }
 

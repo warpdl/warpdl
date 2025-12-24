@@ -18,6 +18,8 @@ import (
 	"time"
 )
 
+var _ io.Closer = (*Downloader)(nil)
+
 // Downloader is a struct that manages the download process
 // of a single file. It includes information such as the
 // download URL, file name, download location, download
@@ -483,6 +485,7 @@ func (d *Downloader) resumePartDownload(hash string, ioff, foff, espeed int64) {
 		d.handlers.ErrorHandler(hash, err)
 		return
 	}
+	defer part.close()
 	poff := part.offset + part.read
 	if poff >= foff {
 		d.Log("%s: part offset (%d) greater than final offset (%d)", hash, poff, foff)
@@ -505,9 +508,6 @@ func (d *Downloader) resumePartDownload(hash string, ioff, foff, espeed int64) {
 	var read, written int64
 	read, written, err = part.compile()
 	atomic.AddInt64(&d.nread, written)
-
-	// close part file
-	part.close()
 
 	if err != nil {
 		d.Log("%s: compile: %w", hash, err)
@@ -536,6 +536,7 @@ func (d *Downloader) newPartDownload(ioff, foff, espeed int64) {
 	}
 	hash := part.hash
 	defer func() { atomic.AddInt32(&d.numConn, -1); d.wg.Done() }()
+	defer part.close()
 	// CHANGE IMPL
 	err = d.runPart(part, ioff, foff, espeed, false, nil)
 	if err != nil {
@@ -550,9 +551,6 @@ func (d *Downloader) newPartDownload(ioff, foff, espeed int64) {
 	var read, written int64
 	read, written, err = part.compile()
 	atomic.AddInt64(&d.nread, written)
-
-	// close part file
-	part.close()
 
 	if err != nil {
 		d.Log("%s: compile: %w", hash, err)
@@ -721,9 +719,38 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 }
 
 // Stop stops the download process.
+// Note: This only signals stop and cancels context. It does NOT wait for
+// goroutines to finish because Stop() may be called from within a callback
+// (e.g., progress handler) running inside a download goroutine. Use Close()
+// for full cleanup after Start()/Resume() returns.
 func (d *Downloader) Stop() {
 	atomic.StoreInt32(&d.stopped, 1)
 	d.cancel()
+}
+
+// Close releases all resources held by the Downloader.
+// This includes the log file writer and any open files.
+// It should be called when the downloader is no longer needed,
+// especially if Start() or Resume() was never called.
+func (d *Downloader) Close() error {
+	d.Stop()
+	var errs []error
+	if d.lw != nil {
+		if err := d.lw.Close(); err != nil {
+			errs = append(errs, err)
+		}
+		d.lw = nil
+	}
+	if d.f != nil {
+		if err := d.f.Close(); err != nil {
+			errs = append(errs, err)
+		}
+		d.f = nil
+	}
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+	return nil
 }
 
 // GetMaxConnections returns the maximum number of possible connections.

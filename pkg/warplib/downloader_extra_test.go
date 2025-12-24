@@ -25,6 +25,7 @@ func TestInitDownloaderAndGetters(t *testing.T) {
 	if err != nil {
 		t.Fatalf("initDownloader: %v", err)
 	}
+	defer d.Close()
 	if d.GetMaxConnections() != 2 {
 		t.Fatalf("unexpected max connections: %d", d.GetMaxConnections())
 	}

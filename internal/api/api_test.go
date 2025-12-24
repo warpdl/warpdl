@@ -125,10 +125,10 @@ func newTestApi(t *testing.T) (*Api, *server.Pool, func()) {
 	cleanup := func() {
 		_ = m.Close()
 		_ = eng.Close()
-		// On Windows, ensure file handles are released before TempDir cleanup.
-		// Downloads may still have goroutines finishing up file operations.
+		// On Windows, brief pause for file handle release.
+		// Reduced from 500ms after #89 file handle leak fixes.
 		if runtime.GOOS == "windows" {
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(100 * time.Millisecond)
 		}
 	}
 	return api, pool, cleanup
@@ -545,9 +545,10 @@ func TestRegisterHandlersAndClose(t *testing.T) {
 	}
 	_ = m.Close()
 	_ = eng.Close()
-	// On Windows, ensure file handles are released before TempDir cleanup
+	// On Windows, brief pause for file handle release.
+	// Reduced from 500ms after #89 file handle leak fixes.
 	if runtime.GOOS == "windows" {
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
 	}
 }
 

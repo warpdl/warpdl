@@ -82,6 +82,7 @@ func initPart(ctx context.Context, client *http.Client, hash, url string, args p
 	}
 	err = p.seek(args.rpHandler)
 	if err != nil {
+		p.pf.Close() // Close file handle on seek error
 		return nil, err
 	}
 	return &p, nil

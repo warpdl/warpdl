@@ -49,6 +49,7 @@ func TestNewDownloaderNoAcceptRanges(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewDownloader: %v", err)
 	}
+	defer d.Close()
 	if d.resumable {
 		t.Fatalf("expected resumable to be false without Accept-Ranges")
 	}

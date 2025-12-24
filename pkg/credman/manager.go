@@ -54,6 +54,8 @@ func (cm *CookieManager) loadCookies() error {
 
 	cookiesData, err := io.ReadAll(cm.f)
 	if err != nil {
+		cm.f.Close()
+		cm.f = nil
 		return err
 	}
 	if len(cookiesData) == 0 { // don't decode empty data
@@ -64,6 +66,8 @@ func (cm *CookieManager) loadCookies() error {
 	err = dec.Decode(&cm.cookies)
 
 	if err != nil {
+		cm.f.Close()
+		cm.f = nil
 		return err
 	}
 	return nil
@@ -158,6 +162,14 @@ func (cm *CookieManager) UpdateCookie(cookie *types.Cookie) error {
 // This method should be called when the CookieManager is no longer needed
 // to ensure all data is saved and resources are released.
 func (cm *CookieManager) Close() error {
-	defer cm.f.Close()
-	return cm.saveCookies()
+	if cm.f == nil {
+		return nil
+	}
+	err := cm.saveCookies()
+	closeErr := cm.f.Close()
+	cm.f = nil
+	if err != nil {
+		return err
+	}
+	return closeErr
 }
