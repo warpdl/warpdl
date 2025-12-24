@@ -284,20 +284,11 @@ func TestExtCommandsErrorResponse(t *testing.T) {
 }
 
 func TestExtInstallGetwdError(t *testing.T) {
-	base := t.TempDir()
-	oldWD, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("Getwd: %v", err)
+	oldGetwd := getwd
+	getwd = func() (string, error) {
+		return "", errors.New("getwd error")
 	}
-	if err := os.Chdir(base); err != nil {
-		t.Fatalf("Chdir: %v", err)
-	}
-	if err := os.RemoveAll(base); err != nil {
-		t.Fatalf("RemoveAll: %v", err)
-	}
-	defer func() {
-		_ = os.Chdir(oldWD)
-	}()
+	defer func() { getwd = oldGetwd }()
 
 	app := cli.NewApp()
 	ctx := newContext(app, []string{"."}, "install")

@@ -10,6 +10,8 @@ import (
 	"github.com/warpdl/warpdl/cmd/common"
 )
 
+var getwd = os.Getwd
+
 func install(ctx *cli.Context) error {
 	if ctx.Args().First() == "help" {
 		return cli.ShowCommandHelp(ctx, ctx.Command.Name)
@@ -21,7 +23,7 @@ func install(ctx *cli.Context) error {
 			errors.New("no path provided"),
 		)
 	}
-	cwd, err := os.Getwd()
+	cwd, err := getwd()
 	if err != nil {
 		common.PrintRuntimeErr(ctx, "ext-install", "getwd", err)
 		return nil
