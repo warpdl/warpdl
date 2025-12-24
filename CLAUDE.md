@@ -2,6 +2,11 @@
 
 This file provides guidance to Claude Code (claude.ai/code) and other AI models when working with code in this repository.
 
+## Repository
+
+- **GitHub**: https://github.com/warpdl/warpdl
+- **Issues**: https://github.com/warpdl/warpdl/issues
+
 ## Build Commands
 
 ```bash
