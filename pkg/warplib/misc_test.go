@@ -156,8 +156,8 @@ func TestSanitizeFilename(t *testing.T) {
 
 func Test_parseFileName_SpecialChars(t *testing.T) {
 	tests := []struct {
-		name   string
-		args   struct {
+		name string
+		args struct {
 			req *http.Request
 			cd  string
 		}

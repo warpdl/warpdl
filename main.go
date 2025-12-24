@@ -13,7 +13,7 @@ var (
 	commit    string
 	date      string
 	buildType string = "unclassified"
-	osExit    = os.Exit
+	osExit           = os.Exit
 )
 
 func main() {

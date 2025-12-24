@@ -11,23 +11,55 @@ on:
   workflow_dispatch:
 
 jobs:
-  ci:
-    name: Go Tests
-    runs-on: ubuntu-latest
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            coverage-min: 80
+            coverage-pkg-min: 80
+            run-race: true
+          - os: macos-latest
+            coverage-min: 80
+            coverage-pkg-min: 80
+            run-race: true
+          - os: windows-latest
+            coverage-min: 60
+            coverage-pkg-min: 60
+            run-race: false
+
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
       - name: Set up Go
-        id: setup-go
         uses: actions/setup-go@v6
         with:
-          go-version: "stable"
-      - name: Run tests with coverage gating
+          go-version: stable
+          cache: true
+
+      - name: Run tests with coverage (Unix)
+        if: runner.os != 'Windows'
         run: scripts/check_coverage.sh
         env:
-          COVERAGE_MIN: "80"
-          COVERAGE_MIN_PER_PKG: "80"
+          COVERAGE_MIN: ${{ matrix.coverage-min }}
+          COVERAGE_MIN_PER_PKG: ${{ matrix.coverage-pkg-min }}
+
+      - name: Run tests with coverage (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          go test ./... -coverprofile=cover.out -count=1 -v
+          go tool cover -func=cover.out | tail -1
+        env:
+          COVERAGE_MIN: ${{ matrix.coverage-min }}
+          COVERAGE_MIN_PER_PKG: ${{ matrix.coverage-pkg-min }}
+
       - name: Run race tests
+        if: matrix.run-race
         run: go test -race ./...

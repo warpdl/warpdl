@@ -1,9 +1,10 @@
+//go:build !windows
+
 package cmd
 
 import (
 	"bytes"
 	"encoding/json"
-	"flag"
 	"io"
 	"net"
 	"net/http"
@@ -219,14 +220,6 @@ func writeError(conn net.Conn, errMsg string) {
 		"error": errMsg,
 	})
 	_ = writeMessage(conn, resp)
-}
-
-func newContext(app *cli.App, args []string, name string) *cli.Context {
-	set := flag.NewFlagSet(name, flag.ContinueOnError)
-	_ = set.Parse(args)
-	ctx := cli.NewContext(app, set, nil)
-	ctx.Command = cli.Command{Name: name}
-	return ctx
 }
 
 func TestDownloadCommand(t *testing.T) {
