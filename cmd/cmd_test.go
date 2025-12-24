@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -506,6 +507,10 @@ func TestDownloadCustomPath(t *testing.T) {
 }
 
 func TestDownloadGetwdError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows cannot delete a directory while inside it")
+	}
+
 	socketPath := filepath.Join(t.TempDir(), "warpdl.sock")
 	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
 	srv := startFakeServer(t, socketPath)

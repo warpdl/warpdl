@@ -100,6 +100,7 @@ func NewEngine(l *log.Logger, cookieManager *credman.CookieManager, debugger boo
 		if err == io.EOF {
 			return &e, nil
 		}
+		file.Close() // Close file on error to prevent handle leak
 		return nil, err
 	}
 	var i int

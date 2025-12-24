@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -124,8 +125,11 @@ func newTestApi(t *testing.T) (*Api, *server.Pool, func()) {
 	cleanup := func() {
 		_ = m.Close()
 		_ = eng.Close()
-		// On Windows, ensure file handles are released before TempDir cleanup
-		time.Sleep(10 * time.Millisecond)
+		// On Windows, ensure file handles are released before TempDir cleanup.
+		// Downloads may still have goroutines finishing up file operations.
+		if runtime.GOOS == "windows" {
+			time.Sleep(500 * time.Millisecond)
+		}
 	}
 	return api, pool, cleanup
 }
@@ -542,7 +546,9 @@ func TestRegisterHandlersAndClose(t *testing.T) {
 	_ = m.Close()
 	_ = eng.Close()
 	// On Windows, ensure file handles are released before TempDir cleanup
-	time.Sleep(10 * time.Millisecond)
+	if runtime.GOOS == "windows" {
+		time.Sleep(500 * time.Millisecond)
+	}
 }
 
 func TestResumeHandlerMissing(t *testing.T) {
