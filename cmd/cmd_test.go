@@ -956,6 +956,19 @@ func TestGetUserAgent_Chrome(t *testing.T) {
 	}
 }
 
+func TestGetUserAgent_Edge(t *testing.T) {
+	ua := getUserAgent("edge")
+	if ua == "" {
+		t.Fatal("expected Edge user agent")
+	}
+	if ua == "edge" {
+		t.Fatal("expected Edge UA to be expanded")
+	}
+	if !strings.Contains(ua, "Edg") {
+		t.Fatalf("expected Edg in UA, got: %s", ua)
+	}
+}
+
 func TestGetUserAgent_CaseInsensitive(t *testing.T) {
 	ua1 := getUserAgent("FIREFOX")
 	ua2 := getUserAgent("firefox")
