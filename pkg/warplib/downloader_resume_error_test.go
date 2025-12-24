@@ -31,6 +31,7 @@ func TestResumePartDownloadMissingPartFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("initDownloader: %v", err)
 	}
+	defer d.Close()
 	if err := d.openFile(); err != nil {
 		t.Fatalf("openFile: %v", err)
 	}

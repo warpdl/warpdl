@@ -43,6 +43,7 @@ func TestInitPartAndString(t *testing.T) {
 	if err != nil {
 		t.Fatalf("initPart: %v", err)
 	}
+	defer p.close()
 	select {
 	case <-done:
 	case <-time.After(time.Second):
@@ -78,7 +79,7 @@ func TestPartCopyBufferChunkWithTime(t *testing.T) {
 	}
 	p.pwg.Wait()
 
-	p.etime = 0
+	p.etime = -1
 	slow, err := p.copyBufferChunkWithTime(bytes.NewReader([]byte("hi")), partFile, buf, true)
 	if err != nil && err != io.EOF {
 		t.Fatalf("copyBufferChunkWithTime timed: %v", err)

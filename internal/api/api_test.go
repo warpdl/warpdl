@@ -125,10 +125,10 @@ func newTestApi(t *testing.T) (*Api, *server.Pool, func()) {
 	cleanup := func() {
 		_ = m.Close()
 		_ = eng.Close()
-		// On Windows, brief pause for file handle release.
-		// Reduced from 500ms after #89 file handle leak fixes.
+		// On Windows, pause for file handle release.
+		// Increased to 250ms to ensure reliable cleanup in CI.
 		if runtime.GOOS == "windows" {
-			time.Sleep(100 * time.Millisecond)
+			time.Sleep(250 * time.Millisecond)
 		}
 	}
 	return api, pool, cleanup
@@ -545,10 +545,10 @@ func TestRegisterHandlersAndClose(t *testing.T) {
 	}
 	_ = m.Close()
 	_ = eng.Close()
-	// On Windows, brief pause for file handle release.
-	// Reduced from 500ms after #89 file handle leak fixes.
+	// On Windows, pause for file handle release.
+	// Increased to 250ms to ensure reliable cleanup in CI.
 	if runtime.GOOS == "windows" {
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(250 * time.Millisecond)
 	}
 }
 

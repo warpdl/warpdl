@@ -111,6 +111,7 @@ func TestResumePartDownloadCompilePath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("initDownloader: %v", err)
 	}
+	defer d.Close()
 	d.ohmap.Make()
 	if err := d.openFile(); err != nil {
 		t.Fatalf("openFile: %v", err)
