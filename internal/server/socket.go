@@ -3,12 +3,12 @@ package server
 import (
 	"os"
 	"path/filepath"
+
+	"github.com/warpdl/warpdl/common"
 )
 
-const socketPathEnv = "WARPDL_SOCKET_PATH"
-
 func socketPath() string {
-	if path := os.Getenv(socketPathEnv); path != "" {
+	if path := os.Getenv(common.SocketPathEnv); path != "" {
 		return path
 	}
 	return filepath.Join(os.TempDir(), "warpdl.sock")

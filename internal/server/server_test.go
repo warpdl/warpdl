@@ -176,7 +176,7 @@ func TestHandleConnection(t *testing.T) {
 func TestCreateListenerUnixSocket(t *testing.T) {
 	tmpDir := t.TempDir()
 	sockPath := tmpDir + "/test.sock"
-	t.Setenv(socketPathEnv, sockPath)
+	t.Setenv(common.SocketPathEnv, sockPath)
 
 	s := &Server{
 		log:  log.New(io.Discard, "", 0),
@@ -195,7 +195,7 @@ func TestCreateListenerUnixSocket(t *testing.T) {
 
 func TestCreateListenerTCPFallback(t *testing.T) {
 	// Use an invalid path to force TCP fallback
-	t.Setenv(socketPathEnv, "/nonexistent/path/test.sock")
+	t.Setenv(common.SocketPathEnv, "/nonexistent/path/test.sock")
 
 	s := &Server{
 		log:  log.New(io.Discard, "", 0),
@@ -224,7 +224,7 @@ func TestServerStartShutdown(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	sockPath := tmpDir + "/start_test.sock"
-	t.Setenv(socketPathEnv, sockPath)
+	t.Setenv(common.SocketPathEnv, sockPath)
 
 	s := NewServer(log.New(io.Discard, "", 0), m, 0)
 
@@ -277,7 +277,7 @@ func TestServerShutdown_Multiple(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	sockPath := tmpDir + "/multi_shutdown_test.sock"
-	t.Setenv(socketPathEnv, sockPath)
+	t.Setenv(common.SocketPathEnv, sockPath)
 
 	s := NewServer(log.New(io.Discard, "", 0), m, 0)
 
