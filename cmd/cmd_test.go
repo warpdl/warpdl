@@ -425,6 +425,16 @@ func TestDownloadNoURL(t *testing.T) {
 	}
 }
 
+func TestDownloadNoURLEmptyCommandName(t *testing.T) {
+	app := cli.NewApp()
+	ctx := newContext(app, nil, "")
+	prev := cmdcommon.SetShowAppHelpAndExit(func(*cli.Context, int) {})
+	defer cmdcommon.SetShowAppHelpAndExit(prev)
+	if err := download(ctx); err != nil {
+		t.Fatalf("download without url and empty command name: %v", err)
+	}
+}
+
 func TestInfoNoURL(t *testing.T) {
 	app := cli.NewApp()
 	ctx := newContext(app, nil, "info")
@@ -451,6 +461,16 @@ func TestStopNoHash(t *testing.T) {
 	_ = stop(ctx)
 }
 
+func TestStopNoHashEmptyCommandName(t *testing.T) {
+	app := cli.NewApp()
+	ctx := newContext(app, nil, "")
+	prev := cmdcommon.SetShowAppHelpAndExit(func(*cli.Context, int) {})
+	defer cmdcommon.SetShowAppHelpAndExit(prev)
+	if err := stop(ctx); err != nil {
+		t.Fatalf("stop without hash and empty command name: %v", err)
+	}
+}
+
 func TestFlushWithHash(t *testing.T) {
 	socketPath := filepath.Join(t.TempDir(), "warpdl.sock")
 	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
@@ -468,6 +488,16 @@ func TestAttachNoHash(t *testing.T) {
 	_ = attach(ctx)
 }
 
+func TestAttachNoHashEmptyCommandName(t *testing.T) {
+	app := cli.NewApp()
+	ctx := newContext(app, nil, "")
+	prev := cmdcommon.SetShowAppHelpAndExit(func(*cli.Context, int) {})
+	defer cmdcommon.SetShowAppHelpAndExit(prev)
+	if err := attach(ctx); err != nil {
+		t.Fatalf("attach without hash and empty command name: %v", err)
+	}
+}
+
 func TestAttachHelpArg(t *testing.T) {
 	app := cli.NewApp()
 	ctx := newContext(app, []string{"help"}, "attach")
@@ -478,6 +508,16 @@ func TestResumeNoHash(t *testing.T) {
 	app := cli.NewApp()
 	ctx := newContext(app, nil, "resume")
 	_ = resume(ctx)
+}
+
+func TestResumeNoHashEmptyCommandName(t *testing.T) {
+	app := cli.NewApp()
+	ctx := newContext(app, nil, "")
+	prev := cmdcommon.SetShowAppHelpAndExit(func(*cli.Context, int) {})
+	defer cmdcommon.SetShowAppHelpAndExit(prev)
+	if err := resume(ctx); err != nil {
+		t.Fatalf("resume without hash and empty command name: %v", err)
+	}
 }
 
 func TestResumeHelpArg(t *testing.T) {
@@ -548,6 +588,44 @@ func TestDownloadErrorResponse(t *testing.T) {
 	ctx := newContext(app, []string{"http://example.com"}, "download")
 	if err := download(ctx); err != nil {
 		t.Fatalf("download: %v", err)
+	}
+}
+
+func TestDownloadInvalidProxyURL(t *testing.T) {
+	socketPath := filepath.Join(t.TempDir(), "warpdl.sock")
+	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
+	srv := startFakeServer(t, socketPath)
+	defer srv.close()
+
+	app := cli.NewApp()
+	ctx := newContext(app, []string{"http://example.com"}, "download")
+	oldDlPath, oldFileName, oldProxy := dlPath, fileName, proxyURL
+	dlPath = ""
+	fileName = ""
+	proxyURL = "://invalid"
+	defer func() {
+		dlPath = oldDlPath
+		fileName = oldFileName
+		proxyURL = oldProxy
+	}()
+	if err := download(ctx); err != nil {
+		t.Fatalf("download with invalid proxy: %v", err)
+	}
+}
+
+func TestResumeInvalidProxy(t *testing.T) {
+	socketPath := filepath.Join(t.TempDir(), "warpdl.sock")
+	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
+	srv := startFakeServer(t, socketPath)
+	defer srv.close()
+
+	app := cli.NewApp()
+	ctx := newContext(app, []string{"id"}, "resume")
+	oldProxy := proxyURL
+	proxyURL = "://invalid"
+	defer func() { proxyURL = oldProxy }()
+	if err := resume(ctx); err != nil {
+		t.Fatalf("resume with invalid proxy: %v", err)
 	}
 }
 

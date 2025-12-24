@@ -62,3 +62,35 @@ func TestDownloadHandlers(t *testing.T) {
 		t.Fatalf("compileComplete: %v", err)
 	}
 }
+
+// TestDownloadComplete_BothBarsCompleted tests the early return path when both
+// download and compile progress bars are already completed. This ensures the
+// handler doesn't attempt to update already-finished bars.
+func TestDownloadComplete_BothBarsCompleted(t *testing.T) {
+	p := mpb.New()
+	dbar := p.AddBar(1)
+	dbar.SetTotal(1, true) // Mark download bar as completed
+	cbar := p.AddBar(1)
+	cbar.SetTotal(1, true) // Mark compile bar as completed
+
+	sc := NewSpeedCounter(time.Millisecond)
+	client := &warpcli.Client{}
+
+	// Call downloadComplete with MAIN_HASH - should return early without error
+	err := downloadComplete(client, dbar, cbar, sc)(&common.DownloadingResponse{
+		Hash:  warplib.MAIN_HASH,
+		Value: 10,
+	})
+
+	if err != nil {
+		t.Fatalf("downloadComplete with both bars completed: %v", err)
+	}
+
+	// Verify bars are still completed and current values weren't changed
+	if !dbar.Completed() {
+		t.Error("expected download bar to remain completed")
+	}
+	if !cbar.Completed() {
+		t.Error("expected compile bar to remain completed")
+	}
+}

@@ -37,6 +37,12 @@ func TestBeautAndReplic(t *testing.T) {
 	}
 }
 
+func TestBeautOddRemainder(t *testing.T) {
+	if got := Beaut("hi", 5); got != " hi  " {
+		t.Fatalf("unexpected beaut output for odd padding: %q", got)
+	}
+}
+
 func TestPrintRuntimeErr(t *testing.T) {
 	PrintRuntimeErr(nil, "cmd", "action", nil)
 	PrintRuntimeErr(newTestContext(), "cmd", "action", errors.New("boom"))
@@ -54,6 +60,24 @@ func TestPrintErrWithHelp(t *testing.T) {
 	if err := PrintErrWithHelp(ctx, errors.New("oops")); err != nil {
 		t.Fatalf("PrintErrWithHelp: %v", err)
 	}
+	if !called {
+		t.Fatalf("expected help to be called")
+	}
+}
+
+func TestPrintErrWithHelpFlagHelpRequested(t *testing.T) {
+	ctx := newTestContext()
+	called := false
+	orig := showAppHelpAndExit
+	showAppHelpAndExit = func(*cli.Context, int) {
+		called = true
+	}
+	defer func() { showAppHelpAndExit = orig }()
+
+	if err := PrintErrWithHelp(ctx, errors.New("flag: help requested")); err != nil {
+		t.Fatalf("PrintErrWithHelp: %v", err)
+	}
+	// When error is "flag: help requested", it calls Help() which calls showAppHelpAndExit
 	if !called {
 		t.Fatalf("expected help to be called")
 	}
@@ -189,4 +213,37 @@ func TestUsageErrorCallbackNoCommand(t *testing.T) {
 	if err := UsageErrorCallback(ctx, errors.New("oops"), false); err != nil {
 		t.Fatalf("UsageErrorCallback: %v", err)
 	}
+}
+
+func TestSetShowAppHelpAndExit(t *testing.T) {
+	wasCalled := false
+	customFn := func(*cli.Context, int) { wasCalled = true }
+	prev := SetShowAppHelpAndExit(customFn)
+	if prev == nil {
+		t.Fatal("expected previous function to be returned")
+	}
+	// Test that the new function is now set
+	showAppHelpAndExit(nil, 0)
+	if !wasCalled {
+		t.Fatal("expected custom function to be called")
+	}
+	SetShowAppHelpAndExit(prev) // restore
+}
+
+func TestSetShowCommandHelp(t *testing.T) {
+	wasCalled := false
+	customFn := func(*cli.Context, string) error {
+		wasCalled = true
+		return nil
+	}
+	prev := SetShowCommandHelp(customFn)
+	if prev == nil {
+		t.Fatal("expected previous function to be returned")
+	}
+	// Test that the new function is now set
+	_ = showCommandHelp(nil, "")
+	if !wasCalled {
+		t.Fatal("expected custom function to be called")
+	}
+	SetShowCommandHelp(prev) // restore
 }

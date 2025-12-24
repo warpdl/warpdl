@@ -137,3 +137,50 @@ func TestDaemonWritePidFileError(t *testing.T) {
 		t.Fatalf("daemon: %v", err)
 	}
 }
+
+// TestDaemonInitManagerError tests daemon initialization when userdata.warp
+// contains invalid GOB data. warplib.InitManager() ignores GOB decode errors,
+// so this test verifies the daemon can start successfully even with corrupt data.
+// This is important because the daemon should be resilient to state file corruption
+// and start with an empty download list rather than failing completely.
+func TestDaemonInitManagerError(t *testing.T) {
+	base := t.TempDir()
+	if err := warplib.SetConfigDir(base); err != nil {
+		t.Fatalf("SetConfigDir: %v", err)
+	}
+	if err := extl.SetEngineStore(base); err != nil {
+		t.Fatalf("SetEngineStore: %v", err)
+	}
+
+	// Create corrupt userdata.warp with invalid GOB data
+	userdataPath := filepath.Join(base, "userdata.warp")
+	if err := os.WriteFile(userdataPath, []byte("invalid gob data that will fail to decode"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	var cm *credman.CookieManager
+	oldCookie := cookieManagerFunc
+	oldStart := startServerFunc
+	cookieManagerFunc = func(*cli.Context) (*credman.CookieManager, error) {
+		key := bytes.Repeat([]byte{0x11}, 32)
+		m, err := credman.NewCookieManager(filepath.Join(base, "cookies.warp"), key)
+		cm = m
+		return m, err
+	}
+	startServerFunc = func(*server.Server, context.Context) error { return nil }
+	defer func() {
+		cookieManagerFunc = oldCookie
+		startServerFunc = oldStart
+		if cm != nil {
+			_ = cm.Close()
+		}
+	}()
+
+	ctx := newContext(cli.NewApp(), nil, "daemon")
+
+	// daemon should start successfully even with corrupt userdata
+	// because InitManager ignores GOB decode errors
+	if err := daemon(ctx); err != nil {
+		t.Fatalf("daemon: %v", err)
+	}
+}

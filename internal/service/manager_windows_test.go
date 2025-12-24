@@ -63,6 +63,7 @@ type MockService struct {
 	startErr     error
 	stopErr      error
 	deleteErr    error
+	statusErr    error
 	startCalled  bool
 	stopCalled   bool
 	deleteCalled bool
@@ -92,11 +93,53 @@ func (s *MockService) Delete() error {
 }
 
 func (s *MockService) Status() (ServiceStatus, error) {
+	if s.statusErr != nil {
+		return 0, s.statusErr
+	}
 	return s.status, nil
 }
 
 func (s *MockService) Close() error {
 	return nil
+}
+
+// TestServiceStatus_String tests the String() method for ServiceStatus.
+func TestServiceStatus_String(t *testing.T) {
+	tests := []struct {
+		status   ServiceStatus
+		expected string
+	}{
+		{StatusStopped, "Stopped"},
+		{StatusStartPending, "Start Pending"},
+		{StatusStopPending, "Stop Pending"},
+		{StatusRunning, "Running"},
+		{StatusContinuePending, "Continue Pending"},
+		{StatusPausePending, "Pause Pending"},
+		{StatusPaused, "Paused"},
+		{ServiceStatus(255), "Unknown (255)"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.expected, func(t *testing.T) {
+			got := tt.status.String()
+			if got != tt.expected {
+				t.Errorf("ServiceStatus.String() = %q, want %q", got, tt.expected)
+			}
+		})
+	}
+}
+
+// TestNewServiceManager_CreatesManager tests that NewServiceManager creates a manager.
+func TestNewServiceManager_CreatesManager(t *testing.T) {
+	mockSCM := NewMockSCManager()
+	manager := NewServiceManager(mockSCM)
+
+	if manager == nil {
+		t.Fatal("NewServiceManager() returned nil")
+	}
+	if manager.scm != mockSCM {
+		t.Error("NewServiceManager() did not set SCM correctly")
+	}
 }
 
 // TestServiceManager_Install_CreatesServiceWithCorrectConfig tests that Install()
@@ -170,6 +213,22 @@ func TestServiceManager_Install_ReturnsErrorIfServiceExists(t *testing.T) {
 	}
 }
 
+// TestServiceManager_Install_ReturnsErrorWhenCreateFails tests error propagation from CreateService.
+func TestServiceManager_Install_ReturnsErrorWhenCreateFails(t *testing.T) {
+	expectedErr := errors.New("create service failed")
+	mockSCM := NewMockSCManager()
+	mockSCM.createServiceErr = expectedErr
+	manager := NewServiceManager(mockSCM)
+
+	err := manager.Install("WarpDL", "WarpDL Download Manager", "C:\\warpdl.exe", StartTypeAutomatic)
+	if err == nil {
+		t.Fatal("Install() should return error when CreateService fails")
+	}
+	if !errors.Is(err, expectedErr) {
+		t.Errorf("Install() error = %v, want %v", err, expectedErr)
+	}
+}
+
 // TestServiceManager_Uninstall_RemovesService tests that Uninstall() removes the service.
 func TestServiceManager_Uninstall_RemovesService(t *testing.T) {
 	mockSCM := NewMockSCManager()
@@ -228,6 +287,66 @@ func TestServiceManager_Uninstall_ReturnsErrorIfNotFound(t *testing.T) {
 	}
 }
 
+// TestServiceManager_Uninstall_ReturnsErrorWhenDeleteFails tests error propagation from Delete.
+func TestServiceManager_Uninstall_ReturnsErrorWhenDeleteFails(t *testing.T) {
+	expectedErr := errors.New("delete failed")
+	mockSCM := NewMockSCManager()
+	mockSCM.services["WarpDL"] = &MockService{
+		name:      "WarpDL",
+		status:    StatusStopped,
+		deleteErr: expectedErr,
+	}
+	manager := NewServiceManager(mockSCM)
+
+	err := manager.Uninstall("WarpDL")
+	if err == nil {
+		t.Fatal("Uninstall() should return error when Delete fails")
+	}
+	if !errors.Is(err, expectedErr) {
+		t.Errorf("Uninstall() error = %v, want %v", err, expectedErr)
+	}
+}
+
+// TestServiceManager_Uninstall_ReturnsErrorWhenStatusFails tests error propagation from Status.
+func TestServiceManager_Uninstall_ReturnsErrorWhenStatusFails(t *testing.T) {
+	expectedErr := errors.New("status query failed")
+	mockSCM := NewMockSCManager()
+	mockSCM.services["WarpDL"] = &MockService{
+		name:      "WarpDL",
+		status:    StatusStopped,
+		statusErr: expectedErr,
+	}
+	manager := NewServiceManager(mockSCM)
+
+	err := manager.Uninstall("WarpDL")
+	if err == nil {
+		t.Fatal("Uninstall() should return error when Status fails")
+	}
+	if !errors.Is(err, expectedErr) {
+		t.Errorf("Uninstall() error = %v, want %v", err, expectedErr)
+	}
+}
+
+// TestServiceManager_Uninstall_ReturnsErrorWhenStopFails tests error propagation from Stop.
+func TestServiceManager_Uninstall_ReturnsErrorWhenStopFails(t *testing.T) {
+	expectedErr := errors.New("stop failed")
+	mockSCM := NewMockSCManager()
+	mockSCM.services["WarpDL"] = &MockService{
+		name:    "WarpDL",
+		status:  StatusRunning,
+		stopErr: expectedErr,
+	}
+	manager := NewServiceManager(mockSCM)
+
+	err := manager.Uninstall("WarpDL")
+	if err == nil {
+		t.Fatal("Uninstall() should return error when Stop fails")
+	}
+	if !errors.Is(err, expectedErr) {
+		t.Errorf("Uninstall() error = %v, want %v", err, expectedErr)
+	}
+}
+
 // TestServiceManager_Start_StartsService tests that Start() starts the service.
 func TestServiceManager_Start_StartsService(t *testing.T) {
 	mockSCM := NewMockSCManager()
@@ -267,6 +386,62 @@ func TestServiceManager_Start_ReturnsErrorIfAlreadyRunning(t *testing.T) {
 	}
 	if !errors.Is(err, ErrServiceAlreadyRunning) {
 		t.Errorf("Start() error = %v, want ErrServiceAlreadyRunning", err)
+	}
+}
+
+// TestServiceManager_Start_ReturnsErrorWhenStatusFails tests error propagation from Status.
+func TestServiceManager_Start_ReturnsErrorWhenStatusFails(t *testing.T) {
+	expectedErr := errors.New("status query failed")
+	mockSCM := NewMockSCManager()
+	mockSCM.services["WarpDL"] = &MockService{
+		name:      "WarpDL",
+		status:    StatusStopped,
+		statusErr: expectedErr,
+	}
+	manager := NewServiceManager(mockSCM)
+
+	err := manager.Start("WarpDL")
+	if err == nil {
+		t.Fatal("Start() should return error when Status fails")
+	}
+	if !errors.Is(err, expectedErr) {
+		t.Errorf("Start() error = %v, want %v", err, expectedErr)
+	}
+}
+
+// TestServiceManager_Start_ReturnsErrorWhenStartFails tests error propagation from Start.
+func TestServiceManager_Start_ReturnsErrorWhenStartFails(t *testing.T) {
+	expectedErr := errors.New("start failed")
+	mockSCM := NewMockSCManager()
+	mockSCM.services["WarpDL"] = &MockService{
+		name:     "WarpDL",
+		status:   StatusStopped,
+		startErr: expectedErr,
+	}
+	manager := NewServiceManager(mockSCM)
+
+	err := manager.Start("WarpDL")
+	if err == nil {
+		t.Fatal("Start() should return error when Start fails")
+	}
+	if !errors.Is(err, expectedErr) {
+		t.Errorf("Start() error = %v, want %v", err, expectedErr)
+	}
+}
+
+// TestServiceManager_Start_ReturnsErrorWhenOpenFails tests error propagation from OpenService.
+func TestServiceManager_Start_ReturnsErrorWhenOpenFails(t *testing.T) {
+	expectedErr := errors.New("open service failed")
+	mockSCM := NewMockSCManager()
+	mockSCM.openServiceErr = expectedErr
+	manager := NewServiceManager(mockSCM)
+
+	err := manager.Start("WarpDL")
+	if err == nil {
+		t.Fatal("Start() should return error when OpenService fails")
+	}
+	if !errors.Is(err, expectedErr) {
+		t.Errorf("Start() error = %v, want %v", err, expectedErr)
 	}
 }
 
@@ -312,6 +487,62 @@ func TestServiceManager_Stop_ReturnsErrorIfNotRunning(t *testing.T) {
 	}
 }
 
+// TestServiceManager_Stop_ReturnsErrorWhenStatusFails tests error propagation from Status.
+func TestServiceManager_Stop_ReturnsErrorWhenStatusFails(t *testing.T) {
+	expectedErr := errors.New("status query failed")
+	mockSCM := NewMockSCManager()
+	mockSCM.services["WarpDL"] = &MockService{
+		name:      "WarpDL",
+		status:    StatusRunning,
+		statusErr: expectedErr,
+	}
+	manager := NewServiceManager(mockSCM)
+
+	err := manager.Stop("WarpDL")
+	if err == nil {
+		t.Fatal("Stop() should return error when Status fails")
+	}
+	if !errors.Is(err, expectedErr) {
+		t.Errorf("Stop() error = %v, want %v", err, expectedErr)
+	}
+}
+
+// TestServiceManager_Stop_ReturnsErrorWhenStopFails tests error propagation from Stop.
+func TestServiceManager_Stop_ReturnsErrorWhenStopFails(t *testing.T) {
+	expectedErr := errors.New("stop failed")
+	mockSCM := NewMockSCManager()
+	mockSCM.services["WarpDL"] = &MockService{
+		name:    "WarpDL",
+		status:  StatusRunning,
+		stopErr: expectedErr,
+	}
+	manager := NewServiceManager(mockSCM)
+
+	err := manager.Stop("WarpDL")
+	if err == nil {
+		t.Fatal("Stop() should return error when Stop fails")
+	}
+	if !errors.Is(err, expectedErr) {
+		t.Errorf("Stop() error = %v, want %v", err, expectedErr)
+	}
+}
+
+// TestServiceManager_Stop_ReturnsErrorWhenOpenFails tests error propagation from OpenService.
+func TestServiceManager_Stop_ReturnsErrorWhenOpenFails(t *testing.T) {
+	expectedErr := errors.New("open service failed")
+	mockSCM := NewMockSCManager()
+	mockSCM.openServiceErr = expectedErr
+	manager := NewServiceManager(mockSCM)
+
+	err := manager.Stop("WarpDL")
+	if err == nil {
+		t.Fatal("Stop() should return error when OpenService fails")
+	}
+	if !errors.Is(err, expectedErr) {
+		t.Errorf("Stop() error = %v, want %v", err, expectedErr)
+	}
+}
+
 // TestServiceManager_Status_ReturnsCorrectStatus tests that Status() returns
 // the correct service status.
 func TestServiceManager_Status_ReturnsCorrectStatus(t *testing.T) {
@@ -354,5 +585,39 @@ func TestServiceManager_Status_ReturnsCorrectStatus(t *testing.T) {
 				t.Errorf("Status() = %v, want %v", status, tt.expected)
 			}
 		})
+	}
+}
+
+// TestServiceManager_Status_ReturnsErrorIfNotFound tests error propagation when service not found.
+func TestServiceManager_Status_ReturnsErrorIfNotFound(t *testing.T) {
+	mockSCM := NewMockSCManager()
+	manager := NewServiceManager(mockSCM)
+
+	_, err := manager.Status("NonExistent")
+	if err == nil {
+		t.Fatal("Status() should return error when service not found")
+	}
+	if !errors.Is(err, ErrServiceNotFound) {
+		t.Errorf("Status() error = %v, want ErrServiceNotFound", err)
+	}
+}
+
+// TestServiceManager_Status_ReturnsErrorWhenStatusQueryFails tests error propagation from Status.
+func TestServiceManager_Status_ReturnsErrorWhenStatusQueryFails(t *testing.T) {
+	expectedErr := errors.New("status query failed")
+	mockSCM := NewMockSCManager()
+	mockSCM.services["WarpDL"] = &MockService{
+		name:      "WarpDL",
+		status:    StatusRunning,
+		statusErr: expectedErr,
+	}
+	manager := NewServiceManager(mockSCM)
+
+	_, err := manager.Status("WarpDL")
+	if err == nil {
+		t.Fatal("Status() should return error when Status query fails")
+	}
+	if !errors.Is(err, expectedErr) {
+		t.Errorf("Status() error = %v, want %v", err, expectedErr)
 	}
 }

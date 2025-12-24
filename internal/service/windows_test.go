@@ -314,6 +314,186 @@ func TestWindowsHandler_Execute_HandlesShutdownError(t *testing.T) {
 	}
 }
 
+// TestWindowsHandler_Execute_HandlesChannelClosure tests that Execute() handles
+// unexpected channel closure gracefully.
+func TestWindowsHandler_Execute_HandlesChannelClosure(t *testing.T) {
+	mock := &MockRunner{}
+	handler := NewWindowsHandler(mock)
+
+	changes := make(chan svc.Status, 10)
+	requests := make(chan svc.ChangeRequest, 2)
+
+	// Close requests channel after handler starts to simulate unexpected closure
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		close(requests)
+	}()
+
+	done := make(chan struct {
+		svcCode  uint32
+		exitCode uint32
+	}, 1)
+	go func() {
+		svcCode, exitCode := handler.Execute(nil, requests, changes)
+		done <- struct {
+			svcCode  uint32
+			exitCode uint32
+		}{svcCode, exitCode}
+	}()
+
+	select {
+	case result := <-done:
+		// Should return successfully even with channel closure
+		if result.exitCode != 0 || result.svcCode != 0 {
+			t.Errorf("Execute() returned unexpected exit codes: svc=%d, exit=%d", result.svcCode, result.exitCode)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Execute() did not complete on channel closure")
+	}
+}
+
+// TestWindowsHandler_Execute_HandlesShutdown tests that Execute() handles Shutdown command.
+func TestWindowsHandler_Execute_HandlesShutdown(t *testing.T) {
+	mock := &MockRunner{}
+	handler := NewWindowsHandler(mock)
+
+	changes := make(chan svc.Status, 10)
+	requests := make(chan svc.ChangeRequest, 2)
+
+	// Send shutdown command instead of stop
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		requests <- svc.ChangeRequest{Cmd: svc.Shutdown}
+	}()
+
+	done := make(chan struct {
+		svcCode  uint32
+		exitCode uint32
+	}, 1)
+	go func() {
+		svcCode, exitCode := handler.Execute(nil, requests, changes)
+		done <- struct {
+			svcCode  uint32
+			exitCode uint32
+		}{svcCode, exitCode}
+	}()
+
+	select {
+	case result := <-done:
+		if result.exitCode != 0 || result.svcCode != 0 {
+			t.Errorf("Execute() returned unexpected exit codes on shutdown: svc=%d, exit=%d", result.svcCode, result.exitCode)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Execute() did not handle Shutdown command")
+	}
+
+	if !mock.shutdownCalled {
+		t.Error("Execute() did not call runner.Shutdown() on Shutdown command")
+	}
+
+	// Verify state transitions include StopPending and Stopped
+	var statuses []svc.State
+	timeout := time.After(500 * time.Millisecond)
+collectLoop:
+	for {
+		select {
+		case status := <-changes:
+			statuses = append(statuses, status.State)
+			if status.State == svc.Stopped {
+				break collectLoop
+			}
+		case <-timeout:
+			break collectLoop
+		}
+	}
+
+	foundStopPending := false
+	foundStopped := false
+	for _, state := range statuses {
+		if state == svc.StopPending {
+			foundStopPending = true
+		}
+		if state == svc.Stopped {
+			foundStopped = true
+		}
+	}
+
+	if !foundStopPending {
+		t.Error("Execute() did not transition to StopPending on Shutdown")
+	}
+	if !foundStopped {
+		t.Error("Execute() did not transition to Stopped on Shutdown")
+	}
+}
+
+// TestWindowsHandler_Execute_IgnoresUnknownCommands tests that Execute() ignores
+// unknown service control commands.
+func TestWindowsHandler_Execute_IgnoresUnknownCommands(t *testing.T) {
+	mock := &MockRunner{}
+	handler := NewWindowsHandler(mock)
+
+	changes := make(chan svc.Status, 10)
+	requests := make(chan svc.ChangeRequest, 10)
+
+	// Send unknown commands followed by stop
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		// Send Pause and Continue commands which are not accepted by the handler
+		requests <- svc.ChangeRequest{Cmd: svc.Pause}
+		time.Sleep(25 * time.Millisecond)
+		requests <- svc.ChangeRequest{Cmd: svc.Continue}
+		time.Sleep(25 * time.Millisecond)
+		// Send a completely unknown command (using a high value)
+		requests <- svc.ChangeRequest{Cmd: svc.Cmd(255)}
+		time.Sleep(25 * time.Millisecond)
+		requests <- svc.ChangeRequest{Cmd: svc.Stop}
+	}()
+
+	done := make(chan struct {
+		svcCode  uint32
+		exitCode uint32
+	}, 1)
+	go func() {
+		svcCode, exitCode := handler.Execute(nil, requests, changes)
+		done <- struct {
+			svcCode  uint32
+			exitCode uint32
+		}{svcCode, exitCode}
+	}()
+
+	select {
+	case result := <-done:
+		if result.exitCode != 0 || result.svcCode != 0 {
+			t.Errorf("Execute() returned unexpected exit codes: svc=%d, exit=%d", result.svcCode, result.exitCode)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Execute() did not complete after unknown commands")
+	}
+
+	// Verify the service remained running and ignored unknown commands
+	var statuses []svc.State
+	timeout := time.After(500 * time.Millisecond)
+collectLoop:
+	for {
+		select {
+		case status := <-changes:
+			statuses = append(statuses, status.State)
+			if status.State == svc.Stopped {
+				break collectLoop
+			}
+		case <-timeout:
+			break collectLoop
+		}
+	}
+
+	// Verify we never transitioned to Paused or any unexpected state
+	for _, state := range statuses {
+		if state == svc.Paused || state == svc.PausePending || state == svc.ContinuePending {
+			t.Errorf("Execute() incorrectly processed unknown command, transitioned to %v", state)
+		}
+	}
+}
+
 // TestWindowsHandler_AcceptsCorrectCommands tests accepted command mask.
 func TestWindowsHandler_AcceptsCorrectCommands(t *testing.T) {
 	handler := NewWindowsHandler(&MockRunner{})
