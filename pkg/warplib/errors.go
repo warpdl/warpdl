@@ -37,4 +37,8 @@ var (
 
 	// ErrFileExists is returned when attempting to download to a path where a file already exists.
 	ErrFileExists = errors.New("file already exists at destination path")
+
+	// ErrCrossDeviceMove is returned when a file move operation fails due to
+	// source and destination being on different filesystems/drives.
+	ErrCrossDeviceMove = errors.New("cross-device move not supported by rename, use copy+delete")
 )
