@@ -164,6 +164,8 @@ func (s *Api) resumeHandler(sconn *server.SyncConn, pool *server.Pool, body json
 			RequestTimeout: requestTimeout,
 		})
 		if err != nil {
+			// Clean up parent's downloader before returning
+			_ = item.CloseDownloader()
 			return common.UPDATE_RESUME, nil, err
 		}
 		pool.AddDownload(item.ChildHash, sconn)

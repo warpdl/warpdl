@@ -178,6 +178,17 @@ func (i *Item) StopDownload() error {
 	return nil
 }
 
+// CloseDownloader closes the downloader and releases all file handles.
+// Use this when a download is aborted before Start()/Resume() completes.
+func (i *Item) CloseDownloader() error {
+	if i.dAlloc == nil {
+		return nil
+	}
+	err := i.dAlloc.Close()
+	i.dAlloc = nil
+	return err
+}
+
 // IsDownloading returns true if the item is currently being downloaded.
 func (i *Item) IsDownloading() bool {
 	return i.dAlloc != nil

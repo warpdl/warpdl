@@ -323,6 +323,7 @@ func TestAttachAndStopHandler(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewDownloader: %v", err)
 	}
+	defer d.Close()
 	if err := api.manager.AddDownload(d, &warplib.AddDownloadOpts{AbsoluteLocation: d.GetDownloadDirectory()}); err != nil {
 		t.Fatalf("AddDownload: %v", err)
 	}
