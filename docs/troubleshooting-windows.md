@@ -44,7 +44,7 @@ New-NetFirewallRule -DisplayName "WarpDL Daemon" -Direction Inbound -Action Allo
 ```
 
 Replace `C:\path\to\warpdl.exe` with your actual installation path:
-- **Scoop**: `C:\Users\YourUsername\scoop\apps\warpdl\current\warpdl.exe` (replace `YourUsername` with your Windows username)
+- **Scoop**: `%USERPROFILE%\scoop\apps\warpdl\current\warpdl.exe`
 - **Manual install**: Path where you placed the binary
 
 **Alternative (netsh for older Windows):**
