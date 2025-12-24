@@ -26,7 +26,8 @@ if ! command -v jq > /dev/null 2>&1; then
 fi
 
 # Check if service management hooks already exist
-if jq -e '.post_install' "$MANIFEST_PATH" > /dev/null 2>&1; then
+# We check for all three fields to ensure complete service management setup
+if jq -e '.post_install and .pre_uninstall and .notes' "$MANIFEST_PATH" > /dev/null 2>&1; then
     echo "Service management hooks already present in manifest, skipping"
     exit 0
 fi
