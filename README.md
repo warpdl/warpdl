@@ -136,6 +136,11 @@ curl -fsSL https://raw.githubusercontent.com/warpdl/warpdl/dev/scripts/install.s
 <summary>Manual Download</summary>
 
 Download binaries from the [Releases](https://github.com/warpdl/warpdl/releases/latest) page. Available for macOS, Linux, Windows, FreeBSD, OpenBSD, and NetBSD across multiple architectures.
+
+**macOS Gatekeeper:** If you download directly (not via Homebrew), macOS may block the binary. Run:
+```bash
+xattr -cr /path/to/warpdl
+```
 </details>
 
 ### Optional: Enable Systemd User Service
