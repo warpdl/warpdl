@@ -1,8 +1,12 @@
 package server
 
 import (
+	"fmt"
+	"io"
 	"net"
 	"sync"
+
+	"github.com/warpdl/warpdl/common"
 )
 
 func intToBytes(v uint32) []byte {
@@ -22,12 +26,16 @@ func read(mu *sync.Mutex, conn net.Conn) ([]byte, error) {
 	mu.Lock()
 	defer mu.Unlock()
 	head := make([]byte, 4)
-	_, err := conn.Read(head)
+	_, err := io.ReadFull(conn, head)
 	if err != nil {
 		return nil, err
 	}
-	buf := make([]byte, bytesToInt(head))
-	_, err = conn.Read(buf)
+	size := bytesToInt(head)
+	if size > uint32(common.MaxMessageSize) {
+		return nil, fmt.Errorf("payload too large: %d", size)
+	}
+	buf := make([]byte, int(size))
+	_, err = io.ReadFull(conn, buf)
 	if err != nil {
 		return nil, err
 	}
@@ -37,6 +45,9 @@ func read(mu *sync.Mutex, conn net.Conn) ([]byte, error) {
 func write(mu *sync.Mutex, conn net.Conn, b []byte) error {
 	mu.Lock()
 	defer mu.Unlock()
+	if len(b) > common.MaxMessageSize {
+		return fmt.Errorf("payload too large: %d", len(b))
+	}
 	_, err := conn.Write(intToBytes(uint32(len(b))))
 	if err != nil {
 		return err

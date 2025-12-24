@@ -11,6 +11,9 @@ const (
 	// hardcoded to localhost for security - the daemon has no authentication
 	// and must not be exposed to external interfaces.
 	TCPHost = "localhost"
+
+	// MaxMessageSize caps socket payloads to protect against oversized requests.
+	MaxMessageSize = 16 * 1024 * 1024
 )
 
 // UpdateType represents the type of update message sent between the CLI client
