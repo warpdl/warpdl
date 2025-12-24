@@ -7,6 +7,7 @@ package service
 
 import (
 	"context"
+	"time"
 
 	"golang.org/x/sys/windows/svc"
 )
@@ -75,14 +76,19 @@ func (h *WindowsHandler) Execute(args []string, requests <-chan svc.ChangeReques
 		startErrCh <- h.runner.Start(ctx)
 	}()
 
-	// Give the runner a moment to start and check for immediate errors
+	// Give the runner a moment to start and check for immediate errors.
+	// We use a short timeout instead of a non-blocking select to ensure
+	// the goroutine has time to execute and report any immediate failures.
+	// This fixes a race condition where the goroutine might not have started
+	// before a non-blocking select would check the channel.
 	select {
 	case err := <-startErrCh:
 		// Runner returned immediately with an error
 		if err != nil {
+			status <- svc.Status{State: svc.Stopped}
 			return 1, 1
 		}
-	default:
+	case <-time.After(50 * time.Millisecond):
 		// Runner is starting asynchronously, continue
 	}
 

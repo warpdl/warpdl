@@ -64,7 +64,9 @@ func TestWindowsHandler_Execute_StateTransitions(t *testing.T) {
 		close(done)
 	}()
 
-	// Collect status transitions
+	// Collect status transitions.
+	// We don't use the done channel in the select to avoid a race condition
+	// where done might be selected before we collect the final Stopped status.
 	var statuses []svc.State
 	timeout := time.After(2 * time.Second)
 
@@ -78,10 +80,11 @@ collectLoop:
 			}
 		case <-timeout:
 			t.Fatal("timeout waiting for status transitions")
-		case <-done:
-			break collectLoop
 		}
 	}
+
+	// Wait for handler to finish
+	<-done
 
 	// Verify state transitions
 	expectedStates := []svc.State{
@@ -227,11 +230,47 @@ func TestWindowsHandler_Execute_HandlesStartError(t *testing.T) {
 	changes := make(chan svc.Status, 10)
 	requests := make(chan svc.ChangeRequest, 2)
 
-	svcSpecificExitCode, exitCode := handler.Execute(nil, requests, changes)
+	// Run Execute in a goroutine with timeout protection
+	type result struct {
+		svcCode  uint32
+		exitCode uint32
+	}
+	done := make(chan result, 1)
+	go func() {
+		svc, exit := handler.Execute(nil, requests, changes)
+		done <- result{svc, exit}
+	}()
 
-	// Should indicate failure
-	if exitCode == 0 && svcSpecificExitCode == 0 {
-		t.Error("Execute() should return non-zero exit code on start failure")
+	// Wait for completion with timeout
+	select {
+	case res := <-done:
+		// Should indicate failure
+		if res.exitCode == 0 && res.svcCode == 0 {
+			t.Error("Execute() should return non-zero exit code on start failure")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Execute() did not return on start failure (timeout)")
+	}
+
+	// Verify state transitions: StartPending -> Stopped
+	var statuses []svc.State
+	for {
+		select {
+		case status := <-changes:
+			statuses = append(statuses, status.State)
+		default:
+			goto verify
+		}
+	}
+verify:
+	expectedStates := []svc.State{svc.StartPending, svc.Stopped}
+	if len(statuses) != len(expectedStates) {
+		t.Errorf("got %d state transitions, want %d", len(statuses), len(expectedStates))
+	}
+	for i, want := range expectedStates {
+		if i < len(statuses) && statuses[i] != want {
+			t.Errorf("state[%d] = %v, want %v", i, statuses[i], want)
+		}
 	}
 }
 
