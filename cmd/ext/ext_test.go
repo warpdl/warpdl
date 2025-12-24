@@ -190,9 +190,7 @@ func assertContains(t *testing.T, output, expected string) {
 
 func TestExtCommands(t *testing.T) {
     socketPath := getShortSocketPath(t)
-    if err := os.Setenv("WARPDL_SOCKET_PATH", socketPath); err != nil {
-        t.Fatalf("Setenv: %v", err)
-    }
+    t.Setenv("WARPDL_SOCKET_PATH", socketPath)
     srv := startFakeServer(t, socketPath)
     defer srv.close()
 
@@ -260,9 +258,7 @@ func TestExtMissingArgs(t *testing.T) {
 
 func TestExtCommandsErrorResponse(t *testing.T) {
     socketPath := getShortSocketPath(t)
-    if err := os.Setenv("WARPDL_SOCKET_PATH", socketPath); err != nil {
-        t.Fatalf("Setenv: %v", err)
-    }
+    t.Setenv("WARPDL_SOCKET_PATH", socketPath)
     fail := map[common.UpdateType]string{
         common.UPDATE_ADD_EXT:        "add failed",
         common.UPDATE_GET_EXT:        "get failed",
@@ -415,9 +411,7 @@ func TestOutput_ExtInfo_NoId(t *testing.T) {
 // TestOutput_ExtList_Empty verifies list command output with empty extension list.
 func TestOutput_ExtList_Empty(t *testing.T) {
     socketPath := getShortSocketPath(t)
-    if err := os.Setenv("WARPDL_SOCKET_PATH", socketPath); err != nil {
-        t.Fatalf("Setenv: %v", err)
-    }
+    t.Setenv("WARPDL_SOCKET_PATH", socketPath)
 
     emptyListOverride = true
     defer func() { emptyListOverride = false }()
@@ -443,9 +437,7 @@ func TestOutput_ExtList_Empty(t *testing.T) {
 // TestOutput_ExtList_Success verifies list command output with extensions.
 func TestOutput_ExtList_Success(t *testing.T) {
     socketPath := getShortSocketPath(t)
-    if err := os.Setenv("WARPDL_SOCKET_PATH", socketPath); err != nil {
-        t.Fatalf("Setenv: %v", err)
-    }
+    t.Setenv("WARPDL_SOCKET_PATH", socketPath)
     srv := startFakeServer(t, socketPath)
     defer srv.close()
 
@@ -467,9 +459,7 @@ func TestOutput_ExtList_Success(t *testing.T) {
 // TestOutput_ExtInstall_Success verifies install command success output.
 func TestOutput_ExtInstall_Success(t *testing.T) {
     socketPath := getShortSocketPath(t)
-    if err := os.Setenv("WARPDL_SOCKET_PATH", socketPath); err != nil {
-        t.Fatalf("Setenv: %v", err)
-    }
+    t.Setenv("WARPDL_SOCKET_PATH", socketPath)
     srv := startFakeServer(t, socketPath)
     defer srv.close()
 
@@ -490,9 +480,7 @@ func TestOutput_ExtInstall_Success(t *testing.T) {
 // TestOutput_ExtUninstall_Success verifies uninstall command success output.
 func TestOutput_ExtUninstall_Success(t *testing.T) {
     socketPath := getShortSocketPath(t)
-    if err := os.Setenv("WARPDL_SOCKET_PATH", socketPath); err != nil {
-        t.Fatalf("Setenv: %v", err)
-    }
+    t.Setenv("WARPDL_SOCKET_PATH", socketPath)
     srv := startFakeServer(t, socketPath)
     defer srv.close()
 
@@ -512,9 +500,7 @@ func TestOutput_ExtUninstall_Success(t *testing.T) {
 // TestOutput_ExtActivate_Success verifies activate command success output.
 func TestOutput_ExtActivate_Success(t *testing.T) {
     socketPath := getShortSocketPath(t)
-    if err := os.Setenv("WARPDL_SOCKET_PATH", socketPath); err != nil {
-        t.Fatalf("Setenv: %v", err)
-    }
+    t.Setenv("WARPDL_SOCKET_PATH", socketPath)
     srv := startFakeServer(t, socketPath)
     defer srv.close()
 
@@ -535,9 +521,7 @@ func TestOutput_ExtActivate_Success(t *testing.T) {
 // TestOutput_ExtDeactivate_Success verifies deactivate command success output.
 func TestOutput_ExtDeactivate_Success(t *testing.T) {
     socketPath := getShortSocketPath(t)
-    if err := os.Setenv("WARPDL_SOCKET_PATH", socketPath); err != nil {
-        t.Fatalf("Setenv: %v", err)
-    }
+    t.Setenv("WARPDL_SOCKET_PATH", socketPath)
     srv := startFakeServer(t, socketPath)
     defer srv.close()
 
@@ -557,9 +541,7 @@ func TestOutput_ExtDeactivate_Success(t *testing.T) {
 // TestOutput_ExtInfo_Success verifies info command success output.
 func TestOutput_ExtInfo_Success(t *testing.T) {
     socketPath := getShortSocketPath(t)
-    if err := os.Setenv("WARPDL_SOCKET_PATH", socketPath); err != nil {
-        t.Fatalf("Setenv: %v", err)
-    }
+    t.Setenv("WARPDL_SOCKET_PATH", socketPath)
     srv := startFakeServer(t, socketPath)
     defer srv.close()
 

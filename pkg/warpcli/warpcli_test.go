@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -531,8 +530,7 @@ func TestNewClient_ForceTCPMode(t *testing.T) {
 	}()
 
 	// Set force TCP environment variable
-	os.Setenv("WARPDL_FORCE_TCP", "1")
-	defer os.Unsetenv("WARPDL_FORCE_TCP")
+	t.Setenv("WARPDL_FORCE_TCP", "1")
 
 	ensureDaemonFunc = func() error { return nil }
 

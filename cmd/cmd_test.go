@@ -28,8 +28,7 @@ import (
 // that set currentBuildArgs.Version via Execute().
 func suppressVersionCheck(t *testing.T) {
 	t.Helper()
-	_ = os.Setenv(warpcli.VersionCheckEnv, "1")
-	t.Cleanup(func() { _ = os.Unsetenv(warpcli.VersionCheckEnv) })
+	t.Setenv(warpcli.VersionCheckEnv, "1")
 }
 
 type fakeServer struct {
@@ -232,9 +231,7 @@ func newContext(app *cli.App, args []string, name string) *cli.Context {
 
 func TestDownloadCommand(t *testing.T) {
 	socketPath := filepath.Join(t.TempDir(), "warpdl.sock")
-	if err := os.Setenv("WARPDL_SOCKET_PATH", socketPath); err != nil {
-		t.Fatalf("Setenv: %v", err)
-	}
+	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
 	srv := startFakeServer(t, socketPath)
 	defer srv.close()
 
@@ -254,9 +251,7 @@ func TestDownloadCommand(t *testing.T) {
 
 func TestListCommand(t *testing.T) {
 	socketPath := filepath.Join(t.TempDir(), "warpdl.sock")
-	if err := os.Setenv("WARPDL_SOCKET_PATH", socketPath); err != nil {
-		t.Fatalf("Setenv: %v", err)
-	}
+	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
 	srv := startFakeServer(t, socketPath)
 	defer srv.close()
 
@@ -269,9 +264,7 @@ func TestListCommand(t *testing.T) {
 
 func TestListEmpty(t *testing.T) {
 	socketPath := filepath.Join(t.TempDir(), "warpdl.sock")
-	if err := os.Setenv("WARPDL_SOCKET_PATH", socketPath); err != nil {
-		t.Fatalf("Setenv: %v", err)
-	}
+	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
 	listOverride = []*warplib.Item{}
 	defer func() { listOverride = nil }()
 	srv := startFakeServer(t, socketPath)
@@ -286,9 +279,7 @@ func TestListEmpty(t *testing.T) {
 
 func TestListHiddenOnly(t *testing.T) {
 	socketPath := filepath.Join(t.TempDir(), "warpdl.sock")
-	if err := os.Setenv("WARPDL_SOCKET_PATH", socketPath); err != nil {
-		t.Fatalf("Setenv: %v", err)
-	}
+	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
 	listOverride = []*warplib.Item{{
 		Hash:       "id",
 		Name:       "secret.bin",
@@ -313,9 +304,7 @@ func TestListHiddenOnly(t *testing.T) {
 
 func TestListLongName(t *testing.T) {
 	socketPath := filepath.Join(t.TempDir(), "warpdl.sock")
-	if err := os.Setenv("WARPDL_SOCKET_PATH", socketPath); err != nil {
-		t.Fatalf("Setenv: %v", err)
-	}
+	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
 	listOverride = []*warplib.Item{{
 		Hash:       "id",
 		Name:       strings.Repeat("x", 30),
@@ -340,9 +329,7 @@ func TestListLongName(t *testing.T) {
 
 func TestStopFlushCommands(t *testing.T) {
 	socketPath := filepath.Join(t.TempDir(), "warpdl.sock")
-	if err := os.Setenv("WARPDL_SOCKET_PATH", socketPath); err != nil {
-		t.Fatalf("Setenv: %v", err)
-	}
+	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
 	srv := startFakeServer(t, socketPath)
 	defer srv.close()
 
@@ -473,9 +460,7 @@ func TestStopNoHash(t *testing.T) {
 
 func TestFlushWithHash(t *testing.T) {
 	socketPath := filepath.Join(t.TempDir(), "warpdl.sock")
-	if err := os.Setenv("WARPDL_SOCKET_PATH", socketPath); err != nil {
-		t.Fatalf("Setenv: %v", err)
-	}
+	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
 	srv := startFakeServer(t, socketPath)
 	defer srv.close()
 
@@ -510,9 +495,7 @@ func TestResumeHelpArg(t *testing.T) {
 
 func TestDownloadCustomPath(t *testing.T) {
 	socketPath := filepath.Join(t.TempDir(), "warpdl.sock")
-	if err := os.Setenv("WARPDL_SOCKET_PATH", socketPath); err != nil {
-		t.Fatalf("Setenv: %v", err)
-	}
+	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
 	srv := startFakeServer(t, socketPath)
 	defer srv.close()
 
@@ -532,9 +515,7 @@ func TestDownloadCustomPath(t *testing.T) {
 
 func TestDownloadGetwdError(t *testing.T) {
 	socketPath := filepath.Join(t.TempDir(), "warpdl.sock")
-	if err := os.Setenv("WARPDL_SOCKET_PATH", socketPath); err != nil {
-		t.Fatalf("Setenv: %v", err)
-	}
+	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
 	srv := startFakeServer(t, socketPath)
 	defer srv.close()
 
@@ -560,9 +541,7 @@ func TestDownloadGetwdError(t *testing.T) {
 
 func TestDownloadErrorResponse(t *testing.T) {
 	socketPath := filepath.Join(t.TempDir(), "warpdl.sock")
-	if err := os.Setenv("WARPDL_SOCKET_PATH", socketPath); err != nil {
-		t.Fatalf("Setenv: %v", err)
-	}
+	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
 	srv := startFakeServer(t, socketPath, map[common.UpdateType]string{
 		common.UPDATE_DOWNLOAD: "download failed",
 	})
@@ -577,9 +556,7 @@ func TestDownloadErrorResponse(t *testing.T) {
 
 func TestListWithHidden(t *testing.T) {
 	socketPath := filepath.Join(t.TempDir(), "warpdl.sock")
-	if err := os.Setenv("WARPDL_SOCKET_PATH", socketPath); err != nil {
-		t.Fatalf("Setenv: %v", err)
-	}
+	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
 	srv := startFakeServer(t, socketPath)
 	defer srv.close()
 
@@ -626,9 +603,7 @@ func TestStopHelp(t *testing.T) {
 
 func TestStopErrorResponse(t *testing.T) {
 	socketPath := filepath.Join(t.TempDir(), "warpdl.sock")
-	if err := os.Setenv("WARPDL_SOCKET_PATH", socketPath); err != nil {
-		t.Fatalf("Setenv: %v", err)
-	}
+	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
 	srv := startFakeServer(t, socketPath, map[common.UpdateType]string{
 		common.UPDATE_STOP: "stop failed",
 	})
@@ -650,9 +625,7 @@ func TestListOutputFormatting(t *testing.T) {
 
 func TestAttachCommand(t *testing.T) {
 	socketPath := filepath.Join(t.TempDir(), "warpdl.sock")
-	if err := os.Setenv("WARPDL_SOCKET_PATH", socketPath); err != nil {
-		t.Fatalf("Setenv: %v", err)
-	}
+	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
 	srv := startFakeServer(t, socketPath)
 	defer srv.close()
 
@@ -665,9 +638,7 @@ func TestAttachCommand(t *testing.T) {
 
 func TestAttachErrorResponse(t *testing.T) {
 	socketPath := filepath.Join(t.TempDir(), "warpdl.sock")
-	if err := os.Setenv("WARPDL_SOCKET_PATH", socketPath); err != nil {
-		t.Fatalf("Setenv: %v", err)
-	}
+	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
 	srv := startFakeServer(t, socketPath, map[common.UpdateType]string{
 		common.UPDATE_ATTACH: "attach failed",
 	})
@@ -682,9 +653,7 @@ func TestAttachErrorResponse(t *testing.T) {
 
 func TestResumeCommand(t *testing.T) {
 	socketPath := filepath.Join(t.TempDir(), "warpdl.sock")
-	if err := os.Setenv("WARPDL_SOCKET_PATH", socketPath); err != nil {
-		t.Fatalf("Setenv: %v", err)
-	}
+	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
 	srv := startFakeServer(t, socketPath)
 	defer srv.close()
 
@@ -702,9 +671,7 @@ func TestResumeCommand(t *testing.T) {
 
 func TestResumeErrorResponse(t *testing.T) {
 	socketPath := filepath.Join(t.TempDir(), "warpdl.sock")
-	if err := os.Setenv("WARPDL_SOCKET_PATH", socketPath); err != nil {
-		t.Fatalf("Setenv: %v", err)
-	}
+	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
 	srv := startFakeServer(t, socketPath, map[common.UpdateType]string{
 		common.UPDATE_RESUME: "resume failed",
 	})
@@ -752,9 +719,7 @@ func TestFlushCancelled(t *testing.T) {
 
 func TestFlushErrorResponse(t *testing.T) {
 	socketPath := filepath.Join(t.TempDir(), "warpdl.sock")
-	if err := os.Setenv("WARPDL_SOCKET_PATH", socketPath); err != nil {
-		t.Fatalf("Setenv: %v", err)
-	}
+	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
 	srv := startFakeServer(t, socketPath, map[common.UpdateType]string{
 		common.UPDATE_FLUSH: "flush failed",
 	})
@@ -777,9 +742,7 @@ func TestFlushErrorResponse(t *testing.T) {
 
 func TestFlushAll(t *testing.T) {
 	socketPath := filepath.Join(t.TempDir(), "warpdl.sock")
-	if err := os.Setenv("WARPDL_SOCKET_PATH", socketPath); err != nil {
-		t.Fatalf("Setenv: %v", err)
-	}
+	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
 	srv := startFakeServer(t, socketPath)
 	defer srv.close()
 
@@ -807,9 +770,7 @@ func beautForTest(name string) string {
 
 func TestDownloadPathDefault(t *testing.T) {
 	socketPath := filepath.Join(t.TempDir(), "warpdl.sock")
-	if err := os.Setenv("WARPDL_SOCKET_PATH", socketPath); err != nil {
-		t.Fatalf("Setenv: %v", err)
-	}
+	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
 	srv := startFakeServer(t, socketPath)
 	defer srv.close()
 
@@ -852,9 +813,7 @@ func TestInfoUserAgentOverride(t *testing.T) {
 
 func TestListNoDownloads(t *testing.T) {
 	socketPath := filepath.Join(t.TempDir(), "warpdl.sock")
-	if err := os.Setenv("WARPDL_SOCKET_PATH", socketPath); err != nil {
-		t.Fatalf("Setenv: %v", err)
-	}
+	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
 	srv := startFakeServer(t, socketPath)
 	defer srv.close()
 
@@ -868,9 +827,7 @@ func TestListNoDownloads(t *testing.T) {
 
 func TestDownloadURLTrim(t *testing.T) {
 	socketPath := filepath.Join(t.TempDir(), "warpdl.sock")
-	if err := os.Setenv("WARPDL_SOCKET_PATH", socketPath); err != nil {
-		t.Fatalf("Setenv: %v", err)
-	}
+	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
 	srv := startFakeServer(t, socketPath)
 	defer srv.close()
 
@@ -1085,9 +1042,7 @@ func TestUserAgentsMap(t *testing.T) {
 
 func TestResumeWithUserAgent(t *testing.T) {
 	socketPath := filepath.Join(t.TempDir(), "warpdl.sock")
-	if err := os.Setenv("WARPDL_SOCKET_PATH", socketPath); err != nil {
-		t.Fatalf("Setenv: %v", err)
-	}
+	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
 	srv := startFakeServer(t, socketPath)
 	defer srv.close()
 
@@ -1131,9 +1086,7 @@ func TestFlushHelp(t *testing.T) {
 
 func TestListErrorResponse(t *testing.T) {
 	socketPath := filepath.Join(t.TempDir(), "warpdl.sock")
-	if err := os.Setenv("WARPDL_SOCKET_PATH", socketPath); err != nil {
-		t.Fatalf("Setenv: %v", err)
-	}
+	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
 	srv := startFakeServer(t, socketPath, map[common.UpdateType]string{
 		common.UPDATE_LIST: "list failed",
 	})

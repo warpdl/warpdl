@@ -15,8 +15,8 @@ func TestSocketPathEnv(t *testing.T) {
 }
 
 func TestSocketPathDefault(t *testing.T) {
-	// Ensure env is NOT set
-	os.Unsetenv("WARPDL_SOCKET_PATH")
+	// Ensure env is NOT set (empty string has same effect as unset)
+	t.Setenv("WARPDL_SOCKET_PATH", "")
 	got := socketPath()
 	expected := filepath.Join(os.TempDir(), "warpdl.sock")
 	if got != expected {
@@ -25,7 +25,7 @@ func TestSocketPathDefault(t *testing.T) {
 }
 
 func TestTcpPort_Default(t *testing.T) {
-	os.Unsetenv("WARPDL_TCP_PORT")
+	t.Setenv("WARPDL_TCP_PORT", "")
 	got := tcpPort()
 	expected := 3849
 	if got != expected {
@@ -76,7 +76,7 @@ func TestTcpPort_InvalidRange(t *testing.T) {
 }
 
 func TestForceTCP_Default(t *testing.T) {
-	os.Unsetenv("WARPDL_FORCE_TCP")
+	t.Setenv("WARPDL_FORCE_TCP", "")
 	got := forceTCP()
 	if got != false {
 		t.Fatalf("expected false, got %v", got)
@@ -92,7 +92,7 @@ func TestForceTCP_Enabled(t *testing.T) {
 }
 
 func TestDebugMode_Default(t *testing.T) {
-	os.Unsetenv("WARPDL_DEBUG")
+	t.Setenv("WARPDL_DEBUG", "")
 	got := debugMode()
 	if got != false {
 		t.Fatalf("expected false, got %v", got)
@@ -108,7 +108,7 @@ func TestDebugMode_Enabled(t *testing.T) {
 }
 
 func TestTcpAddress(t *testing.T) {
-	os.Unsetenv("WARPDL_TCP_PORT")
+	t.Setenv("WARPDL_TCP_PORT", "")
 	got := tcpAddress()
 	expected := "localhost:3849"
 	if got != expected {

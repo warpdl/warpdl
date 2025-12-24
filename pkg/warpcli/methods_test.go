@@ -3,7 +3,6 @@ package warpcli
 import (
 	"encoding/json"
 	"net"
-	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -14,9 +13,7 @@ import (
 
 func TestNewClient(t *testing.T) {
 	socketPath := filepath.Join(t.TempDir(), "warpdl.sock")
-	if err := os.Setenv("WARPDL_SOCKET_PATH", socketPath); err != nil {
-		t.Fatalf("Setenv: %v", err)
-	}
+	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
 	ln, err := net.Listen("unix", socketPath)
 	if err != nil {
 		t.Fatalf("Listen: %v", err)
