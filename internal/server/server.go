@@ -63,7 +63,7 @@ func (s *Server) createListener() (net.Listener, error) {
 		}
 		return tcpListener, nil
 	}
-	_ = os.Chmod(socketPath, 0766)
+	_ = setSocketPermissions(socketPath)
 	return l, nil
 }
 
