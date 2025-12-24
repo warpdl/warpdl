@@ -16,9 +16,11 @@ import (
 )
 
 // getShortSocketPath returns a short socket path to avoid macOS path length limits.
+// On Windows, this is ignored in favor of TCP, but we still return a dummy path
+// for consistency.
 func getShortSocketPath(t *testing.T) string {
 	t.Helper()
-	tmpDir, err := os.MkdirTemp("/tmp", "wdl")
+	tmpDir, err := os.MkdirTemp(os.TempDir(), "wdl")
 	if err != nil {
 		t.Fatalf("MkdirTemp: %v", err)
 	}

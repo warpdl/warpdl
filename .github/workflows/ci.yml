@@ -29,9 +29,9 @@ jobs:
             coverage-pkg-min: 80
             run-race: true
           - os: windows-latest
-            coverage-min: 60
-            coverage-pkg-min: 60
-            run-race: false
+            coverage-min: 80
+            coverage-pkg-min: 80
+            run-race: true
 
     steps:
       - name: Checkout
@@ -53,9 +53,7 @@ jobs:
       - name: Run tests with coverage (Windows)
         if: runner.os == 'Windows'
         shell: bash
-        run: |
-          go test ./... -coverprofile=cover.out -count=1 -v
-          go tool cover -func=cover.out | tail -1
+        run: scripts/check_coverage.sh
         env:
           COVERAGE_MIN: ${{ matrix.coverage-min }}
           COVERAGE_MIN_PER_PKG: ${{ matrix.coverage-pkg-min }}

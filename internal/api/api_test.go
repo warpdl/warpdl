@@ -122,8 +122,10 @@ func newTestApi(t *testing.T) (*Api, *server.Pool, func()) {
 	}
 	pool := server.NewPool(log.New(io.Discard, "", 0))
 	cleanup := func() {
-		_ = eng.Close()
 		_ = m.Close()
+		_ = eng.Close()
+		// On Windows, ensure file handles are released before TempDir cleanup
+		time.Sleep(10 * time.Millisecond)
 	}
 	return api, pool, cleanup
 }
@@ -537,7 +539,10 @@ func TestRegisterHandlersAndClose(t *testing.T) {
 	if err := api.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
+	_ = m.Close()
 	_ = eng.Close()
+	// On Windows, ensure file handles are released before TempDir cleanup
+	time.Sleep(10 * time.Millisecond)
 }
 
 func TestResumeHandlerMissing(t *testing.T) {

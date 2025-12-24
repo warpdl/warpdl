@@ -39,6 +39,8 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
+	defer extEng.Close()
+
 	switch args[0] {
 	case "extract":
 		if len(args) < 2 {

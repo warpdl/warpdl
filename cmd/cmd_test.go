@@ -1,5 +1,3 @@
-//go:build !windows
-
 package cmd
 
 import (
@@ -47,8 +45,9 @@ func (s *fakeServer) close() {
 func startFakeServer(t *testing.T, socketPath string, fail ...map[common.UpdateType]string) *fakeServer {
 	t.Helper()
 	suppressVersionCheck(t) // Prevent test pollution from currentBuildArgs
-	_ = os.Remove(socketPath)
-	listener, err := net.Listen("unix", socketPath)
+
+	// Use platform-specific listener (Unix socket on Unix, TCP on Windows)
+	listener, err := createTestListener(t, socketPath)
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
