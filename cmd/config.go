@@ -3,10 +3,13 @@ package cmd
 import "time"
 
 const (
-	DEF_MAX_PARTS = 200
-	DEF_MAX_CONNS = 24
-	DEF_TIMEOUT   = time.Second * 30
-	DEF_PORT      = 3849
+	DEF_MAX_PARTS   = 200
+	DEF_MAX_CONNS   = 24
+	DEF_TIMEOUT     = time.Second * 30
+	DEF_TIMEOUT_SEC = 30 // timeout in seconds for CLI flag
+	DEF_MAX_RETRIES = 5
+	DEF_RETRY_DELAY = 500 // milliseconds
+	DEF_PORT        = 3849
 )
 
 const DESCRIPTION = `

@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/warpdl/warpdl/common"
 	"github.com/warpdl/warpdl/internal/server"
@@ -37,6 +38,26 @@ func (s *Api) downloadHandler(sconn *server.SyncConn, pool *server.Pool, body js
 		s.log.Printf("failed to extract URL from extension: %s\n", err.Error())
 		url = m.Url
 	}
+
+	// Build retry config from params
+	var retryConfig *warplib.RetryConfig
+	if m.MaxRetries != 0 || m.RetryDelay != 0 {
+		cfg := warplib.DefaultRetryConfig()
+		if m.MaxRetries != 0 {
+			cfg.MaxRetries = m.MaxRetries
+		}
+		if m.RetryDelay != 0 {
+			cfg.BaseDelay = time.Duration(m.RetryDelay) * time.Millisecond
+		}
+		retryConfig = &cfg
+	}
+
+	// Convert timeout from seconds to duration
+	var requestTimeout time.Duration
+	if m.Timeout > 0 {
+		requestTimeout = time.Duration(m.Timeout) * time.Second
+	}
+
 	d, err = warplib.NewDownloader(dlClient, url, &warplib.DownloaderOpts{
 		Headers:           m.Headers,
 		ForceParts:        m.ForceParts,
@@ -45,6 +66,8 @@ func (s *Api) downloadHandler(sconn *server.SyncConn, pool *server.Pool, body js
 		MaxConnections:    m.MaxConnections,
 		MaxSegments:       m.MaxSegments,
 		Overwrite:         m.Overwrite,
+		RetryConfig:       retryConfig,
+		RequestTimeout:    requestTimeout,
 		Handlers: &warplib.Handlers{
 			ErrorHandler: func(_ string, err error) {
 				uid := d.GetHash()

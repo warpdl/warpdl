@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"sync"
+	"time"
 )
 
 // Default download data directory
@@ -244,6 +245,12 @@ type ResumeDownloadOpts struct {
 	MaxSegments int32
 	Headers     Headers
 	Handlers    *Handlers
+	// RetryConfig configures retry behavior for transient errors.
+	// If nil, DefaultRetryConfig() is used.
+	RetryConfig *RetryConfig
+	// RequestTimeout specifies the timeout for individual HTTP requests.
+	// If zero, no per-request timeout is applied.
+	RequestTimeout time.Duration
 }
 
 // ResumeDownload resumes a download item.
@@ -285,6 +292,8 @@ func (m *Manager) ResumeDownload(client *http.Client, hash string, opts *ResumeD
 		FileName:          item.Name,
 		DownloadDirectory: item.DownloadLocation,
 		Headers:           item.Headers,
+		RetryConfig:       opts.RetryConfig,
+		RequestTimeout:    opts.RequestTimeout,
 	})
 	if er != nil {
 		err = er

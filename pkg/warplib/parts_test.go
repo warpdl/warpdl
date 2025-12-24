@@ -271,7 +271,7 @@ func TestPartDownloadRequestError(t *testing.T) {
 	}
 	defer p.close()
 
-	_, _, err = p.download(nil, 0, 99, false)
+	_, _, err = p.download(nil, 0, 99, false, 0)
 	if err == nil {
 		t.Fatalf("expected download to return error")
 	}
@@ -316,7 +316,7 @@ func TestPartDownloadRequestCreationError(t *testing.T) {
 	}
 	defer p.close()
 
-	_, _, err = p.download(nil, 0, 99, false)
+	_, _, err = p.download(nil, 0, 99, false, 0)
 	if err == nil {
 		t.Fatalf("expected error from cancelled context")
 	}

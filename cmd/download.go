@@ -92,6 +92,9 @@ func download(ctx *cli.Context) (err error) {
 		Headers:        headers,
 		Overwrite:      ctx.Bool("overwrite"),
 		Proxy:          proxyURL,
+		Timeout:        timeout,
+		MaxRetries:     maxRetries,
+		RetryDelay:     retryDelay,
 	})
 	if err != nil {
 		common.PrintRuntimeErr(ctx, "info", "download", err)

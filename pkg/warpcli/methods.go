@@ -37,6 +37,14 @@ type DownloadOpts struct {
 	Overwrite bool `json:"overwrite,omitempty"`
 	// Proxy specifies the proxy server URL for this download.
 	Proxy string `json:"proxy,omitempty"`
+	// Timeout specifies the per-request timeout in seconds.
+	// 0 means no timeout.
+	Timeout int `json:"timeout,omitempty"`
+	// MaxRetries specifies maximum retry attempts for transient errors.
+	// 0 means unlimited retries.
+	MaxRetries int `json:"max_retries,omitempty"`
+	// RetryDelay specifies the base delay between retries in milliseconds.
+	RetryDelay int `json:"retry_delay,omitempty"`
 }
 
 // Download initiates a new download from the specified URL.
@@ -60,6 +68,9 @@ func (c *Client) Download(url, fileName, downloadDirectory string, opts *Downloa
 		IsChildren:        opts.IsChildren,
 		Overwrite:         opts.Overwrite,
 		Proxy:             opts.Proxy,
+		Timeout:           opts.Timeout,
+		MaxRetries:        opts.MaxRetries,
+		RetryDelay:        opts.RetryDelay,
 	})
 }
 
@@ -76,6 +87,14 @@ type ResumeOpts struct {
 	MaxSegments int32 `json:"max_segments,omitempty"`
 	// Proxy specifies the proxy server URL for resuming this download.
 	Proxy string `json:"proxy,omitempty"`
+	// Timeout specifies the per-request timeout in seconds.
+	// 0 means no timeout.
+	Timeout int `json:"timeout,omitempty"`
+	// MaxRetries specifies maximum retry attempts for transient errors.
+	// 0 means unlimited retries.
+	MaxRetries int `json:"max_retries,omitempty"`
+	// RetryDelay specifies the base delay between retries in milliseconds.
+	RetryDelay int `json:"retry_delay,omitempty"`
 }
 
 // Resume resumes a previously paused or interrupted download.
@@ -93,6 +112,9 @@ func (c *Client) Resume(downloadId string, opts *ResumeOpts) (*common.ResumeResp
 		MaxConnections: opts.MaxConnections,
 		MaxSegments:    opts.MaxSegments,
 		Proxy:          opts.Proxy,
+		Timeout:        opts.Timeout,
+		MaxRetries:     opts.MaxRetries,
+		RetryDelay:     opts.RetryDelay,
 	})
 }
 

@@ -109,8 +109,16 @@ func (p *Part) setEpeed(espeed int64) {
 	p.etime = getDownloadTime(espeed, p.chunk)
 }
 
-func (p *Part) download(headers Headers, ioff, foff int64, force bool) (body io.ReadCloser, slow bool, err error) {
-	req, er := http.NewRequestWithContext(p.ctx, http.MethodGet, p.url, nil)
+func (p *Part) download(headers Headers, ioff, foff int64, force bool, requestTimeout time.Duration) (body io.ReadCloser, slow bool, err error) {
+	// Create context with timeout if specified
+	ctx := p.ctx
+	if requestTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(p.ctx, requestTimeout)
+		defer cancel()
+	}
+
+	req, er := http.NewRequestWithContext(ctx, http.MethodGet, p.url, nil)
 	if er != nil {
 		err = er
 		return

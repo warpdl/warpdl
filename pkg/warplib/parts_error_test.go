@@ -50,7 +50,7 @@ func TestPartDownloadClientError(t *testing.T) {
 	}
 	defer p.close()
 
-	if _, _, err := p.download(nil, 0, 1, false); err == nil {
+	if _, _, err := p.download(nil, 0, 1, false, 0); err == nil {
 		t.Fatalf("expected download error")
 	}
 }

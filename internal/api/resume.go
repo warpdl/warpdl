@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/warpdl/warpdl/common"
 	"github.com/warpdl/warpdl/internal/server"
@@ -110,6 +111,25 @@ func (s *Api) resumeHandler(sconn *server.SyncConn, pool *server.Pool, body json
 		}
 	}
 
+	// Build retry config from params
+	var retryConfig *warplib.RetryConfig
+	if m.MaxRetries != 0 || m.RetryDelay != 0 {
+		cfg := warplib.DefaultRetryConfig()
+		if m.MaxRetries != 0 {
+			cfg.MaxRetries = m.MaxRetries
+		}
+		if m.RetryDelay != 0 {
+			cfg.BaseDelay = time.Duration(m.RetryDelay) * time.Millisecond
+		}
+		retryConfig = &cfg
+	}
+
+	// Convert timeout from seconds to duration
+	var requestTimeout time.Duration
+	if m.Timeout > 0 {
+		requestTimeout = time.Duration(m.Timeout) * time.Second
+	}
+
 	var (
 		err          error
 		item         *warplib.Item
@@ -122,6 +142,8 @@ func (s *Api) resumeHandler(sconn *server.SyncConn, pool *server.Pool, body json
 		MaxConnections: m.MaxConnections,
 		MaxSegments:    m.MaxSegments,
 		Handlers:       getHandler(pool, hash, stopDownload),
+		RetryConfig:    retryConfig,
+		RequestTimeout: requestTimeout,
 	})
 	if err != nil {
 		return common.UPDATE_RESUME, nil, err
@@ -138,6 +160,8 @@ func (s *Api) resumeHandler(sconn *server.SyncConn, pool *server.Pool, body json
 			MaxConnections: m.MaxConnections,
 			MaxSegments:    m.MaxSegments,
 			Handlers:       getHandler(pool, &item.ChildHash, cStopDownload),
+			RetryConfig:    retryConfig,
+			RequestTimeout: requestTimeout,
 		})
 		if err != nil {
 			return common.UPDATE_RESUME, nil, err

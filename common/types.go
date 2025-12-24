@@ -38,6 +38,12 @@ type DownloadParams struct {
 	Overwrite bool `json:"overwrite,omitempty"`
 	// Proxy specifies the proxy server URL (http, https, or socks5) for the download.
 	Proxy string `json:"proxy,omitempty"`
+	// Timeout specifies the per-request timeout in seconds.
+	Timeout int `json:"timeout,omitempty"`
+	// MaxRetries specifies maximum retry attempts for transient errors.
+	MaxRetries int `json:"max_retries,omitempty"`
+	// RetryDelay specifies the base delay between retries in milliseconds.
+	RetryDelay int `json:"retry_delay,omitempty"`
 }
 
 // DownloadResponse contains the server response after initiating a download.
@@ -86,6 +92,12 @@ type ResumeParams struct {
 	MaxSegments int32 `json:"max_segments,omitempty"`
 	// Proxy specifies the proxy server URL (http, https, or socks5) for the resume.
 	Proxy string `json:"proxy,omitempty"`
+	// Timeout specifies the per-request timeout in seconds.
+	Timeout int `json:"timeout,omitempty"`
+	// MaxRetries specifies maximum retry attempts for transient errors.
+	MaxRetries int `json:"max_retries,omitempty"`
+	// RetryDelay specifies the base delay between retries in milliseconds.
+	RetryDelay int `json:"retry_delay,omitempty"`
 }
 
 // ResumeResponse contains the server response after resuming a download.

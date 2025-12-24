@@ -72,6 +72,9 @@ type Downloader struct {
 	resumable bool
 	// retryConfig holds retry configuration for transient errors
 	retryConfig *RetryConfig
+	// requestTimeout is the per-request timeout duration.
+	// Zero means no timeout.
+	requestTimeout time.Duration
 }
 
 // DownloaderOptsFunc is a functional option for configuring a Downloader.
@@ -122,6 +125,10 @@ type DownloaderOpts struct {
 	// Supported schemes: http, https, socks5.
 	// Example: "http://proxy.example.com:8080" or "socks5://localhost:1080"
 	ProxyURL string
+
+	// RequestTimeout specifies the timeout for individual HTTP requests.
+	// If zero, no per-request timeout is applied.
+	RequestTimeout time.Duration
 }
 
 // NewDownloader creates a new downloader with provided arguments.
@@ -161,22 +168,23 @@ func NewDownloader(client *http.Client, url string, opts *DownloaderOpts, optFun
 
 	ctx, cancel := context.WithCancel(context.Background())
 	d = &Downloader{
-		ctx:         ctx,
-		cancel:      cancel,
-		wg:          &sync.WaitGroup{},
-		client:      client,
-		url:         url,
-		maxConn:     opts.MaxConnections,
-		chunk:       int(DEF_CHUNK_SIZE),
-		force:       opts.ForceParts,
-		handlers:    opts.Handlers,
-		fileName:    opts.FileName,
-		dlLoc:       opts.DownloadDirectory,
-		maxParts:    opts.MaxSegments,
-		headers:     opts.Headers,
-		resumable:   true,
-		retryConfig: retryConfig,
-		overwrite:   opts.Overwrite,
+		ctx:            ctx,
+		cancel:         cancel,
+		wg:             &sync.WaitGroup{},
+		client:         client,
+		url:            url,
+		maxConn:        opts.MaxConnections,
+		chunk:          int(DEF_CHUNK_SIZE),
+		force:          opts.ForceParts,
+		handlers:       opts.Handlers,
+		fileName:       opts.FileName,
+		dlLoc:          opts.DownloadDirectory,
+		maxParts:       opts.MaxSegments,
+		headers:        opts.Headers,
+		resumable:      true,
+		retryConfig:    retryConfig,
+		overwrite:      opts.Overwrite,
+		requestTimeout: opts.RequestTimeout,
 	}
 
 	// Apply functional options
@@ -258,23 +266,24 @@ func initDownloader(client *http.Client, hash, url string, cLength ContentLength
 
 	ctx, cancel := context.WithCancel(context.Background())
 	d = &Downloader{
-		ctx:           ctx,
-		cancel:        cancel,
-		wg:            &sync.WaitGroup{},
-		client:        client,
-		url:           url,
-		maxConn:       opts.MaxConnections,
-		chunk:         int(DEF_CHUNK_SIZE),
-		force:         opts.ForceParts,
-		handlers:      opts.Handlers,
-		fileName:      opts.FileName,
-		dlLoc:         opts.DownloadDirectory,
-		maxParts:      opts.MaxSegments,
-		contentLength: cLength,
-		hash:          hash,
-		dlPath:        fmt.Sprintf("%s/%s/", DlDataDir, hash),
-		retryConfig:   retryConfig,
-		overwrite:     opts.Overwrite,
+		ctx:            ctx,
+		cancel:         cancel,
+		wg:             &sync.WaitGroup{},
+		client:         client,
+		url:            url,
+		maxConn:        opts.MaxConnections,
+		chunk:          int(DEF_CHUNK_SIZE),
+		force:          opts.ForceParts,
+		handlers:       opts.Handlers,
+		fileName:       opts.FileName,
+		dlLoc:          opts.DownloadDirectory,
+		maxParts:       opts.MaxSegments,
+		contentLength:  cLength,
+		hash:           hash,
+		dlPath:         fmt.Sprintf("%s/%s/", DlDataDir, hash),
+		retryConfig:    retryConfig,
+		overwrite:      opts.Overwrite,
+		requestTimeout: opts.RequestTimeout,
 	}
 
 	// Apply functional options
@@ -588,7 +597,7 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 			// start downloading the content in provided
 			// offset range until part becomes slower than
 			// expected speed.
-			body, slow, err = part.download(d.headers, ioff, foff, force)
+			body, slow, err = part.download(d.headers, ioff, foff, force, d.requestTimeout)
 		} else {
 			slow, err = part.copyBuffer(body, foff, force)
 		}

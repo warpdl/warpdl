@@ -15,6 +15,9 @@ var (
 	maxConns   int
 	forceParts bool
 	timeTaken  bool
+	timeout    int
+	maxRetries int
+	retryDelay int
 
 	rsFlags = []cli.Flag{
 		cli.IntFlag{
@@ -41,6 +44,27 @@ var (
 			Name:        "time-taken, e",
 			Destination: &timeTaken,
 			Hidden:      true,
+		},
+		cli.IntFlag{
+			Name:        "timeout, t",
+			Usage:       "per-request timeout in seconds (0 = no timeout)",
+			Value:       DEF_TIMEOUT_SEC,
+			EnvVar:      "WARPDL_TIMEOUT",
+			Destination: &timeout,
+		},
+		cli.IntFlag{
+			Name:        "max-retries",
+			Usage:       "maximum retry attempts for transient errors (0 = unlimited)",
+			Value:       DEF_MAX_RETRIES,
+			EnvVar:      "WARPDL_MAX_RETRIES",
+			Destination: &maxRetries,
+		},
+		cli.IntFlag{
+			Name:        "retry-delay",
+			Usage:       "base delay between retries in milliseconds",
+			Value:       DEF_RETRY_DELAY,
+			EnvVar:      "WARPDL_RETRY_DELAY",
+			Destination: &retryDelay,
 		},
 	}
 )
@@ -84,6 +108,9 @@ func resume(ctx *cli.Context) (err error) {
 		MaxSegments:    int32(maxParts),
 		Headers:        headers,
 		Proxy:          proxyURL,
+		Timeout:        timeout,
+		MaxRetries:     maxRetries,
+		RetryDelay:     retryDelay,
 	})
 	if err != nil {
 		common.PrintRuntimeErr(ctx, "resume", "client-resume", err)
