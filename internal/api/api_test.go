@@ -742,3 +742,228 @@ func TestVersionHandler(t *testing.T) {
 		t.Fatalf("expected buildType 'test', got '%s'", resp.BuildType)
 	}
 }
+
+func TestDownloadHandlerInvalidProxy(t *testing.T) {
+	api, pool, cleanup := newTestApi(t)
+	defer cleanup()
+
+	params := common.DownloadParams{
+		Url:               "http://example.com/file.bin",
+		DownloadDirectory: warplib.ConfigDir,
+		Proxy:             "://invalid-proxy",
+	}
+	body, _ := json.Marshal(params)
+	_, _, err := api.downloadHandler(nil, pool, body)
+	if err == nil {
+		t.Fatalf("expected error for invalid proxy URL")
+	}
+	if !strings.Contains(err.Error(), "invalid proxy URL") {
+		t.Fatalf("expected 'invalid proxy URL' error, got: %v", err)
+	}
+}
+
+func TestDownloadHandlerWithTimeout(t *testing.T) {
+	api, pool, cleanup := newTestApi(t)
+	defer cleanup()
+
+	content := bytes.Repeat([]byte("t"), 1024)
+	srv := newRangeServer(content)
+	defer srv.Close()
+
+	params := common.DownloadParams{
+		Url:               srv.URL + "/file.bin",
+		DownloadDirectory: warplib.ConfigDir,
+		MaxConnections:    1,
+		MaxSegments:       1,
+		Timeout:           30,
+	}
+	body, _ := json.Marshal(params)
+	_, msg, err := api.downloadHandler(nil, pool, body)
+	if err != nil {
+		t.Fatalf("downloadHandler with timeout: %v", err)
+	}
+	resp := msg.(*common.DownloadResponse)
+	if resp.DownloadId == "" {
+		t.Fatalf("expected download id")
+	}
+}
+
+func TestDownloadHandlerWithMaxRetries(t *testing.T) {
+	api, pool, cleanup := newTestApi(t)
+	defer cleanup()
+
+	content := bytes.Repeat([]byte("r"), 1024)
+	srv := newRangeServer(content)
+	defer srv.Close()
+
+	params := common.DownloadParams{
+		Url:               srv.URL + "/file.bin",
+		DownloadDirectory: warplib.ConfigDir,
+		MaxConnections:    1,
+		MaxSegments:       1,
+		MaxRetries:        5,
+	}
+	body, _ := json.Marshal(params)
+	_, msg, err := api.downloadHandler(nil, pool, body)
+	if err != nil {
+		t.Fatalf("downloadHandler with max retries: %v", err)
+	}
+	resp := msg.(*common.DownloadResponse)
+	if resp.DownloadId == "" {
+		t.Fatalf("expected download id")
+	}
+}
+
+func TestDownloadHandlerWithRetryDelay(t *testing.T) {
+	api, pool, cleanup := newTestApi(t)
+	defer cleanup()
+
+	content := bytes.Repeat([]byte("d"), 1024)
+	srv := newRangeServer(content)
+	defer srv.Close()
+
+	params := common.DownloadParams{
+		Url:               srv.URL + "/file.bin",
+		DownloadDirectory: warplib.ConfigDir,
+		MaxConnections:    1,
+		MaxSegments:       1,
+		RetryDelay:        1000,
+	}
+	body, _ := json.Marshal(params)
+	_, msg, err := api.downloadHandler(nil, pool, body)
+	if err != nil {
+		t.Fatalf("downloadHandler with retry delay: %v", err)
+	}
+	resp := msg.(*common.DownloadResponse)
+	if resp.DownloadId == "" {
+		t.Fatalf("expected download id")
+	}
+}
+
+func TestDownloadHandlerWithRetryConfig(t *testing.T) {
+	api, pool, cleanup := newTestApi(t)
+	defer cleanup()
+
+	content := bytes.Repeat([]byte("c"), 1024)
+	srv := newRangeServer(content)
+	defer srv.Close()
+
+	params := common.DownloadParams{
+		Url:               srv.URL + "/file.bin",
+		DownloadDirectory: warplib.ConfigDir,
+		MaxConnections:    1,
+		MaxSegments:       1,
+		MaxRetries:        3,
+		RetryDelay:        500,
+		Timeout:           60,
+	}
+	body, _ := json.Marshal(params)
+	_, msg, err := api.downloadHandler(nil, pool, body)
+	if err != nil {
+		t.Fatalf("downloadHandler with full retry config: %v", err)
+	}
+	resp := msg.(*common.DownloadResponse)
+	if resp.DownloadId == "" {
+		t.Fatalf("expected download id")
+	}
+}
+
+func TestResumeHandlerInvalidProxy(t *testing.T) {
+	api, pool, cleanup := newTestApi(t)
+	defer cleanup()
+
+	item := &warplib.Item{
+		Hash:             "proxy-test",
+		Name:             "test",
+		Url:              "http://example.com/file",
+		TotalSize:        100,
+		DownloadLocation: warplib.ConfigDir,
+		AbsoluteLocation: warplib.ConfigDir,
+		Resumable:        true,
+		Parts:            make(map[int64]*warplib.ItemPart),
+	}
+	api.manager.UpdateItem(item)
+
+	params := common.ResumeParams{
+		DownloadId: item.Hash,
+		Proxy:      "://invalid-proxy",
+	}
+	body, _ := json.Marshal(params)
+	_, _, err := api.resumeHandler(nil, pool, body)
+	if err == nil {
+		t.Fatalf("expected error for invalid proxy URL")
+	}
+	if !strings.Contains(err.Error(), "invalid proxy URL") {
+		t.Fatalf("expected 'invalid proxy URL' error, got: %v", err)
+	}
+}
+
+func TestResumeHandlerWithTimeout(t *testing.T) {
+	api, pool, cleanup := newTestApi(t)
+	defer cleanup()
+
+	item := &warplib.Item{
+		Hash:             "timeout-test",
+		Name:             "test",
+		Url:              "http://example.com/file",
+		TotalSize:        100,
+		DownloadLocation: warplib.ConfigDir,
+		AbsoluteLocation: warplib.ConfigDir,
+		Resumable:        true,
+		Parts:            make(map[int64]*warplib.ItemPart),
+	}
+	api.manager.UpdateItem(item)
+	if err := os.MkdirAll(filepath.Join(warplib.DlDataDir, item.Hash), 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	params := common.ResumeParams{
+		DownloadId: item.Hash,
+		Timeout:    30,
+	}
+	body, _ := json.Marshal(params)
+	_, msg, err := api.resumeHandler(nil, pool, body)
+	if err != nil {
+		t.Fatalf("resumeHandler with timeout: %v", err)
+	}
+	resp := msg.(*common.ResumeResponse)
+	if resp.FileName != item.Name {
+		t.Fatalf("unexpected resume response")
+	}
+}
+
+func TestResumeHandlerWithRetryConfig(t *testing.T) {
+	api, pool, cleanup := newTestApi(t)
+	defer cleanup()
+
+	item := &warplib.Item{
+		Hash:             "retry-test",
+		Name:             "test",
+		Url:              "http://example.com/file",
+		TotalSize:        100,
+		DownloadLocation: warplib.ConfigDir,
+		AbsoluteLocation: warplib.ConfigDir,
+		Resumable:        true,
+		Parts:            make(map[int64]*warplib.ItemPart),
+	}
+	api.manager.UpdateItem(item)
+	if err := os.MkdirAll(filepath.Join(warplib.DlDataDir, item.Hash), 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	params := common.ResumeParams{
+		DownloadId: item.Hash,
+		MaxRetries: 5,
+		RetryDelay: 1000,
+		Timeout:    60,
+	}
+	body, _ := json.Marshal(params)
+	_, msg, err := api.resumeHandler(nil, pool, body)
+	if err != nil {
+		t.Fatalf("resumeHandler with retry config: %v", err)
+	}
+	resp := msg.(*common.ResumeResponse)
+	if resp.FileName != item.Name {
+		t.Fatalf("unexpected resume response")
+	}
+}
