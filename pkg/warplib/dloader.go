@@ -282,7 +282,7 @@ func initDownloader(client *http.Client, hash, url string, cLength ContentLength
 		maxParts:       opts.MaxSegments,
 		contentLength:  cLength,
 		hash:           hash,
-		dlPath:         fmt.Sprintf("%s/%s/", DlDataDir, hash),
+		dlPath:         filepath.Join(DlDataDir, hash),
 		retryConfig:    retryConfig,
 		overwrite:      opts.Overwrite,
 		requestTimeout: opts.RequestTimeout,
@@ -867,9 +867,7 @@ func (d *Downloader) setHash() {
 // setupDlPath sets up the temporary directory where the downlaod segments
 // and logs will be stored.
 func (d *Downloader) setupDlPath() (err error) {
-	dlpath := fmt.Sprintf(
-		"%s/%s/", DlDataDir, d.hash,
-	)
+	dlpath := filepath.Join(DlDataDir, d.hash)
 	err = os.Mkdir(dlpath, os.ModePerm)
 	if err != nil {
 		return
@@ -883,7 +881,7 @@ func (d *Downloader) setupDlPath() (err error) {
 // Location of logs is DlDirectory/{Hash}/logs.txt
 func (d *Downloader) setupLogger() (err error) {
 	d.lw, err = os.OpenFile(
-		d.dlPath+"logs.txt",
+		filepath.Join(d.dlPath, "logs.txt"),
 		os.O_RDWR|os.O_CREATE|os.O_APPEND,
 		0666,
 	)

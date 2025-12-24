@@ -83,7 +83,11 @@ func newRetryTestDownloader(t *testing.T, client *http.Client, retryConfig *Retr
 		retryConfig = &defaultCfg
 	}
 
-	preName := filepath.Join(base, "part-")
+	partsDir := filepath.Join(base, "parts")
+	if err := os.MkdirAll(partsDir, 0755); err != nil {
+		t.Fatalf("MkdirAll parts dir: %v", err)
+	}
+	preName := partsDir
 	ctx, cancel := context.WithCancel(context.Background())
 	d := &Downloader{
 		ctx:         ctx,

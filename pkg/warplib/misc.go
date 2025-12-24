@@ -2,7 +2,6 @@ package warplib
 
 import (
 	"errors"
-	"fmt"
 	"log"
 	"mime"
 	"net/http"
@@ -205,7 +204,7 @@ func getDownloadTime(sps int64, tdb int64) (eta time.Duration) {
 }
 
 func getFileName(preName, hash string) string {
-	return fmt.Sprintf("%s%s.warp", preName, hash)
+	return filepath.Join(preName, hash+".warp")
 }
 
 func dirExists(name string) bool {

@@ -36,7 +36,7 @@ func TestPartDownloadClientError(t *testing.T) {
 		url:     "http://example.com",
 		chunk:   2,
 		client:  client,
-		preName: filepath.Join(dir, "part-"),
+		preName: func() string { partsDir := filepath.Join(dir, "parts"); os.MkdirAll(partsDir, 0755); return partsDir }(),
 		pfunc:   func(string, int) {},
 		ofunc:   func(string, int64) {},
 		cfunc:   func(string, int) {},

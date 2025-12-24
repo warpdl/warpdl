@@ -90,7 +90,11 @@ func TestRunPartDownloadError(t *testing.T) {
 			return nil, errors.New("boom")
 		}),
 	}
-	preName := filepath.Join(base, "part-")
+	partsDir := filepath.Join(base, "parts")
+	if err := os.MkdirAll(partsDir, 0755); err != nil {
+		t.Fatalf("MkdirAll parts dir: %v", err)
+	}
+	preName := partsDir
 	d := newRunPartDownloader(t, client, preName, mainFile)
 	called := false
 	d.handlers.ErrorHandler = func(string, error) { called = true }
@@ -127,7 +131,11 @@ func TestRunPartSlowMinPartSize(t *testing.T) {
 			}, nil
 		}),
 	}
-	preName := filepath.Join(base, "part-")
+	partsDir := filepath.Join(base, "parts")
+	if err := os.MkdirAll(partsDir, 0755); err != nil {
+		t.Fatalf("MkdirAll parts dir: %v", err)
+	}
+	preName := partsDir
 	d := newRunPartDownloader(t, client, preName, mainFile)
 
 	part := newRunPart(t, d, preName, mainFile)

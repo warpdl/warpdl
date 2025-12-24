@@ -183,7 +183,7 @@ func TestValidateDownloadIntegrity_ValidState_NoDownloaded(t *testing.T) {
 		FinalOffset: 50,
 		Compiled:    false,
 	}
-	partFile := getFileName(dlPath+"/", "part1")
+	partFile := getFileName(dlPath, "part1")
 	if err := os.WriteFile(partFile, []byte("test data"), 0644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
@@ -215,7 +215,7 @@ func TestValidateDownloadIntegrity_ValidState_WithMainFile(t *testing.T) {
 		FinalOffset: 100,
 		Compiled:    false,
 	}
-	partFile := getFileName(dlPath+"/", "part1")
+	partFile := getFileName(dlPath, "part1")
 	if err := os.WriteFile(partFile, []byte("test data"), 0644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}

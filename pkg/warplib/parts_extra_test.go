@@ -14,7 +14,11 @@ import (
 
 func TestInitPartAndString(t *testing.T) {
 	dir := t.TempDir()
-	preName := filepath.Join(dir, "part-")
+	partsDir := filepath.Join(dir, "parts")
+	if err := os.MkdirAll(partsDir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	preName := partsDir
 	hash := "abcd"
 	partPath := getFileName(preName, hash)
 	if err := os.WriteFile(partPath, []byte("data"), 0644); err != nil {

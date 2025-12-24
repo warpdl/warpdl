@@ -3,6 +3,7 @@ package warplib
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 )
 
 // validateDownloadIntegrity checks that all required data files exist for resuming a download.
@@ -14,7 +15,7 @@ import (
 // Returns ErrDownloadDataMissing if any check fails.
 func validateDownloadIntegrity(item *Item) error {
 	// Check 1: Download data directory
-	dlPath := fmt.Sprintf("%s/%s/", DlDataDir, item.Hash)
+	dlPath := filepath.Join(DlDataDir, item.Hash)
 	if !dirExists(dlPath) {
 		return fmt.Errorf("%w: download data directory missing: %s", ErrDownloadDataMissing, dlPath)
 	}
