@@ -339,8 +339,8 @@ func TestWindowsHandler_Execute_HandlesChannelClosure(t *testing.T) {
 	select {
 	case result := <-done:
 		// Should return successfully even with channel closure
-		if result.exitCode != 0 || result.svcSpecific != 0 {
-			t.Errorf("Execute() returned unexpected exit codes: svc=%d, exit=%d", result.svcSpecific, result.exitCode)
+		if result.exitCode != 0 || result.svcSpecific != false {
+			t.Errorf("Execute() returned unexpected exit codes: svc=%t, exit=%d", result.svcSpecific, result.exitCode)
 		}
 	case <-time.After(500 * time.Millisecond):
 		t.Fatal("Execute() did not complete on channel closure")
@@ -384,8 +384,8 @@ func TestWindowsHandler_Execute_HandlesShutdown(t *testing.T) {
 
 	select {
 	case result := <-done:
-		if result.exitCode != 0 || result.svcSpecific != 0 {
-			t.Errorf("Execute() returned unexpected exit codes on shutdown: svc=%d, exit=%d", result.svcSpecific, result.exitCode)
+		if result.exitCode != 0 || result.svcSpecific != false {
+			t.Errorf("Execute() returned unexpected exit codes on shutdown: svc=%t, exit=%d", result.svcSpecific, result.exitCode)
 		}
 	case <-time.After(500 * time.Millisecond):
 		t.Fatal("Execute() did not handle Shutdown command")
@@ -458,8 +458,8 @@ func TestWindowsHandler_Execute_IgnoresUnknownCommands(t *testing.T) {
 
 	select {
 	case result := <-done:
-		if result.exitCode != 0 || result.svcSpecific != 0 {
-			t.Errorf("Execute() returned unexpected exit codes: svc=%d, exit=%d", result.svcSpecific, result.exitCode)
+		if result.exitCode != 0 || result.svcSpecific != false {
+			t.Errorf("Execute() returned unexpected exit codes: svc=%t, exit=%d", result.svcSpecific, result.exitCode)
 		}
 	case <-time.After(500 * time.Millisecond):
 		t.Fatal("Execute() did not complete after unknown commands")
