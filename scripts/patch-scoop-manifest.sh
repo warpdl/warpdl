@@ -53,9 +53,9 @@ jq '. + {
   "pre_uninstall": [
     "# Try to stop and uninstall Windows service first (silently ignore errors if not installed)",
     "try {",
-    "  & \"$dir\\warpdl.exe\" service stop -ErrorAction SilentlyContinue | Out-Null",
+    "  & \"$dir\\warpdl.exe\" service stop 2>&1 | Out-Null",
     "  Start-Sleep -Milliseconds 1000",
-    "  & \"$dir\\warpdl.exe\" service uninstall -ErrorAction SilentlyContinue | Out-Null",
+    "  & \"$dir\\warpdl.exe\" service uninstall 2>&1 | Out-Null",
     "  Write-Host \"Windows service stopped and uninstalled.\"",
     "} catch {",
     "  # Service not installed, try stopping daemon via PID file",
