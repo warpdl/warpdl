@@ -17,9 +17,9 @@ WarpDL uses a daemon (background service) architecture that communicates with th
 
 - **Primary Method**: Unix domain sockets (no network access needed)
 - **Fallback Method**: TCP on `localhost:3849` when Unix sockets unavailable
-- **Web Interface**: TCP on `localhost:3850` (optional)
+- **Web Interface**: TCP on `localhost:3850` (for browser extension integration)
 
-The TCP fallback on port 3849 may trigger a Windows Firewall prompt on first run.
+The TCP fallback on port 3849 may trigger a Windows Firewall prompt on first run. The web interface on port 3850 is used for browser extension integration to capture downloads.
 
 ### Allow Access in Firewall Prompt
 
@@ -40,12 +40,17 @@ If you dismissed the prompt or need to reconfigure:
 Open PowerShell as Administrator and run:
 
 ```powershell
-netsh advfirewall firewall add rule name="WarpDL Daemon" dir=in action=allow program="C:\path\to\warpdl.exe" profile=private
+New-NetFirewallRule -DisplayName "WarpDL Daemon" -Direction Inbound -Action Allow -Program "C:\path\to\warpdl.exe" -Profile Private
 ```
 
 Replace `C:\path\to\warpdl.exe` with your actual installation path:
 - **Scoop**: `C:\Users\<YourUsername>\scoop\apps\warpdl\current\warpdl.exe`
 - **Manual install**: Path where you placed the binary
+
+**Alternative (netsh for older Windows):**
+```powershell
+netsh advfirewall firewall add rule name="WarpDL Daemon" dir=in action=allow program="C:\path\to\warpdl.exe" profile=private
+```
 
 #### Option 2: Windows Defender Firewall GUI
 
@@ -61,6 +66,11 @@ Replace `C:\path\to\warpdl.exe` with your actual installation path:
 
 Check if the rule exists:
 
+```powershell
+Get-NetFirewallRule -DisplayName "WarpDL Daemon"
+```
+
+**Alternative (netsh):**
 ```powershell
 netsh advfirewall firewall show rule name="WarpDL Daemon"
 ```
