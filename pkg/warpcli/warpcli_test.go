@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -432,5 +433,138 @@ func TestNewClientDialError(t *testing.T) {
 
 	if _, err := NewClient(); err == nil {
 		t.Fatal("expected error from dial")
+	}
+}
+
+// TestNewClient_FallsBackToTCP verifies that when Unix socket fails,
+// client automatically falls back to TCP connection
+func TestNewClient_FallsBackToTCP(t *testing.T) {
+	oldEnsure := ensureDaemonFunc
+	oldDial := dialFunc
+	defer func() {
+		ensureDaemonFunc = oldEnsure
+		dialFunc = oldDial
+	}()
+
+	ensureDaemonFunc = func() error { return nil }
+
+	c1, c2 := net.Pipe()
+	defer c1.Close()
+	defer c2.Close()
+
+	callCount := 0
+	dialFunc = func(network, addr string) (net.Conn, error) {
+		callCount++
+		if network == "unix" {
+			return nil, errors.New("unix socket connection failed")
+		}
+		if network == "tcp" {
+			return c1, nil
+		}
+		return nil, errors.New("unexpected network type")
+	}
+
+	client, err := NewClient()
+	if err != nil {
+		t.Fatalf("expected successful fallback to TCP, got error: %v", err)
+	}
+	if client == nil {
+		t.Fatal("expected non-nil client")
+	}
+	if callCount != 2 {
+		t.Fatalf("expected 2 dial calls (unix then tcp), got %d", callCount)
+	}
+
+	// Verify client is usable
+	if client.conn == nil {
+		t.Fatal("expected non-nil connection")
+	}
+}
+
+// TestNewClient_BothTransportsFail verifies that error is returned
+// when both Unix socket and TCP connection fail
+func TestNewClient_BothTransportsFail(t *testing.T) {
+	oldEnsure := ensureDaemonFunc
+	oldDial := dialFunc
+	defer func() {
+		ensureDaemonFunc = oldEnsure
+		dialFunc = oldDial
+	}()
+
+	ensureDaemonFunc = func() error { return nil }
+
+	callCount := 0
+	dialFunc = func(network, addr string) (net.Conn, error) {
+		callCount++
+		if network == "unix" {
+			return nil, errors.New("unix socket failed")
+		}
+		if network == "tcp" {
+			return nil, errors.New("tcp connection failed")
+		}
+		return nil, errors.New("unexpected network type")
+	}
+
+	client, err := NewClient()
+	if err == nil {
+		t.Fatal("expected error when both transports fail")
+	}
+	if client != nil {
+		t.Fatal("expected nil client on error")
+	}
+	if !strings.Contains(err.Error(), "failed to connect") {
+		t.Fatalf("expected 'failed to connect' error, got: %v", err)
+	}
+	if callCount != 2 {
+		t.Fatalf("expected 2 dial calls (unix then tcp), got %d", callCount)
+	}
+}
+
+// TestNewClient_ForceTCPMode verifies that when WARPDL_FORCE_TCP=1,
+// only TCP connection is attempted without trying Unix socket first
+func TestNewClient_ForceTCPMode(t *testing.T) {
+	oldEnsure := ensureDaemonFunc
+	oldDial := dialFunc
+	defer func() {
+		ensureDaemonFunc = oldEnsure
+		dialFunc = oldDial
+	}()
+
+	// Set force TCP environment variable
+	os.Setenv("WARPDL_FORCE_TCP", "1")
+	defer os.Unsetenv("WARPDL_FORCE_TCP")
+
+	ensureDaemonFunc = func() error { return nil }
+
+	c1, c2 := net.Pipe()
+	defer c1.Close()
+	defer c2.Close()
+
+	callCount := 0
+	dialFunc = func(network, addr string) (net.Conn, error) {
+		callCount++
+		if network == "unix" {
+			t.Fatal("should not attempt Unix socket when force TCP is enabled")
+		}
+		if network == "tcp" {
+			return c1, nil
+		}
+		return nil, errors.New("unexpected network type")
+	}
+
+	client, err := NewClient()
+	if err != nil {
+		t.Fatalf("expected successful TCP connection, got error: %v", err)
+	}
+	if client == nil {
+		t.Fatal("expected non-nil client")
+	}
+	if callCount != 1 {
+		t.Fatalf("expected 1 dial call (tcp only), got %d", callCount)
+	}
+
+	// Verify client is usable
+	if client.conn == nil {
+		t.Fatal("expected non-nil connection")
 	}
 }

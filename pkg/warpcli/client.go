@@ -33,18 +33,48 @@ func NewClient() (*Client, error) {
 	if err := ensureDaemonFunc(); err != nil {
 		return nil, err
 	}
-	socketPath := socketPath()
-	conn, err := dialFunc("unix", socketPath)
-	if err != nil {
-		return nil, fmt.Errorf("error connecting to server: %w", err)
+
+	var conn net.Conn
+	var err error
+
+	// If force TCP mode is enabled, skip Unix socket attempt
+	if forceTCP() {
+		debugLog("Force TCP mode enabled, connecting via TCP")
+		conn, err = dialFunc("tcp", tcpAddress())
+		if err != nil {
+			return nil, fmt.Errorf("failed to connect via TCP: %w", err)
+		}
+		debugLog("Successfully connected via TCP to %s", tcpAddress())
+		return newClientWithConn(conn), nil
 	}
+
+	// Try Unix socket first
+	debugLog("Attempting connection via Unix socket at %s", socketPath())
+	conn, err = dialFunc("unix", socketPath())
+	if err != nil {
+		debugLog("Unix socket connection failed: %v, falling back to TCP", err)
+		// Fall back to TCP
+		conn, err = dialFunc("tcp", tcpAddress())
+		if err != nil {
+			return nil, fmt.Errorf("failed to connect via Unix socket and TCP: %w", err)
+		}
+		debugLog("Successfully connected via TCP fallback to %s", tcpAddress())
+		return newClientWithConn(conn), nil
+	}
+
+	debugLog("Successfully connected via Unix socket")
+	return newClientWithConn(conn), nil
+}
+
+// newClientWithConn creates a new client with the provided connection
+func newClientWithConn(conn net.Conn) *Client {
 	return &Client{
 		conn: conn,
 		mu:   &sync.RWMutex{},
 		d: &Dispatcher{
 			Handlers: make(map[common.UpdateType][]Handler),
 		},
-	}, nil
+	}
 }
 
 // Listen starts the client's event loop to receive updates from the daemon.
