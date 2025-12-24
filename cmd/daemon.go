@@ -44,6 +44,7 @@ func daemon(ctx *cli.Context) error {
 		// nil because err has already been handled in getCookieManager function
 		return nil
 	}
+	defer cm.Close()
 	elEng, err := extl.NewEngine(l, cm, false)
 	if err != nil {
 		common.PrintRuntimeErr(ctx, "daemon", "extloader_engine", err)

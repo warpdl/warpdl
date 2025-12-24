@@ -54,6 +54,7 @@ func TestGetCookieManagerKeyringFallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("getCookieManager: %v", err)
 	}
+	defer cm.Close()
 	if cm == nil || !fake.gotGet || !fake.gotSet {
 		t.Fatalf("expected keyring GetKey and SetKey to be called")
 	}
@@ -77,6 +78,7 @@ func TestGetCookieManagerKeyringGetSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("getCookieManager: %v", err)
 	}
+	defer cm.Close()
 	if cm == nil || !fake.gotGet || fake.gotSet {
 		t.Fatalf("expected keyring GetKey only")
 	}
@@ -110,9 +112,11 @@ func TestGetCookieManagerEnv(t *testing.T) {
 	keyHex := strings.Repeat("11", 32)
 	t.Setenv(cookieKeyEnv, keyHex)
 
-	if _, err := getCookieManager(newContext(cli.NewApp(), nil, "daemon")); err != nil {
+	cm, err := getCookieManager(newContext(cli.NewApp(), nil, "daemon"))
+	if err != nil {
 		t.Fatalf("getCookieManager: %v", err)
 	}
+	defer cm.Close()
 }
 
 func TestGetCookieManagerEnv_InvalidHex(t *testing.T) {
@@ -142,6 +146,7 @@ func TestGetCookieManagerEnv_ValidHex(t *testing.T) {
 	if err != nil {
 		t.Fatalf("getCookieManager: %v", err)
 	}
+	defer cm.Close()
 	if cm == nil {
 		t.Fatal("expected non-nil cookie manager")
 	}
