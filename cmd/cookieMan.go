@@ -1,5 +1,3 @@
-//go:build !linux
-
 package cmd
 
 import (
@@ -36,7 +34,6 @@ func getCookieManager(ctx *cli.Context) (*credman.CookieManager, error) {
 			common.PrintRuntimeErr(ctx, "daemon", "credman", err)
 			return nil, err
 		}
-		defer cm.Close()
 		return cm, nil
 	}
 
@@ -56,6 +53,5 @@ func getCookieManager(ctx *cli.Context) (*credman.CookieManager, error) {
 		common.PrintRuntimeErr(ctx, "daemon", "credman", err)
 		return nil, err
 	}
-	defer cm.Close()
 	return cm, nil
 }

@@ -88,7 +88,7 @@ Example: `core,daemon: feat: implemented feature X`
 ## Platform-Specific Code
 
 - `cmd/uagent_darwin.go`, `cmd/uagent_linux.go` - Platform user-agents
-- `cmd/cookieMan_linux.go` - Linux-specific credential integration
+- `cmd/cookieMan.go` - Cross-platform credential management (uses go-keyring)
 - Keyring abstraction via `zalando/go-keyring`
 
 ## Test Coverage Requirements
