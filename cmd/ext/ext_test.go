@@ -1,5 +1,3 @@
-//go:build !windows
-
 package ext
 
 import (
@@ -10,7 +8,6 @@ import (
 	"io"
 	"net"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -33,23 +30,14 @@ func (s *fakeServer) close() {
 	s.wg.Wait()
 }
 
-// getShortSocketPath returns a short socket path to avoid macOS path length limits.
-func getShortSocketPath(t *testing.T) string {
+func startFakeServer(t *testing.T, fail ...map[common.UpdateType]string) *fakeServer {
 	t.Helper()
-	tmpDir, err := os.MkdirTemp("/tmp", "wdl")
+	listener, socketPath, err := createTestListener(t)
 	if err != nil {
-		t.Fatalf("MkdirTemp: %v", err)
+		t.Fatalf("createTestListener: %v", err)
 	}
-	t.Cleanup(func() { os.RemoveAll(tmpDir) })
-	return filepath.Join(tmpDir, "w.sock")
-}
-
-func startFakeServer(t *testing.T, socketPath string, fail ...map[common.UpdateType]string) *fakeServer {
-	t.Helper()
-	_ = os.Remove(socketPath)
-	listener, err := net.Listen("unix", socketPath)
-	if err != nil {
-		t.Fatalf("listen: %v", err)
+	if socketPath != "" {
+		t.Setenv("WARPDL_SOCKET_PATH", socketPath)
 	}
 	srv := &fakeServer{listener: listener}
 	var failMap map[common.UpdateType]string
@@ -191,9 +179,7 @@ func assertContains(t *testing.T, output, expected string) {
 }
 
 func TestExtCommands(t *testing.T) {
-	socketPath := getShortSocketPath(t)
-	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
-	srv := startFakeServer(t, socketPath)
+	srv := startFakeServer(t)
 	defer srv.close()
 
 	app := cli.NewApp()
@@ -259,8 +245,6 @@ func TestExtMissingArgs(t *testing.T) {
 }
 
 func TestExtCommandsErrorResponse(t *testing.T) {
-	socketPath := getShortSocketPath(t)
-	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
 	fail := map[common.UpdateType]string{
 		common.UPDATE_ADD_EXT:        "add failed",
 		common.UPDATE_GET_EXT:        "get failed",
@@ -269,7 +253,7 @@ func TestExtCommandsErrorResponse(t *testing.T) {
 		common.UPDATE_DEACTIVATE_EXT: "deactivate failed",
 		common.UPDATE_DELETE_EXT:     "delete failed",
 	}
-	srv := startFakeServer(t, socketPath, fail)
+	srv := startFakeServer(t, fail)
 	defer srv.close()
 
 	app := cli.NewApp()
@@ -412,13 +396,10 @@ func TestOutput_ExtInfo_NoId(t *testing.T) {
 
 // TestOutput_ExtList_Empty verifies list command output with empty extension list.
 func TestOutput_ExtList_Empty(t *testing.T) {
-	socketPath := getShortSocketPath(t)
-	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
-
 	emptyListOverride = true
 	defer func() { emptyListOverride = false }()
 
-	srv := startFakeServer(t, socketPath)
+	srv := startFakeServer(t)
 	defer srv.close()
 
 	app := cli.NewApp()
@@ -438,9 +419,7 @@ func TestOutput_ExtList_Empty(t *testing.T) {
 
 // TestOutput_ExtList_Success verifies list command output with extensions.
 func TestOutput_ExtList_Success(t *testing.T) {
-	socketPath := getShortSocketPath(t)
-	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
-	srv := startFakeServer(t, socketPath)
+	srv := startFakeServer(t)
 	defer srv.close()
 
 	app := cli.NewApp()
@@ -460,9 +439,7 @@ func TestOutput_ExtList_Success(t *testing.T) {
 
 // TestOutput_ExtInstall_Success verifies install command success output.
 func TestOutput_ExtInstall_Success(t *testing.T) {
-	socketPath := getShortSocketPath(t)
-	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
-	srv := startFakeServer(t, socketPath)
+	srv := startFakeServer(t)
 	defer srv.close()
 
 	app := cli.NewApp()
@@ -481,9 +458,7 @@ func TestOutput_ExtInstall_Success(t *testing.T) {
 
 // TestOutput_ExtUninstall_Success verifies uninstall command success output.
 func TestOutput_ExtUninstall_Success(t *testing.T) {
-	socketPath := getShortSocketPath(t)
-	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
-	srv := startFakeServer(t, socketPath)
+	srv := startFakeServer(t)
 	defer srv.close()
 
 	app := cli.NewApp()
@@ -501,9 +476,7 @@ func TestOutput_ExtUninstall_Success(t *testing.T) {
 
 // TestOutput_ExtActivate_Success verifies activate command success output.
 func TestOutput_ExtActivate_Success(t *testing.T) {
-	socketPath := getShortSocketPath(t)
-	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
-	srv := startFakeServer(t, socketPath)
+	srv := startFakeServer(t)
 	defer srv.close()
 
 	app := cli.NewApp()
@@ -522,9 +495,7 @@ func TestOutput_ExtActivate_Success(t *testing.T) {
 
 // TestOutput_ExtDeactivate_Success verifies deactivate command success output.
 func TestOutput_ExtDeactivate_Success(t *testing.T) {
-	socketPath := getShortSocketPath(t)
-	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
-	srv := startFakeServer(t, socketPath)
+	srv := startFakeServer(t)
 	defer srv.close()
 
 	app := cli.NewApp()
@@ -542,9 +513,7 @@ func TestOutput_ExtDeactivate_Success(t *testing.T) {
 
 // TestOutput_ExtInfo_Success verifies info command success output.
 func TestOutput_ExtInfo_Success(t *testing.T) {
-	socketPath := getShortSocketPath(t)
-	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
-	srv := startFakeServer(t, socketPath)
+	srv := startFakeServer(t)
 	defer srv.close()
 
 	app := cli.NewApp()

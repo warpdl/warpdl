@@ -22,15 +22,21 @@ fi
 
 fail=0
 awk -v min="$min_pkg" '
-/\[no test files\]/ {print "missing tests:", $1; fail=1}
+/\[no test files\]/ {
+  pkg = ($1 == "ok" || $1 == "?") ? $2 : $1
+  print "missing tests:", pkg
+  fail=1
+}
 /coverage:/ {
   if ($0 ~ /no statements/) next
+  # Determine package name: $2 for lines starting with "ok", else $1
+  pkg = ($1 == "ok") ? $2 : $1
   line = $0
   sub(/.*coverage: /, "", line)
   sub(/%.*$/, "", line)
   cov = line + 0
   if (cov < min) {
-    print "package coverage below threshold:", $1, cov"%"
+    print "package coverage below threshold:", pkg, cov"%"
     fail=1
   }
 }
