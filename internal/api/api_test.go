@@ -188,8 +188,18 @@ func TestDownloadHandlerExtensionErrorFallback(t *testing.T) {
 		MaxSegments:       1,
 	}
 	body, _ := json.Marshal(params)
-	if _, _, err := api.downloadHandler(nil, pool, body); err != nil {
+	_, msg, err := api.downloadHandler(nil, pool, body)
+	if err != nil {
 		t.Fatalf("downloadHandler: %v", err)
+	}
+	resp := msg.(*common.DownloadResponse)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		info, err := os.Stat(resp.SavePath)
+		if err == nil && info.Size() == int64(resp.ContentLength) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
