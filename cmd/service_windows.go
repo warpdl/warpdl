@@ -160,6 +160,12 @@ func serviceInstall(ctx *cli.Context) error {
 		return fmt.Errorf("failed to install service: %w", err)
 	}
 
+	// Register the event source for Windows Event Log
+	if err := service.RegisterEventSource(daemonpkg.DefaultServiceName); err != nil {
+		// If event source registration fails, log warning but don't fail installation
+		fmt.Printf("Warning: Failed to register event source: %v\n", err)
+	}
+
 	fmt.Printf("Service '%s' installed successfully\n", daemonpkg.DefaultServiceName)
 	return nil
 }
@@ -196,6 +202,16 @@ func serviceUninstall(ctx *cli.Context) error {
 			return fmt.Errorf("service '%s' is not installed", daemonpkg.DefaultServiceName)
 		}
 		return fmt.Errorf("failed to uninstall service: %w", err)
+	}
+
+	// Unregister the event source from Windows Event Log
+	if err := service.UnregisterEventSource(daemonpkg.DefaultServiceName); err != nil {
+		// If event source unregistration fails, log warning but don't fail uninstallation
+		fmt.Printf("Warning: Failed to unregister event source: %v\n", err)
+	}
+
+	fmt.Printf("Service '%s' uninstalled successfully\n", daemonpkg.DefaultServiceName)
+	return nil
 	}
 
 	fmt.Printf("Service '%s' uninstalled successfully\n", daemonpkg.DefaultServiceName)
