@@ -34,6 +34,7 @@
   * [Installation](#installation)
   * [Uninstallation](#uninstallation)
 * [Usage](#usage)
+* [Troubleshooting](#troubleshooting)
 * [Roadmap](#roadmap)
 * [Contributing](#contributing)
 * [License](#license)
@@ -204,6 +205,20 @@ The WarpDL daemon runs in the background to manage downloads. Before uninstallin
 ## Usage
 
 Use `warpdl help <command>` for information about various commands.
+
+## Troubleshooting
+
+### Windows Issues
+
+Windows users may encounter firewall prompts, antivirus false positives, or SmartScreen warnings. See the [Windows Troubleshooting Guide](docs/troubleshooting-windows.md) for solutions to common issues:
+
+- **Windows Firewall**: Configure port 3849 access for daemon communication
+- **Antivirus Software**: Add exclusions to prevent false positives
+- **SmartScreen Warnings**: Safely bypass warnings for trusted binaries
+
+### General Support
+
+For other issues, please check the [open issues](https://github.com/warpdl/warpdl/issues) or create a new one.
 
 ## Roadmap
 
