@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/urfave/cli"
+	"github.com/warpdl/warpdl/internal/service"
 )
 
 // TestServiceCommand_ReturnsCorrectSubcommands tests that serviceCommand()
@@ -284,4 +285,223 @@ func TestServiceStatus_NoAdminRequired(t *testing.T) {
 	if !statusCalled {
 		t.Error("serviceStatus() did not check service status")
 	}
+}
+
+// TestGetServiceManager_Success tests successful opening of service manager.
+func TestGetServiceManager_Success(t *testing.T) {
+	oldOpenSCManager := openSCManager
+	mockSCM := &mockSCManagerInterface{}
+	openSCManager = func() (service.SCManagerInterface, error) {
+		return mockSCM, nil
+	}
+	defer func() { openSCManager = oldOpenSCManager }()
+
+	mgr, scm, err := getServiceManager()
+
+	if err != nil {
+		t.Errorf("getServiceManager() error = %v, want nil", err)
+	}
+	if mgr == nil {
+		t.Error("getServiceManager() returned nil manager")
+	}
+	if scm == nil {
+		t.Error("getServiceManager() returned nil SCM")
+	}
+}
+
+// TestGetServiceManager_OpenError tests error handling when opening SCM fails.
+func TestGetServiceManager_OpenError(t *testing.T) {
+	oldOpenSCManager := openSCManager
+	expectedErr := errors.New("mock SCM open error")
+	openSCManager = func() (service.SCManagerInterface, error) {
+		return nil, expectedErr
+	}
+	defer func() { openSCManager = oldOpenSCManager }()
+
+	mgr, scm, err := getServiceManager()
+
+	if err == nil {
+		t.Error("getServiceManager() should return error when openSCManager fails")
+	}
+	if mgr != nil {
+		t.Error("getServiceManager() should return nil manager on error")
+	}
+	if scm != nil {
+		t.Error("getServiceManager() should return nil SCM on error")
+	}
+	if !errors.Is(err, expectedErr) {
+		t.Errorf("getServiceManager() error does not wrap original error")
+	}
+	// Verify error message contains "service control manager"
+	if err != nil && err.Error() == "" {
+		t.Error("getServiceManager() error message is empty")
+	}
+	if err != nil {
+		errMsg := err.Error()
+		if !contains(errMsg, "service control manager") {
+			t.Errorf("getServiceManager() error message = %q, should contain 'service control manager'", errMsg)
+		}
+	}
+}
+
+// TestServiceStart_RequiresAdminFirst tests that start checks admin before calling SCM.
+func TestServiceStart_RequiresAdminFirst(t *testing.T) {
+	oldIsAdmin := isAdminFunc
+	oldOpenSCManager := openSCManager
+	scmCalled := false
+	isAdminFunc = func() bool { return false }
+	openSCManager = func() (service.SCManagerInterface, error) {
+		scmCalled = true
+		return nil, errors.New("should not be called")
+	}
+	defer func() {
+		isAdminFunc = oldIsAdmin
+		openSCManager = oldOpenSCManager
+	}()
+
+	ctx := newContext(cli.NewApp(), nil, "start")
+	err := serviceStart(ctx)
+
+	if !errors.Is(err, ErrRequiresAdmin) {
+		t.Errorf("serviceStart() error = %v, want ErrRequiresAdmin", err)
+	}
+	if scmCalled {
+		t.Error("serviceStart() should not call openSCManager when not admin")
+	}
+}
+
+// TestServiceStart_GetServiceManagerError tests start handles getServiceManager error.
+func TestServiceStart_GetServiceManagerError(t *testing.T) {
+	oldIsAdmin := isAdminFunc
+	oldOpenSCManager := openSCManager
+	expectedErr := errors.New("mock SCM error")
+	isAdminFunc = func() bool { return true }
+	openSCManager = func() (service.SCManagerInterface, error) {
+		return nil, expectedErr
+	}
+	defer func() {
+		isAdminFunc = oldIsAdmin
+		openSCManager = oldOpenSCManager
+	}()
+
+	ctx := newContext(cli.NewApp(), nil, "start")
+	err := serviceStart(ctx)
+
+	if err == nil {
+		t.Error("serviceStart() should return error when getServiceManager fails")
+	}
+	if !errors.Is(err, expectedErr) {
+		t.Errorf("serviceStart() error does not wrap getServiceManager error")
+	}
+}
+
+// TestServiceStop_RequiresAdminFirst tests that stop checks admin before calling SCM.
+func TestServiceStop_RequiresAdminFirst(t *testing.T) {
+	oldIsAdmin := isAdminFunc
+	oldOpenSCManager := openSCManager
+	scmCalled := false
+	isAdminFunc = func() bool { return false }
+	openSCManager = func() (service.SCManagerInterface, error) {
+		scmCalled = true
+		return nil, errors.New("should not be called")
+	}
+	defer func() {
+		isAdminFunc = oldIsAdmin
+		openSCManager = oldOpenSCManager
+	}()
+
+	ctx := newContext(cli.NewApp(), nil, "stop")
+	err := serviceStop(ctx)
+
+	if !errors.Is(err, ErrRequiresAdmin) {
+		t.Errorf("serviceStop() error = %v, want ErrRequiresAdmin", err)
+	}
+	if scmCalled {
+		t.Error("serviceStop() should not call openSCManager when not admin")
+	}
+}
+
+// TestServiceStop_GetServiceManagerError tests stop handles getServiceManager error.
+func TestServiceStop_GetServiceManagerError(t *testing.T) {
+	oldIsAdmin := isAdminFunc
+	oldOpenSCManager := openSCManager
+	expectedErr := errors.New("mock SCM error")
+	isAdminFunc = func() bool { return true }
+	openSCManager = func() (service.SCManagerInterface, error) {
+		return nil, expectedErr
+	}
+	defer func() {
+		isAdminFunc = oldIsAdmin
+		openSCManager = oldOpenSCManager
+	}()
+
+	ctx := newContext(cli.NewApp(), nil, "stop")
+	err := serviceStop(ctx)
+
+	if err == nil {
+		t.Error("serviceStop() should return error when getServiceManager fails")
+	}
+	if !errors.Is(err, expectedErr) {
+		t.Errorf("serviceStop() error does not wrap getServiceManager error")
+	}
+}
+
+// TestServiceStatus_GetServiceManagerError tests status handles getServiceManager error.
+func TestServiceStatus_GetServiceManagerError(t *testing.T) {
+	oldOpenSCManager := openSCManager
+	oldStatus := serviceManagerStatusFunc
+	expectedErr := errors.New("mock SCM error")
+	// Clear the status func mock to ensure we go through getServiceManager
+	serviceManagerStatusFunc = nil
+	openSCManager = func() (service.SCManagerInterface, error) {
+		return nil, expectedErr
+	}
+	defer func() {
+		openSCManager = oldOpenSCManager
+		serviceManagerStatusFunc = oldStatus
+	}()
+
+	ctx := newContext(cli.NewApp(), nil, "status")
+	err := serviceStatus(ctx)
+
+	if err == nil {
+		t.Error("serviceStatus() should return error when getServiceManager fails")
+	}
+	if !errors.Is(err, expectedErr) {
+		t.Errorf("serviceStatus() error does not wrap getServiceManager error")
+	}
+}
+
+// mockSCManagerInterface is a mock implementation of SCManagerInterface for testing.
+type mockSCManagerInterface struct{}
+
+func (m *mockSCManagerInterface) OpenService(name string) (service.ServiceInterface, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m *mockSCManagerInterface) CreateService(name, exePath string, config service.ServiceConfig) (service.ServiceInterface, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m *mockSCManagerInterface) Close() error {
+	return nil
+}
+
+// contains checks if a string contains a substring (case-sensitive).
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(substr) == 0 || indexOfSubstring(s, substr) >= 0)
+}
+
+// indexOfSubstring returns the index of substr in s, or -1 if not found.
+func indexOfSubstring(s, substr string) int {
+	n := len(substr)
+	if n == 0 {
+		return 0
+	}
+	for i := 0; i+n <= len(s); i++ {
+		if s[i:i+n] == substr {
+			return i
+		}
+	}
+	return -1
 }
