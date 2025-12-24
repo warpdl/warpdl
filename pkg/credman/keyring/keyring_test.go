@@ -1,6 +1,7 @@
 package keyring
 
 import (
+	"bytes"
 	"encoding/hex"
 	"errors"
 	"testing"
@@ -45,18 +46,20 @@ func TestKeyringSetGetDelete(t *testing.T) {
 		t.Fatalf("unexpected set call: %q %q %q", setApp, setKey, setValue)
 	}
 
+	// GetKey now expects hex-encoded string, so return valid hex
+	testBytes := []byte{0xaa, 0xbb, 0xcc, 0xdd}
 	keyringGet = func(app, key string) (string, error) {
 		if app != kr.AppName || key != kr.KeyField {
 			return "", errors.New("unexpected key")
 		}
-		return "value", nil
+		return hex.EncodeToString(testBytes), nil
 	}
 	got, err := kr.GetKey()
 	if err != nil {
 		t.Fatalf("GetKey: %v", err)
 	}
-	if string(got) != "value" {
-		t.Fatalf("unexpected key value: %q", string(got))
+	if !bytes.Equal(got, testBytes) {
+		t.Fatalf("unexpected key value: got %x, want %x", got, testBytes)
 	}
 
 	var deleteApp, deleteKey string
@@ -109,5 +112,74 @@ func TestKeyringGetError(t *testing.T) {
 	kr := NewKeyring()
 	if _, err := kr.GetKey(); err == nil {
 		t.Fatalf("expected get error")
+	}
+}
+
+func TestSetKeyGetKeyRoundtrip(t *testing.T) {
+	// Save and restore original functions
+	origSet := keyringSet
+	origGet := keyringGet
+	origRandRead := randRead
+	defer func() {
+		keyringSet = origSet
+		keyringGet = origGet
+		randRead = origRandRead
+	}()
+
+	// Connected mock storage (SetKey stores, GetKey retrieves same value)
+	var storedValue string
+	keyringSet = func(app, key, value string) error {
+		storedValue = value
+		return nil
+	}
+	keyringGet = func(app, key string) (string, error) {
+		return storedValue, nil
+	}
+	// Deterministic random for reproducibility
+	randRead = func(b []byte) (int, error) {
+		for i := range b {
+			b[i] = byte(i)
+		}
+		return len(b), nil
+	}
+
+	kr := NewKeyring()
+
+	// SetKey returns 32 bytes
+	setBytes, err := kr.SetKey()
+	if err != nil {
+		t.Fatalf("SetKey failed: %v", err)
+	}
+	if len(setBytes) != 32 {
+		t.Fatalf("SetKey should return 32 bytes, got %d", len(setBytes))
+	}
+
+	// GetKey should return the SAME 32 bytes
+	getBytes, err := kr.GetKey()
+	if err != nil {
+		t.Fatalf("GetKey failed: %v", err)
+	}
+
+	// Core assertions
+	if len(getBytes) != 32 {
+		t.Fatalf("GetKey should return 32 bytes, got %d", len(getBytes))
+	}
+	if !bytes.Equal(setBytes, getBytes) {
+		t.Fatalf("roundtrip failed: SetKey returned %x, GetKey returned %x", setBytes, getBytes)
+	}
+}
+
+func TestGetKeyInvalidHex(t *testing.T) {
+	origGet := keyringGet
+	defer func() { keyringGet = origGet }()
+
+	keyringGet = func(app, key string) (string, error) {
+		return "not-valid-hex!", nil
+	}
+
+	kr := NewKeyring()
+	_, err := kr.GetKey()
+	if err == nil {
+		t.Fatal("expected error for invalid hex string")
 	}
 }

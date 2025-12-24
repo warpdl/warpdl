@@ -53,16 +53,16 @@ func (k *Keyring) SetKey() ([]byte, error) {
 	return key, nil
 }
 
-// GetKey retrieves the stored key from the system keyring. Note that the
-// returned bytes are the raw string representation from the keyring, not
-// hex-decoded. Returns an error if the key does not exist or cannot be
-// accessed.
+// GetKey retrieves the stored key from the system keyring. The stored
+// hex-encoded string is decoded back to the original 32-byte key.
+// Returns an error if the key does not exist, cannot be accessed, or
+// if the stored value is not valid hex.
 func (k *Keyring) GetKey() ([]byte, error) {
 	key, err := keyringGet(k.AppName, k.KeyField)
 	if err != nil {
 		return nil, err
 	}
-	return []byte(key), nil
+	return hex.DecodeString(key)
 }
 
 // DeleteKey removes the stored key from the system keyring. Returns an
