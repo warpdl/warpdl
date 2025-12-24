@@ -809,6 +809,15 @@ func TestDownloadHandlerWithTimeout(t *testing.T) {
 	if resp.DownloadId == "" {
 		t.Fatalf("expected download id")
 	}
+	// Wait for download to complete to ensure file handles are closed
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		info, err := os.Stat(resp.SavePath)
+		if err == nil && info.Size() == int64(resp.ContentLength) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 func TestDownloadHandlerWithMaxRetries(t *testing.T) {
@@ -835,6 +844,15 @@ func TestDownloadHandlerWithMaxRetries(t *testing.T) {
 	if resp.DownloadId == "" {
 		t.Fatalf("expected download id")
 	}
+	// Wait for download to complete to ensure file handles are closed
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		info, err := os.Stat(resp.SavePath)
+		if err == nil && info.Size() == int64(resp.ContentLength) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 func TestDownloadHandlerWithRetryDelay(t *testing.T) {
@@ -860,6 +878,15 @@ func TestDownloadHandlerWithRetryDelay(t *testing.T) {
 	resp := msg.(*common.DownloadResponse)
 	if resp.DownloadId == "" {
 		t.Fatalf("expected download id")
+	}
+	// Wait for download to complete to ensure file handles are closed
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		info, err := os.Stat(resp.SavePath)
+		if err == nil && info.Size() == int64(resp.ContentLength) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
@@ -888,6 +915,15 @@ func TestDownloadHandlerWithRetryConfig(t *testing.T) {
 	resp := msg.(*common.DownloadResponse)
 	if resp.DownloadId == "" {
 		t.Fatalf("expected download id")
+	}
+	// Wait for download to complete to ensure file handles are closed
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		info, err := os.Stat(resp.SavePath)
+		if err == nil && info.Size() == int64(resp.ContentLength) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
