@@ -57,7 +57,7 @@ netsh advfirewall firewall add rule name="WarpDL Daemon" `
 1. Open **Windows Defender Firewall with Advanced Security**
 2. Click **Inbound Rules** → **New Rule...**
 3. Select **Program** → Next
-4. Browse to `warpdl.exe` location (use `where warpdl` in Command Prompt to find it) → Next
+4. Browse to `warpdl.exe` location (use `Get-Command warpdl` in PowerShell to find it) → Next
 5. Select **Allow the connection** → Next
 6. Check **Private** only → Next
 7. Name: "WarpDL Daemon" → Finish
@@ -90,8 +90,8 @@ Download managers are commonly flagged as suspicious due to parallel connections
 3. Under "Virus & threat protection settings", click **Manage settings**
 4. Scroll to **Exclusions** → Click **Add or remove exclusions**
 5. Click **Add an exclusion** → Select type:
-   - **Folder**: Add `%LOCALAPPDATA%\warpdl` (expand the path to use the full path like `C:\Users\<username>\AppData\Local\warpdl`)
-   - **File**: Add path to `warpdl.exe`
+   - **Folder**: Add the full path like `C:\Users\<username>\AppData\Local\warpdl` (Windows Security may not accept the `%LOCALAPPDATA%` variable directly)
+   - **File**: Add full path to `warpdl.exe` (use `Get-Command warpdl` in PowerShell to find it)
 
 #### Using PowerShell
 
