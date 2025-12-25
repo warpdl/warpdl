@@ -41,4 +41,8 @@ var (
 	// ErrCrossDeviceMove is returned when a file move operation fails due to
 	// source and destination being on different filesystems/drives.
 	ErrCrossDeviceMove = errors.New("cross-device move not supported by rename, use copy+delete")
+
+	// ErrInsufficientDiskSpace is returned when there is not enough disk space available
+	// to download the file.
+	ErrInsufficientDiskSpace = errors.New("insufficient disk space")
 )
