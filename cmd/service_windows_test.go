@@ -3,10 +3,14 @@
 package cmd
 
 import (
+	"bytes"
 	"errors"
+	"io"
+	"os"
 	"testing"
 
 	"github.com/urfave/cli"
+	daemonpkg "github.com/warpdl/warpdl/internal/daemon"
 	"github.com/warpdl/warpdl/internal/service"
 )
 
@@ -504,4 +508,204 @@ func indexOfSubstring(s, substr string) int {
 		}
 	}
 	return -1
+}
+
+func TestServiceStart_Success(t *testing.T) {
+	fakeSCM := newFakeSCManagerWithService(service.StatusStopped)
+	overrideAdmin(t, true)
+	overrideSCManager(t, fakeSCM)
+
+	ctx := newContext(cli.NewApp(), nil, "start")
+	if err := serviceStart(ctx); err != nil {
+		t.Fatalf("serviceStart() = %v, want nil", err)
+	}
+
+	svc := fakeSCM.services[daemonpkg.DefaultServiceName]
+	if svc == nil || svc.status != service.StatusRunning {
+		t.Fatalf("service should transition to running, got %v", svc)
+	}
+}
+
+func TestServiceStart_AlreadyRunning(t *testing.T) {
+	fakeSCM := newFakeSCManagerWithService(service.StatusRunning)
+	overrideAdmin(t, true)
+	overrideSCManager(t, fakeSCM)
+
+	ctx := newContext(cli.NewApp(), nil, "start")
+	err := serviceStart(ctx)
+	if err == nil {
+		t.Fatal("serviceStart() expected already running error")
+	}
+	if !contains(err.Error(), "already running") {
+		t.Fatalf("serviceStart() error = %v, want already running", err)
+	}
+}
+
+func TestServiceStop_Success(t *testing.T) {
+	fakeSCM := newFakeSCManagerWithService(service.StatusRunning)
+	overrideAdmin(t, true)
+	overrideSCManager(t, fakeSCM)
+
+	ctx := newContext(cli.NewApp(), nil, "stop")
+	if err := serviceStop(ctx); err != nil {
+		t.Fatalf("serviceStop() = %v, want nil", err)
+	}
+
+	svc := fakeSCM.services[daemonpkg.DefaultServiceName]
+	if svc == nil || svc.status != service.StatusStopped {
+		t.Fatalf("service should transition to stopped, got %v", svc)
+	}
+}
+
+func TestServiceStop_NotRunning(t *testing.T) {
+	fakeSCM := newFakeSCManagerWithService(service.StatusStopped)
+	overrideAdmin(t, true)
+	overrideSCManager(t, fakeSCM)
+
+	ctx := newContext(cli.NewApp(), nil, "stop")
+	err := serviceStop(ctx)
+	if err == nil {
+		t.Fatal("serviceStop() expected not running error")
+	}
+	if !contains(err.Error(), "not running") {
+		t.Fatalf("serviceStop() error = %v, want not running", err)
+	}
+}
+
+func TestServiceStatus_SuccessViaManager(t *testing.T) {
+	fakeSCM := newFakeSCManagerWithService(service.StatusRunning)
+	overrideSCManager(t, fakeSCM)
+
+	// Capture output to verify status formatting
+	r, w, _ := os.Pipe()
+	oldStdout := os.Stdout
+	os.Stdout = w
+
+	ctx := newContext(cli.NewApp(), nil, "status")
+	err := serviceStatus(ctx)
+
+	_ = w.Close()
+	os.Stdout = oldStdout
+	out, _ := io.ReadAll(r)
+
+	if err != nil {
+		t.Fatalf("serviceStatus() = %v, want nil", err)
+	}
+	if !bytes.Contains(out, []byte("Running")) {
+		t.Fatalf("serviceStatus output missing status: %s", string(out))
+	}
+}
+
+func TestServiceInstall_UsesSCManager(t *testing.T) {
+	fakeSCM := newFakeSCManager()
+	overrideAdmin(t, true)
+	overrideSCManager(t, fakeSCM)
+
+	ctx := newContext(cli.NewApp(), nil, "install")
+	if err := serviceInstall(ctx); err != nil {
+		t.Fatalf("serviceInstall() = %v, want nil", err)
+	}
+
+	if _, ok := fakeSCM.services[daemonpkg.DefaultServiceName]; !ok {
+		t.Fatalf("serviceInstall() did not create service in SCM")
+	}
+}
+
+func TestServiceUninstall_UsesSCManager(t *testing.T) {
+	fakeSCM := newFakeSCManagerWithService(service.StatusRunning)
+	overrideAdmin(t, true)
+	overrideSCManager(t, fakeSCM)
+
+	ctx := newContext(cli.NewApp(), nil, "uninstall")
+	if err := serviceUninstall(ctx); err != nil {
+		t.Fatalf("serviceUninstall() = %v, want nil", err)
+	}
+
+	if svc := fakeSCM.services[daemonpkg.DefaultServiceName]; svc != nil && !svc.deleted {
+		t.Fatalf("serviceUninstall() should delete service")
+	}
+}
+
+func overrideAdmin(t *testing.T, isAdmin bool) {
+	t.Helper()
+	old := isAdminFunc
+	isAdminFunc = func() bool { return isAdmin }
+	t.Cleanup(func() { isAdminFunc = old })
+}
+
+func overrideSCManager(t *testing.T, scm service.SCManagerInterface) {
+	t.Helper()
+	old := openSCManager
+	openSCManager = func() (service.SCManagerInterface, error) {
+		return scm, nil
+	}
+	t.Cleanup(func() { openSCManager = old })
+}
+
+type fakeSCManager struct {
+	services map[string]*fakeService
+}
+
+func newFakeSCManager() *fakeSCManager {
+	return &fakeSCManager{services: make(map[string]*fakeService)}
+}
+
+func newFakeSCManagerWithService(status service.ServiceStatus) *fakeSCManager {
+	mgr := newFakeSCManager()
+	mgr.services[daemonpkg.DefaultServiceName] = &fakeService{status: status}
+	return mgr
+}
+
+func (m *fakeSCManager) OpenService(name string) (service.ServiceInterface, error) {
+	if svc, ok := m.services[name]; ok {
+		return svc, nil
+	}
+	return nil, service.ErrServiceNotFound
+}
+
+func (m *fakeSCManager) CreateService(name, _ string, _ service.ServiceConfig) (service.ServiceInterface, error) {
+	if _, exists := m.services[name]; exists {
+		return nil, service.ErrServiceExists
+	}
+	svc := &fakeService{status: service.StatusStopped}
+	m.services[name] = svc
+	return svc, nil
+}
+
+func (m *fakeSCManager) Close() error {
+	return nil
+}
+
+type fakeService struct {
+	status  service.ServiceStatus
+	deleted bool
+}
+
+func (s *fakeService) Start() error {
+	if s.status == service.StatusRunning {
+		return service.ErrServiceAlreadyRunning
+	}
+	s.status = service.StatusRunning
+	return nil
+}
+
+func (s *fakeService) Stop() error {
+	if s.status == service.StatusStopped {
+		return service.ErrServiceNotRunning
+	}
+	s.status = service.StatusStopped
+	return nil
+}
+
+func (s *fakeService) Delete() error {
+	s.deleted = true
+	return nil
+}
+
+func (s *fakeService) Status() (service.ServiceStatus, error) {
+	return s.status, nil
+}
+
+func (s *fakeService) Close() error {
+	return nil
 }
