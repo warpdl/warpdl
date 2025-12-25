@@ -171,7 +171,10 @@ func (p *Part) copyBuffer(src io.ReadCloser, foff int64, force bool) (slow bool,
 			break
 		}
 		if lchunk < 1 {
-			p.log("corruption detected: lchunk=%d, tread=%d, p.read=%d", lchunk, tread, p.read)
+			// Log detailed state for debugging (includes intermediate values)
+			p.log("corruption detected: lchunk=%d, tread=%d, p.read=%d, offset=%d, foff=%d", 
+				lchunk, tread, p.read, p.offset, foff)
+			// Return user-facing error with minimal context
 			err = fmt.Errorf("%w: lchunk=%d, report to github.com/warpdl/warpdl", ErrCorruptionDetected, lchunk)
 			break
 		}

@@ -370,7 +370,8 @@ func TestCopyBufferCorruptionDetection(t *testing.T) {
 	// Simulate corruption by manually setting p.read to a value that will cause lchunk < 1
 	// foff=4 means we expect bytes 0-4 (5 bytes total)
 	// tread = foff + 1 - offset = 4 + 1 - 0 = 5
-	// If p.read is already 6, then lchunk = tread - p.read = 5 - 6 = -1
+	// If p.read is 6 (greater than tread), then lchunk = tread - p.read = 5 - 6 = -1
+	// This simulates the corruption condition where bytes read exceed expected total
 	p.read = 6
 
 	slow, err := p.copyBuffer(reader, 4, true)
