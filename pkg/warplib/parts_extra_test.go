@@ -30,7 +30,9 @@ func TestInitPartAndString(t *testing.T) {
 	}
 	defer mainFile.Close()
 
-	done := make(chan struct{}, 1)
+	// Use a buffered channel that can handle all potential callbacks
+	// File has 4 bytes, copyChunk is 2, so 2 reads will occur
+	done := make(chan struct{}, 10)
 	p, err := initPart(context.Background(), &http.Client{}, hash, "http://example.com", partArgs{
 		copyChunk: 2,
 		preName:   preName,

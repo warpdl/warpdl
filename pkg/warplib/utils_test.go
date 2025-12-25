@@ -99,7 +99,7 @@ func TestAsyncCallbackProxyReader(t *testing.T) {
 		defer mu.Unlock()
 		total += n
 		ch <- struct{}{}
-	})
+	}, nil)
 	out := make([]byte, 5)
 	if _, err := reader.Read(out); err != nil {
 		t.Fatalf("Read: %v", err)

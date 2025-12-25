@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"log"
+	"runtime/debug"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -33,7 +35,15 @@ func (s *SpeedCounter) SetBar(bar *mpb.Bar) {
 }
 
 func (s *SpeedCounter) Start() {
-	go s.worker()
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("PANIC in SpeedCounter.worker: %v\n%s", r, debug.Stack())
+				s.ticker.Stop()
+			}
+		}()
+		s.worker()
+	}()
 }
 
 func (s *SpeedCounter) IncrBy(n int) {

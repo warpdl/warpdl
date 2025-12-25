@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -326,7 +327,17 @@ func (d *Downloader) Start() (err error) {
 	if partSize == -1 {
 		d.wg.Add(1)
 		d.Log("Unknown content length, downloading in a single connection...")
-		go d.downloadUnknownSizeFile()
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					d.l.Printf("PANIC in downloadUnknownSizeFile: %v\n%s", r, debug.Stack())
+					d.handlers.ErrorHandler(MAIN_HASH, fmt.Errorf("panic: %v", r))
+					atomic.StoreInt32(&d.stopped, 1)
+					d.cancel()
+				}
+			}()
+			d.downloadUnknownSizeFile()
+		}()
 	} else {
 		for i := int32(0); i < d.numBaseParts; i++ {
 			ioff := int64(i) * partSize
@@ -335,7 +346,20 @@ func (d *Downloader) Start() (err error) {
 				foff += rpartSize
 			}
 			d.wg.Add(1)
-			go d.newPartDownload(ioff, foff, 4*MB)
+			// Capture loop variables
+			ioffCapture := ioff
+			foffCapture := foff
+			go func(ioff, foff int64) {
+				defer func() {
+					if r := recover(); r != nil {
+						d.l.Printf("PANIC in newPartDownload: %v\n%s", r, debug.Stack())
+						d.handlers.ErrorHandler("new-part", fmt.Errorf("panic: %v", r))
+						atomic.StoreInt32(&d.stopped, 1)
+						d.cancel()
+					}
+				}()
+				d.newPartDownload(ioff, foff, 4*MB)
+			}(ioffCapture, foffCapture)
 		}
 	}
 	d.wg.Wait()
@@ -385,7 +409,22 @@ func (d *Downloader) Resume(parts map[int64]*ItemPart) (err error) {
 			continue
 		}
 		d.wg.Add(1)
-		go d.resumePartDownload(ip.Hash, ioff, ip.FinalOffset, espeed)
+		// Capture loop variables
+		hashCapture := ip.Hash
+		ioffCapture := ioff
+		foffCapture := ip.FinalOffset
+		espeedCapture := espeed
+		go func(hash string, ioff, foff, espeed int64) {
+			defer func() {
+				if r := recover(); r != nil {
+					d.l.Printf("PANIC in resumePartDownload: %v\n%s", r, debug.Stack())
+					d.handlers.ErrorHandler(hash, fmt.Errorf("panic: %v", r))
+					atomic.StoreInt32(&d.stopped, 1)
+					d.cancel()
+				}
+			}()
+			d.resumePartDownload(hash, ioff, foff, espeed)
+		}(hashCapture, ioffCapture, foffCapture, espeedCapture)
 	}
 	d.wg.Wait()
 	if atomic.LoadInt32(&d.stopped) == 1 {
@@ -705,7 +744,22 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 		// waitgroup, new part will download the last
 		// 2nd half of pending bytes.
 		d.wg.Add(1)
-		go d.newPartDownload(poff+div, foff, espeed/2)
+		// Capture loop variables
+		poffCapture := poff
+		divCapture := div
+		foffCapture := foff
+		espeedCapture := espeed
+		go func(poff, div, foff, espeed int64) {
+			defer func() {
+				if r := recover(); r != nil {
+					d.l.Printf("PANIC in newPartDownload (spawned): %v\n%s", r, debug.Stack())
+					d.handlers.ErrorHandler("spawned-part", fmt.Errorf("panic: %v", r))
+					atomic.StoreInt32(&d.stopped, 1)
+					d.cancel()
+				}
+			}()
+			d.newPartDownload(poff+div, foff, espeed/2)
+		}(poffCapture, divCapture, foffCapture, espeedCapture)
 
 		// current part will download the first half
 		// of pending bytes.

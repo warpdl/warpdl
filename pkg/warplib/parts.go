@@ -225,10 +225,9 @@ func (p *Part) copyBufferChunk(src io.Reader, dst io.Writer, buf []byte) (err er
 		}
 		atomic.AddInt64(&p.read, int64(nw))
 		p.pwg.Add(1)
-		go func() {
-			defer p.pwg.Done()
+		safeGo(p.l, &p.pwg, "part-progress-callback", nil, func() {
 			p.pfunc(p.hash, nw)
-		}()
+		})
 		if ew != nil {
 			err = ew
 			return
@@ -261,10 +260,9 @@ func (p *Part) compile() (read, written int64, err error) {
 			}
 			atomic.AddInt64(&written, int64(nw))
 			p.pwg.Add(1)
-			go func() {
-				defer p.pwg.Done()
+			safeGo(p.l, &p.pwg, "compile-progress-callback", nil, func() {
 				p.cfunc(p.hash, nw)
-			}()
+			})
 			if ew != nil {
 				err = ew
 				break
@@ -319,11 +317,12 @@ func (p *Part) openPartFile() (err error) {
 func (p *Part) seek(rpFunc ResumeProgressHandlerFunc) (err error) {
 	pReader := NewAsyncCallbackProxyReader(p.pf, func(n int) {
 		rpFunc(p.hash, n)
-	})
+	}, p.l)
 	n, err := io.Copy(io.Discard, pReader)
 	if err != nil {
 		return
 	}
+	pReader.Wait()
 	p.read = n
 	return
 }
