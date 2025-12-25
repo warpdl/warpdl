@@ -1004,6 +1004,9 @@ func (d *Downloader) prepareDownloader() (err error) {
 		// chunk is downloaded at a speed more than 5MB/s
 		// fast download
 		d.numBaseParts = 10
+	default:
+		// moderate download speed (1-5 MB/s) - use balanced part count
+		d.numBaseParts = 8
 	}
 	return
 }
