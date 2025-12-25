@@ -291,3 +291,76 @@ func TestMultiLogger_Close_MixedSuccessAndFailure(t *testing.T) {
 		t.Error("mock2 should be closed even after failure")
 	}
 }
+
+func TestToStdLogger_ForwardsMessages(t *testing.T) {
+	mock := NewMockLogger()
+	stdLog := ToStdLogger(mock)
+
+	stdLog.Print("test message")
+
+	if len(mock.InfoCalls) != 1 {
+		t.Fatalf("expected 1 info call, got %d", len(mock.InfoCalls))
+	}
+	if mock.InfoCalls[0] != "test message" {
+		t.Errorf("expected 'test message', got %s", mock.InfoCalls[0])
+	}
+}
+
+func TestToStdLogger_StripNewline(t *testing.T) {
+	mock := NewMockLogger()
+	stdLog := ToStdLogger(mock)
+
+	stdLog.Println("message with newline")
+
+	if len(mock.InfoCalls) != 1 {
+		t.Fatalf("expected 1 info call, got %d", len(mock.InfoCalls))
+	}
+	// Newline should be stripped
+	if strings.HasSuffix(mock.InfoCalls[0], "\n") {
+		t.Errorf("expected newline to be stripped, got: %q", mock.InfoCalls[0])
+	}
+}
+
+func TestToStdLogger_EmptyMessage(t *testing.T) {
+	mock := NewMockLogger()
+	stdLog := ToStdLogger(mock)
+
+	// Write empty string
+	stdLog.Print("")
+
+	// Empty messages should not be logged
+	if len(mock.InfoCalls) != 0 {
+		t.Errorf("expected no info calls for empty message, got %d", len(mock.InfoCalls))
+	}
+}
+
+func TestToStdLogger_FormattedMessage(t *testing.T) {
+	mock := NewMockLogger()
+	stdLog := ToStdLogger(mock)
+
+	stdLog.Printf("value: %d", 42)
+
+	if len(mock.InfoCalls) != 1 {
+		t.Fatalf("expected 1 info call, got %d", len(mock.InfoCalls))
+	}
+	if mock.InfoCalls[0] != "value: 42" {
+		t.Errorf("expected 'value: 42', got %s", mock.InfoCalls[0])
+	}
+}
+
+func TestLoggerWriter_Write(t *testing.T) {
+	mock := NewMockLogger()
+	writer := &loggerWriter{l: mock}
+
+	n, err := writer.Write([]byte("test\n"))
+
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if n != 5 {
+		t.Errorf("expected 5 bytes written, got %d", n)
+	}
+	if len(mock.InfoCalls) != 1 || mock.InfoCalls[0] != "test" {
+		t.Errorf("expected 'test', got %v", mock.InfoCalls)
+	}
+}

@@ -5,6 +5,7 @@ package logger
 import (
 	"fmt"
 	"log"
+	"strings"
 )
 
 // Logger defines the interface for structured logging across all WarpDL components.
@@ -126,3 +127,26 @@ func (m *MockLogger) Close() error {
 
 // Ensure MockLogger satisfies the Logger interface.
 var _ Logger = (*MockLogger)(nil)
+
+// loggerWriter is an io.Writer that writes to a Logger.
+// Used by ToStdLogger to bridge the Logger interface with *log.Logger.
+type loggerWriter struct {
+	l Logger
+}
+
+// Write implements io.Writer by forwarding messages to the Logger.
+func (w *loggerWriter) Write(p []byte) (n int, err error) {
+	// Strip trailing newline if present (log.Logger adds one)
+	msg := strings.TrimSuffix(string(p), "\n")
+	if msg != "" {
+		w.l.Info(msg)
+	}
+	return len(p), nil
+}
+
+// ToStdLogger creates a *log.Logger that writes through the given Logger interface.
+// This bridges the Logger interface with code that expects *log.Logger.
+// Useful for integrating with existing code that uses the standard library logger.
+func ToStdLogger(l Logger) *log.Logger {
+	return log.New(&loggerWriter{l: l}, "", 0)
+}
