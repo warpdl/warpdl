@@ -84,7 +84,7 @@ brew install warpdl/tap/warpdl
 <details>
 <summary>Scoop (Windows)</summary>
 
-```powershell
+```bash
 scoop bucket add warpdl https://github.com/warpdl/scoop-bucket
 scoop install warpdl
 ```
