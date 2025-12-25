@@ -307,12 +307,12 @@ func (p *Part) setHash() {
 }
 
 func (p *Part) createPartFile() (err error) {
-	p.pf, err = os.Create(p.getFileName())
+	p.pf, err = WarpCreate(p.getFileName())
 	return
 }
 
 func (p *Part) openPartFile() (err error) {
-	p.pf, err = os.OpenFile(p.getFileName(), os.O_RDWR, 0666)
+	p.pf, err = WarpOpenFile(p.getFileName(), os.O_RDWR, 0666)
 	return
 }
 

@@ -403,17 +403,17 @@ func (d *Downloader) openFile() (err error) {
 	savePath := d.GetSavePath()
 
 	// Check if file already exists
-	if _, statErr := os.Stat(savePath); statErr == nil {
+	if _, statErr := WarpStat(savePath); statErr == nil {
 		if !d.overwrite {
 			return fmt.Errorf("%w: %s", ErrFileExists, savePath)
 		}
 		// File exists and overwrite=true, truncate it
-		d.f, err = os.OpenFile(savePath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
+		d.f, err = WarpOpenFile(savePath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
 		return
 	}
 
 	// File doesn't exist, create normally
-	d.f, err = os.OpenFile(savePath, os.O_RDWR|os.O_CREATE, 0666)
+	d.f, err = WarpOpenFile(savePath, os.O_RDWR|os.O_CREATE, 0666)
 	return
 }
 
@@ -519,7 +519,7 @@ func (d *Downloader) resumePartDownload(hash string, ioff, foff, espeed int64) {
 		d.dlPath,
 		hash,
 	)
-	err = os.Remove(fName)
+	err = WarpRemove(fName)
 	if err == nil {
 		return
 	}
@@ -562,7 +562,7 @@ func (d *Downloader) newPartDownload(ioff, foff, espeed int64) {
 		d.dlPath,
 		hash,
 	)
-	err = os.Remove(fName)
+	err = WarpRemove(fName)
 	if err == nil {
 		return
 	}
@@ -868,7 +868,7 @@ func (d *Downloader) setHash() {
 // and logs will be stored.
 func (d *Downloader) setupDlPath() (err error) {
 	dlpath := filepath.Join(DlDataDir, d.hash)
-	err = os.Mkdir(dlpath, os.ModePerm)
+	err = WarpMkdir(dlpath, os.ModePerm)
 	if err != nil {
 		return
 	}
@@ -880,7 +880,7 @@ func (d *Downloader) setupDlPath() (err error) {
 // named 'logs.txt' with 0666 permission codes.
 // Location of logs is DlDirectory/{Hash}/logs.txt
 func (d *Downloader) setupLogger() (err error) {
-	d.lw, err = os.OpenFile(
+	d.lw, err = WarpOpenFile(
 		filepath.Join(d.dlPath, "logs.txt"),
 		os.O_RDWR|os.O_CREATE|os.O_APPEND,
 		0666,

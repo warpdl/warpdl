@@ -11,6 +11,7 @@ import (
 	daemonpkg "github.com/warpdl/warpdl/internal/daemon"
 	"github.com/warpdl/warpdl/internal/service"
 	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/svc/eventlog"
 )
 
 // ErrRequiresAdmin is returned when an operation requires administrator privileges.
@@ -160,6 +161,17 @@ func serviceInstall(ctx *cli.Context) error {
 		return fmt.Errorf("failed to install service: %w", err)
 	}
 
+	// Register event source for Windows Event Log
+	err = eventlog.InstallAsEventCreate(
+		daemonpkg.DefaultServiceName,
+		eventlog.Info|eventlog.Warning|eventlog.Error,
+	)
+	if err != nil {
+		// Rollback: uninstall service if event source registration fails
+		_ = mgr.Uninstall(daemonpkg.DefaultServiceName)
+		return fmt.Errorf("failed to register event source: %w", err)
+	}
+
 	fmt.Printf("Service '%s' installed successfully\n", daemonpkg.DefaultServiceName)
 	return nil
 }
@@ -197,6 +209,9 @@ func serviceUninstall(ctx *cli.Context) error {
 		}
 		return fmt.Errorf("failed to uninstall service: %w", err)
 	}
+
+	// Best-effort cleanup of event source (ignore errors)
+	_ = eventlog.Remove(daemonpkg.DefaultServiceName)
 
 	fmt.Printf("Service '%s' uninstalled successfully\n", daemonpkg.DefaultServiceName)
 	return nil
