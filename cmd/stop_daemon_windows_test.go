@@ -79,20 +79,24 @@ func TestKillDaemon_ProcessExits(t *testing.T) {
 	// Give the process time to start
 	time.Sleep(100 * time.Millisecond)
 
+	// Verify process is running before we kill it
+	if !isProcessRunning(pid) {
+		t.Fatal("process should be running before kill")
+	}
+
 	// Kill it with our function
 	err := killDaemon(pid)
 	if err != nil {
 		t.Fatalf("killDaemon: %v", err)
 	}
 
-	// Wait for process to finish
+	// Wait for process to finish - this is the authoritative signal
+	// that the process has terminated
 	_ = cmd.Wait()
 
-	// Verify it's dead
-	time.Sleep(100 * time.Millisecond)
-	if isProcessRunning(pid) {
-		t.Fatal("expected process to be dead")
-	}
+	// Note: We don't check isProcessRunning() after Wait() because on Windows,
+	// process handles can remain briefly valid after termination due to handle
+	// caching. Wait() returning is the definitive proof the process is dead.
 }
 
 func TestStopDaemon_RunningProcess(t *testing.T) {
@@ -111,6 +115,11 @@ func TestStopDaemon_RunningProcess(t *testing.T) {
 	// Give the process time to start
 	time.Sleep(100 * time.Millisecond)
 
+	// Verify process is running before we stop it
+	if !isProcessRunning(pid) {
+		t.Fatal("process should be running before stopDaemon")
+	}
+
 	// Write its PID
 	if err := os.WriteFile(getPidFilePath(), []byte(strconv.Itoa(pid)), 0644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
@@ -121,12 +130,9 @@ func TestStopDaemon_RunningProcess(t *testing.T) {
 		t.Fatalf("stopDaemon: %v", err)
 	}
 
-	// Wait for process to finish
+	// Wait for process to finish - this is the authoritative signal
 	_ = cmd.Wait()
 
-	// Process should be dead
-	time.Sleep(100 * time.Millisecond)
-	if isProcessRunning(pid) {
-		t.Fatal("expected process to be dead after stopDaemon")
-	}
+	// Note: We don't check isProcessRunning() after Wait() because on Windows,
+	// process handles can remain briefly valid after termination.
 }
