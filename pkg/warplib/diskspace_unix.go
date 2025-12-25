@@ -19,8 +19,8 @@ func checkDiskSpace(path string, requiredBytes int64) error {
 	var stat syscall.Statfs_t
 	err := syscall.Statfs(path, &stat)
 	if err != nil {
-		// If we can't check disk space, log but don't fail
-		// (better to try and fail later than block downloads)
+		// If we can't check disk space, gracefully ignore and don't fail
+		// (better to try and potentially fail later than block downloads)
 		return nil
 	}
 

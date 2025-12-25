@@ -382,7 +382,8 @@ func (d *Downloader) Resume(parts map[int64]*ItemPart) (err error) {
 	// Calculate remaining bytes to download
 	remainingBytes := d.contentLength.v() - d.nread
 	if remainingBytes < 0 {
-		// This shouldn't happen, but handle it gracefully
+		// This indicates potential data corruption or resume error
+		d.Log("Warning: negative remaining bytes detected (%d). This may indicate corruption.", remainingBytes)
 		remainingBytes = 0
 	}
 	err = checkDiskSpace(d.dlLoc, remainingBytes)
