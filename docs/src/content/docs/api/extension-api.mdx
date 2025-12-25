@@ -3,57 +3,282 @@ title: Extension API
 description: API reference for WarpDL extensions
 ---
 
-WarpDL extensions are JavaScript files executed using the Goja runtime.
+WarpDL extensions are JavaScript modules executed using the Goja runtime. Extensions transform URLs before downloads begin, enabling support for custom hosting services and URL schemes.
 
 ## Extension Structure
 
-```javascript
-// extension.js
-module.exports = {
-    name: "my-extension",
-    version: "1.0.0",
+Every extension requires two files:
 
-    onDownloadStart: function(download) {
-        console.log("Download started: " + download.url);
-    },
+1. **manifest.json** - Extension metadata
+2. **main.js** (or custom entrypoint) - JavaScript code with `extract()` function
 
-    onDownloadComplete: function(download) {
-        console.log("Download complete: " + download.filename);
-    }
-};
+### Directory Layout
+
+```
+~/.config/warpdl/extstore/
+└── <extension-hash>/
+    ├── manifest.json
+    └── main.js
 ```
 
-## Available Hooks
+## manifest.json
 
-| Hook | Description |
-|------|-------------|
-| `onDownloadStart` | Called when download begins |
-| `onDownloadComplete` | Called when download finishes |
-| `onDownloadError` | Called on download failure |
-| `onProgress` | Called periodically with progress |
+The manifest defines extension metadata and URL matching patterns.
 
-## Download Object
+### Schema
 
-```javascript
+```json
 {
-    url: "https://...",
-    filename: "file.zip",
-    size: 1024000,
-    downloaded: 512000,
-    speed: 1024,  // bytes/sec
-    status: "downloading"
+  "name": "my-extension",
+  "version": "1.0.0",
+  "matches": ["^https://example\\.com/.*"],
+  "description": "Transform example.com URLs",
+  "entrypoint": "main.js"
 }
 ```
 
-## Storage Location
+### Fields
 
-Extensions are stored in:
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `name` | Yes | string | Extension display name |
+| `version` | Yes | string | Semantic version (e.g., "1.0.0") |
+| `matches` | Yes | string[] | Array of regex patterns for URL matching |
+| `description` | No | string | Human-readable description |
+| `entrypoint` | No | string | Main JavaScript file (default: "main.js") |
+| `assets` | No | string[] | Additional files to include (e.g., helper scripts) |
+
+### URL Matching
+
+The `matches` field contains JavaScript regex patterns. WarpDL tests each pattern against download URLs using `RegExp.MatchString()`.
+
+```json
+{
+  "matches": [
+    "^https://drive\\.google\\.com/.*",
+    "^https://.*\\.googleapis\\.com/.*"
+  ]
+}
 ```
-~/.config/warpdl/extstore/
+
+## JavaScript API
+
+### Required Function: extract()
+
+Every extension must define an `extract(url)` function. This is the only entry point WarpDL calls.
+
+```javascript
+// main.js
+function extract(url) {
+  // Transform the URL and return the direct download link
+  return transformedUrl;
+}
+```
+
+**Parameters:**
+- `url` (string): The original URL to transform
+
+**Returns:**
+- `string`: Transformed URL for downloading
+- Return `"end"` to signal interaction failure/cancellation
+
+**Example:**
+
+```javascript
+function extract(url) {
+  // Force HTTPS
+  if (url.startsWith("http://")) {
+    return url.replace("http://", "https://");
+  }
+
+  // Extract direct link from hosting service
+  let match = url.match(/example\.com\/file\/(\w+)/);
+  if (match) {
+    return "https://cdn.example.com/dl/" + match[1];
+  }
+
+  return url;
+}
+```
+
+### Built-in Functions
+
+WarpDL provides several built-in functions for extensions:
+
+#### print(...args)
+
+Print values to stdout (for debugging).
+
+```javascript
+print("Processing URL:", url);
+print("Match found:", fileId);
+```
+
+#### input(prompt, [callback])
+
+Read user input from stdin. Optionally process input with a callback function.
+
+```javascript
+// Simple input
+let choice = input("Select quality (1-3): ");
+
+// With callback
+input("Enter filename: ", function(filename) {
+  print("You entered:", filename);
+  return filename;
+});
+```
+
+#### require(modulePath)
+
+Import additional JavaScript modules from the extension directory.
+
+```javascript
+// Import helper.js from extension directory
+let helper = require("./helper.js");
+```
+
+**Note:** Modules use CommonJS format (`module.exports`).
+
+#### request(options)
+
+Make HTTP requests (limited to 1MB response size).
+
+```javascript
+let response = request({
+  method: "GET",
+  url: "https://api.example.com/file-info",
+  headers: {
+    "User-Agent": "WarpDL Extension",
+    "Authorization": "Bearer token"
+  },
+  body: ""  // Optional request body
+});
+
+print("Status:", response.status_code);
+print("Body:", response.body);
+print("Content-Length:", response.content_length);
+
+// Access response headers
+let contentType = response.headers.get("Content-Type");
+```
+
+**Request Options:**
+- `method` (string): HTTP method (GET, POST, etc.)
+- `url` (string): Request URL
+- `headers` (object): Request headers (key-value pairs)
+- `body` (string): Request body
+
+**Response Object:**
+- `status_code` (number): HTTP status code
+- `body` (string): Response body (max 1MB)
+- `content_length` (number): Content-Length header value
+- `headers` (Headers): Response headers object
+
+**Headers Object Methods:**
+- `get(name)` - Get header value
+- `has(name)` - Check if header exists
+- `set(name, value)` - Set header value
+- `append(name, value)` - Append to header value
+- `delete(name)` - Remove header
+- `keys()` - Get all header names
+- `values()` - Get all header values
+- `entries()` - Get [name, value] pairs
+- `forEach(callback)` - Iterate over headers
+- `getSetCookies()` - Get Set-Cookie header values
+
+## Complete Example
+
+This extension transforms Google Drive sharing URLs into direct download links:
+
+**manifest.json:**
+```json
+{
+  "name": "gdrive-extractor",
+  "version": "1.0.0",
+  "matches": ["^https://drive\\.google\\.com/file/d/.*"],
+  "description": "Extract direct download links from Google Drive"
+}
+```
+
+**main.js:**
+```javascript
+function extract(url) {
+  // Extract file ID from sharing URL
+  let match = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+
+  if (!match) {
+    print("Error: Invalid Google Drive URL");
+    return "end";  // Signal failure
+  }
+
+  let fileId = match[1];
+
+  // Construct direct download URL
+  let directUrl = "https://drive.google.com/uc?export=download&id=" + fileId;
+
+  print("Extracted file ID:", fileId);
+  return directUrl;
+}
+```
+
+## Extension Management
+
+### Install Extension
+
+```bash
+warpdl ext install /path/to/extension/
+```
+
+### List Extensions
+
+```bash
+# Show active extensions only
+warpdl ext list
+
+# Show all extensions (including inactive)
+warpdl ext list --all
+```
+
+### Activate/Deactivate
+
+```bash
+warpdl ext activate <extension-id>
+warpdl ext deactivate <extension-id>
+```
+
+### Uninstall
+
+```bash
+warpdl ext uninstall <extension-id>
 ```
 
 ## Limitations
 
-- No network access from extensions
-- No file system access outside download paths
-- Synchronous execution only
+- **Execution:** Synchronous only (no async/await, Promises)
+- **Network:** HTTP requests limited to 1MB response size
+- **File System:** No direct file system access (use `require()` for local modules)
+- **Isolation:** Each extension runs in a separate JavaScript runtime
+- **URL Transformation:** Extensions can only transform URLs via `extract()` - no download hooks or progress callbacks
+
+## Error Handling
+
+If `extract()` returns `"end"`, WarpDL treats it as an interaction failure and stops processing:
+
+```javascript
+function extract(url) {
+  let apiResponse = request({
+    method: "GET",
+    url: "https://api.example.com/resolve?url=" + url
+  });
+
+  if (apiResponse.status_code !== 200) {
+    print("API error:", apiResponse.status_code);
+    return "end";  // Stop processing
+  }
+
+  return apiResponse.body;
+}
+```
+
+Throwing errors or runtime exceptions will also terminate extension execution and display the error to the user.

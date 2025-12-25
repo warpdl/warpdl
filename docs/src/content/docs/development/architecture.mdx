@@ -11,14 +11,14 @@ WarpDL uses a daemon-based architecture with parallel segment downloading.
 ┌─────────────────────────────────────────────┐
 │                   warpdl                     │
 │                (single binary)               │
-├─────────┬─────────┬─────────┬───────────────┤
-│   CLI   │   TUI   │ Daemon  │ Native Msg    │
-└────┬────┴────┬────┴────┬────┴─────────┬─────┘
-     └─────────┴────┬────┴──────────────┘
-                    ▼
-              ┌──────────┐
-              │ warplib  │
-              └──────────┘
+├─────────────────┬───────────────────────────┤
+│       CLI       │         Daemon            │
+└────────┬────────┴──────────┬────────────────┘
+         └───────────┬───────┘
+                     ▼
+               ┌──────────┐
+               │ warplib  │
+               └──────────┘
 ```
 
 ## Package Structure
@@ -28,6 +28,7 @@ WarpDL uses a daemon-based architecture with parallel segment downloading.
 | `cmd/` | CLI commands using urfave/cli |
 | `pkg/warplib/` | Core download engine |
 | `pkg/warpcli/` | CLI-to-daemon communication |
+| `pkg/credman/` | Credential management with OS keyring |
 | `internal/server/` | Daemon server (Unix socket/TCP) |
 | `internal/api/` | API handlers |
 | `internal/extl/` | JavaScript extension engine |

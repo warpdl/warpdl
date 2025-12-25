@@ -22,14 +22,20 @@ The hash is shown in the `list` output.
 ## Resume Options
 
 ```bash
-# Adjust segment count
+# Adjust segment count (default: 200)
 warpdl resume -s 100 <hash>
 
-# Set connection limit
+# Set connection limit (default: 24)
 warpdl resume -x 16 <hash>
 
-# Set timeout
+# Set timeout in seconds (default: 30)
 warpdl resume -t 60 <hash>
+
+# Set max retry attempts (default: 5)
+warpdl resume --max-retries 10 <hash>
+
+# Set retry delay in milliseconds (default: 500)
+warpdl resume --retry-delay 1000 <hash>
 ```
 
 ## State Persistence

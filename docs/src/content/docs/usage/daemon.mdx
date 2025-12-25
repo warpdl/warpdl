@@ -35,8 +35,14 @@ warpdl stop-daemon
 
 | Platform | Default IPC |
 |----------|-------------|
-| Linux/macOS | Unix socket at `/tmp/warpdl.sock` |
+| Linux/macOS | Unix socket at `/tmp/warpdl.sock` (or `$TMPDIR/warpdl.sock` on macOS) |
 | Windows | Named pipe `\\.\pipe\warpdl` |
+
+To customize the socket path:
+
+```bash
+export WARPDL_SOCKET_PATH=/custom/path.sock
+```
 
 To force TCP connection:
 
