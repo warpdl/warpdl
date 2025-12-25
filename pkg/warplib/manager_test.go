@@ -449,7 +449,7 @@ func TestManagerResumeEarlyCompile(t *testing.T) {
 	if err := d.openFile(); err != nil {
 		t.Fatalf("openFile: %v", err)
 	}
-	defer d.f.Close()
+	defer d.Close()
 
 	d.wg.Add(1)
 	d.resumePartDownload(partHash, 0, int64(len(testData)), MB)
