@@ -72,71 +72,11 @@ jobs:
           chmod +x scripts/check-docs-coverage.sh
           ./scripts/check-docs-coverage.sh
 
-      - name: Deploy to Cloudflare Pages (Production)
+      - name: Deploy to Cloudflare Workers
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy docs/dist --project-name=warpdl-docs --branch=main
-
-      - name: Deploy to Cloudflare Pages (Preview - Dev Branch)
-        if: github.ref == 'refs/heads/dev' && github.event_name == 'push'
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy docs/dist --project-name=warpdl-docs --branch=dev
-
-      - name: Deploy to Cloudflare Pages (Preview - PR)
-        if: github.event_name == 'pull_request'
-        id: deploy-preview
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy docs/dist --project-name=warpdl-docs --branch=pr-${{ github.event.pull_request.number }}
-
-      - name: Comment PR with preview URL
-        if: github.event_name == 'pull_request'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const prNumber = context.payload.pull_request.number;
-            const previewUrl = `https://pr-${prNumber}.warpdl-docs.pages.dev`;
-
-            const comment = `## 📚 Documentation Preview
-
-            Your documentation changes have been deployed to Cloudflare Pages!
-
-            🔗 **Preview URL:** ${previewUrl}
-
-            The preview will be updated automatically with new commits.`;
-
-            // Find existing comment
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: prNumber,
-            });
-
-            const existingComment = comments.find(c =>
-              c.user.login === 'github-actions[bot]' &&
-              c.body.includes('Documentation Preview')
-            );
-
-            if (existingComment) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existingComment.id,
-                body: comment
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: prNumber,
-                body: comment
-              });
-            }
+          workingDirectory: docs
+          command: deploy
