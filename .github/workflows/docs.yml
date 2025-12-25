@@ -72,6 +72,10 @@ jobs:
           chmod +x scripts/check-docs-coverage.sh
           ./scripts/check-docs-coverage.sh
 
+      - name: Install wrangler v4
+        run: |
+          bun install wrangler@4
+
       - name: Deploy to Cloudflare Workers
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         uses: cloudflare/wrangler-action@v3
