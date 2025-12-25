@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -79,11 +80,11 @@ func TestKillDaemon_FallsBackToKillOnSignalFailure(t *testing.T) {
 		t.Fatalf("killDaemon: %v", err)
 	}
 
-	if fake.signalCalls != 1 {
-		t.Fatalf("expected 1 signal call, got %d", fake.signalCalls)
+	if fake.getSignalCalls() != 1 {
+		t.Fatalf("expected 1 signal call, got %d", fake.getSignalCalls())
 	}
-	if fake.killCalls != 1 {
-		t.Fatalf("expected 1 kill call, got %d", fake.killCalls)
+	if fake.getKillCalls() != 1 {
+		t.Fatalf("expected 1 kill call, got %d", fake.getKillCalls())
 	}
 }
 
@@ -139,14 +140,14 @@ func TestKillDaemon_ForceKillAfterTimeout(t *testing.T) {
 		t.Fatalf("killDaemon: %v", err)
 	}
 
-	if fake.signalCalls != 1 {
-		t.Fatalf("expected 1 signal call, got %d", fake.signalCalls)
+	if fake.getSignalCalls() != 1 {
+		t.Fatalf("expected 1 signal call, got %d", fake.getSignalCalls())
 	}
-	if fake.killCalls != 1 {
-		t.Fatalf("expected 1 kill call, got %d", fake.killCalls)
+	if fake.getKillCalls() != 1 {
+		t.Fatalf("expected 1 kill call, got %d", fake.getKillCalls())
 	}
-	if fake.waitCalls != 1 {
-		t.Fatalf("expected Wait to be called once, got %d", fake.waitCalls)
+	if fake.getWaitCalls() != 1 {
+		t.Fatalf("expected Wait to be called once, got %d", fake.getWaitCalls())
 	}
 }
 
@@ -189,6 +190,8 @@ func TestStopDaemon_RunningProcess(t *testing.T) {
 }
 
 type fakeWindowsProcess struct {
+	mu sync.Mutex
+
 	signalErr error
 	killErr   error
 	waitErr   error
@@ -201,25 +204,56 @@ type fakeWindowsProcess struct {
 }
 
 func (f *fakeWindowsProcess) Signal(os.Signal) error {
+	f.mu.Lock()
 	f.signalCalls++
-	return f.signalErr
+	err := f.signalErr
+	f.mu.Unlock()
+	return err
 }
 
 func (f *fakeWindowsProcess) Kill() error {
+	f.mu.Lock()
 	f.killCalls++
-	if f.waitBlock != nil {
-		close(f.waitBlock)
+	ch := f.waitBlock
+	if ch != nil {
 		f.waitBlock = nil
 	}
-	return f.killErr
+	err := f.killErr
+	f.mu.Unlock()
+	if ch != nil {
+		close(ch)
+	}
+	return err
 }
 
 func (f *fakeWindowsProcess) Wait() (*os.ProcessState, error) {
+	f.mu.Lock()
 	f.waitCalls++
-	if ch := f.waitBlock; ch != nil {
+	ch := f.waitBlock
+	err := f.waitErr
+	f.mu.Unlock()
+	if ch != nil {
 		<-ch
 	}
-	return nil, f.waitErr
+	return nil, err
+}
+
+func (f *fakeWindowsProcess) getSignalCalls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.signalCalls
+}
+
+func (f *fakeWindowsProcess) getKillCalls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.killCalls
+}
+
+func (f *fakeWindowsProcess) getWaitCalls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.waitCalls
 }
 
 func overrideFindProcess(t *testing.T, proc windowsProcess) {
