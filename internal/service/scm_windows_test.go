@@ -3,6 +3,7 @@
 package service
 
 import (
+	"errors"
 	"os"
 	"syscall"
 	"testing"
@@ -25,7 +26,8 @@ func TestOpenSCManager_Connect(t *testing.T) {
 
 	scm, err := OpenSCManager()
 	if err != nil {
-		if errno, ok := err.(syscall.Errno); ok && errno == syscall.ERROR_ACCESS_DENIED {
+		var errno syscall.Errno
+		if errors.As(err, &errno) && errno == syscall.ERROR_ACCESS_DENIED {
 			t.Skip("skipping: no SCM access rights")
 		}
 		t.Fatalf("OpenSCManager: %v", err)
@@ -41,7 +43,8 @@ func TestSCManager_OpenService_NotFound(t *testing.T) {
 
 	scm, err := OpenSCManager()
 	if err != nil {
-		if errno, ok := err.(syscall.Errno); ok && errno == syscall.ERROR_ACCESS_DENIED {
+		var errno syscall.Errno
+		if errors.As(err, &errno) && errno == syscall.ERROR_ACCESS_DENIED {
 			t.Skip("skipping: no SCM access rights")
 		}
 		t.Fatalf("OpenSCManager: %v", err)
@@ -62,7 +65,8 @@ func TestSCManager_OpenService_ExistingService(t *testing.T) {
 
 	scm, err := OpenSCManager()
 	if err != nil {
-		if errno, ok := err.(syscall.Errno); ok && errno == syscall.ERROR_ACCESS_DENIED {
+		var errno syscall.Errno
+		if errors.As(err, &errno) && errno == syscall.ERROR_ACCESS_DENIED {
 			t.Skip("skipping: no SCM access rights")
 		}
 		t.Fatalf("OpenSCManager: %v", err)
@@ -72,7 +76,8 @@ func TestSCManager_OpenService_ExistingService(t *testing.T) {
 	// EventLog is a standard Windows service that always exists
 	svc, err := scm.OpenService("EventLog")
 	if err != nil {
-		if errno, ok := err.(syscall.Errno); ok && errno == syscall.ERROR_ACCESS_DENIED {
+		var errno syscall.Errno
+		if errors.As(err, &errno) && errno == syscall.ERROR_ACCESS_DENIED {
 			t.Skip("skipping: no service access rights")
 		}
 		t.Fatalf("OpenService(EventLog): %v", err)
@@ -97,7 +102,8 @@ func TestSCManager_Close(t *testing.T) {
 
 	scm, err := OpenSCManager()
 	if err != nil {
-		if errno, ok := err.(syscall.Errno); ok && errno == syscall.ERROR_ACCESS_DENIED {
+		var errno syscall.Errno
+		if errors.As(err, &errno) && errno == syscall.ERROR_ACCESS_DENIED {
 			t.Skip("skipping: no SCM access rights")
 		}
 		t.Fatalf("OpenSCManager: %v", err)
@@ -114,7 +120,8 @@ func TestService_Close(t *testing.T) {
 
 	scm, err := OpenSCManager()
 	if err != nil {
-		if errno, ok := err.(syscall.Errno); ok && errno == syscall.ERROR_ACCESS_DENIED {
+		var errno syscall.Errno
+		if errors.As(err, &errno) && errno == syscall.ERROR_ACCESS_DENIED {
 			t.Skip("skipping: no SCM access rights")
 		}
 		t.Fatalf("OpenSCManager: %v", err)
@@ -123,7 +130,8 @@ func TestService_Close(t *testing.T) {
 
 	svc, err := scm.OpenService("EventLog")
 	if err != nil {
-		if errno, ok := err.(syscall.Errno); ok && errno == syscall.ERROR_ACCESS_DENIED {
+		var errno syscall.Errno
+		if errors.As(err, &errno) && errno == syscall.ERROR_ACCESS_DENIED {
 			t.Skip("skipping: no service access rights")
 		}
 		t.Fatalf("OpenService(EventLog): %v", err)
@@ -142,7 +150,8 @@ func TestSCManager_CreateService_AlreadyExists(t *testing.T) {
 
 	scm, err := OpenSCManager()
 	if err != nil {
-		if errno, ok := err.(syscall.Errno); ok && errno == syscall.ERROR_ACCESS_DENIED {
+		var errno syscall.Errno
+		if errors.As(err, &errno) && errno == syscall.ERROR_ACCESS_DENIED {
 			t.Skip("skipping: no SCM access rights")
 		}
 		t.Fatalf("OpenSCManager: %v", err)
@@ -177,7 +186,8 @@ func TestService_Status_ValidStates(t *testing.T) {
 
 	scm, err := OpenSCManager()
 	if err != nil {
-		if errno, ok := err.(syscall.Errno); ok && errno == syscall.ERROR_ACCESS_DENIED {
+		var errno syscall.Errno
+		if errors.As(err, &errno) && errno == syscall.ERROR_ACCESS_DENIED {
 			t.Skip("skipping: no SCM access rights")
 		}
 		t.Fatalf("OpenSCManager: %v", err)
@@ -186,7 +196,8 @@ func TestService_Status_ValidStates(t *testing.T) {
 
 	svc, err := scm.OpenService("EventLog")
 	if err != nil {
-		if errno, ok := err.(syscall.Errno); ok && errno == syscall.ERROR_ACCESS_DENIED {
+		var errno syscall.Errno
+		if errors.As(err, &errno) && errno == syscall.ERROR_ACCESS_DENIED {
 			t.Skip("skipping: no service access rights")
 		}
 		t.Fatalf("OpenService(EventLog): %v", err)
@@ -231,7 +242,8 @@ func TestSCManager_MultipleServices(t *testing.T) {
 
 	scm, err := OpenSCManager()
 	if err != nil {
-		if errno, ok := err.(syscall.Errno); ok && errno == syscall.ERROR_ACCESS_DENIED {
+		var errno syscall.Errno
+		if errors.As(err, &errno) && errno == syscall.ERROR_ACCESS_DENIED {
 			t.Skip("skipping: no SCM access rights")
 		}
 		t.Fatalf("OpenSCManager: %v", err)
@@ -244,7 +256,8 @@ func TestSCManager_MultipleServices(t *testing.T) {
 	for _, serviceName := range services {
 		svc, err := scm.OpenService(serviceName)
 		if err != nil {
-			if errno, ok := err.(syscall.Errno); ok && errno == syscall.ERROR_ACCESS_DENIED {
+			var errno syscall.Errno
+			if errors.As(err, &errno) && errno == syscall.ERROR_ACCESS_DENIED {
 				t.Logf("skipping service %q: no access rights", serviceName)
 				continue
 			}
