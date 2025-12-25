@@ -12,6 +12,7 @@ import (
 	"github.com/warpdl/warpdl/internal/extl"
 	"github.com/warpdl/warpdl/internal/server"
 	"github.com/warpdl/warpdl/pkg/credman"
+	"github.com/warpdl/warpdl/pkg/logger"
 	"github.com/warpdl/warpdl/pkg/warplib"
 )
 
@@ -25,17 +26,23 @@ func TestDaemonStartStub(t *testing.T) {
 	}
 
 	var cm *credman.CookieManager
-	oldCookie := cookieManagerFunc
+	oldInit := initDaemonComponents
 	oldStart := startServerFunc
-	cookieManagerFunc = func(*cli.Context) (*credman.CookieManager, error) {
+	initDaemonComponents = func(log logger.Logger) (*DaemonComponents, error) {
 		key := bytes.Repeat([]byte{0x11}, 32)
 		m, err := credman.NewCookieManager(filepath.Join(base, "cookies.warp"), key)
+		if err != nil {
+			return nil, err
+		}
 		cm = m
-		return m, err
+		return &DaemonComponents{
+			CookieManager: m,
+			Server:        &server.Server{},
+		}, nil
 	}
 	startServerFunc = func(*server.Server, context.Context) error { return nil }
 	defer func() {
-		cookieManagerFunc = oldCookie
+		initDaemonComponents = oldInit
 		startServerFunc = oldStart
 		if cm != nil {
 			_ = cm.Close()
@@ -48,7 +55,7 @@ func TestDaemonStartStub(t *testing.T) {
 	}
 }
 
-func TestDaemonCookieManagerError(t *testing.T) {
+func TestDaemonInitComponentsError(t *testing.T) {
 	base := t.TempDir()
 	if err := warplib.SetConfigDir(base); err != nil {
 		t.Fatalf("SetConfigDir: %v", err)
@@ -57,12 +64,12 @@ func TestDaemonCookieManagerError(t *testing.T) {
 		t.Fatalf("SetEngineStore: %v", err)
 	}
 
-	oldCookie := cookieManagerFunc
-	cookieManagerFunc = func(*cli.Context) (*credman.CookieManager, error) {
-		return nil, errors.New("cookie manager error")
+	oldInit := initDaemonComponents
+	initDaemonComponents = func(log logger.Logger) (*DaemonComponents, error) {
+		return nil, errors.New("init components error")
 	}
 	defer func() {
-		cookieManagerFunc = oldCookie
+		initDaemonComponents = oldInit
 	}()
 
 	ctx := newContext(cli.NewApp(), nil, "daemon")
@@ -102,15 +109,19 @@ func TestDaemonExtEngineError(t *testing.T) {
 	}()
 
 	var cm *credman.CookieManager
-	oldCookie := cookieManagerFunc
-	cookieManagerFunc = func(*cli.Context) (*credman.CookieManager, error) {
+	oldInit := initDaemonComponents
+	initDaemonComponents = func(log logger.Logger) (*DaemonComponents, error) {
 		key := bytes.Repeat([]byte{0x11}, 32)
 		m, err := credman.NewCookieManager(filepath.Join(base, "cookies.warp"), key)
+		if err != nil {
+			return nil, err
+		}
 		cm = m
-		return m, err
+		// Simulate ext engine error
+		return nil, errors.New("extension engine error")
 	}
 	defer func() {
-		cookieManagerFunc = oldCookie
+		initDaemonComponents = oldInit
 		if cm != nil {
 			_ = cm.Close()
 		}
@@ -159,17 +170,23 @@ func TestDaemonInitManagerError(t *testing.T) {
 	}
 
 	var cm *credman.CookieManager
-	oldCookie := cookieManagerFunc
+	oldInit := initDaemonComponents
 	oldStart := startServerFunc
-	cookieManagerFunc = func(*cli.Context) (*credman.CookieManager, error) {
+	initDaemonComponents = func(log logger.Logger) (*DaemonComponents, error) {
 		key := bytes.Repeat([]byte{0x11}, 32)
 		m, err := credman.NewCookieManager(filepath.Join(base, "cookies.warp"), key)
+		if err != nil {
+			return nil, err
+		}
 		cm = m
-		return m, err
+		return &DaemonComponents{
+			CookieManager: m,
+			Server:        &server.Server{},
+		}, nil
 	}
 	startServerFunc = func(*server.Server, context.Context) error { return nil }
 	defer func() {
-		cookieManagerFunc = oldCookie
+		initDaemonComponents = oldInit
 		startServerFunc = oldStart
 		if cm != nil {
 			_ = cm.Close()
