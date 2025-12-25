@@ -22,8 +22,8 @@ func (s *Server) createListener() (net.Listener, error) {
 		Net:  "unix",
 	})
 	if err != nil {
-		s.log.Println("Error occurred while using unix socket:", err.Error())
-		s.log.Println("Trying to use tcp socket")
+		s.log.Println("Unix socket creation failed:", err.Error())
+		s.log.Println("Falling back to TCP")
 		tcpListener, tcpErr := net.Listen("tcp", fmt.Sprintf("%s:%d", common.TCPHost, s.port))
 		if tcpErr != nil {
 			return nil, fmt.Errorf("error listening: %s", tcpErr.Error())

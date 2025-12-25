@@ -39,7 +39,7 @@ func (s *Server) createListener() (net.Listener, error) {
 
     l, err := winio.ListenPipe(pipePath, cfg)
     if err != nil {
-        s.log.Println("WARNING: Named pipe creation failed:", err.Error())
+        s.log.Println("Named pipe creation failed:", err.Error())
         s.log.Println("Falling back to TCP (firewall prompts may occur)")
         tcpListener, tcpErr := net.Listen("tcp", fmt.Sprintf("%s:%d", common.TCPHost, s.port))
         if tcpErr != nil {

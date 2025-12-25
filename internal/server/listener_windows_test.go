@@ -77,10 +77,10 @@ func TestCreatePipeListener_CustomPipeName(t *testing.T) {
 	}
 }
 
-// TestCreatePipeListener_TCPFallback verifies that when named pipe creation fails,
-// the server falls back to TCP listener.
-func TestCreatePipeListener_TCPFallback(t *testing.T) {
-	// Force TCP mode to simulate pipe failure
+// TestCreatePipeListener_ForceTCPMode verifies that when WARPDL_FORCE_TCP=1 is set,
+// the server uses TCP listener directly without attempting pipe creation.
+func TestCreatePipeListener_ForceTCPMode(t *testing.T) {
+	// Force TCP mode - skips pipe creation entirely
 	t.Setenv(common.ForceTCPEnv, "1")
 
 	logger := log.New(os.Stdout, "[TEST] ", log.LstdFlags)
