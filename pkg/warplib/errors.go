@@ -45,4 +45,8 @@ var (
 	// ErrInsufficientDiskSpace is returned when there is not enough disk space available
 	// to download the file.
 	ErrInsufficientDiskSpace = errors.New("insufficient disk space")
+
+	// ErrCorruptionDetected is returned when data corruption is detected during download.
+	// This indicates a negative lchunk value, suggesting bytes read exceeded expected total.
+	ErrCorruptionDetected = errors.New("corruption detected: bytes read exceeded expected total")
 )

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -170,7 +171,9 @@ func (p *Part) copyBuffer(src io.ReadCloser, foff int64, force bool) (slow bool,
 			break
 		}
 		if lchunk < 1 {
-			panic("MYSTERIOUS CORRUPTION! Report to github.com/warpdl/warpdl")
+			p.log("corruption detected: lchunk=%d, tread=%d, p.read=%d", lchunk, tread, p.read)
+			err = fmt.Errorf("%w: lchunk=%d, report to github.com/warpdl/warpdl", ErrCorruptionDetected, lchunk)
+			break
 		}
 		if lchunk < chunk {
 			buf = make([]byte, lchunk)

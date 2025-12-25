@@ -321,3 +321,68 @@ func TestPartDownloadRequestCreationError(t *testing.T) {
 		t.Fatalf("expected error from cancelled context")
 	}
 }
+
+// corruptedReader is a reader that simulates data corruption by tracking
+// bytes read and artificially advancing it to trigger lchunk < 1.
+type corruptedReader struct {
+	data []byte
+	pos  int
+}
+
+func (c *corruptedReader) Read(p []byte) (int, error) {
+	if c.pos >= len(c.data) {
+		return 0, io.EOF
+	}
+	n := copy(p, c.data[c.pos:])
+	c.pos += n
+	return n, nil
+}
+
+func (c *corruptedReader) Close() error {
+	return nil
+}
+
+// TestCopyBufferCorruptionDetection tests that copyBuffer returns an error
+// instead of panicking when corruption is detected (lchunk < 1).
+// This simulates the scenario where p.read somehow exceeds tread.
+func TestCopyBufferCorruptionDetection(t *testing.T) {
+	dir := t.TempDir()
+	partFile, err := os.Create(filepath.Join(dir, "part.bin"))
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	defer partFile.Close()
+
+	p := &Part{
+		pf:     partFile,
+		hash:   "p1",
+		chunk:  4,
+		offset: 0,
+		read:   0,
+		l:      log.New(io.Discard, "", 0),
+		pfunc:  func(string, int) {},
+		ofunc:  func(string, int64) { t.Fatalf("completion handler should not be called on corruption") },
+	}
+
+	// Create a reader with data
+	reader := &corruptedReader{data: []byte("hello")}
+	
+	// Simulate corruption by manually setting p.read to a value that will cause lchunk < 1
+	// foff=4 means we expect bytes 0-4 (5 bytes total)
+	// tread = foff + 1 - offset = 4 + 1 - 0 = 5
+	// If p.read is already 6, then lchunk = tread - p.read = 5 - 6 = -1
+	p.read = 6
+
+	slow, err := p.copyBuffer(reader, 4, true)
+	if err == nil {
+		t.Fatalf("expected corruption error, got nil")
+	}
+	if !errors.Is(err, ErrCorruptionDetected) {
+		t.Fatalf("expected ErrCorruptionDetected, got %v", err)
+	}
+	if slow {
+		t.Fatalf("expected slow=false")
+	}
+	p.pwg.Wait()
+}
+
