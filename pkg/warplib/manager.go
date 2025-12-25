@@ -3,6 +3,9 @@ package warplib
 import (
 	"encoding/gob"
 	"errors"
+	"fmt"
+	"io"
+	"log"
 	"net/http"
 	"os"
 	"sync"
@@ -19,6 +22,7 @@ type Manager struct {
 	items ItemsMap
 	f     *os.File
 	mu    *sync.RWMutex
+	log   *log.Logger
 }
 
 // InitManager creates a new manager instance.
@@ -26,6 +30,7 @@ func InitManager() (m *Manager, err error) {
 	m = &Manager{
 		items: make(ItemsMap),
 		mu:    new(sync.RWMutex),
+		log:   log.New(os.Stderr, "warplib: ", log.LstdFlags),
 	}
 	m.f, err = WarpOpenFile(
 		__USERDATA_FILE_NAME,
@@ -36,7 +41,11 @@ func InitManager() (m *Manager, err error) {
 		m = nil
 		return
 	}
-	_ = gob.NewDecoder(m.f).Decode(&m.items)
+	// Handle decode errors gracefully instead of silently ignoring them
+	if err := gob.NewDecoder(m.f).Decode(&m.items); err != nil && err != io.EOF {
+		m.log.Printf("warning: failed to load state: %v - starting with empty state", err)
+		m.items = make(ItemsMap)
+	}
 	m.populateMemPart()
 	return
 }
@@ -141,9 +150,20 @@ func (m *Manager) patchHandlers(d *Downloader, item *Item) {
 // which encodes its state and stores them as a file.
 func (m *Manager) encode(e any) (err error) {
 	m.mu.Lock()
-	m.f.Seek(0, 0)
 	defer m.mu.Unlock()
-	return gob.NewEncoder(m.f).Encode(e)
+	
+	// Truncate before write to remove old data
+	if err := m.f.Truncate(0); err != nil {
+		return fmt.Errorf("truncate failed: %w", err)
+	}
+	if _, err := m.f.Seek(0, 0); err != nil {
+		return fmt.Errorf("seek failed: %w", err)
+	}
+	if err := gob.NewEncoder(m.f).Encode(e); err != nil {
+		return fmt.Errorf("encode failed: %w", err)
+	}
+	// Ensure data is written to disk
+	return m.f.Sync()
 }
 
 // mapItem maps the item to the manager's items map.
@@ -317,8 +337,22 @@ func (m *Manager) Flush() {
 		delete(m.items, hash)
 		_ = WarpRemoveAll(GetPath(DlDataDir, hash))
 	}
-	m.f.Seek(0, 0)
-	gob.NewEncoder(m.f).Encode(m.items)
+	// Use the encode logic with proper truncation and sync
+	if err := m.f.Truncate(0); err != nil {
+		m.log.Printf("flush: truncate failed: %v", err)
+		return
+	}
+	if _, err := m.f.Seek(0, 0); err != nil {
+		m.log.Printf("flush: seek failed: %v", err)
+		return
+	}
+	if err := gob.NewEncoder(m.f).Encode(m.items); err != nil {
+		m.log.Printf("flush: encode failed: %v", err)
+		return
+	}
+	if err := m.f.Sync(); err != nil {
+		m.log.Printf("flush: sync failed: %v", err)
+	}
 }
 
 // TODO: make FlushOne safe for flushing while the item is being downloaded
