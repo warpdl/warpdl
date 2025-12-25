@@ -76,9 +76,11 @@ func runServiceWithLogger(log logger.Logger) error {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Start server in background
+	// Capture function by value to avoid race with test mocks
+	startFunc := windowsServerStartFunc
 	serverErrCh := make(chan error, 1)
 	go func() {
-		serverErrCh <- windowsServerStartFunc(components.Server, ctx)
+		serverErrCh <- startFunc(components.Server, ctx)
 	}()
 
 	// Create service handler with full daemon functionality
