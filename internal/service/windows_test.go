@@ -169,10 +169,16 @@ func TestWindowsHandler_Execute_HandlesStop(t *testing.T) {
 	changes := make(chan svc.Status, 10)
 	requests := make(chan svc.ChangeRequest, 2)
 
-	done := make(chan uint32, 1)
+	done := make(chan struct {
+		ssec  bool
+		errno uint32
+	}, 1)
 	go func() {
-		_, exitCode := handler.Execute(nil, requests, changes)
-		done <- exitCode
+		ssec, errno := handler.Execute(nil, requests, changes)
+		done <- struct {
+			ssec  bool
+			errno uint32
+		}{ssec, errno}
 	}()
 
 	// Wait for Running state before sending Stop
@@ -184,9 +190,9 @@ func TestWindowsHandler_Execute_HandlesStop(t *testing.T) {
 	requests <- svc.ChangeRequest{Cmd: svc.Stop}
 
 	select {
-	case exitCode := <-done:
-		if exitCode != 0 {
-			t.Errorf("Execute() returned exit code %d, want 0", exitCode)
+	case result := <-done:
+		if result.errno != 0 || result.ssec {
+			t.Errorf("Execute() returned unexpected exit codes: ssec=%v, errno=%d", result.ssec, result.errno)
 		}
 	case <-time.After(500 * time.Millisecond):
 		t.Fatal("Execute() did not stop on Stop command")
@@ -238,20 +244,20 @@ func TestWindowsHandler_Execute_HandlesStartError(t *testing.T) {
 
 	// Run Execute in a goroutine with timeout protection
 	type result struct {
-		svcCode  uint32
-		exitCode uint32
+		ssec  bool
+		errno uint32
 	}
 	done := make(chan result, 1)
 	go func() {
-		svc, exit := handler.Execute(nil, requests, changes)
-		done <- result{svc, exit}
+		ssec, errno := handler.Execute(nil, requests, changes)
+		done <- result{ssec, errno}
 	}()
 
 	// Wait for completion with timeout
 	select {
 	case res := <-done:
-		// Should indicate failure
-		if res.exitCode == 0 && res.svcCode == 0 {
+		// Should indicate failure (ssec=true means use service-specific exit code)
+		if res.errno == 0 && !res.ssec {
 			t.Error("Execute() should return non-zero exit code on start failure")
 		}
 	case <-time.After(2 * time.Second):
@@ -292,15 +298,15 @@ func TestWindowsHandler_Execute_HandlesShutdownError(t *testing.T) {
 	requests := make(chan svc.ChangeRequest, 2)
 
 	done := make(chan struct {
-		svcCode  uint32
-		exitCode uint32
+		ssec  bool
+		errno uint32
 	}, 1)
 	go func() {
-		svcCode, exitCode := handler.Execute(nil, requests, changes)
+		ssec, errno := handler.Execute(nil, requests, changes)
 		done <- struct {
-			svcCode  uint32
-			exitCode uint32
-		}{svcCode, exitCode}
+			ssec  bool
+			errno uint32
+		}{ssec, errno}
 	}()
 
 	// Wait for Running state before sending Stop
@@ -313,8 +319,8 @@ func TestWindowsHandler_Execute_HandlesShutdownError(t *testing.T) {
 
 	select {
 	case result := <-done:
-		// Should indicate failure due to shutdown error
-		if result.exitCode == 0 && result.svcCode == 0 {
+		// Should indicate failure due to shutdown error (ssec=true means use service-specific exit code)
+		if result.errno == 0 && !result.ssec {
 			t.Error("Execute() should return non-zero exit code on shutdown failure")
 		}
 	case <-time.After(500 * time.Millisecond):
@@ -332,15 +338,15 @@ func TestWindowsHandler_Execute_HandlesChannelClosure(t *testing.T) {
 	requests := make(chan svc.ChangeRequest, 2)
 
 	done := make(chan struct {
-		svcCode  uint32
-		exitCode uint32
+		ssec  bool
+		errno uint32
 	}, 1)
 	go func() {
-		svcCode, exitCode := handler.Execute(nil, requests, changes)
+		ssec, errno := handler.Execute(nil, requests, changes)
 		done <- struct {
-			svcCode  uint32
-			exitCode uint32
-		}{svcCode, exitCode}
+			ssec  bool
+			errno uint32
+		}{ssec, errno}
 	}()
 
 	// Wait for Running state before closing channel
@@ -355,8 +361,8 @@ func TestWindowsHandler_Execute_HandlesChannelClosure(t *testing.T) {
 	select {
 	case result := <-done:
 		// Should return successfully even with channel closure
-		if result.exitCode != 0 || result.svcCode != 0 {
-			t.Errorf("Execute() returned unexpected exit codes: svc=%d, exit=%d", result.svcCode, result.exitCode)
+		if result.errno != 0 || result.ssec {
+			t.Errorf("Execute() returned unexpected exit codes: ssec=%v, errno=%d", result.ssec, result.errno)
 		}
 	case <-time.After(500 * time.Millisecond):
 		t.Fatal("Execute() did not complete on channel closure")
@@ -372,15 +378,15 @@ func TestWindowsHandler_Execute_HandlesShutdown(t *testing.T) {
 	requests := make(chan svc.ChangeRequest, 2)
 
 	done := make(chan struct {
-		svcCode  uint32
-		exitCode uint32
+		ssec  bool
+		errno uint32
 	}, 1)
 	go func() {
-		svcCode, exitCode := handler.Execute(nil, requests, changes)
+		ssec, errno := handler.Execute(nil, requests, changes)
 		done <- struct {
-			svcCode  uint32
-			exitCode uint32
-		}{svcCode, exitCode}
+			ssec  bool
+			errno uint32
+		}{ssec, errno}
 	}()
 
 	// Wait for Running state before sending Shutdown
@@ -400,8 +406,8 @@ func TestWindowsHandler_Execute_HandlesShutdown(t *testing.T) {
 
 	select {
 	case result := <-done:
-		if result.exitCode != 0 || result.svcCode != 0 {
-			t.Errorf("Execute() returned unexpected exit codes on shutdown: svc=%d, exit=%d", result.svcCode, result.exitCode)
+		if result.errno != 0 || result.ssec {
+			t.Errorf("Execute() returned unexpected exit codes on shutdown: ssec=%v, errno=%d", result.ssec, result.errno)
 		}
 	case <-time.After(500 * time.Millisecond):
 		t.Fatal("Execute() did not handle Shutdown command")
@@ -441,15 +447,15 @@ func TestWindowsHandler_Execute_IgnoresUnknownCommands(t *testing.T) {
 	requests := make(chan svc.ChangeRequest, 10)
 
 	done := make(chan struct {
-		svcCode  uint32
-		exitCode uint32
+		ssec  bool
+		errno uint32
 	}, 1)
 	go func() {
-		svcCode, exitCode := handler.Execute(nil, requests, changes)
+		ssec, errno := handler.Execute(nil, requests, changes)
 		done <- struct {
-			svcCode  uint32
-			exitCode uint32
-		}{svcCode, exitCode}
+			ssec  bool
+			errno uint32
+		}{ssec, errno}
 	}()
 
 	// Wait for Running state
@@ -474,8 +480,8 @@ func TestWindowsHandler_Execute_IgnoresUnknownCommands(t *testing.T) {
 
 	select {
 	case result := <-done:
-		if result.exitCode != 0 || result.svcCode != 0 {
-			t.Errorf("Execute() returned unexpected exit codes: svc=%d, exit=%d", result.svcCode, result.exitCode)
+		if result.errno != 0 || result.ssec {
+			t.Errorf("Execute() returned unexpected exit codes: ssec=%v, errno=%d", result.ssec, result.errno)
 		}
 	case <-time.After(500 * time.Millisecond):
 		t.Fatal("Execute() did not complete after unknown commands")
