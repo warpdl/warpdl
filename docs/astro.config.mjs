@@ -7,6 +7,10 @@ export default defineConfig({
   integrations: [
     starlight({
       title: 'WarpDL',
+      logo: {
+        src: './src/assets/logo.png',
+      },
+      favicon: '/logo.png',
       social: [
         {
           icon: 'github',
