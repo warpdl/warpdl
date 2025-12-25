@@ -13,21 +13,136 @@ $env:WARPDL_FORCE_TCP = "1"
 warpdl list
 ```
 
-## Windows Firewall
+## Windows Firewall Configuration
 
-If downloads fail, add firewall exception:
+WarpDL daemon uses **TCP port 3849** for CLI-to-daemon communication when named pipes are unavailable. On first run, Windows may prompt to allow network access.
 
+### Recommended Firewall Settings
+
+When prompted by Windows Firewall:
+- **Private networks**: ✓ Allow (for home/work networks)
+- **Public networks**: ✗ Deny (optional, localhost-only communication)
+
+### Manual Firewall Rule
+
+If you missed the prompt or need to reconfigure:
+
+#### Using PowerShell (Recommended)
 ```powershell
-New-NetFirewallRule -DisplayName "WarpDL" -Direction Inbound -Program "C:\path\to\warpdl.exe" -Action Allow
+# Add inbound rule for WarpDL on private networks
+New-NetFirewallRule -DisplayName "WarpDL Daemon" `
+  -Direction Inbound `
+  -Program "C:\path\to\warpdl.exe" `
+  -Action Allow `
+  -Profile Private `
+  -Description "Allow WarpDL daemon communication on port 3849"
 ```
 
-## Antivirus Interference
+#### Using netsh (Alternative)
+```powershell
+netsh advfirewall firewall add rule name="WarpDL Daemon" `
+  dir=in action=allow program="C:\path\to\warpdl.exe" profile=private
+```
 
-Some antivirus software may flag parallel connections. Add WarpDL to exclusions if experiencing slow speeds.
+#### Using Windows Defender Firewall GUI
 
-## SmartScreen Warning
+1. Open **Windows Defender Firewall with Advanced Security**
+2. Click **Inbound Rules** → **New Rule...**
+3. Select **Program** → Next
+4. Browse to `warpdl.exe` location → Next
+5. Select **Allow the connection** → Next
+6. Check **Private** only → Next
+7. Name: "WarpDL Daemon" → Finish
 
-Windows SmartScreen may warn about unsigned binaries. Click "More info" → "Run anyway" or build from source.
+### Verifying Firewall Rules
+
+```powershell
+# Check if rule exists
+Get-NetFirewallRule -DisplayName "WarpDL*"
+
+# Remove rule if needed
+Remove-NetFirewallRule -DisplayName "WarpDL Daemon"
+```
+
+## Antivirus Configuration
+
+Download managers are commonly flagged as suspicious due to parallel connections and network activity. If WarpDL is blocked or quarantined, add exclusions for:
+
+### Recommended Exclusions
+
+- **Application data**: `%LOCALAPPDATA%\warpdl\`
+- **Configuration directory**: `%USERPROFILE%\.config\warpdl\`
+- **Executable path**: Full path to `warpdl.exe` (e.g., `C:\Program Files\warpdl\warpdl.exe`)
+
+### Windows Defender Exclusions
+
+#### Using Windows Security GUI
+
+1. Open **Windows Security** (Start → Settings → Privacy & Security → Windows Security)
+2. Go to **Virus & threat protection**
+3. Under "Virus & threat protection settings", click **Manage settings**
+4. Scroll to **Exclusions** → Click **Add or remove exclusions**
+5. Click **Add an exclusion** → Select type:
+   - **Folder**: Add `%LOCALAPPDATA%\warpdl` and `%USERPROFILE%\.config\warpdl`
+   - **File**: Add path to `warpdl.exe`
+
+#### Using PowerShell
+
+```powershell
+# Add folder exclusions
+Add-MpPreference -ExclusionPath "$env:LOCALAPPDATA\warpdl"
+Add-MpPreference -ExclusionPath "$env:USERPROFILE\.config\warpdl"
+
+# Add process exclusion
+Add-MpPreference -ExclusionProcess "warpdl.exe"
+
+# Verify exclusions
+Get-MpPreference | Select-Object -ExpandProperty ExclusionPath
+```
+
+### Other Antivirus Software
+
+For third-party antivirus programs (Norton, McAfee, Avast, Kaspersky, etc.):
+
+1. Open your antivirus control panel
+2. Navigate to **Exclusions**, **Exceptions**, or **Whitelist** settings
+3. Add the paths and executable mentioned above
+4. Restart WarpDL daemon after adding exclusions
+
+**Note**: Specific steps vary by antivirus vendor. Consult your antivirus documentation for detailed instructions.
+
+## Windows SmartScreen
+
+Windows SmartScreen may display "Windows protected your PC" warning when running unsigned or less commonly downloaded executables.
+
+### Understanding SmartScreen
+
+- **Official releases**: Signed builds from the [Releases page](https://github.com/warpdl/warpdl/releases) should not trigger warnings
+- **Development/snapshot builds**: May trigger SmartScreen due to lack of code signing
+- **Direct downloads**: Executables not downloaded through official channels may be flagged
+
+### Bypassing SmartScreen Warning
+
+If you see the "Windows protected your PC" dialog:
+
+1. **Click "More info"** - This reveals additional options
+2. **Click "Run anyway"** - Allows the application to execute
+3. Windows will remember your choice for this specific file
+
+### Alternative: Using PowerShell
+
+```powershell
+# Unblock downloaded file (removes Mark-of-the-Web)
+Unblock-File -Path "C:\path\to\warpdl.exe"
+```
+
+### Preventing SmartScreen Warnings
+
+- **Use official releases**: Download from [GitHub Releases](https://github.com/warpdl/warpdl/releases) or via package managers (Scoop)
+- **Build from source**: Compile locally to avoid download flags
+- **Wait for reputation**: SmartScreen learns from usage patterns over time
+
+**Security Note**: Only bypass SmartScreen for executables from trusted sources. Verify file hashes from the official repository if uncertain.
 
 ## Long Path Support
 
