@@ -99,6 +99,11 @@ func TestRunAsWindowsService_UsesEventLog(t *testing.T) {
 	}
 	defer func() { newEventLogger = oldNewEventLogger }()
 
+	// Mock server start to prevent nil pointer dereference
+	oldServerStart := windowsServerStartFunc
+	windowsServerStartFunc = func(*server.Server, context.Context) error { return nil }
+	defer func() { windowsServerStartFunc = oldServerStart }()
+
 	// Mock initDaemonComponents
 	var cm *credman.CookieManager
 	oldInit := initDaemonComponents
@@ -162,6 +167,11 @@ func TestRunAsWindowsService_FallsBackToConsole(t *testing.T) {
 		return nil, errors.New("event log not available")
 	}
 	defer func() { newEventLogger = oldNewEventLogger }()
+
+	// Mock server start to prevent nil pointer dereference
+	oldServerStart := windowsServerStartFunc
+	windowsServerStartFunc = func(*server.Server, context.Context) error { return nil }
+	defer func() { windowsServerStartFunc = oldServerStart }()
 
 	// Mock initDaemonComponents
 	var cm *credman.CookieManager

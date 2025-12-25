@@ -8,15 +8,17 @@ import (
 
 	"github.com/urfave/cli"
 	daemonpkg "github.com/warpdl/warpdl/internal/daemon"
+	"github.com/warpdl/warpdl/internal/server"
 	"github.com/warpdl/warpdl/pkg/logger"
 	"golang.org/x/sys/windows/svc"
 )
 
 // Test hooks for mocking
 var (
-	svcIsWindowsService = svc.IsWindowsService
-	svcRun              = svc.Run
-	newEventLogger      = logger.NewEventLogger
+	svcIsWindowsService      = svc.IsWindowsService
+	svcRun                   = svc.Run
+	newEventLogger           = logger.NewEventLogger
+	windowsServerStartFunc   = func(srv *server.Server, ctx context.Context) error { return srv.Start(ctx) }
 )
 
 // getDaemonAction returns the platform-specific daemon action.
@@ -76,7 +78,7 @@ func runServiceWithLogger(log logger.Logger) error {
 	// Start server in background
 	serverErrCh := make(chan error, 1)
 	go func() {
-		serverErrCh <- components.Server.Start(ctx)
+		serverErrCh <- windowsServerStartFunc(components.Server, ctx)
 	}()
 
 	// Create service handler with full daemon functionality
