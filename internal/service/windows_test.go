@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 
 // MockRunner implements a test double for the daemon.Runner interface.
 type MockRunner struct {
+	mu             sync.Mutex
 	startCalled    bool
 	shutdownCalled bool
 	running        bool
@@ -21,24 +23,37 @@ type MockRunner struct {
 }
 
 func (m *MockRunner) Start(ctx context.Context) error {
+	m.mu.Lock()
 	m.startCalled = true
 	if m.startErr != nil {
-		return m.startErr
+		err := m.startErr
+		m.mu.Unlock()
+		return err
 	}
 	m.running = true
+	m.mu.Unlock()
+
 	// Block until context is canceled (simulating real runner behavior)
 	<-ctx.Done()
+
+	m.mu.Lock()
 	m.running = false
+	m.mu.Unlock()
 	return ctx.Err()
 }
 
 func (m *MockRunner) Shutdown() error {
+	m.mu.Lock()
 	m.shutdownCalled = true
 	m.running = false
-	return m.shutdownErr
+	err := m.shutdownErr
+	m.mu.Unlock()
+	return err
 }
 
 func (m *MockRunner) IsRunning() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return m.running
 }
 
