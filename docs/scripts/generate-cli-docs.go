@@ -29,6 +29,19 @@ func escapeAngleBrackets(md string) string {
     return re.ReplaceAllString(md, "`<$1>`")
 }
 
+// cleanManPageFormat removes man page style formatting from ToMarkdown() output
+func cleanManPageFormat(md string) string {
+    // Remove % warpdl(8) header and description block
+    re1 := regexp.MustCompile(`(?s)% warpdl\(\d+\).*?\n\n+%\s*\n+`)
+    md = re1.ReplaceAllString(md, "")
+
+    // Remove any remaining standalone % lines
+    re2 := regexp.MustCompile(`(?m)^%\s*$\n?`)
+    md = re2.ReplaceAllString(md, "")
+
+    return md
+}
+
 func main() {
     app := cmd.GetApp(cmd.BuildArgs{Version: "latest"})
 
@@ -37,6 +50,9 @@ func main() {
         fmt.Fprintf(os.Stderr, "Error generating markdown: %v\n", err)
         os.Exit(1)
     }
+
+    // Clean up man page style formatting
+    md = cleanManPageFormat(md)
 
     // Escape angle brackets to prevent MDX/JSX interpretation
     md = escapeAngleBrackets(md)
