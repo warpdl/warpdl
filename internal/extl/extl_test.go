@@ -510,3 +510,29 @@ func TestRequestCallbackErrorsAdditional(t *testing.T) {
 	cb = _requestCallback(runtime, &http.Client{})
 	_ = cb(goja.FunctionCall{Arguments: []goja.Value{runtime.ToValue("bad")}})
 }
+
+// TestEngineFilePermissions verifies that engine file is created with secure permissions
+func TestEngineFilePermissions(t *testing.T) {
+	tmpDir := t.TempDir()
+	originalStore := ENGINE_STORE
+	ENGINE_STORE = tmpDir
+	defer func() { ENGINE_STORE = originalStore }()
+
+	logger := log.New(io.Discard, "", 0)
+	engine, err := NewEngine(logger, nil, false)
+	if err != nil {
+		t.Fatalf("NewEngine: %v", err)
+	}
+	defer engine.Close()
+
+	enginePath := filepath.Join(tmpDir, "module_engine.json")
+	info, err := os.Stat(enginePath)
+	if err != nil {
+		t.Fatalf("stat engine file: %v", err)
+	}
+
+	perm := info.Mode().Perm()
+	if perm != 0644 {
+		t.Errorf("expected engine file permissions 0644, got %#o", perm)
+	}
+}

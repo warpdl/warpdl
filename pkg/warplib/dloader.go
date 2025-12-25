@@ -408,12 +408,12 @@ func (d *Downloader) openFile() (err error) {
 			return fmt.Errorf("%w: %s", ErrFileExists, savePath)
 		}
 		// File exists and overwrite=true, truncate it
-		d.f, err = WarpOpenFile(savePath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
+		d.f, err = WarpOpenFile(savePath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
 		return
 	}
 
 	// File doesn't exist, create normally
-	d.f, err = WarpOpenFile(savePath, os.O_RDWR|os.O_CREATE, 0666)
+	d.f, err = WarpOpenFile(savePath, os.O_RDWR|os.O_CREATE, 0644)
 	return
 }
 
@@ -868,7 +868,7 @@ func (d *Downloader) setHash() {
 // and logs will be stored.
 func (d *Downloader) setupDlPath() (err error) {
 	dlpath := filepath.Join(DlDataDir, d.hash)
-	err = WarpMkdir(dlpath, os.ModePerm)
+	err = WarpMkdir(dlpath, 0755)
 	if err != nil {
 		return
 	}
@@ -877,13 +877,13 @@ func (d *Downloader) setupDlPath() (err error) {
 }
 
 // setupLogger initiates a logger instance as a log file
-// named 'logs.txt' with 0666 permission codes.
+// named 'logs.txt' with 0644 permission codes.
 // Location of logs is DlDirectory/{Hash}/logs.txt
 func (d *Downloader) setupLogger() (err error) {
 	d.lw, err = WarpOpenFile(
 		filepath.Join(d.dlPath, "logs.txt"),
 		os.O_RDWR|os.O_CREATE|os.O_APPEND,
-		0666,
+		0644,
 	)
 	if err != nil {
 		return

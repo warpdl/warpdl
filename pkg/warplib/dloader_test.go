@@ -607,3 +607,90 @@ func TestOpenFileSucceedsWhenFileDoesNotExist(t *testing.T) {
 		})
 	}
 }
+
+// TestFilePermissions verifies that files are created with secure permissions (0644)
+func TestFilePermissions(t *testing.T) {
+	tmpDir := t.TempDir()
+	defer func() { ConfigDir = defaultConfigDir() }()
+	if err := setConfigDir(tmpDir); err != nil {
+		t.Fatalf("setConfigDir: %v", err)
+	}
+
+	t.Run("main download file permissions", func(t *testing.T) {
+		filePath := filepath.Join(tmpDir, "test_download.bin")
+		d := &Downloader{
+			dlLoc:     tmpDir,
+			fileName:  "test_download.bin",
+			overwrite: false,
+		}
+
+		err := d.openFile()
+		if err != nil {
+			t.Fatalf("openFile: %v", err)
+		}
+		defer d.f.Close()
+
+		info, err := os.Stat(filePath)
+		if err != nil {
+			t.Fatalf("stat file: %v", err)
+		}
+
+		perm := info.Mode().Perm()
+		if perm != 0644 {
+			t.Errorf("expected file permissions 0644, got %#o", perm)
+		}
+	})
+
+	t.Run("log file permissions", func(t *testing.T) {
+		hash := "test_hash_123"
+		dlPath := filepath.Join(DlDataDir, hash)
+		if err := WarpMkdirAll(dlPath, 0755); err != nil {
+			t.Fatalf("MkdirAll: %v", err)
+		}
+
+		d := &Downloader{
+			dlPath: dlPath,
+		}
+
+		err := d.setupLogger()
+		if err != nil {
+			t.Fatalf("setupLogger: %v", err)
+		}
+		defer d.lw.Close()
+
+		logPath := filepath.Join(dlPath, "logs.txt")
+		info, err := os.Stat(logPath)
+		if err != nil {
+			t.Fatalf("stat log file: %v", err)
+		}
+
+		perm := info.Mode().Perm()
+		if perm != 0644 {
+			t.Errorf("expected log file permissions 0644, got %#o", perm)
+		}
+	})
+
+	t.Run("download directory permissions", func(t *testing.T) {
+		hash := "test_hash_456"
+		dlPath := filepath.Join(DlDataDir, hash)
+		
+		d := &Downloader{
+			hash: hash,
+		}
+
+		err := d.setupDlPath()
+		if err != nil {
+			t.Fatalf("setupDlPath: %v", err)
+		}
+
+		info, err := os.Stat(dlPath)
+		if err != nil {
+			t.Fatalf("stat directory: %v", err)
+		}
+
+		perm := info.Mode().Perm()
+		if perm != 0755 {
+			t.Errorf("expected directory permissions 0755, got %#o", perm)
+		}
+	})
+}

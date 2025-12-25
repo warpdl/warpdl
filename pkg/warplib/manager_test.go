@@ -372,3 +372,30 @@ func containsSubstring(s, substr string) bool {
 	}
 	return false
 }
+
+// TestManagerFilePermissions verifies that manager file is created with secure permissions
+func TestManagerFilePermissions(t *testing.T) {
+	tmpDir := t.TempDir()
+	defer func() { ConfigDir = defaultConfigDir() }()
+	if err := setConfigDir(tmpDir); err != nil {
+		t.Fatalf("setConfigDir: %v", err)
+	}
+
+	// Initialize manager to create the userdata file
+	m, err := InitManager()
+	if err != nil {
+		t.Fatalf("InitManager: %v", err)
+	}
+	defer m.Close()
+
+	// Check file permissions
+	info, err := os.Stat(__USERDATA_FILE_NAME)
+	if err != nil {
+		t.Fatalf("stat userdata file: %v", err)
+	}
+
+	perm := info.Mode().Perm()
+	if perm != 0644 {
+		t.Errorf("expected userdata file permissions 0644, got %#o", perm)
+	}
+}

@@ -47,7 +47,7 @@ func NewCookieManager(filePath string, key []byte) (*CookieManager, error) {
 
 func (cm *CookieManager) loadCookies() error {
 	var err error
-	cm.f, err = os.OpenFile(cm.filePath, os.O_RDWR|os.O_CREATE, 0666)
+	cm.f, err = os.OpenFile(cm.filePath, os.O_RDWR|os.O_CREATE, 0644)
 	if err != nil {
 		return err
 	}

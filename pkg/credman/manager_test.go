@@ -407,3 +407,30 @@ func compareCookies(t *testing.T, expected *types.Cookie, actual *types.Cookie) 
 		}
 	}
 }
+
+// TestCookieManagerFilePermissions verifies that cookie file is created with secure permissions
+func TestCookieManagerFilePermissions(t *testing.T) {
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "cookies.warp")
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		t.Fatalf("rand.Read: %v", err)
+	}
+
+	cm, err := NewCookieManager(filePath, key)
+	if err != nil {
+		t.Fatalf("NewCookieManager: %v", err)
+	}
+	defer cm.Close()
+
+	// Check file permissions
+	info, err := os.Stat(filePath)
+	if err != nil {
+		t.Fatalf("stat cookie file: %v", err)
+	}
+
+	perm := info.Mode().Perm()
+	if perm != 0644 {
+		t.Errorf("expected cookie file permissions 0644, got %#o", perm)
+	}
+}

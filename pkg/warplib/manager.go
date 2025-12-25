@@ -30,7 +30,7 @@ func InitManager() (m *Manager, err error) {
 	m.f, err = WarpOpenFile(
 		__USERDATA_FILE_NAME,
 		os.O_RDWR|os.O_CREATE,
-		os.ModePerm,
+		0644,
 	)
 	if err != nil {
 		m = nil

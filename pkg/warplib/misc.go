@@ -68,7 +68,7 @@ func defaultConfigDir() string {
 		panic(err)
 	}
 	if !dirExists(cdr) {
-		err = WarpMkdirAll(cdr, os.ModePerm)
+		err = WarpMkdirAll(cdr, 0755)
 		if err != nil {
 			panic(err)
 		}
@@ -84,12 +84,12 @@ func setConfigDir(dir string) error {
 	if err != nil {
 		return err
 	}
-	if err := WarpMkdirAll(abs, os.ModePerm); err != nil {
+	if err := WarpMkdirAll(abs, 0755); err != nil {
 		return err
 	}
 	ConfigDir = abs
 	DlDataDir = filepath.Join(abs, "dldata")
-	if err := WarpMkdirAll(DlDataDir, os.ModePerm); err != nil {
+	if err := WarpMkdirAll(DlDataDir, 0755); err != nil {
 		return err
 	}
 	__USERDATA_FILE_NAME = filepath.Join(abs, "userdata.warp")

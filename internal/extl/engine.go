@@ -68,7 +68,7 @@ func NewEngine(l *log.Logger, cookieManager *credman.CookieManager, debugger boo
 	}
 	// create the module_engine.json if it doesn't exist,
 	// otherwise open it with read and write perms.
-	file, err := os.OpenFile(mePath, os.O_RDWR|os.O_CREATE, 0666)
+	file, err := os.OpenFile(mePath, os.O_RDWR|os.O_CREATE, 0644)
 	if err != nil {
 		return nil, err
 	}
