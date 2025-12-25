@@ -608,9 +608,83 @@ func TestOpenFileSucceedsWhenFileDoesNotExist(t *testing.T) {
 	}
 }
 
-// TestGetPartSizeZeroNumBaseParts tests that getPartSize guards against division by zero
-// when numBaseParts is 0, defaulting to 1.
-func TestGetPartSizeZeroNumBaseParts(t *testing.T) {
+
+// TestNumBasePartsInitialization tests that numBaseParts is properly validated during initialization.
+// Since getPartSize() is now a pure getter, validation happens in NewDownloader().
+func TestNumBasePartsInitialization(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "1000")
+		w.Header().Set("Content-Disposition", `attachment; filename="test.bin"`)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	tempDir := t.TempDir()
+
+	tests := []struct {
+		name             string
+		inputBaseParts   int32
+		maxConnections   int32
+		expectedMinValue int32
+	}{
+		{
+			name:             "zero numBaseParts gets corrected to 1",
+			inputBaseParts:   0,
+			maxConnections:   0, // Use default
+			expectedMinValue: 1,
+		},
+		{
+			name:             "negative numBaseParts gets corrected to 1",
+			inputBaseParts:   -1,
+			maxConnections:   0, // Use default
+			expectedMinValue: 1,
+		},
+		{
+			name:             "positive numBaseParts stays as is",
+			inputBaseParts:   4,
+			maxConnections:   4, // Set maxConnections >= numBaseParts to avoid capping
+			expectedMinValue: 4,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opts := &DownloaderOpts{
+				DownloadDirectory: tempDir,
+				NumBaseParts:      tt.inputBaseParts,
+			}
+			if tt.maxConnections > 0 {
+				opts.MaxConnections = tt.maxConnections
+			}
+
+			d, err := NewDownloader(&http.Client{}, srv.URL, opts)
+			if err != nil {
+				t.Fatalf("NewDownloader failed: %v", err)
+			}
+			defer d.Close()
+
+			if d.numBaseParts < tt.expectedMinValue {
+				t.Errorf("Expected numBaseParts >= %d, got %d", tt.expectedMinValue, d.numBaseParts)
+			}
+
+			// Also verify getPartSize works correctly with the corrected value
+			partSize, rpartSize := d.getPartSize()
+			expectedPartSize := int64(1000) / int64(d.numBaseParts)
+			expectedRPartSize := int64(1000) % int64(d.numBaseParts)
+
+			if partSize != expectedPartSize {
+				t.Errorf("expected partSize=%d, got=%d", expectedPartSize, partSize)
+			}
+			if rpartSize != expectedRPartSize {
+				t.Errorf("expected rpartSize=%d, got=%d", expectedRPartSize, rpartSize)
+			}
+		})
+	}
+}
+
+// TestGetPartSize tests the getPartSize method with properly initialized Downloader instances.
+// Now that numBaseParts validation happens during initialization, this tests the pure getter behavior.
+func TestGetPartSize(t *testing.T) {
 	tests := []struct {
 		name           string
 		numBaseParts   int32
@@ -618,20 +692,6 @@ func TestGetPartSizeZeroNumBaseParts(t *testing.T) {
 		expectedParts  int64
 		expectedRParts int64
 	}{
-		{
-			name:           "numBaseParts is 0 with valid content length",
-			numBaseParts:   0,
-			contentLength:  1000,
-			expectedParts:  1000, // Should default to 1 part, so part size = total size
-			expectedRParts: 0,
-		},
-		{
-			name:           "numBaseParts is negative with valid content length",
-			numBaseParts:   -1,
-			contentLength:  1000,
-			expectedParts:  1000, // Should default to 1 part
-			expectedRParts: 0,
-		},
 		{
 			name:           "numBaseParts is 1 with valid content length",
 			numBaseParts:   1,
@@ -647,15 +707,22 @@ func TestGetPartSizeZeroNumBaseParts(t *testing.T) {
 			expectedRParts: 0,
 		},
 		{
-			name:           "numBaseParts is 0 with unknown content length (-1)",
-			numBaseParts:   0,
+			name:           "division with remainder",
+			numBaseParts:   3,
+			contentLength:  1000,
+			expectedParts:  333,
+			expectedRParts: 1,
+		},
+		{
+			name:           "unknown content length (-1)",
+			numBaseParts:   1,
 			contentLength:  -1,
 			expectedParts:  -1, // Should return -1 for unknown size
 			expectedRParts: 0,
 		},
 		{
-			name:           "numBaseParts is 0 with zero content length",
-			numBaseParts:   0,
+			name:           "zero content length",
+			numBaseParts:   1,
 			contentLength:  0,
 			expectedParts:  -1, // Should return -1 for zero size
 			expectedRParts: 0,
@@ -664,6 +731,8 @@ func TestGetPartSizeZeroNumBaseParts(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Create a Downloader with valid numBaseParts (>= 1)
+			// This simulates a properly initialized state
 			d := &Downloader{
 				numBaseParts:  tt.numBaseParts,
 				contentLength: ContentLength(tt.contentLength),
@@ -676,11 +745,6 @@ func TestGetPartSizeZeroNumBaseParts(t *testing.T) {
 			}
 			if rpartSize != tt.expectedRParts {
 				t.Errorf("expected rpartSize=%d, got=%d", tt.expectedRParts, rpartSize)
-			}
-
-			// Verify that numBaseParts was corrected to at least 1 if it was <= 0
-			if tt.numBaseParts <= 0 && tt.contentLength > 0 && d.numBaseParts != 1 {
-				t.Errorf("expected numBaseParts to be corrected to 1, got=%d", d.numBaseParts)
 			}
 		})
 	}
