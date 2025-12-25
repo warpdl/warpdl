@@ -1,0 +1,50 @@
+---
+title: Daemon
+description: Understanding the WarpDL background daemon
+---
+
+WarpDL uses a daemon architecture where a background process manages all downloads.
+
+## How It Works
+
+```
+CLI Command → Unix Socket/Named Pipe → Daemon → Download Engine
+```
+
+The daemon:
+- Runs in the background
+- Manages multiple concurrent downloads
+- Persists state across CLI sessions
+- Handles retry and resume logic
+
+## Starting the Daemon
+
+The daemon starts automatically when you run any download command. To start it manually:
+
+```bash
+warpdl daemon
+```
+
+## Stopping the Daemon
+
+```bash
+warpdl stop-daemon
+```
+
+## Communication
+
+| Platform | Default IPC |
+|----------|-------------|
+| Linux/macOS | Unix socket at `/tmp/warpdl.sock` |
+| Windows | Named pipe `\\.\pipe\warpdl` |
+
+To force TCP connection:
+
+```bash
+export WARPDL_FORCE_TCP=1
+export WARPDL_TCP_PORT=3849
+```
+
+## Daemon as a Service
+
+See [Service Setup](/configuration/service-setup) for running the daemon as a system service.

@@ -40,7 +40,7 @@ WarpDL is a daemon-based download manager with parallel segment downloading. The
 - **`cmd/`** - CLI application using urfave/cli. Entry point delegates to these commands (download, resume, list, daemon, etc.)
 - **`cmd/ext/`** - Extension management subcommands (install, uninstall, activate, deactivate)
 - **`pkg/warplib/`** - Core download engine. Key files:
-  - `manager.go` - Download state persistence (GOB encoded to `~/.config/warp/userdata.warp`)
+  - `manager.go` - Download state persistence (GOB encoded to `~/.config/warpdl/userdata.warp`)
   - `dloader.go` - Parallel segment downloader with HTTP range requests
   - `handlers.go` - Event-driven callbacks for progress, errors, completion
   - `item.go` - Download item and part state

@@ -1,0 +1,49 @@
+---
+title: Resume Downloads
+description: How to resume interrupted downloads
+---
+
+WarpDL automatically saves download progress, allowing you to resume interrupted transfers.
+
+## List Incomplete Downloads
+
+```bash
+warpdl list -p  # Show pending/incomplete downloads
+```
+
+## Resume a Download
+
+```bash
+warpdl resume <hash>
+```
+
+The hash is shown in the `list` output.
+
+## Resume Options
+
+```bash
+# Adjust segment count
+warpdl resume -s 100 <hash>
+
+# Set connection limit
+warpdl resume -x 16 <hash>
+
+# Set timeout
+warpdl resume -t 60 <hash>
+```
+
+## State Persistence
+
+Download state is stored in:
+- `~/.config/warpdl/userdata.warp` - Download metadata
+- `~/.config/warpdl/dldata/` - Partial segment data
+
+## Clearing History
+
+```bash
+# Clear completed downloads
+warpdl flush
+
+# Force clear specific download
+warpdl flush -f -i <hash>
+```

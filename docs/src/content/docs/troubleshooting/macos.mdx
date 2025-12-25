@@ -1,0 +1,57 @@
+---
+title: macOS Troubleshooting
+description: Common issues and solutions on macOS
+---
+
+## Gatekeeper Warning
+
+If macOS blocks WarpDL:
+
+```bash
+# Remove quarantine attribute
+xattr -d com.apple.quarantine /usr/local/bin/warpdl
+```
+
+Or in System Settings → Privacy & Security → Allow anyway.
+
+## Socket Permission Denied
+
+If you see "permission denied" for the socket:
+
+```bash
+# Check socket permissions
+ls -la /tmp/warpdl.sock
+
+# Remove stale socket
+rm /tmp/warpdl.sock
+```
+
+## Keychain Access
+
+WarpDL uses the macOS Keychain for credential storage. If prompted, allow access.
+
+To reset stored credentials:
+
+```bash
+security delete-generic-password -s "warpdl"
+```
+
+## Homebrew Issues
+
+```bash
+# Update tap
+brew update
+brew upgrade warpdl
+
+# Reinstall if corrupted
+brew reinstall warpdl
+```
+
+## M1/M2 (Apple Silicon)
+
+WarpDL provides native ARM64 binaries. Ensure you download the correct architecture:
+
+```bash
+# Check architecture
+file $(which warpdl)
+```

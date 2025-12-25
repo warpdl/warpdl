@@ -1,0 +1,55 @@
+---
+title: Architecture
+description: WarpDL system architecture overview
+---
+
+## Overview
+
+WarpDL uses a daemon-based architecture with parallel segment downloading.
+
+```
+┌─────────────────────────────────────────────┐
+│                   warpdl                     │
+│                (single binary)               │
+├─────────┬─────────┬─────────┬───────────────┤
+│   CLI   │   TUI   │ Daemon  │ Native Msg    │
+└────┬────┴────┬────┴────┬────┴─────────┬─────┘
+     └─────────┴────┬────┴──────────────┘
+                    ▼
+              ┌──────────┐
+              │ warplib  │
+              └──────────┘
+```
+
+## Package Structure
+
+| Package | Description |
+|---------|-------------|
+| `cmd/` | CLI commands using urfave/cli |
+| `pkg/warplib/` | Core download engine |
+| `pkg/warpcli/` | CLI-to-daemon communication |
+| `internal/server/` | Daemon server (Unix socket/TCP) |
+| `internal/api/` | API handlers |
+| `internal/extl/` | JavaScript extension engine |
+| `common/` | Shared types and constants |
+
+## Data Flow
+
+```
+CLI → pkg/warpcli → Socket → internal/server → internal/api → pkg/warplib → HTTP
+```
+
+## Key Design Patterns
+
+- **Handler Pattern**: Event callbacks for progress tracking
+- **Manager Pattern**: Centralized state in Manager (warplib)
+- **Daemon Architecture**: Single daemon serves multiple CLI clients
+
+## Storage
+
+| Path | Contents |
+|------|----------|
+| `~/.config/warpdl/userdata.warp` | Download metadata (GOB encoded) |
+| `~/.config/warpdl/dldata/` | Partial segment data |
+| `~/.config/warpdl/extstore/` | Installed extensions |
+| `/tmp/warpdl.sock` | Daemon socket (Linux/macOS) |

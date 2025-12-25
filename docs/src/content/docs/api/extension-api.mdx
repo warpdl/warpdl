@@ -1,0 +1,59 @@
+---
+title: Extension API
+description: API reference for WarpDL extensions
+---
+
+WarpDL extensions are JavaScript files executed using the Goja runtime.
+
+## Extension Structure
+
+```javascript
+// extension.js
+module.exports = {
+    name: "my-extension",
+    version: "1.0.0",
+
+    onDownloadStart: function(download) {
+        console.log("Download started: " + download.url);
+    },
+
+    onDownloadComplete: function(download) {
+        console.log("Download complete: " + download.filename);
+    }
+};
+```
+
+## Available Hooks
+
+| Hook | Description |
+|------|-------------|
+| `onDownloadStart` | Called when download begins |
+| `onDownloadComplete` | Called when download finishes |
+| `onDownloadError` | Called on download failure |
+| `onProgress` | Called periodically with progress |
+
+## Download Object
+
+```javascript
+{
+    url: "https://...",
+    filename: "file.zip",
+    size: 1024000,
+    downloaded: 512000,
+    speed: 1024,  // bytes/sec
+    status: "downloading"
+}
+```
+
+## Storage Location
+
+Extensions are stored in:
+```
+~/.config/warpdl/extstore/
+```
+
+## Limitations
+
+- No network access from extensions
+- No file system access outside download paths
+- Synchronous execution only

@@ -1,0 +1,59 @@
+---
+title: Contributing
+description: How to contribute to WarpDL
+---
+
+## Getting Started
+
+1. Fork the repository
+2. Clone your fork
+3. Create a feature branch
+
+```bash
+git clone https://github.com/YOUR_USERNAME/warpdl.git
+cd warpdl
+git checkout -b feature/my-feature
+```
+
+## Development Setup
+
+```bash
+# Install dependencies
+go mod download
+
+# Build
+make build
+
+# Run tests
+go test ./...
+```
+
+## Commit Message Format
+
+Follow conventional commits:
+
+```
+<area>: <type>: <message>
+
+<description>
+```
+
+**Areas:** `core`, `daemon`, `cli`, `api`, `extl`, `credman`, `docs`, `debug`
+
+**Types:** `feat`, `fix`, `refactor`, `perf`, `test`, `chore`, `temp`
+
+Example:
+```
+core,daemon: feat: add parallel segment merging
+```
+
+## Pull Request Process
+
+1. Ensure tests pass: `go test ./...`
+2. Format code: `go fmt ./...`
+3. Update docs if needed
+4. Submit PR against `dev` branch
+
+## Code of Conduct
+
+Be respectful and constructive. See [CODE_OF_CONDUCT.md](https://github.com/warpdl/warpdl/blob/main/CODE_OF_CONDUCT.md).

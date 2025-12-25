@@ -29,15 +29,12 @@ type BuildArgs struct {
 // currentBuildArgs stores the build arguments for use by daemon and other commands.
 var currentBuildArgs BuildArgs
 
-// Execute initializes and runs the CLI application with the provided arguments.
-// It configures all available commands (download, resume, list, daemon, ext, etc.)
-// and their respective flags, then executes the appropriate command based on
-// user input. The default action is the download command when no subcommand
-// is specified. It returns any error encountered during command execution.
-func Execute(args []string, bArgs BuildArgs) error {
-	// Store build args for use by daemon and other commands
-	currentBuildArgs = bArgs
-
+// GetApp returns the configured CLI application for documentation generation
+// and other programmatic uses. It builds the complete command structure with
+// all flags, descriptions, and help templates. This function is useful when
+// you need access to the app structure without running it (e.g., for generating
+// documentation or inspecting available commands).
+func GetApp(bArgs BuildArgs) *cli.App {
 	// Build the base commands
 	commands := []cli.Command{
 		{
@@ -141,7 +138,7 @@ func Execute(args []string, bArgs BuildArgs) error {
 		commands = append(commands, platformCommands...)
 	}
 
-	app := cli.App{
+	return &cli.App{
 		Name:                   "warpdl",
 		HelpName:               "warpdl",
 		Usage:                  "An ultra fast download manager.",
@@ -157,6 +154,21 @@ func Execute(args []string, bArgs BuildArgs) error {
 		HideHelp:               true,
 		HideVersion:            true,
 	}
+}
+
+// Execute initializes and runs the CLI application with the provided arguments.
+// It configures all available commands (download, resume, list, daemon, ext, etc.)
+// and their respective flags, then executes the appropriate command based on
+// user input. The default action is the download command when no subcommand
+// is specified. It returns any error encountered during command execution.
+func Execute(args []string, bArgs BuildArgs) error {
+	// Store build args for use by daemon and other commands
+	currentBuildArgs = bArgs
+
+	// Get the configured CLI application
+	app := GetApp(bArgs)
+
+	// Set the version command string for global use
 	common.VersionCmdStr = fmt.Sprintf("%s %s (%s_%s)\nBuild: %s=%s\n",
 		app.Name,
 		app.Version,
@@ -164,5 +176,6 @@ func Execute(args []string, bArgs BuildArgs) error {
 		runtime.GOARCH,
 		bArgs.Date, bArgs.Commit,
 	)
+
 	return app.Run(args)
 }

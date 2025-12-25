@@ -7,7 +7,9 @@
     "start": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
-    "astro": "astro"
+    "astro": "astro",
+    "generate": "cd .. && go run docs/scripts/generate-cli-docs.go && go run docs/scripts/generate-env-docs.go",
+    "check": "../scripts/check-docs-coverage.sh"
   },
   "dependencies": {
     "@astrojs/starlight": "^0.37.1",

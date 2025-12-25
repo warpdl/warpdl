@@ -1,0 +1,51 @@
+---
+title: Windows Troubleshooting
+description: Common issues and solutions on Windows
+---
+
+## Named Pipes Connection Issues
+
+If WarpDL can't connect to the daemon:
+
+```powershell
+# Force TCP mode
+$env:WARPDL_FORCE_TCP = "1"
+warpdl list
+```
+
+## Windows Firewall
+
+If downloads fail, add firewall exception:
+
+```powershell
+New-NetFirewallRule -DisplayName "WarpDL" -Direction Inbound -Program "C:\path\to\warpdl.exe" -Action Allow
+```
+
+## Antivirus Interference
+
+Some antivirus software may flag parallel connections. Add WarpDL to exclusions if experiencing slow speeds.
+
+## SmartScreen Warning
+
+Windows SmartScreen may warn about unsigned binaries. Click "More info" → "Run anyway" or build from source.
+
+## Long Path Support
+
+WarpDL supports paths longer than 260 characters on Windows 10+. Ensure long paths are enabled:
+
+```powershell
+# Check current setting
+(Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' -Name 'LongPathsEnabled').LongPathsEnabled
+
+# Enable (requires admin)
+Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' -Name 'LongPathsEnabled' -Value 1
+```
+
+## Windows Service Issues
+
+If the Windows service fails to start:
+
+```powershell
+# Check event log
+Get-EventLog -LogName Application -Source "WarpDL" -Newest 10
+```

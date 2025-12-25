@@ -1,0 +1,66 @@
+---
+title: Building from Source
+description: How to build WarpDL from source
+---
+
+## Prerequisites
+
+- Go 1.21+
+- Git
+- Make (optional)
+
+## Clone Repository
+
+```bash
+git clone https://github.com/warpdl/warpdl.git
+cd warpdl
+```
+
+## Build
+
+```bash
+# Using Make
+make build
+
+# Or directly with Go
+go build -ldflags="-w -s" .
+```
+
+## Run Tests
+
+```bash
+# All tests
+go test ./...
+
+# With coverage
+go test -cover ./...
+
+# Specific package
+go test ./pkg/warplib/...
+```
+
+## Build with Version Info
+
+```bash
+go build -ldflags="-X main.version=1.0.0 -X main.commit=$(git rev-parse HEAD)" .
+```
+
+## Cross-Compilation
+
+```bash
+# Linux
+GOOS=linux GOARCH=amd64 go build -o warpdl-linux .
+
+# Windows
+GOOS=windows GOARCH=amd64 go build -o warpdl.exe .
+
+# macOS ARM64
+GOOS=darwin GOARCH=arm64 go build -o warpdl-darwin .
+```
+
+## Release Build
+
+```bash
+# Using goreleaser
+make goreleaser
+```

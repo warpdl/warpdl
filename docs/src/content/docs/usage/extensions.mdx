@@ -1,0 +1,44 @@
+---
+title: Extensions
+description: Extending WarpDL with JavaScript extensions
+---
+
+WarpDL supports JavaScript extensions using the Goja runtime.
+
+## Managing Extensions
+
+### Install an Extension
+
+```bash
+warpdl ext install <path-or-url>
+```
+
+### List Extensions
+
+```bash
+warpdl ext list
+```
+
+### Activate/Deactivate
+
+```bash
+warpdl ext activate <name>
+warpdl ext deactivate <name>
+```
+
+### Uninstall
+
+```bash
+warpdl ext uninstall <name>
+```
+
+## Extension Storage
+
+Extensions are stored in:
+```
+~/.config/warpdl/extstore/
+```
+
+## Writing Extensions
+
+See [Extension API](/api/extension-api) for details on creating your own extensions.

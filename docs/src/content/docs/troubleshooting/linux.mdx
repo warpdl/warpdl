@@ -1,0 +1,62 @@
+---
+title: Linux Troubleshooting
+description: Common issues and solutions on Linux
+---
+
+## Socket Permission Denied
+
+```bash
+# Check socket
+ls -la /tmp/warpdl.sock
+
+# Remove stale socket
+rm /tmp/warpdl.sock
+
+# Or use TCP
+export WARPDL_FORCE_TCP=1
+```
+
+## SELinux Blocking
+
+If SELinux blocks WarpDL:
+
+```bash
+# Check for denials
+ausearch -m avc -ts recent
+
+# Create policy module (temporary)
+setenforce 0
+
+# Or create proper policy
+audit2allow -a -M warpdl
+semodule -i warpdl.pp
+```
+
+## AppArmor Issues
+
+```bash
+# Check AppArmor status
+aa-status
+
+# Add WarpDL to complain mode
+aa-complain /usr/local/bin/warpdl
+```
+
+## Systemd Service Not Starting
+
+```bash
+# Check status
+systemctl status warpdl
+
+# View logs
+journalctl -u warpdl -f
+```
+
+## Credential Storage (Keyring)
+
+WarpDL uses the system keyring. Ensure D-Bus is running:
+
+```bash
+# Check keyring service
+systemctl --user status gnome-keyring-daemon
+```

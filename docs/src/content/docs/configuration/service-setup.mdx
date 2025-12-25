@@ -1,0 +1,78 @@
+---
+title: Service Setup
+description: Running WarpDL daemon as a system service
+---
+
+## Linux (systemd)
+
+Create `/etc/systemd/system/warpdl.service`:
+
+```ini
+[Unit]
+Description=WarpDL Download Manager
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/warpdl daemon
+Restart=on-failure
+User=your-username
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start:
+
+```bash
+sudo systemctl enable warpdl
+sudo systemctl start warpdl
+```
+
+## macOS (launchd)
+
+Create `~/Library/LaunchAgents/com.warpdl.daemon.plist`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.warpdl.daemon</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/warpdl</string>
+        <string>daemon</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+</dict>
+</plist>
+```
+
+Load the service:
+
+```bash
+launchctl load ~/Library/LaunchAgents/com.warpdl.daemon.plist
+```
+
+## Windows Service
+
+WarpDL can run as a Windows Service:
+
+```powershell
+# Install as service (requires admin)
+warpdl service install
+
+# Start the service
+warpdl service start
+
+# Stop the service
+warpdl service stop
+
+# Uninstall
+warpdl service uninstall
+```
