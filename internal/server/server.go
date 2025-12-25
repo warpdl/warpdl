@@ -6,17 +6,18 @@ import (
 	"io"
 	"log"
 	"net"
-	"os"
 	"sync"
-	"time"
 
 	"github.com/warpdl/warpdl/common"
 	"github.com/warpdl/warpdl/pkg/warplib"
 )
 
-// Server manages RPC connections from CLI clients over a Unix socket.
+// Server manages RPC connections from CLI clients over a Unix socket or named pipe.
 // It dispatches incoming requests to registered handlers and manages
 // the connection pool for active downloads.
+// Transport priority (platform-specific):
+// - Unix: Unix socket > TCP
+// - Windows: Named pipe > TCP
 type Server struct {
 	log      *log.Logger
 	pool     *Pool
@@ -28,8 +29,8 @@ type Server struct {
 }
 
 // NewServer creates a new Server instance with the given logger, download manager,
-// and port number. The server uses a Unix socket as the primary transport,
-// falling back to TCP on the specified port if Unix socket creation fails.
+// and port number. The server uses platform-specific IPC as the primary transport,
+// falling back to TCP on the specified port if the primary transport fails.
 func NewServer(l *log.Logger, m *warplib.Manager, port int) *Server {
 	pool := NewPool(l)
 	return &Server{
@@ -47,29 +48,9 @@ func (s *Server) RegisterHandler(method common.UpdateType, handler HandlerFunc) 
 	s.handler[method] = handler
 }
 
-func (s *Server) createListener() (net.Listener, error) {
-	socketPath := socketPath()
-	_ = os.Remove(socketPath)
-	l, err := net.ListenUnix("unix", &net.UnixAddr{
-		Name: socketPath,
-		Net:  "unix",
-	})
-	if err != nil {
-		s.log.Println("Error occured while using unix socket: ", err.Error())
-		s.log.Println("Trying to use tcp socket")
-		tcpListener, tcpErr := net.Listen("tcp", fmt.Sprintf("%s:%d", common.TCPHost, s.port))
-		if tcpErr != nil {
-			return nil, fmt.Errorf("error listening: %s", tcpErr.Error())
-		}
-		return tcpListener, nil
-	}
-	setSocketPermissions(socketPath)
-	return l, nil
-}
-
 // Start begins listening for incoming connections and blocks until the context is canceled.
-// It first starts the web server in a separate goroutine, then creates a Unix socket
-// listener (falling back to TCP if necessary) and accepts connections in a loop.
+// It first starts the web server in a separate goroutine, then creates a platform-specific
+// listener (Unix socket/named pipe with TCP fallback) and accepts connections in a loop.
 // Each connection is handled in its own goroutine.
 func (s *Server) Start(ctx context.Context) error {
 	// Start web server in background
@@ -99,7 +80,7 @@ func (s *Server) Start(ctx context.Context) error {
 				return nil // Clean shutdown
 			default:
 			}
-			s.log.Println("Error accepting: ", err.Error())
+			s.log.Println("Error accepting connection:", err.Error())
 			continue
 		}
 		// Handle connections in a new goroutine.
@@ -107,7 +88,8 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 }
 
-// Shutdown gracefully stops the server by closing the listener and removing the socket file.
+// Shutdown gracefully stops the server by closing the listener and cleaning up resources.
+// It uses common.ShutdownTimeout for the web server shutdown timeout.
 func (s *Server) Shutdown() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -120,21 +102,22 @@ func (s *Server) Shutdown() error {
 	}
 
 	// Shutdown web server with timeout
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), common.ShutdownTimeout)
 	defer cancel()
 	if err := s.ws.Shutdown(shutdownCtx); err != nil {
 		s.log.Printf("Error shutting down web server: %v", err)
 	}
 
-	// Remove socket file
-	socketPath := socketPath()
-	if err := os.Remove(socketPath); err != nil && !os.IsNotExist(err) {
-		s.log.Printf("Error removing socket file: %v", err)
+	// Clean up socket/pipe using platform-specific cleanup
+	if err := cleanupSocket(); err != nil {
+		s.log.Printf("Error cleaning up socket: %v", err)
 	}
 
 	return nil
 }
 
+// handleConnection manages a single client connection.
+// It reads requests in a loop until an error occurs or the client disconnects.
 func (s *Server) handleConnection(conn net.Conn) {
 	sconn := NewSyncConn(conn)
 	defer conn.Close()
@@ -144,17 +127,19 @@ func (s *Server) handleConnection(conn net.Conn) {
 			if err == io.EOF {
 				break
 			}
-			s.log.Println("Error reading:", err.Error())
+			s.log.Println("Error reading from connection:", err.Error())
 			break
 		}
 		err = s.handlerWrapper(sconn, buf)
 		if err != nil {
-			s.log.Println("Error handling:", err.Error())
+			s.log.Println("Error handling request:", err.Error())
 			break
 		}
 	}
 }
 
+// handlerWrapper processes a single request by parsing it, invoking the appropriate
+// handler, and writing the response back to the client.
 func (s *Server) handlerWrapper(sconn *SyncConn, b []byte) error {
 	req, err := ParseRequest(b)
 	if err != nil {

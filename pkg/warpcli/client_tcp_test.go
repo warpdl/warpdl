@@ -264,7 +264,7 @@ func TestClientServer_FallbackScenario(t *testing.T) {
 		t.Fatalf("List() failed: %v", err)
 	}
 
-	if listResp.Items == nil || len(listResp.Items) == 0 {
+	if len(listResp.Items) == 0 {
 		t.Fatal("expected non-empty list response")
 	}
 	if listResp.Items[0].Hash != "fallback-1" {

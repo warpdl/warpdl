@@ -15,4 +15,9 @@ const (
 
 	// DebugEnv is the environment variable to enable debug logging.
 	DebugEnv = "WARPDL_DEBUG"
+
+	// PipeNameEnv is the environment variable for custom Windows named pipe name.
+	// When set, the value is used as the pipe name (e.g., "custom" becomes "\\.\pipe\custom").
+	// If the value already contains the full pipe path prefix, it's used as-is.
+	PipeNameEnv = "WARPDL_PIPE_NAME"
 )

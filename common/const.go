@@ -2,6 +2,8 @@
 // client-server communication layer.
 package common
 
+import "time"
+
 const (
 	// DefaultTCPPort is the default port for TCP fallback connections.
 	// Both daemon (server) and CLI (client) must use the same port.
@@ -14,6 +16,12 @@ const (
 
 	// MaxMessageSize caps socket payloads to protect against oversized requests.
 	MaxMessageSize = 16 * 1024 * 1024
+
+	// DefaultDialTimeout is the default timeout for establishing connections.
+	DefaultDialTimeout = 2 * time.Second
+
+	// ShutdownTimeout is the timeout for graceful server shutdown.
+	ShutdownTimeout = 5 * time.Second
 )
 
 // UpdateType represents the type of update message sent between the CLI client

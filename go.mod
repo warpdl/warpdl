@@ -3,6 +3,7 @@ module github.com/warpdl/warpdl
 go 1.24.9
 
 require (
+	github.com/Microsoft/go-winio v0.6.2
 	github.com/dop251/goja v0.0.0-20251201205617-2bb4c724c0f9
 	github.com/dop251/goja_nodejs v0.0.0-20251015164255-5e94316bedaf
 	github.com/urfave/cli v1.22.17
