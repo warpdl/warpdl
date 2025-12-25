@@ -321,6 +321,12 @@ func (d *Downloader) Start() (err error) {
 		d.f.Close()
 		// err = os.Rename(d.fName, d.GetSavePath())
 	}()
+	// Check disk space before starting download
+	err = checkDiskSpace(d.dlLoc, d.contentLength.v())
+	if err != nil {
+		d.Log("Insufficient disk space: %v", err)
+		return
+	}
 	d.Log("Starting download...")
 	d.ohmap.Make()
 	partSize, rpartSize := d.getPartSize()
@@ -399,6 +405,19 @@ func (d *Downloader) Resume(parts map[int64]*ItemPart) (err error) {
 		d.f.Close()
 		// err = os.Rename(d.fName, d.GetSavePath())
 	}()
+	// Check disk space before resuming download
+	// Calculate remaining bytes to download
+	remainingBytes := d.contentLength.v() - d.nread
+	if remainingBytes < 0 {
+		// This indicates potential data corruption or resume error
+		d.Log("Warning: negative remaining bytes detected (%d). This may indicate corruption.", remainingBytes)
+		remainingBytes = 0
+	}
+	err = checkDiskSpace(d.dlLoc, remainingBytes)
+	if err != nil {
+		d.Log("Insufficient disk space: %v", err)
+		return
+	}
 	d.Log("Resuming download...")
 	d.ohmap.Make()
 	espeed := 4 * MB / int64(len(parts))
