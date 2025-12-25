@@ -361,7 +361,7 @@ func (d *Downloader) Start() (err error) {
 // It blocks the current goroutine until the download is complete.
 func (d *Downloader) Resume(parts map[int64]*ItemPart) (err error) {
 	defer d.lw.Close()
-	if len(parts) == 0 {
+	if parts == nil || len(parts) == 0 {
 		return errors.New("download is already complete")
 	}
 	err = d.openFile()
