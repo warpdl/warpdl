@@ -27,7 +27,7 @@ func InitManager() (m *Manager, err error) {
 		items: make(ItemsMap),
 		mu:    new(sync.RWMutex),
 	}
-	m.f, err = os.OpenFile(
+	m.f, err = WarpOpenFile(
 		__USERDATA_FILE_NAME,
 		os.O_RDWR|os.O_CREATE,
 		os.ModePerm,
@@ -315,7 +315,7 @@ func (m *Manager) Flush() {
 			continue
 		}
 		delete(m.items, hash)
-		_ = os.RemoveAll(GetPath(DlDataDir, hash))
+		_ = WarpRemoveAll(GetPath(DlDataDir, hash))
 	}
 	m.f.Seek(0, 0)
 	gob.NewEncoder(m.f).Encode(m.items)
@@ -336,7 +336,7 @@ func (m *Manager) FlushOne(hash string) error {
 	}
 	m.deleteItem(hash)
 	m.encode(m.items)
-	return os.RemoveAll(GetPath(DlDataDir, hash))
+	return WarpRemoveAll(GetPath(DlDataDir, hash))
 }
 
 // Close closes the manager safely.

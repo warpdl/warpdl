@@ -29,7 +29,7 @@ import (
 //   - There are permission issues
 //   - The copy operation fails (disk full, I/O error, etc.)
 func moveFile(src, dst string) error {
-	err := os.Rename(src, dst)
+	err := WarpRename(src, dst)
 	if err == nil {
 		return nil
 	}
@@ -68,20 +68,20 @@ func moveFile(src, dst string) error {
 //   - The source file cannot be deleted after successful copy
 func copyAndDelete(src, dst string) error {
 	// Get source file info for permissions
-	srcInfo, err := os.Stat(src)
+	srcInfo, err := WarpStat(src)
 	if err != nil {
 		return fmt.Errorf("stat source: %w", err)
 	}
 
 	// Open source file
-	srcFile, err := os.Open(src)
+	srcFile, err := WarpOpen(src)
 	if err != nil {
 		return fmt.Errorf("open source: %w", err)
 	}
 	defer srcFile.Close()
 
 	// Create destination file with same permissions
-	dstFile, err := os.OpenFile(dst, os.O_RDWR|os.O_CREATE|os.O_TRUNC, srcInfo.Mode().Perm())
+	dstFile, err := WarpOpenFile(dst, os.O_RDWR|os.O_CREATE|os.O_TRUNC, srcInfo.Mode().Perm())
 	if err != nil {
 		return fmt.Errorf("create destination: %w", err)
 	}
@@ -92,7 +92,7 @@ func copyAndDelete(src, dst string) error {
 		dstFile.Close()
 		if !copySucceeded {
 			// Clean up partial destination file on error
-			os.Remove(dst)
+			WarpRemove(dst)
 		}
 	}()
 
@@ -120,7 +120,7 @@ func copyAndDelete(src, dst string) error {
 	srcFile.Close()
 
 	// Delete source only after successful copy
-	if err := os.Remove(src); err != nil {
+	if err := WarpRemove(src); err != nil {
 		return fmt.Errorf("remove source: %w", err)
 	}
 
