@@ -2,7 +2,6 @@ package warpcli
 
 import (
 	"fmt"
-	"net"
 	"time"
 )
 
@@ -15,7 +14,7 @@ const (
 // ensureDaemon checks if the daemon is running and spawns it if not.
 // Returns nil if daemon is running or was successfully started.
 func ensureDaemon() error {
-	path := socketPath()
+	path := getConnectionPath()
 
 	// Quick check: can we connect?
 	if isDaemonRunning(path) {
@@ -31,34 +30,7 @@ func ensureDaemon() error {
 	return waitForSocket(path, daemonStartTimeout)
 }
 
-// isDaemonRunning checks if the daemon is reachable via Unix socket or TCP.
-// It tries Unix socket first (unless forceTCP is enabled), then falls back to TCP.
-func isDaemonRunning(path string) bool {
-	// Try Unix socket first unless forceTCP is enabled
-	if !forceTCP() {
-		conn, err := net.DialTimeout("unix", path, socketDialTimeout)
-		if err == nil {
-			conn.Close()
-			debugLog("daemon detected via Unix socket: %s", path)
-			return true
-		}
-		debugLog("Unix socket dial failed: %v, trying TCP fallback", err)
-	}
-
-	// Try TCP fallback
-	tcpAddr := tcpAddress()
-	conn, err := net.DialTimeout("tcp", tcpAddr, socketDialTimeout)
-	if err == nil {
-		conn.Close()
-		debugLog("daemon detected via TCP: %s", tcpAddr)
-		return true
-	}
-	debugLog("TCP dial failed: %v", err)
-
-	return false
-}
-
-// waitForSocket polls until the socket becomes available or timeout expires.
+// waitForSocket polls until the socket/pipe becomes available or timeout expires.
 func waitForSocket(path string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {

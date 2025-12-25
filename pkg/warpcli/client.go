@@ -10,9 +10,12 @@ import (
 	"github.com/warpdl/warpdl/common"
 )
 
-// Client manages communication with the WarpDL daemon over a Unix socket.
+// Client manages communication with the WarpDL daemon over IPC.
 // It provides methods to invoke daemon operations and listen for asynchronous
 // updates such as download progress notifications.
+// The client automatically selects the best transport available:
+// - Unix/Linux: Unix socket with TCP fallback
+// - Windows: Named pipe with TCP fallback
 type Client struct {
 	mu     *sync.RWMutex
 	d      *Dispatcher
@@ -26,7 +29,7 @@ var (
 )
 
 // NewClient creates a new client connection to the WarpDL daemon.
-// It connects to the daemon's Unix socket and returns a ready-to-use client.
+// It connects to the daemon using platform-specific IPC and returns a ready-to-use client.
 // If the daemon is not running, it will be automatically spawned.
 // Returns an error if the daemon cannot be started or connection fails.
 func NewClient() (*Client, error) {
@@ -34,13 +37,10 @@ func NewClient() (*Client, error) {
 		return nil, err
 	}
 
-	var conn net.Conn
-	var err error
-
-	// If force TCP mode is enabled, skip Unix socket attempt
+	// If force TCP mode is enabled, skip platform-specific dial
 	if forceTCP() {
 		debugLog("Force TCP mode enabled, connecting via TCP")
-		conn, err = dialFunc("tcp", tcpAddress())
+		conn, err := dialFunc("tcp", tcpAddress())
 		if err != nil {
 			return nil, fmt.Errorf("failed to connect via TCP: %w", err)
 		}
@@ -48,25 +48,15 @@ func NewClient() (*Client, error) {
 		return newClientWithConn(conn), nil
 	}
 
-	// Try Unix socket first
-	debugLog("Attempting connection via Unix socket at %s", socketPath())
-	conn, unixErr := dialFunc("unix", socketPath())
-	if unixErr != nil {
-		debugLog("Unix socket connection failed: %v, falling back to TCP", unixErr)
-		// Fall back to TCP
-		conn, err = dialFunc("tcp", tcpAddress())
-		if err != nil {
-			return nil, fmt.Errorf("failed to connect: unix socket error: %v; tcp error: %w", unixErr, err)
-		}
-		debugLog("Successfully connected via TCP fallback to %s", tcpAddress())
-		return newClientWithConn(conn), nil
+	// Use platform-specific dial (Unix socket or Named Pipe with fallback)
+	conn, err := dial()
+	if err != nil {
+		return nil, err
 	}
-
-	debugLog("Successfully connected via Unix socket")
 	return newClientWithConn(conn), nil
 }
 
-// newClientWithConn creates a new client with the provided connection
+// newClientWithConn creates a new client with the provided connection.
 func newClientWithConn(conn net.Conn) *Client {
 	return &Client{
 		conn: conn,
@@ -134,6 +124,9 @@ func (c *Client) Close() error {
 	return c.conn.Close()
 }
 
+// invoke sends a request to the daemon and waits for a response.
+// It blocks the update listener while waiting to ensure the response is received here
+// instead of being dispatched to handlers.
 func (c *Client) invoke(method common.UpdateType, message any) (json.RawMessage, error) {
 	// block updates listener while invoking a method
 	// to retrieve the message update here instead
