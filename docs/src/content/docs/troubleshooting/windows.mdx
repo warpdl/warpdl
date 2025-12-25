@@ -62,7 +62,8 @@ netsh advfirewall firewall add rule name="WarpDL Daemon" `
 1. Open **Windows Defender Firewall with Advanced Security**
 2. Click **Inbound Rules** → **New Rule...**
 3. Select **Program** → Next
-4. Browse to `warpdl.exe` location (use `Get-Command warpdl` in PowerShell to find it) → Next
+4. Browse to `warpdl.exe` location → Next
+   - *Tip: Search "warpdl" in Start menu, right-click → Open file location*
 5. Select **Allow the connection** → Next
 6. Check **Private** only → Next
 7. Name: "WarpDL Daemon" → Finish
@@ -104,12 +105,15 @@ Download managers are commonly flagged as suspicious due to parallel connections
 # Add folder exclusion for config directory
 Add-MpPreference -ExclusionPath "$env:LOCALAPPDATA\warpdl"
 
-# Add process exclusion
-Add-MpPreference -ExclusionProcess "warpdl.exe"
+# Add executable exclusion using full path (more secure than process name)
+$warpdlPath = (Get-Command warpdl).Source
+Add-MpPreference -ExclusionPath $warpdlPath
 
 # Verify exclusions
 Get-MpPreference | Select-Object -ExpandProperty ExclusionPath
 ```
+
+**Security Note**: Always use full path exclusions rather than process name exclusions. Process name exclusions (e.g., `-ExclusionProcess "warpdl.exe"`) would allow any executable with that name to bypass antivirus scanning.
 
 ### Other Antivirus Software
 
@@ -128,7 +132,7 @@ Windows SmartScreen may display "Windows protected your PC" warning when running
 
 ### Understanding SmartScreen
 
-- **Official releases**: Signed builds from the [Releases page](https://github.com/warpdl/warpdl/releases) should not trigger warnings
+- **Official releases**: Signed builds from the [Releases page](https://github.com/warpdl/warpdl/releases) are less likely to trigger warnings, but may still appear until reputation is established
 - **Development/snapshot builds**: May trigger SmartScreen due to lack of code signing
 - **Direct downloads**: Executables not downloaded through official channels may be flagged
 
