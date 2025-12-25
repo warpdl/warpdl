@@ -818,6 +818,9 @@ func (d *Downloader) Log(s string, a ...any) {
 func (d *Downloader) getPartSize() (partSize, rpartSize int64) {
 	// Guard against division by zero by ensuring numBaseParts is at least 1
 	if d.numBaseParts <= 0 {
+		if d.l != nil {
+			d.Log("Warning: numBaseParts was %d, correcting to 1 to avoid division by zero", d.numBaseParts)
+		}
 		d.numBaseParts = 1
 	}
 	switch cl := d.contentLength.v(); cl {
