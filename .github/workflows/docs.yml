@@ -6,18 +6,18 @@ on:
       - main
       - dev
     paths:
-      - 'docs/**'
-      - 'cmd/**'
-      - 'common/**'
-      - '.github/workflows/docs.yml'
+      - "docs/**"
+      - "cmd/**"
+      - "common/**"
+      - ".github/workflows/docs.yml"
   pull_request:
     branches:
       - main
       - dev
     paths:
-      - 'docs/**'
-      - 'cmd/**'
-      - 'common/**'
+      - "docs/**"
+      - "cmd/**"
+      - "common/**"
   workflow_dispatch:
 
 jobs:
@@ -79,4 +79,4 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: docs
-          command: deploy
+          command: deploy --assets ./dist
