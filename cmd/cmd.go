@@ -47,7 +47,7 @@ func Execute(args []string, bArgs BuildArgs) error {
 		},
 		{
 			Name:   "daemon",
-			Action: daemon,
+			Action: getDaemonAction(),
 			Usage:  "start the warpdl daemon",
 		},
 		{

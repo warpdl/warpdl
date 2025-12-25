@@ -9,6 +9,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/warpdl/warpdl/pkg/logger"
 	"golang.org/x/sys/windows/svc"
 )
 
@@ -35,12 +36,15 @@ type RunnerInterface interface {
 // It bridges the Windows SCM with the WarpDL daemon runner.
 type WindowsHandler struct {
 	runner RunnerInterface
+	logger logger.Logger
 }
 
-// NewWindowsHandler creates a new Windows service handler with the given runner.
-func NewWindowsHandler(runner RunnerInterface) *WindowsHandler {
+// NewWindowsHandler creates a new Windows service handler with the given runner and logger.
+// The logger is used to record service lifecycle events to Windows Event Log.
+func NewWindowsHandler(runner RunnerInterface, log logger.Logger) *WindowsHandler {
 	return &WindowsHandler{
 		runner: runner,
+		logger: log,
 	}
 }
 
@@ -63,7 +67,10 @@ func (h *WindowsHandler) Execute(args []string, requests <-chan svc.ChangeReques
 	// not from service start arguments. See function documentation above.
 	_ = args
 
-	// Report starting state to SCM
+	// Log and report starting state to SCM
+	if h.logger != nil {
+		h.logger.Info("Service starting")
+	}
 	status <- svc.Status{State: svc.StartPending}
 
 	// Create a context for the daemon runner that we can cancel on shutdown
@@ -85,6 +92,9 @@ func (h *WindowsHandler) Execute(args []string, requests <-chan svc.ChangeReques
 	case err := <-startErrCh:
 		// Runner returned immediately with an error
 		if err != nil {
+			if h.logger != nil {
+				h.logger.Error("Service failed to start: %v", err)
+			}
 			status <- svc.Status{State: svc.Stopped}
 			return 1, 1
 		}
@@ -92,7 +102,10 @@ func (h *WindowsHandler) Execute(args []string, requests <-chan svc.ChangeReques
 		// Runner is starting asynchronously, continue
 	}
 
-	// Report running state to SCM
+	// Log and report running state to SCM
+	if h.logger != nil {
+		h.logger.Info("Service running")
+	}
 	status <- svc.Status{State: svc.Running, Accepts: acceptedCommands}
 
 	// Process service control requests until stop
@@ -120,6 +133,9 @@ func (h *WindowsHandler) processControlRequests(requests <-chan svc.ChangeReques
 // handleStopRequest processes a stop or shutdown command.
 // It gracefully shuts down the runner and reports the stopped state.
 func (h *WindowsHandler) handleStopRequest(status chan<- svc.Status, cancel context.CancelFunc) (svcSpecificExitCode uint32, exitCode uint32) {
+	if h.logger != nil {
+		h.logger.Info("Service stopping")
+	}
 	status <- svc.Status{State: svc.StopPending}
 
 	// Cancel the context to signal the runner to stop
@@ -127,12 +143,17 @@ func (h *WindowsHandler) handleStopRequest(status chan<- svc.Status, cancel cont
 
 	// Call Shutdown to perform cleanup
 	if err := h.runner.Shutdown(); err != nil {
-		// Log the error but still report stopped state
+		if h.logger != nil {
+			h.logger.Error("Service shutdown error: %v", err)
+		}
 		// The service is stopping regardless of cleanup errors
 		status <- svc.Status{State: svc.Stopped}
 		return 1, 1
 	}
 
+	if h.logger != nil {
+		h.logger.Info("Service stopped")
+	}
 	status <- svc.Status{State: svc.Stopped}
 	return 0, 0
 }
