@@ -83,7 +83,7 @@ Download managers are commonly flagged as suspicious due to parallel connections
 
 ### Recommended Exclusions
 
-- **Configuration directory**: `%LOCALAPPDATA%\warpdl\` (typically `C:\Users\%USERNAME%\AppData\Local\warpdl\`)
+- **Configuration directory**: `%LOCALAPPDATA%\warpdl\` (example: `C:\Users\JohnDoe\AppData\Local\warpdl\`)
 - **Executable path**: Full path to `warpdl.exe` (use `Get-Command warpdl` to find it, or check common locations like `C:\Program Files\warpdl\warpdl.exe`)
 
 ### Windows Defender Exclusions
@@ -95,7 +95,7 @@ Download managers are commonly flagged as suspicious due to parallel connections
 3. Under "Virus & threat protection settings", click **Manage settings**
 4. Scroll to **Exclusions** → Click **Add or remove exclusions**
 5. Click **Add an exclusion** → Select type:
-   - **Folder**: Add the full path like `C:\Users\%USERNAME%\AppData\Local\warpdl` (Windows Security requires full paths, not environment variables)
+   - **Folder**: Add the full path (example: `C:\Users\JohnDoe\AppData\Local\warpdl` - replace `JohnDoe` with your username)
    - **File**: Add full path to `warpdl.exe` (find it using `Get-Command warpdl` in PowerShell)
 
 #### Using PowerShell
