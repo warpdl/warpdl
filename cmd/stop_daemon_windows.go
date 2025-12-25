@@ -12,10 +12,27 @@ const (
 	shutdownTimeout = 5 * time.Second
 )
 
+type windowsProcess interface {
+	Signal(os.Signal) error
+	Kill() error
+	Wait() (*os.ProcessState, error)
+}
+
+var (
+	findProcess = func(pid int) (windowsProcess, error) {
+		return os.FindProcess(pid)
+	}
+	timeAfter = func(d time.Duration) <-chan time.Time {
+		return time.After(d)
+	}
+)
+
+var _ windowsProcess = (*os.Process)(nil)
+
 // killDaemon sends an interrupt signal to the daemon and waits for it to exit.
 // On Windows, we use os.Interrupt and then forcefully terminate if needed.
 func killDaemon(pid int) error {
-	process, err := os.FindProcess(pid)
+	process, err := findProcess(pid)
 	if err != nil {
 		return fmt.Errorf("process not found: %w", err)
 	}
@@ -40,7 +57,7 @@ func killDaemon(pid int) error {
 	select {
 	case <-done:
 		return nil // Process exited
-	case <-time.After(shutdownTimeout):
+	case <-timeAfter(shutdownTimeout):
 		// Timeout exceeded, force kill
 		fmt.Println("Graceful shutdown timeout, forcing kill...")
 		if err := process.Kill(); err != nil {

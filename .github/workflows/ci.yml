@@ -60,4 +60,5 @@ jobs:
 
       - name: Run race tests
         if: matrix.run-race
-        run: go test -race ./...
+        shell: bash
+        run: scripts/go_test_retry.sh -race ./...

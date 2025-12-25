@@ -3,6 +3,7 @@
 package cmd
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"strconv"
@@ -68,6 +69,24 @@ func TestKillDaemon_ProcessNotFound(t *testing.T) {
 	}
 }
 
+func TestKillDaemon_FallsBackToKillOnSignalFailure(t *testing.T) {
+	fake := &fakeWindowsProcess{
+		signalErr: errors.New("interrupt failed"),
+	}
+	overrideFindProcess(t, fake)
+
+	if err := killDaemon(1234); err != nil {
+		t.Fatalf("killDaemon: %v", err)
+	}
+
+	if fake.signalCalls != 1 {
+		t.Fatalf("expected 1 signal call, got %d", fake.signalCalls)
+	}
+	if fake.killCalls != 1 {
+		t.Fatalf("expected 1 kill call, got %d", fake.killCalls)
+	}
+}
+
 func TestKillDaemon_ProcessExits(t *testing.T) {
 	// Use 'ping' command which runs for 10 seconds, giving us time to kill it
 	cmd := exec.Command("cmd", "/c", "ping -n 10 127.0.0.1 > nul")
@@ -97,6 +116,38 @@ func TestKillDaemon_ProcessExits(t *testing.T) {
 	// Note: We don't check isProcessRunning() after Wait() because on Windows,
 	// process handles can remain briefly valid after termination due to handle
 	// caching. Wait() returning is the definitive proof the process is dead.
+}
+
+func TestKillDaemon_ForceKillAfterTimeout(t *testing.T) {
+	waitBlock := make(chan struct{})
+	fake := &fakeWindowsProcess{
+		waitBlock: waitBlock,
+	}
+	overrideFindProcess(t, fake)
+
+	timerChan := make(chan time.Time, 1)
+	overrideTimeAfter(t, func(d time.Duration) <-chan time.Time {
+		return timerChan
+	})
+
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		timerChan <- time.Time{}
+	}()
+
+	if err := killDaemon(5678); err != nil {
+		t.Fatalf("killDaemon: %v", err)
+	}
+
+	if fake.signalCalls != 1 {
+		t.Fatalf("expected 1 signal call, got %d", fake.signalCalls)
+	}
+	if fake.killCalls != 1 {
+		t.Fatalf("expected 1 kill call, got %d", fake.killCalls)
+	}
+	if fake.waitCalls != 1 {
+		t.Fatalf("expected Wait to be called once, got %d", fake.waitCalls)
+	}
 }
 
 func TestStopDaemon_RunningProcess(t *testing.T) {
@@ -135,4 +186,58 @@ func TestStopDaemon_RunningProcess(t *testing.T) {
 
 	// Note: We don't check isProcessRunning() after Wait() because on Windows,
 	// process handles can remain briefly valid after termination.
+}
+
+type fakeWindowsProcess struct {
+	signalErr error
+	killErr   error
+	waitErr   error
+
+	waitBlock chan struct{}
+
+	signalCalls int
+	killCalls   int
+	waitCalls   int
+}
+
+func (f *fakeWindowsProcess) Signal(os.Signal) error {
+	f.signalCalls++
+	return f.signalErr
+}
+
+func (f *fakeWindowsProcess) Kill() error {
+	f.killCalls++
+	if f.waitBlock != nil {
+		close(f.waitBlock)
+		f.waitBlock = nil
+	}
+	return f.killErr
+}
+
+func (f *fakeWindowsProcess) Wait() (*os.ProcessState, error) {
+	f.waitCalls++
+	if ch := f.waitBlock; ch != nil {
+		<-ch
+	}
+	return nil, f.waitErr
+}
+
+func overrideFindProcess(t *testing.T, proc windowsProcess) {
+	t.Helper()
+	original := findProcess
+	findProcess = func(pid int) (windowsProcess, error) {
+		return proc, nil
+	}
+	t.Cleanup(func() {
+		findProcess = original
+	})
+}
+
+func overrideTimeAfter(t *testing.T, fn func(time.Duration) <-chan time.Time) {
+	t.Helper()
+	original := timeAfter
+	timeAfter = fn
+	t.Cleanup(func() {
+		timeAfter = original
+	})
 }

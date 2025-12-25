@@ -4,6 +4,7 @@ package cmd
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 )
@@ -70,4 +71,55 @@ func TestSetupShutdownHandler_CancelCancelsContext(t *testing.T) {
 	if ctx.Err() != context.Canceled {
 		t.Errorf("context.Err() = %v, want %v", ctx.Err(), context.Canceled)
 	}
+}
+
+func TestSetupShutdownHandler_SignalCancelsContext(t *testing.T) {
+	var captured chan<- os.Signal
+	notifyCalled := make(chan struct{})
+	stopCalled := make(chan struct{})
+
+	overrideSignalHooks(t, func(ch chan<- os.Signal, sig ...os.Signal) {
+		if len(sig) != 1 || sig[0] != os.Interrupt {
+			t.Fatalf("signalNotify called with %v, want os.Interrupt", sig)
+		}
+		captured = ch
+		close(notifyCalled)
+	}, func(ch chan<- os.Signal) {
+		close(stopCalled)
+	})
+
+	ctx, cancel := setupShutdownHandler()
+	defer cancel()
+
+	select {
+	case <-notifyCalled:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("signalNotify was not invoked")
+	}
+
+	captured <- os.Interrupt
+
+	select {
+	case <-ctx.Done():
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("context was not canceled after signal")
+	}
+
+	select {
+	case <-stopCalled:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("signalStop was not invoked")
+	}
+}
+
+func overrideSignalHooks(t *testing.T, notify func(chan<- os.Signal, ...os.Signal), stop func(chan<- os.Signal)) {
+	t.Helper()
+	origNotify := signalNotify
+	origStop := signalStop
+	signalNotify = notify
+	signalStop = stop
+	t.Cleanup(func() {
+		signalNotify = origNotify
+		signalStop = origStop
+	})
 }
