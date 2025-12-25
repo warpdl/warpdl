@@ -372,3 +372,106 @@ func containsSubstring(s, substr string) bool {
 	}
 	return false
 }
+
+// TestManagerResumeEarlyCompile tests that when a part is already complete
+// during resume (poff >= foff), the Compiled state is properly updated
+func TestManagerResumeEarlyCompile(t *testing.T) {
+	base := t.TempDir()
+	if err := SetConfigDir(base); err != nil {
+		t.Fatalf("SetConfigDir: %v", err)
+	}
+	m, err := InitManager()
+	if err != nil {
+		t.Fatalf("InitManager: %v", err)
+	}
+	defer m.Close()
+
+	hash := "h-early-compile"
+	partHash := "p-early-compile"
+	
+	// Create download directory
+	if err := os.MkdirAll(filepath.Join(DlDataDir, hash), 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	// Create a part file that's already complete
+	dlPath := filepath.Join(DlDataDir, hash)
+	partPath := getFileName(dlPath, partHash)
+	testData := []byte("complete data")
+	if err := os.WriteFile(partPath, testData, 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	// Create an item with a part that's not marked as compiled yet
+	item := &Item{
+		Hash:             hash,
+		Name:             "file.bin",
+		Url:              "http://example.com/file.bin",
+		TotalSize:        ContentLength(len(testData)),
+		Downloaded:       0,
+		DownloadLocation: base,
+		AbsoluteLocation: base,
+		Resumable:        true,
+		Parts: map[int64]*ItemPart{
+			0: {
+				Hash:        partHash,
+				FinalOffset: int64(len(testData)),
+				Compiled:    false, // Not compiled yet
+			},
+		},
+	}
+	m.UpdateItem(item)
+
+	// Create downloader and add it to manager
+	d, err := initDownloader(&http.Client{}, hash, item.Url, ContentLength(len(testData)), &DownloaderOpts{
+		DownloadDirectory: base,
+		FileName:          item.Name,
+	})
+	if err != nil {
+		t.Fatalf("initDownloader: %v", err)
+	}
+
+	// Track compile complete calls
+	var compileCompleteCalled bool
+	originalHandler := d.handlers.CompileCompleteHandler
+	d.handlers.CompileCompleteHandler = func(h string, read int64) {
+		compileCompleteCalled = true
+		originalHandler(h, read)
+	}
+
+	// Add download to manager (this wraps handlers)
+	if err := m.AddDownload(d, &AddDownloadOpts{AbsoluteLocation: base}); err != nil {
+		t.Fatalf("AddDownload: %v", err)
+	}
+
+	// Resume the download - this should trigger early compile path
+	d.ohmap.Make()
+	if err := d.openFile(); err != nil {
+		t.Fatalf("openFile: %v", err)
+	}
+	defer d.Close()
+
+	d.wg.Add(1)
+	d.resumePartDownload(partHash, 0, int64(len(testData)), MB)
+	d.wg.Wait()
+
+	// Verify CompileCompleteHandler was called
+	if !compileCompleteCalled {
+		t.Fatalf("expected CompileCompleteHandler to be called")
+	}
+
+	// Verify the Compiled state was updated in the item
+	updatedItem := m.GetItem(hash)
+	if updatedItem == nil {
+		t.Fatalf("item not found after resume")
+	}
+	
+	part := updatedItem.Parts[0]
+	if part == nil {
+		t.Fatalf("part not found in item")
+	}
+	
+	if !part.Compiled {
+		t.Fatalf("expected part.Compiled to be true after early compile, got false")
+	}
+}
