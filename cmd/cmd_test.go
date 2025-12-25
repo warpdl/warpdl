@@ -1114,8 +1114,8 @@ func TestCommandAction(t *testing.T) {
 }
 
 func TestUserAgentsMap(t *testing.T) {
-	if len(UserAgents) < 3 {
-		t.Fatal("expected at least 3 user agents")
+	if len(UserAgents) < 4 {
+		t.Fatal("expected at least 4 user agents")
 	}
 	if _, ok := UserAgents["warp"]; !ok {
 		t.Fatal("expected 'warp' in UserAgents")
@@ -1125,6 +1125,9 @@ func TestUserAgentsMap(t *testing.T) {
 	}
 	if _, ok := UserAgents["chrome"]; !ok {
 		t.Fatal("expected 'chrome' in UserAgents")
+	}
+	if _, ok := UserAgents["edge"]; !ok {
+		t.Fatal("expected 'edge' in UserAgents")
 	}
 }
 
