@@ -1,6 +1,0 @@
-name = "warpdl-docs"
-compatibility_date = "2024-12-25"
-
-# Static assets configuration for SSG
-[assets]
-directory = "./dist"
