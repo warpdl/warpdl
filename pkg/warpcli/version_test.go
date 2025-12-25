@@ -13,7 +13,7 @@ import (
 )
 
 // mockVersionServer creates a mock server that responds to version requests
-func mockVersionServer(t *testing.T, response *common.VersionResponse, shouldError bool) (net.Conn, net.Conn) {
+func mockVersionServer(_ *testing.T, response *common.VersionResponse, shouldError bool) (net.Conn, net.Conn) {
 	c1, c2 := net.Pipe()
 	go func() {
 		reqBytes, err := read(c2)

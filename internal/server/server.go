@@ -48,26 +48,6 @@ func (s *Server) RegisterHandler(method common.UpdateType, handler HandlerFunc) 
 	s.handler[method] = handler
 }
 
-func (s *Server) createListener() (net.Listener, error) {
-	socketPath := socketPath()
-	_ = os.Remove(socketPath)
-	l, err := net.ListenUnix("unix", &net.UnixAddr{
-		Name: socketPath,
-		Net:  "unix",
-	})
-	if err != nil {
-		s.log.Println("Error occured while using unix socket: ", err.Error())
-		s.log.Println("Trying to use tcp socket")
-		tcpListener, tcpErr := net.Listen("tcp", fmt.Sprintf("%s:%d", common.TCPHost, s.port))
-		if tcpErr != nil {
-			return nil, fmt.Errorf("error listening: %s", tcpErr.Error())
-		}
-		return tcpListener, nil
-	}
-	setSocketPermissions(socketPath)
-	return l, nil
-}
-
 // Start begins listening for incoming connections and blocks until the context is canceled.
 // It first starts the web server in a separate goroutine, then creates a platform-specific
 // listener (Unix socket/named pipe with TCP fallback) and accepts connections in a loop.
