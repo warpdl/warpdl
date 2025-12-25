@@ -489,10 +489,15 @@ func (d *Downloader) resumePartDownload(hash string, ioff, foff, espeed int64) {
 	poff := part.offset + part.read
 	if poff >= foff {
 		d.Log("%s: part offset (%d) greater than final offset (%d)", hash, poff, foff)
-		_, _, err = part.compile()
+		d.handlers.CompileStartHandler(part.hash)
+		var read, written int64
+		read, written, err = part.compile()
 		if err != nil {
 			d.Log("%s: part compile failed: %s", hash, err.Error())
+			return
 		}
+		atomic.AddInt64(&d.nread, written)
+		d.handlers.CompileCompleteHandler(part.hash, read)
 		return
 	}
 	// CHANGE IMPL

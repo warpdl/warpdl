@@ -104,9 +104,23 @@ func TestResumePartDownloadCompilePath(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(DlDataDir, hash), 0755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
+	
+	// Track handler calls
+	var compileStartCalled, compileCompleteCalled bool
+	var compileCompleteRead int64
+	
 	d, err := initDownloader(&http.Client{}, hash, "http://example.com/file.bin", 4, &DownloaderOpts{
 		DownloadDirectory: base,
 		FileName:          "file.bin",
+		Handlers: &Handlers{
+			CompileStartHandler: func(hash string) {
+				compileStartCalled = true
+			},
+			CompileCompleteHandler: func(hash string, read int64) {
+				compileCompleteCalled = true
+				compileCompleteRead = read
+			},
+		},
 	})
 	if err != nil {
 		t.Fatalf("initDownloader: %v", err)
@@ -120,7 +134,8 @@ func TestResumePartDownloadCompilePath(t *testing.T) {
 
 	partHash := "p1"
 	partPath := getFileName(d.dlPath, partHash)
-	if err := os.WriteFile(partPath, []byte("data"), 0644); err != nil {
+	testData := []byte("data")
+	if err := os.WriteFile(partPath, testData, 0644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	d.wg.Add(1)
@@ -133,5 +148,16 @@ func TestResumePartDownloadCompilePath(t *testing.T) {
 	}
 	if info.Size() == 0 {
 		t.Fatalf("expected compiled data to be written")
+	}
+	
+	// Verify handlers were called
+	if !compileStartCalled {
+		t.Fatalf("expected CompileStartHandler to be called")
+	}
+	if !compileCompleteCalled {
+		t.Fatalf("expected CompileCompleteHandler to be called")
+	}
+	if compileCompleteRead != int64(len(testData)) {
+		t.Fatalf("expected CompileCompleteHandler read=%d, got %d", len(testData), compileCompleteRead)
 	}
 }
