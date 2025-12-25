@@ -607,3 +607,81 @@ func TestOpenFileSucceedsWhenFileDoesNotExist(t *testing.T) {
 		})
 	}
 }
+
+// TestGetPartSizeZeroNumBaseParts tests that getPartSize guards against division by zero
+// when numBaseParts is 0, defaulting to 1.
+func TestGetPartSizeZeroNumBaseParts(t *testing.T) {
+	tests := []struct {
+		name           string
+		numBaseParts   int32
+		contentLength  int64
+		expectedParts  int64
+		expectedRParts int64
+	}{
+		{
+			name:           "numBaseParts is 0 with valid content length",
+			numBaseParts:   0,
+			contentLength:  1000,
+			expectedParts:  1000, // Should default to 1 part, so part size = total size
+			expectedRParts: 0,
+		},
+		{
+			name:           "numBaseParts is negative with valid content length",
+			numBaseParts:   -1,
+			contentLength:  1000,
+			expectedParts:  1000, // Should default to 1 part
+			expectedRParts: 0,
+		},
+		{
+			name:           "numBaseParts is 1 with valid content length",
+			numBaseParts:   1,
+			contentLength:  1000,
+			expectedParts:  1000,
+			expectedRParts: 0,
+		},
+		{
+			name:           "numBaseParts is 4 with valid content length",
+			numBaseParts:   4,
+			contentLength:  1000,
+			expectedParts:  250,
+			expectedRParts: 0,
+		},
+		{
+			name:           "numBaseParts is 0 with unknown content length (-1)",
+			numBaseParts:   0,
+			contentLength:  -1,
+			expectedParts:  -1, // Should return -1 for unknown size
+			expectedRParts: 0,
+		},
+		{
+			name:           "numBaseParts is 0 with zero content length",
+			numBaseParts:   0,
+			contentLength:  0,
+			expectedParts:  -1, // Should return -1 for zero size
+			expectedRParts: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := &Downloader{
+				numBaseParts:  tt.numBaseParts,
+				contentLength: ContentLength(tt.contentLength),
+			}
+
+			partSize, rpartSize := d.getPartSize()
+
+			if partSize != tt.expectedParts {
+				t.Errorf("expected partSize=%d, got=%d", tt.expectedParts, partSize)
+			}
+			if rpartSize != tt.expectedRParts {
+				t.Errorf("expected rpartSize=%d, got=%d", tt.expectedRParts, rpartSize)
+			}
+
+			// Verify that numBaseParts was corrected to at least 1 if it was <= 0
+			if tt.numBaseParts <= 0 && tt.contentLength > 0 && d.numBaseParts != 1 {
+				t.Errorf("expected numBaseParts to be corrected to 1, got=%d", d.numBaseParts)
+			}
+		})
+	}
+}

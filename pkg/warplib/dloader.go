@@ -816,6 +816,10 @@ func (d *Downloader) Log(s string, a ...any) {
 // partSize variable is the general size of each part
 // rPartSize variable contains the size of last part
 func (d *Downloader) getPartSize() (partSize, rpartSize int64) {
+	// Guard against division by zero by ensuring numBaseParts is at least 1
+	if d.numBaseParts <= 0 {
+		d.numBaseParts = 1
+	}
 	switch cl := d.contentLength.v(); cl {
 	case -1, 0:
 		partSize = -1
