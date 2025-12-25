@@ -18,6 +18,14 @@ import (
 	"golang.org/x/sys/windows/svc"
 )
 
+// mockEventLogWriter implements logger.EventLogWriter for testing in cmd package.
+type mockEventLogWriter struct{}
+
+func (m *mockEventLogWriter) Info(eid uint32, msg string) error    { return nil }
+func (m *mockEventLogWriter) Warning(eid uint32, msg string) error { return nil }
+func (m *mockEventLogWriter) Error(eid uint32, msg string) error   { return nil }
+func (m *mockEventLogWriter) Close() error                         { return nil }
+
 // TestDaemonWindows_ConsoleMode tests that daemonWindows calls daemon() when not running as service.
 func TestDaemonWindows_ConsoleMode(t *testing.T) {
 	base := t.TempDir()
@@ -94,8 +102,8 @@ func TestRunAsWindowsService_UsesEventLog(t *testing.T) {
 	// Mock newEventLogger to succeed
 	oldNewEventLogger := newEventLogger
 	newEventLogger = func(source string) (*logger.EventLogger, error) {
-		// Return a mock that tracks usage
-		return nil, nil // Will use MultiLogger path
+		// Return a proper EventLogger with mock writer
+		return logger.NewEventLoggerWithWriter(&mockEventLogWriter{}), nil
 	}
 	defer func() { newEventLogger = oldNewEventLogger }()
 
