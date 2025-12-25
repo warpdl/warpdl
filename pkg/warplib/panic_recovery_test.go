@@ -361,7 +361,6 @@ func TestResumePartDownloadSurvivesPanic(t *testing.T) {
 	partFile.Write(bytes.Repeat([]byte("b"), 64)) // Write 64 bytes
 	partFile.Close()
 
-
 	// Simulate resuming a download by calling resumePartDownload
 	d.wg.Add(1)
 

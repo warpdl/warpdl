@@ -22,7 +22,8 @@ type Manager struct {
 	items ItemsMap
 	f     *os.File
 	mu    *sync.RWMutex
-	log   *log.Logger
+	// log is used for error reporting and warnings, particularly for state persistence issues
+	log *log.Logger
 }
 
 // InitManager creates a new manager instance.
@@ -151,7 +152,7 @@ func (m *Manager) patchHandlers(d *Downloader, item *Item) {
 func (m *Manager) encode(e any) (err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	// Truncate before write to remove old data
 	if err := m.f.Truncate(0); err != nil {
 		return fmt.Errorf("truncate failed: %w", err)
@@ -163,7 +164,10 @@ func (m *Manager) encode(e any) (err error) {
 		return fmt.Errorf("encode failed: %w", err)
 	}
 	// Ensure data is written to disk
-	return m.f.Sync()
+	if err := m.f.Sync(); err != nil {
+		return fmt.Errorf("sync failed: %w", err)
+	}
+	return nil
 }
 
 // mapItem maps the item to the manager's items map.

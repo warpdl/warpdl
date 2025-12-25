@@ -107,11 +107,11 @@ func TestResumePartDownloadCompilePath(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(DlDataDir, hash), 0755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
-	
+
 	// Track handler calls
 	var compileStartCalled, compileCompleteCalled bool
 	var compileCompleteRead int64
-	
+
 	d, err := initDownloader(&http.Client{}, hash, "http://example.com/file.bin", 4, &DownloaderOpts{
 		DownloadDirectory: base,
 		FileName:          "file.bin",
@@ -152,7 +152,7 @@ func TestResumePartDownloadCompilePath(t *testing.T) {
 	if info.Size() == 0 {
 		t.Fatalf("expected compiled data to be written")
 	}
-	
+
 	// Verify handlers were called
 	if !compileStartCalled {
 		t.Fatalf("expected CompileStartHandler to be called")

@@ -388,7 +388,7 @@ func TestManagerResumeEarlyCompile(t *testing.T) {
 
 	hash := "h-early-compile"
 	partHash := "p-early-compile"
-	
+
 	// Create download directory
 	if err := os.MkdirAll(filepath.Join(DlDataDir, hash), 0755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
@@ -465,12 +465,12 @@ func TestManagerResumeEarlyCompile(t *testing.T) {
 	if updatedItem == nil {
 		t.Fatalf("item not found after resume")
 	}
-	
+
 	part := updatedItem.Parts[0]
 	if part == nil {
 		t.Fatalf("part not found in item")
 	}
-	
+
 	if !part.Compiled {
 		t.Fatalf("expected part.Compiled to be true after early compile, got false")
 	}

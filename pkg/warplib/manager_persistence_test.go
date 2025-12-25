@@ -2,6 +2,7 @@ package warplib
 
 import (
 	"encoding/gob"
+	"fmt"
 	"os"
 	"testing"
 )
@@ -77,7 +78,7 @@ func TestEncodeSyncsFile(t *testing.T) {
 		mu:         m.mu,
 		memPart:    make(map[string]int64),
 	}
-	
+
 	// UpdateItem should call encode which should sync
 	m.UpdateItem(item)
 
@@ -183,7 +184,7 @@ func TestConcurrentUpdateItem(t *testing.T) {
 	for i := 0; i < numGoroutines; i++ {
 		go func(id int) {
 			item := &Item{
-				Hash:       string(rune('a' + id)),
+				Hash:       fmt.Sprintf("hash-%d", id),
 				Name:       "file.bin",
 				Url:        "http://example.com/file.bin",
 				TotalSize:  100,
@@ -217,7 +218,7 @@ func TestFlushTruncatesFile(t *testing.T) {
 	// Add multiple completed items
 	for i := 0; i < 10; i++ {
 		item := &Item{
-			Hash:       string(rune('a' + i)),
+			Hash:       fmt.Sprintf("hash-%d", i),
 			Name:       "file.bin",
 			Url:        "http://example.com/file.bin",
 			TotalSize:  100,
@@ -317,7 +318,7 @@ func TestPersistenceAcrossRestarts(t *testing.T) {
 // TestEncodeReturnsError verifies that encode properly returns errors.
 func TestEncodeReturnsError(t *testing.T) {
 	m := newTestManager(t)
-	
+
 	// Close the file to cause errors
 	m.f.Close()
 
