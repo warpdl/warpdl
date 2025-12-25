@@ -25,11 +25,18 @@ When prompted by Windows Firewall:
 
 ### Manual Firewall Rule
 
-If you missed the prompt or need to reconfigure:
+If you missed the prompt or need to reconfigure, first find your WarpDL executable path:
+
+```powershell
+# Find WarpDL executable location
+Get-Command warpdl | Select-Object -ExpandProperty Source
+```
+
+Then create the firewall rule:
 
 #### Using PowerShell (Recommended)
 ```powershell
-# Add inbound rule for WarpDL on private networks
+# Replace C:\path\to\warpdl.exe with your actual path from above
 New-NetFirewallRule -DisplayName "WarpDL Daemon" `
   -Direction Inbound `
   -Program "C:\path\to\warpdl.exe" `
@@ -40,6 +47,7 @@ New-NetFirewallRule -DisplayName "WarpDL Daemon" `
 
 #### Using netsh (Alternative)
 ```powershell
+# Replace C:\path\to\warpdl.exe with your actual path
 netsh advfirewall firewall add rule name="WarpDL Daemon" `
   dir=in action=allow program="C:\path\to\warpdl.exe" profile=private
 ```
@@ -49,7 +57,7 @@ netsh advfirewall firewall add rule name="WarpDL Daemon" `
 1. Open **Windows Defender Firewall with Advanced Security**
 2. Click **Inbound Rules** → **New Rule...**
 3. Select **Program** → Next
-4. Browse to `warpdl.exe` location → Next
+4. Browse to `warpdl.exe` location (use `where warpdl` in Command Prompt to find it) → Next
 5. Select **Allow the connection** → Next
 6. Check **Private** only → Next
 7. Name: "WarpDL Daemon" → Finish
@@ -70,9 +78,8 @@ Download managers are commonly flagged as suspicious due to parallel connections
 
 ### Recommended Exclusions
 
-- **Application data**: `%LOCALAPPDATA%\warpdl\`
-- **Configuration directory**: `%USERPROFILE%\.config\warpdl\`
-- **Executable path**: Full path to `warpdl.exe` (e.g., `C:\Program Files\warpdl\warpdl.exe`)
+- **Configuration directory**: `%LOCALAPPDATA%\warpdl\` (typically `C:\Users\<username>\AppData\Local\warpdl\`)
+- **Executable path**: Full path to `warpdl.exe` (e.g., `C:\Program Files\warpdl\warpdl.exe` or where you installed it)
 
 ### Windows Defender Exclusions
 
@@ -83,15 +90,14 @@ Download managers are commonly flagged as suspicious due to parallel connections
 3. Under "Virus & threat protection settings", click **Manage settings**
 4. Scroll to **Exclusions** → Click **Add or remove exclusions**
 5. Click **Add an exclusion** → Select type:
-   - **Folder**: Add `%LOCALAPPDATA%\warpdl` and `%USERPROFILE%\.config\warpdl`
+   - **Folder**: Add `%LOCALAPPDATA%\warpdl` (expand the path to use the full path like `C:\Users\<username>\AppData\Local\warpdl`)
    - **File**: Add path to `warpdl.exe`
 
 #### Using PowerShell
 
 ```powershell
-# Add folder exclusions
+# Add folder exclusion for config directory
 Add-MpPreference -ExclusionPath "$env:LOCALAPPDATA\warpdl"
-Add-MpPreference -ExclusionPath "$env:USERPROFILE\.config\warpdl"
 
 # Add process exclusion
 Add-MpPreference -ExclusionProcess "warpdl.exe"
