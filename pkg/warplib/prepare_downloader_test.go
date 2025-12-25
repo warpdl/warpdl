@@ -63,6 +63,20 @@ func TestPrepareDownloaderSpeedAllocation(t *testing.T) {
 			expectedParts: 6,
 			description:   "Slow downloads should use moderate parts to maintain stability",
 		},
+		{
+			name:          "Fast Speed > 5MB/s",
+			chunkSize:     32 * 1024,
+			readDelay:     5 * time.Millisecond,
+			expectedParts: 10,
+			description:   "Fast downloads should use 10 parts for good performance",
+		},
+		{
+			name:          "Super Fast Speed > 10MB/s",
+			chunkSize:     32 * 1024,
+			readDelay:     2 * time.Millisecond,
+			expectedParts: 12,
+			description:   "Super fast downloads should use more parts to maximize throughput",
+		},
 	}
 
 	for _, tt := range tests {
