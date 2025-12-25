@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"runtime"
 	"fmt"
 	"io"
 	"log"
@@ -610,6 +611,9 @@ func TestOpenFileSucceedsWhenFileDoesNotExist(t *testing.T) {
 
 // TestFilePermissions verifies that files are created with secure permissions (0644)
 func TestFilePermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("file permission tests not applicable on Windows")
+	}
 	tmpDir := t.TempDir()
 	defer func() { ConfigDir = defaultConfigDir() }()
 	if err := setConfigDir(tmpDir); err != nil {

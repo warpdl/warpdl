@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"testing"
 	"time"
 
@@ -410,6 +411,9 @@ func compareCookies(t *testing.T, expected *types.Cookie, actual *types.Cookie) 
 
 // TestCookieManagerFilePermissions verifies that cookie file is created with secure permissions
 func TestCookieManagerFilePermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("file permission tests not applicable on Windows")
+	}
 	tmpDir := t.TempDir()
 	filePath := filepath.Join(tmpDir, "cookies.warp")
 	key := make([]byte, 32)

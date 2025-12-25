@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 )
@@ -375,6 +376,9 @@ func containsSubstring(s, substr string) bool {
 
 // TestManagerFilePermissions verifies that manager file is created with secure permissions
 func TestManagerFilePermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("file permission tests not applicable on Windows")
+	}
 	tmpDir := t.TempDir()
 	defer func() { ConfigDir = defaultConfigDir() }()
 	if err := setConfigDir(tmpDir); err != nil {

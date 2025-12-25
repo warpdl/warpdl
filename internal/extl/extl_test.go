@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/dop251/goja"
@@ -513,6 +514,9 @@ func TestRequestCallbackErrorsAdditional(t *testing.T) {
 
 // TestEngineFilePermissions verifies that engine file is created with secure permissions
 func TestEngineFilePermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("file permission tests not applicable on Windows")
+	}
 	tmpDir := t.TempDir()
 	originalStore := ENGINE_STORE
 	ENGINE_STORE = tmpDir
