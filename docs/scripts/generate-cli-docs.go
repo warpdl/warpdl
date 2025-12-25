@@ -7,6 +7,7 @@ import (
     "os"
     "path/filepath"
     "regexp"
+    "strings"
 
     "github.com/warpdl/warpdl/cmd"
 )
@@ -42,6 +43,28 @@ func cleanManPageFormat(md string) string {
     return md
 }
 
+// toTitleCase converts "GLOBAL OPTIONS" to "Global Options"
+func toTitleCase(s string) string {
+    words := strings.Fields(strings.ToLower(s))
+    for i, w := range words {
+        if len(w) > 0 {
+            words[i] = strings.ToUpper(w[:1]) + w[1:]
+        }
+    }
+    return strings.Join(words, " ")
+}
+
+// convertH1ToH2 converts man page H1 headers to H2 with title case
+// e.g., "# GLOBAL OPTIONS" → "## Global Options"
+func convertH1ToH2(md string) string {
+    re := regexp.MustCompile(`(?m)^# ([A-Z][A-Z ]+)$`)
+    return re.ReplaceAllStringFunc(md, func(match string) string {
+        // Extract the header text (remove "# ")
+        header := strings.TrimPrefix(match, "# ")
+        return "## " + toTitleCase(header)
+    })
+}
+
 func main() {
     app := cmd.GetApp(cmd.BuildArgs{Version: "latest"})
 
@@ -53,6 +76,9 @@ func main() {
 
     // Clean up man page style formatting
     md = cleanManPageFormat(md)
+
+    // Convert H1 caps headers to H2 title case (for TOC visibility)
+    md = convertH1ToH2(md)
 
     // Escape angle brackets to prevent MDX/JSX interpretation
     md = escapeAngleBrackets(md)
