@@ -30,6 +30,10 @@ If you missed the prompt or need to reconfigure, first find your WarpDL executab
 ```powershell
 # Find WarpDL executable location
 Get-Command warpdl | Select-Object -ExpandProperty Source
+
+# If warpdl is not in PATH, locate it manually (common locations):
+# - C:\Program Files\warpdl\warpdl.exe (Scoop/manual install)
+# - C:\Users\<YourUsername>\scoop\apps\warpdl\current\warpdl.exe (Scoop user install)
 ```
 
 Then create the firewall rule:
@@ -78,8 +82,8 @@ Download managers are commonly flagged as suspicious due to parallel connections
 
 ### Recommended Exclusions
 
-- **Configuration directory**: `%LOCALAPPDATA%\warpdl\` (typically `C:\Users\<username>\AppData\Local\warpdl\`)
-- **Executable path**: Full path to `warpdl.exe` (e.g., `C:\Program Files\warpdl\warpdl.exe` or where you installed it)
+- **Configuration directory**: `%LOCALAPPDATA%\warpdl\` (typically `C:\Users\YourUsername\AppData\Local\warpdl\`)
+- **Executable path**: Full path to `warpdl.exe` (use `Get-Command warpdl` to find it, or check common locations like `C:\Program Files\warpdl\warpdl.exe`)
 
 ### Windows Defender Exclusions
 
@@ -90,7 +94,7 @@ Download managers are commonly flagged as suspicious due to parallel connections
 3. Under "Virus & threat protection settings", click **Manage settings**
 4. Scroll to **Exclusions** → Click **Add or remove exclusions**
 5. Click **Add an exclusion** → Select type:
-   - **Folder**: Add the full path like `C:\Users\<username>\AppData\Local\warpdl` (Windows Security may not accept the `%LOCALAPPDATA%` variable directly)
+   - **Folder**: Add the full path like `C:\Users\YourUsername\AppData\Local\warpdl` (replace `YourUsername` with your actual Windows username, or use `$env:USERNAME` in PowerShell; Windows Security may not accept the `%LOCALAPPDATA%` variable directly)
    - **File**: Add full path to `warpdl.exe` (use `Get-Command warpdl` in PowerShell to find it)
 
 #### Using PowerShell
@@ -139,7 +143,8 @@ If you see the "Windows protected your PC" dialog:
 
 ```powershell
 # Unblock downloaded file (removes Mark-of-the-Web)
-Unblock-File -Path "C:\path\to\warpdl.exe"
+# Replace path with your actual warpdl.exe location from Get-Command warpdl
+Unblock-File -Path "C:\Program Files\warpdl\warpdl.exe"
 ```
 
 ### Preventing SmartScreen Warnings
