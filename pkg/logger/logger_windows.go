@@ -20,11 +20,20 @@ const (
 	EventIDError uint32 = 3
 )
 
+// eventLogOpener is the function used to open an event log.
+// It can be replaced in tests to inject mock implementations.
+var eventLogOpener = defaultEventLogOpener
+
+// defaultEventLogOpener opens a real Windows Event Log.
+func defaultEventLogOpener(sourceName string) (EventLogWriter, error) {
+	return eventlog.Open(sourceName)
+}
+
 // EventLogger writes log messages to Windows Event Log.
 // The event source must be registered via eventlog.InstallAsEventCreate()
 // before creating an EventLogger.
 type EventLogger struct {
-	log *eventlog.Log
+	log EventLogWriter
 }
 
 // NewEventLogger creates a logger that writes to Windows Event Log.
@@ -34,11 +43,17 @@ type EventLogger struct {
 // IMPORTANT: The Event Source must be registered during service installation
 // using eventlog.InstallAsEventCreate(). See cmd/service_windows.go.
 func NewEventLogger(sourceName string) (*EventLogger, error) {
-	elog, err := eventlog.Open(sourceName)
+	elog, err := eventLogOpener(sourceName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open event log: %w", err)
 	}
 	return &EventLogger{log: elog}, nil
+}
+
+// NewEventLoggerWithWriter creates an EventLogger with a custom EventLogWriter.
+// This is primarily for testing purposes.
+func NewEventLoggerWithWriter(w EventLogWriter) *EventLogger {
+	return &EventLogger{log: w}
 }
 
 // Info logs an informational message to Windows Event Log.

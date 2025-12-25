@@ -2,6 +2,7 @@ package logger
 
 import (
 	"bytes"
+	"errors"
 	"log"
 	"strings"
 	"testing"
@@ -192,5 +193,101 @@ func TestMultiLogger_EmptyLoggers(t *testing.T) {
 	err := multi.Close()
 	if err != nil {
 		t.Errorf("expected nil error, got: %v", err)
+	}
+}
+
+// FailingCloseLogger is a logger that returns an error on Close().
+// Used for testing MultiLogger error propagation.
+type FailingCloseLogger struct {
+	NopLogger
+	closeErr error
+}
+
+func NewFailingCloseLogger(err error) *FailingCloseLogger {
+	return &FailingCloseLogger{closeErr: err}
+}
+
+func (f *FailingCloseLogger) Close() error {
+	return f.closeErr
+}
+
+// Ensure FailingCloseLogger satisfies Logger interface.
+var _ Logger = (*FailingCloseLogger)(nil)
+
+func TestMultiLogger_Close_ReturnsFirstError(t *testing.T) {
+	err1 := errors.New("logger1 failed to close")
+	err2 := errors.New("logger2 failed to close")
+
+	failing1 := NewFailingCloseLogger(err1)
+	failing2 := NewFailingCloseLogger(err2)
+	mock := NewMockLogger()
+
+	// First logger fails, second succeeds, third fails
+	multi := NewMultiLogger(failing1, mock, failing2)
+
+	err := multi.Close()
+
+	// Should return the FIRST error encountered
+	if !errors.Is(err, err1) {
+		t.Errorf("expected first error %v, got %v", err1, err)
+	}
+
+	// All loggers should still be closed (mock should have CloseCalled=true)
+	if !mock.CloseCalled {
+		t.Error("expected mock logger to be closed even after first error")
+	}
+}
+
+func TestMultiLogger_Close_SingleFailingLogger(t *testing.T) {
+	expectedErr := errors.New("close failed")
+	failing := NewFailingCloseLogger(expectedErr)
+
+	multi := NewMultiLogger(failing)
+
+	err := multi.Close()
+	if !errors.Is(err, expectedErr) {
+		t.Errorf("expected error %v, got %v", expectedErr, err)
+	}
+}
+
+func TestMultiLogger_Close_AllFail(t *testing.T) {
+	err1 := errors.New("error1")
+	err2 := errors.New("error2")
+	err3 := errors.New("error3")
+
+	multi := NewMultiLogger(
+		NewFailingCloseLogger(err1),
+		NewFailingCloseLogger(err2),
+		NewFailingCloseLogger(err3),
+	)
+
+	err := multi.Close()
+
+	// Should still return only the first error
+	if !errors.Is(err, err1) {
+		t.Errorf("expected first error %v, got %v", err1, err)
+	}
+}
+
+func TestMultiLogger_Close_MixedSuccessAndFailure(t *testing.T) {
+	closeErr := errors.New("failed")
+
+	mock1 := NewMockLogger()
+	failing := NewFailingCloseLogger(closeErr)
+	mock2 := NewMockLogger()
+
+	multi := NewMultiLogger(mock1, failing, mock2)
+
+	err := multi.Close()
+
+	if !errors.Is(err, closeErr) {
+		t.Errorf("expected %v, got %v", closeErr, err)
+	}
+	// All loggers should be attempted
+	if !mock1.CloseCalled {
+		t.Error("mock1 should be closed")
+	}
+	if !mock2.CloseCalled {
+		t.Error("mock2 should be closed even after failure")
 	}
 }
