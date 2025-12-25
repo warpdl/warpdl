@@ -35,7 +35,7 @@ warpdl stop-daemon
 
 | Platform | Default IPC |
 |----------|-------------|
-| Linux/macOS | Unix socket at `/tmp/warpdl.sock` (or `$TMPDIR/warpdl.sock` on macOS) |
+| Linux/macOS | Unix socket at `$TMPDIR/warpdl.sock` (defaults to `/tmp/warpdl.sock`) |
 | Windows | Named pipe `\\.\pipe\warpdl` |
 
 To customize the socket path:
