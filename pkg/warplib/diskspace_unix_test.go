@@ -163,3 +163,20 @@ func TestDiskSpaceCheckInDownloadFlow(t *testing.T) {
 		t.Errorf("expected no error for small file, got: %v", err)
 	}
 }
+
+func TestCheckDiskSpaceNegativeRemaining(t *testing.T) {
+	// Test that negative remaining bytes are handled gracefully
+	tmpDir := t.TempDir()
+	
+	// Negative bytes should be treated as zero (no check needed)
+	err := checkDiskSpace(tmpDir, -100)
+	if err != nil {
+		t.Errorf("expected no error for negative bytes, got: %v", err)
+	}
+	
+	// Zero bytes should also pass
+	err = checkDiskSpace(tmpDir, 0)
+	if err != nil {
+		t.Errorf("expected no error for zero bytes, got: %v", err)
+	}
+}

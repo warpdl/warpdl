@@ -29,7 +29,7 @@ func checkDiskSpace(path string, requiredBytes int64) error {
 	availableBytes := int64(stat.Bavail) * int64(stat.Bsize)
 
 	if availableBytes < requiredBytes {
-		return fmt.Errorf("%w: required %s, available %s",
+		return fmt.Errorf("%w: required space %s, available space %s",
 			ErrInsufficientDiskSpace,
 			ContentLength(requiredBytes),
 			ContentLength(availableBytes))
