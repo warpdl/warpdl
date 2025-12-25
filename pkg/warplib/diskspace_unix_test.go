@@ -116,9 +116,24 @@ func TestCheckDiskSpaceIntegration(t *testing.T) {
 }
 
 func TestCheckDiskSpacePermissions(t *testing.T) {
-	// Test with a path that exists but we might not have permission to stat
+	// Skip if running as root since we won't get permission errors
+	if os.Geteuid() == 0 {
+		t.Skip("skipping permission test when running as root")
+	}
+
+	// Create a directory with no read permissions to reliably test permission errors
+	tmpDir := t.TempDir()
+	restrictedDir := filepath.Join(tmpDir, "restricted")
+	if err := os.Mkdir(restrictedDir, 0000); err != nil {
+		t.Fatalf("failed to create restricted directory: %v", err)
+	}
+	t.Cleanup(func() {
+		// Restore permissions so cleanup can remove the directory
+		os.Chmod(restrictedDir, 0755)
+	})
+
 	// This should not fail the check (graceful degradation)
-	err := checkDiskSpace("/root", 1024)
+	err := checkDiskSpace(restrictedDir, 1024)
 	if err != nil {
 		t.Errorf("expected no error for permission-denied path, got: %v", err)
 	}
