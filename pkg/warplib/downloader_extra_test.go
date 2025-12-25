@@ -93,6 +93,9 @@ func TestDownloaderResumeCompiledPart(t *testing.T) {
 	if err := d.Resume(map[int64]*ItemPart{}); err == nil {
 		t.Fatalf("expected error for empty parts")
 	}
+	if err := d.Resume(nil); err == nil {
+		t.Fatalf("expected error for nil parts")
+	}
 }
 
 func TestResumePartDownloadCompilePath(t *testing.T) {

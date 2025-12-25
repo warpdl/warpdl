@@ -361,8 +361,11 @@ func (d *Downloader) Start() (err error) {
 // It blocks the current goroutine until the download is complete.
 func (d *Downloader) Resume(parts map[int64]*ItemPart) (err error) {
 	defer d.lw.Close()
+	if parts == nil {
+		return errors.New("invalid or uninitialized parts; cannot resume download")
+	}
 	if len(parts) == 0 {
-		return errors.New("download is already complete")
+		return errors.New("no parts to resume; download is already complete")
 	}
 	err = d.openFile()
 	if err != nil {
