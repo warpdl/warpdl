@@ -36,8 +36,91 @@ func TestPrepareDownloaderSlowSpeed(t *testing.T) {
 	if err := d.prepareDownloader(); err != nil {
 		t.Fatalf("prepareDownloader: %v", err)
 	}
-	if d.numBaseParts != 14 {
-		t.Fatalf("expected numBaseParts=14, got %d", d.numBaseParts)
+	if d.numBaseParts != 4 {
+		t.Fatalf("expected numBaseParts=4 for very slow download, got %d", d.numBaseParts)
+	}
+}
+
+func TestPrepareDownloaderSpeedAllocation(t *testing.T) {
+	tests := []struct {
+		name          string
+		chunkSize     int
+		readDelay     time.Duration
+		expectedParts int32
+		description   string
+	}{
+		{
+			name:          "Very Slow Speed < 100KB/s",
+			chunkSize:     32 * 1024, // 32KB
+			readDelay:     400 * time.Millisecond,
+			expectedParts: 4,
+			description:   "Very slow downloads should use fewer parts to avoid server overload",
+		},
+		{
+			name:          "Slow Speed < 1MB/s",
+			chunkSize:     32 * 1024,
+			readDelay:     40 * time.Millisecond,
+			expectedParts: 6,
+			description:   "Slow downloads should use moderate parts to maintain stability",
+		},
+		{
+			name:          "Moderate Speed 1-5MB/s",
+			chunkSize:     32 * 1024,
+			readDelay:     16 * time.Millisecond, // ~2MB/s
+			expectedParts: 8,
+			description:   "Moderate speed downloads should use balanced part count",
+		},
+		{
+			name:          "Fast Speed > 5MB/s",
+			chunkSize:     32 * 1024,
+			readDelay:     4 * time.Millisecond, // ~8MB/s, with margin for CI timing jitter
+			expectedParts: 10,
+			description:   "Fast downloads should use 10 parts for good performance",
+		},
+		{
+			name:          "Super Fast Speed > 10MB/s",
+			chunkSize:     32 * 1024,
+			readDelay:     1 * time.Millisecond, // ~32MB/s, with margin for CI timing jitter
+			expectedParts: 12,
+			description:   "Super fast downloads should use more parts to maximize throughput",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reader := &slowReadCloser{
+				data:  bytes.Repeat([]byte("a"), tt.chunkSize),
+				delay: tt.readDelay,
+			}
+			client := &http.Client{
+				Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
+					h := make(http.Header)
+					h.Set("Accept-Ranges", "bytes")
+					h.Set("Content-Length", "1048576") // 1MB
+					return &http.Response{
+						StatusCode: http.StatusPartialContent,
+						Body:       reader,
+						Header:     h,
+					}, nil
+				}),
+			}
+			d := &Downloader{
+				client:        client,
+				url:           "http://example.com/file.bin",
+				chunk:         tt.chunkSize,
+				force:         false,
+				numBaseParts:  0,
+				contentLength: 1048576, // 1MB
+				headers:       Headers{},
+			}
+			if err := d.prepareDownloader(); err != nil {
+				t.Fatalf("prepareDownloader: %v", err)
+			}
+			if d.numBaseParts != tt.expectedParts {
+				t.Errorf("%s: %s - expected numBaseParts=%d, got %d", 
+					tt.name, tt.description, tt.expectedParts, d.numBaseParts)
+			}
+		})
 	}
 }
 

@@ -1075,20 +1075,23 @@ func (d *Downloader) prepareDownloader() (err error) {
 	switch {
 	case te > getDownloadTime(100*KB, int64(size)):
 		// chunk is downloaded at a speed less than 100KB/s
-		// very slow download
-		d.numBaseParts = 14
+		// very slow download - use fewer parts to avoid server overload and timeouts
+		d.numBaseParts = 4
 	case te > getDownloadTime(MB, int64(size)):
 		// chunk is downloaded at a speed less than 1MB/s
-		// slow download
-		d.numBaseParts = 12
+		// slow download - use fewer parts to maintain stability
+		d.numBaseParts = 6
 	case te < getDownloadTime(10*MB, int64(size)):
 		// chunk is downloaded at a speed more than 10MB/s
-		// super fast download
-		d.numBaseParts = 8
+		// super fast download - can handle more parallel connections
+		d.numBaseParts = 12
 	case te < getDownloadTime(5*MB, int64(size)):
 		// chunk is downloaded at a speed more than 5MB/s
 		// fast download
 		d.numBaseParts = 10
+	default:
+		// moderate download speed (1-5 MB/s) - use balanced part count
+		d.numBaseParts = 8
 	}
 	return
 }
