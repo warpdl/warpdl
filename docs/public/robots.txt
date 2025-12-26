@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://warpdl-docs.divkix.workers.dev/sitemap-index.xml
