@@ -2,6 +2,7 @@ package warplib
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -102,4 +103,53 @@ func TestItemDAllocConcurrentAccess(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+func TestGetPartDesync(t *testing.T) {
+	item := &Item{
+		Parts:   make(map[int64]*ItemPart),
+		memPart: make(map[string]int64),
+		mu:      &sync.RWMutex{},
+	}
+	// Simulate desync: memPart has entry, Parts doesn't
+	item.memPart["orphan_hash"] = 999
+
+	_, part, err := item.getPartWithError("orphan_hash")
+	if err == nil || part != nil {
+		t.Fatal("expected error for desync")
+	}
+	if !errors.Is(err, ErrPartDesync) {
+		t.Fatalf("expected ErrPartDesync, got %v", err)
+	}
+}
+
+func TestGetPartWithError_NotFound(t *testing.T) {
+	item := &Item{
+		Parts:   make(map[int64]*ItemPart),
+		memPart: make(map[string]int64),
+		mu:      &sync.RWMutex{},
+	}
+
+	offset, part, err := item.getPartWithError("nonexistent")
+	if err != nil || part != nil || offset != 0 {
+		t.Fatal("expected nil values for nonexistent hash")
+	}
+}
+
+func TestGetPartWithError_Found(t *testing.T) {
+	item := &Item{
+		Parts:   make(map[int64]*ItemPart),
+		memPart: make(map[string]int64),
+		mu:      &sync.RWMutex{},
+	}
+	item.Parts[100] = &ItemPart{Hash: "test_hash", FinalOffset: 200}
+	item.memPart["test_hash"] = 100
+
+	offset, part, err := item.getPartWithError("test_hash")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if offset != 100 || part == nil || part.Hash != "test_hash" {
+		t.Fatal("expected valid part")
+	}
 }

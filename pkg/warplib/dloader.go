@@ -396,7 +396,6 @@ func (d *Downloader) Start() (err error) {
 	return
 }
 
-
 // Resume resumes the download of the file with provided parts.
 // It blocks the current goroutine until the download is complete.
 func (d *Downloader) Resume(parts map[int64]*ItemPart) (err error) {

@@ -48,4 +48,13 @@ var (
 
 	// ErrFileTooLarge is returned when the file size exceeds the maximum allowed file size.
 	ErrFileTooLarge = errors.New("file size exceeds maximum allowed limit")
+
+	// ErrItemPartNil is returned when an ItemPart in the parts map is nil.
+	ErrItemPartNil = errors.New("ItemPart is nil")
+
+	// ErrItemPartInvalidRange is returned when ItemPart has FinalOffset <= start offset.
+	ErrItemPartInvalidRange = errors.New("ItemPart has invalid offset range")
+
+	// ErrPartDesync indicates memPart and Parts maps are out of sync.
+	ErrPartDesync = errors.New("memPart/Parts desync: hash exists but offset not in Parts")
 )

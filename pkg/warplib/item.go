@@ -5,6 +5,7 @@
 package warplib
 
 import (
+	"fmt"
 	"path/filepath"
 	"sync"
 	"time"
@@ -62,6 +63,20 @@ type ItemPart struct {
 	FinalOffset int64 `json:"final_offset"`
 	// Compiled indicates whether this part has been successfully compiled or merged.
 	Compiled bool `json:"compiled"`
+}
+
+// ValidateItemParts validates a map of ItemParts for nil values and invalid ranges.
+func ValidateItemParts(parts map[int64]*ItemPart) error {
+	for ioff, part := range parts {
+		if part == nil {
+			return fmt.Errorf("%w: nil part at offset %d", ErrItemPartNil, ioff)
+		}
+		if part.FinalOffset <= ioff {
+			return fmt.Errorf("%w: part %q at offset %d has FinalOffset %d",
+				ErrItemPartInvalidRange, part.Hash, ioff, part.FinalOffset)
+		}
+	}
+	return nil
 }
 
 // ItemsMap is a map of download items, where each item is indexed by its unique identifier.
@@ -128,6 +143,22 @@ func (i *Item) getPart(hash string) (offset int64, part *ItemPart) {
 	return
 }
 
+func (i *Item) getPartWithError(hash string) (offset int64, part *ItemPart, err error) {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+
+	offset, exists := i.memPart[hash]
+	if !exists {
+		return 0, nil, nil // Hash not found (normal case)
+	}
+
+	part = i.Parts[offset]
+	if part == nil {
+		return 0, nil, fmt.Errorf("%w: hash %q maps to offset %d", ErrPartDesync, hash, offset)
+	}
+	return offset, part, nil
+}
+
 // getDAlloc returns the current downloader with proper synchronization.
 func (i *Item) getDAlloc() *Downloader {
 	i.dAllocMu.RLock()
@@ -188,13 +219,25 @@ func (i *Item) GetMaxParts() (int32, error) {
 }
 
 // Resume resumes the download of the item.
+// Fixed Race 2: Takes snapshot of Parts under Item lock before calling Resume.
 func (i *Item) Resume() error {
+	// Take snapshot of Parts under Item lock first
+	i.mu.RLock()
+	partsCopy := make(map[int64]*ItemPart, len(i.Parts))
+	for k, v := range i.Parts {
+		partsCopy[k] = v
+	}
+	i.mu.RUnlock()
+
+	// Then get downloader under dAllocMu lock
 	i.dAllocMu.RLock()
-	defer i.dAllocMu.RUnlock()
-	if i.dAlloc == nil {
+	d := i.dAlloc
+	i.dAllocMu.RUnlock()
+
+	if d == nil {
 		return ErrItemDownloaderNotFound
 	}
-	return i.dAlloc.Resume(i.Parts)
+	return d.Resume(partsCopy)
 }
 
 // StopDownload pauses the download of the item.

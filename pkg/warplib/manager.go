@@ -3,7 +3,6 @@ package warplib
 import (
 	"bytes"
 	"encoding/gob"
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -127,9 +126,13 @@ func (m *Manager) patchHandlers(d *Downloader, item *Item) {
 	}
 	oCCH := d.handlers.CompileCompleteHandler
 	d.handlers.CompileCompleteHandler = func(hash string, tread int64) {
-		off, part := item.getPart(hash)
+		off, part, err := item.getPartWithError(hash)
+		if err != nil {
+			d.handlers.ErrorHandler(hash, fmt.Errorf("compile complete: %w", err))
+			return
+		}
 		if part == nil {
-			d.handlers.ErrorHandler(hash, errors.New("manager part item is nil"))
+			d.handlers.ErrorHandler(hash, fmt.Errorf("compile complete: part not found for hash %q", hash))
 			return
 		}
 		part.Compiled = true
@@ -369,30 +372,36 @@ func (m *Manager) Flush() error {
 	return nil
 }
 
-// TODO: make FlushOne safe for flushing while the item is being downloaded
-
 // FlushOne flushes away the download item with the given hash.
+// Fixed Race 6: Uses write lock for entire operation to prevent TOCTOU.
 func (m *Manager) FlushOne(hash string) error {
-	m.mu.RLock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	item, found := m.items[hash]
-	m.mu.RUnlock()
 	if !found {
 		return ErrFlushHashNotFound
 	}
-	if item.TotalSize != item.Downloaded && item.dAlloc != nil {
+
+	// Check download state atomically under manager lock
+	if item.TotalSize != item.Downloaded && item.getDAlloc() != nil {
 		return ErrFlushItemDownloading
 	}
-	m.deleteItem(hash)
-	m.mu.Lock()
+
+	// Delete from map while holding lock
+	delete(m.items, hash)
+
 	if err := m.persistItems(); err != nil {
-		m.mu.Unlock()
+		// Restore on error
+		m.items[hash] = item
 		return fmt.Errorf("flush one persist: %w", err)
 	}
-	syncErr := m.f.Sync()
-	m.mu.Unlock()
-	if syncErr != nil {
-		return fmt.Errorf("flush one sync: %w", syncErr)
+
+	if err := m.f.Sync(); err != nil {
+		return fmt.Errorf("flush one sync: %w", err)
 	}
+
+	// Directory removal is safe after persist (item can't be resumed)
 	return WarpRemoveAll(GetPath(DlDataDir, hash))
 }
 
