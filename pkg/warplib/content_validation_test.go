@@ -273,10 +273,13 @@ func TestNewDownloaderRejectsInvalidContentLength(t *testing.T) {
 			}))
 			defer server.Close()
 
-			_, err := NewDownloader(server.Client(), server.URL, &DownloaderOpts{
+			d, err := NewDownloader(server.Client(), server.URL, &DownloaderOpts{
 				DownloadDirectory: base,
 				FileName:          "test.bin",
 			})
+			if d != nil {
+				defer d.Close()
+			}
 
 			if tt.shouldError {
 				if err == nil {
@@ -351,11 +354,14 @@ func TestNewDownloaderRejectsFileTooLarge(t *testing.T) {
 			}))
 			defer server.Close()
 
-			_, err := NewDownloader(server.Client(), server.URL, &DownloaderOpts{
+			d, err := NewDownloader(server.Client(), server.URL, &DownloaderOpts{
 				DownloadDirectory: base,
 				FileName:          "test.bin",
 				MaxFileSize:       tt.maxFileSize,
 			})
+			if d != nil {
+				defer d.Close()
+			}
 
 			if tt.shouldError {
 				if err == nil {
