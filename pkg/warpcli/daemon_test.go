@@ -33,6 +33,9 @@ func TestIsDaemonRunning_Running(t *testing.T) {
 }
 
 func TestIsDaemonRunning_TCPFallback(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping in short mode (flaky on Windows race tests)")
+	}
 	// Create TCP listener on dynamic port
 	tcpListener, err := net.Listen("tcp", "localhost:0")
 	if err != nil {
@@ -107,6 +110,9 @@ func TestWaitForSocket_Timeout(t *testing.T) {
 }
 
 func TestWaitForSocket_TCPFallback(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping in short mode (flaky on Windows race tests)")
+	}
 	// Use a Unix socket path that doesn't exist
 	sockPath := filepath.Join(t.TempDir(), "nonexistent.sock")
 
@@ -160,6 +166,9 @@ func TestSpawnDaemon_Helper(t *testing.T) {
 }
 
 func TestEnsureDaemon_SpawnHelper(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping in short mode (flaky on Windows race tests)")
+	}
 	t.Setenv("WARPCLI_DAEMON_HELPER", "1")
 	sockPath := filepath.Join("/tmp", "warpdl_test_spawn.sock")
 	os.Remove(sockPath)
