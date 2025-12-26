@@ -179,7 +179,7 @@ func TestSpawnDaemon_InvalidExecutable(t *testing.T) {
 }
 
 func TestGetDaemonStartTimeout_Default(t *testing.T) {
-	os.Unsetenv("WARPDL_DAEMON_TIMEOUT")
+	t.Setenv("WARPDL_DAEMON_TIMEOUT", "")
 	timeout := getDaemonStartTimeout()
 	if timeout != 10*time.Second {
 		t.Fatalf("expected 10s default, got %v", timeout)
