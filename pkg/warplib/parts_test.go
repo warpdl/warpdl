@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -320,4 +321,47 @@ func TestPartDownloadRequestCreationError(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected error from cancelled context")
 	}
+}
+
+// TestCopyBufferNegativeLchunk tests that copyBuffer handles corruption gracefully
+// instead of panicking when lchunk < 1 (i.e., p.read > tread).
+// This simulates a corruption scenario where the part has read more bytes than expected.
+func TestCopyBufferNegativeLchunk(t *testing.T) {
+	dir := t.TempDir()
+	partFile, err := os.Create(filepath.Join(dir, "part.bin"))
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	defer partFile.Close()
+
+	p := &Part{
+		pf:     partFile,
+		hash:   "p1",
+		chunk:  4,
+		offset: 0,
+		read:   0,
+		l:      log.New(io.Discard, "", 0),
+		pfunc:  func(string, int) {},
+		ofunc:  func(string, int64) { t.Fatalf("completion handler should not be called on corruption") },
+	}
+
+	// Create a reader with 10 bytes
+	reader := &limitedReader{data: []byte("0123456789")}
+
+	// Simulate corruption: artificially set p.read to a value greater than what tread will be
+	// We're downloading bytes 0-4 (5 bytes total: foff=4, offset=0, so tread = 5)
+	// Set p.read to 6 to trigger lchunk = 5 - 6 = -1
+	atomic.StoreInt64(&p.read, 6)
+
+	slow, err := p.copyBuffer(reader, 4, true)
+	if err == nil {
+		t.Fatalf("expected error from corruption, got nil")
+	}
+	if !strings.Contains(err.Error(), "corruption") {
+		t.Fatalf("expected error to contain 'corruption', got %v", err)
+	}
+	if slow {
+		t.Fatalf("expected slow=false")
+	}
+	p.pwg.Wait()
 }
