@@ -1104,6 +1104,8 @@ func TestOutput_HelpAlias(t *testing.T) {
 func TestOutput_ErrorFormat_NetworkErr(t *testing.T) {
 	socketPath := getShortSocketPath(t)
 	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
+	// Disable TCP fallback by setting a port that's definitely not listening
+	t.Setenv("WARPDL_TCP_PORT", "59999")
 
 	app := cli.NewApp()
 	app.Name = "warpdl"

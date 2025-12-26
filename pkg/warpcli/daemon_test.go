@@ -18,6 +18,9 @@ func TestIsDaemonRunning_NotRunning(t *testing.T) {
 }
 
 func TestIsDaemonRunning_Running(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping in short mode (flaky on Windows race tests)")
+	}
 	listener, socketPath, err := createTestListener(t)
 	if err != nil {
 		t.Fatalf("failed to create listener: %v", err)
@@ -30,6 +33,9 @@ func TestIsDaemonRunning_Running(t *testing.T) {
 }
 
 func TestIsDaemonRunning_TCPFallback(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping in short mode (flaky on Windows race tests)")
+	}
 	// Create TCP listener on dynamic port
 	tcpListener, err := net.Listen("tcp", "localhost:0")
 	if err != nil {
@@ -65,6 +71,9 @@ func TestIsDaemonRunning_BothFail(t *testing.T) {
 }
 
 func TestWaitForSocket_AlreadyExists(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping in short mode (flaky on Windows race tests)")
+	}
 	listener, socketPath, err := createTestListener(t)
 	if err != nil {
 		t.Fatalf("failed to create listener: %v", err)
@@ -101,6 +110,9 @@ func TestWaitForSocket_Timeout(t *testing.T) {
 }
 
 func TestWaitForSocket_TCPFallback(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping in short mode (flaky on Windows race tests)")
+	}
 	// Use a Unix socket path that doesn't exist
 	sockPath := filepath.Join(t.TempDir(), "nonexistent.sock")
 
@@ -130,6 +142,9 @@ func TestWaitForSocket_TCPFallback(t *testing.T) {
 }
 
 func TestEnsureDaemon_AlreadyRunning(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping in short mode (flaky on Windows race tests)")
+	}
 	listener, _, err := createTestListener(t)
 	if err != nil {
 		t.Fatalf("failed to create listener: %v", err)
@@ -151,6 +166,9 @@ func TestSpawnDaemon_Helper(t *testing.T) {
 }
 
 func TestEnsureDaemon_SpawnHelper(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping in short mode (flaky on Windows race tests)")
+	}
 	t.Setenv("WARPCLI_DAEMON_HELPER", "1")
 	sockPath := filepath.Join("/tmp", "warpdl_test_spawn.sock")
 	os.Remove(sockPath)
@@ -176,4 +194,52 @@ func TestSpawnDaemon_InvalidExecutable(t *testing.T) {
 	// Just verify the function doesn't panic
 	// Note: We don't actually test spawnDaemon here since it would
 	// spawn a real daemon process
+}
+
+func TestGetDaemonStartTimeout_Default(t *testing.T) {
+	t.Setenv("WARPDL_DAEMON_TIMEOUT", "")
+	timeout := getDaemonStartTimeout()
+	if timeout != 10*time.Second {
+		t.Fatalf("expected 10s default, got %v", timeout)
+	}
+}
+
+func TestGetDaemonStartTimeout_EnvVar(t *testing.T) {
+	t.Setenv("WARPDL_DAEMON_TIMEOUT", "5s")
+	timeout := getDaemonStartTimeout()
+	if timeout != 5*time.Second {
+		t.Fatalf("expected 5s, got %v", timeout)
+	}
+}
+
+func TestGetDaemonStartTimeout_EnvVarMilliseconds(t *testing.T) {
+	t.Setenv("WARPDL_DAEMON_TIMEOUT", "500ms")
+	timeout := getDaemonStartTimeout()
+	if timeout != 500*time.Millisecond {
+		t.Fatalf("expected 500ms, got %v", timeout)
+	}
+}
+
+func TestGetDaemonStartTimeout_InvalidEnvVar(t *testing.T) {
+	t.Setenv("WARPDL_DAEMON_TIMEOUT", "invalid")
+	timeout := getDaemonStartTimeout()
+	if timeout != 10*time.Second {
+		t.Fatalf("expected 10s fallback for invalid, got %v", timeout)
+	}
+}
+
+func TestGetDaemonStartTimeout_NegativeEnvVar(t *testing.T) {
+	t.Setenv("WARPDL_DAEMON_TIMEOUT", "-5s")
+	timeout := getDaemonStartTimeout()
+	if timeout != 10*time.Second {
+		t.Fatalf("expected 10s fallback for negative, got %v", timeout)
+	}
+}
+
+func TestGetDaemonStartTimeout_ZeroEnvVar(t *testing.T) {
+	t.Setenv("WARPDL_DAEMON_TIMEOUT", "0s")
+	timeout := getDaemonStartTimeout()
+	if timeout != 10*time.Second {
+		t.Fatalf("expected 10s fallback for zero, got %v", timeout)
+	}
 }
