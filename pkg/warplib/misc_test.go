@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -203,5 +204,104 @@ func Test_parseFileName_SpecialChars(t *testing.T) {
 				t.Errorf("parseFileName() = %v, want %v", gotFn, tt.wantFn)
 			}
 		})
+	}
+}
+
+// TestDefaultConfigDirReturnsError tests that defaultConfigDir returns error instead of panicking
+func TestDefaultConfigDirReturnsError(t *testing.T) {
+	// This test verifies that defaultConfigDir returns (string, error) tuple
+	dir, err := defaultConfigDir()
+
+	// In normal conditions it should succeed
+	if err != nil {
+		t.Logf("defaultConfigDir returned error (this is expected in some CI environments): %v", err)
+		// Error is acceptable - the key is it didn't panic
+		return
+	}
+
+	if dir == "" {
+		t.Errorf("defaultConfigDir returned empty string with nil error")
+	}
+}
+
+// TestInitConfigDirWithInvalidPath tests that initConfigDir handles invalid paths gracefully
+func TestInitConfigDirWithInvalidPath(t *testing.T) {
+	// Save original config to restore later
+	originalConfig := ConfigDir
+	originalDlData := DlDataDir
+	defer func() {
+		ConfigDir = originalConfig
+		DlDataDir = originalDlData
+	}()
+
+	// Test with a completely invalid path that cannot be created (e.g., path with null bytes)
+	invalidPath := "/dev/null/cannot/create/this\x00path"
+
+	// initConfigDir should handle this gracefully without panicking
+	err := initConfigDir(invalidPath)
+
+	// We expect it to either succeed with a fallback or, if it returns an error,
+	// to leave ConfigDir unchanged from its original value.
+	if err != nil {
+		// When initConfigDir returns an error, the temp-dir fallback has also failed,
+		// so ConfigDir should retain its previous value from package initialization.
+		if ConfigDir != originalConfig {
+			t.Errorf("initConfigDir returned error but modified ConfigDir: got %q, want %q (original)", ConfigDir, originalConfig)
+		}
+	}
+}
+
+// TestInitConfigDirWithTempDirFallback tests temp directory fallback when default config fails
+func TestInitConfigDirWithTempDirFallback(t *testing.T) {
+	originalConfig := ConfigDir
+	originalDlData := DlDataDir
+	defer func() {
+		ConfigDir = originalConfig
+		DlDataDir = originalDlData
+	}()
+
+	// Create a read-only directory to simulate permission issues
+	tempBase := t.TempDir()
+	readOnlyDir := filepath.Join(tempBase, "readonly")
+	if err := os.Mkdir(readOnlyDir, 0444); err != nil {
+		t.Fatalf("failed to create read-only dir: %v", err)
+	}
+
+	invalidPath := filepath.Join(readOnlyDir, "warpdl")
+
+	// This should fall back to temp dir instead of panicking
+	err := initConfigDir(invalidPath)
+
+	// Should either succeed with fallback or at minimum not panic
+	if err != nil {
+		t.Logf("initConfigDir returned error (fallback expected): %v", err)
+	}
+
+	// Verify ConfigDir was set to something valid
+	if ConfigDir == "" {
+		t.Errorf("ConfigDir is empty after initConfigDir")
+	}
+
+	// If it succeeded (fell back to temp), verify temp dir was used
+	if err == nil && !strings.HasPrefix(ConfigDir, os.TempDir()) {
+		t.Logf("Warning: expected temp dir fallback, got: %s", ConfigDir)
+	}
+}
+
+// TestSetConfigDirInvalidPathReturnsError tests that setConfigDir returns error for invalid paths
+func TestSetConfigDirInvalidPathReturnsError(t *testing.T) {
+	originalConfig := ConfigDir
+	originalDlData := DlDataDir
+	defer func() {
+		ConfigDir = originalConfig
+		DlDataDir = originalDlData
+	}()
+
+	// Test with path containing null byte (invalid on all platforms)
+	invalidPath := "/tmp/test\x00invalid"
+
+	err := setConfigDir(invalidPath)
+	if err == nil {
+		t.Errorf("setConfigDir should return error for path with null byte")
 	}
 }

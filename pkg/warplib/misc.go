@@ -2,6 +2,7 @@ package warplib
 
 import (
 	"errors"
+	"fmt"
 	"log"
 	"mime"
 	"net/http"
@@ -54,26 +55,49 @@ var (
 
 func init() {
 	dir := os.Getenv(ConfigDirEnv)
-	if dir == "" {
-		dir = defaultConfigDir()
-	}
-	if err := setConfigDir(dir); err != nil {
-		panic(err)
+	if err := initConfigDir(dir); err != nil {
+		log.Fatalf("fatal: failed to initialize config directory: %v", err)
 	}
 }
 
-func defaultConfigDir() string {
-	cdr, err := os.UserConfigDir()
-	if err != nil {
-		panic(err)
-	}
-	if !dirExists(cdr) {
-		err = WarpMkdirAll(cdr, os.ModePerm)
+// initConfigDir initializes the configuration directory with fallback logic.
+// It attempts to use the provided dir, falls back to defaultConfigDir, and finally to temp dir.
+func initConfigDir(dir string) error {
+	if dir == "" {
+		var err error
+		dir, err = defaultConfigDir()
 		if err != nil {
-			panic(err)
+			log.Printf("warning: failed to get default config dir: %v, falling back to temp dir", err)
+			dir = os.TempDir()
 		}
 	}
-	return filepath.Join(cdr, "warpdl")
+
+	if err := setConfigDir(dir); err != nil {
+		// Fallback to temp directory
+		log.Printf("warning: failed to set config dir to %s: %v, falling back to temp dir", dir, err)
+		tempDir := os.TempDir()
+		if err2 := setConfigDir(tempDir); err2 != nil {
+			return fmt.Errorf("failed to initialize config: %w (fallback to temp dir also failed: %v)", err, err2)
+		}
+		log.Printf("info: using temp directory for config: %s", tempDir)
+	}
+
+	return nil
+}
+
+// defaultConfigDir returns the default configuration directory path.
+// It returns an error instead of panicking if the directory cannot be determined or created.
+func defaultConfigDir() (string, error) {
+	cdr, err := os.UserConfigDir()
+	if err != nil {
+		return "", fmt.Errorf("get user config dir: %w", err)
+	}
+	if !dirExists(cdr) {
+		if err := WarpMkdirAll(cdr, os.ModePerm); err != nil {
+			return "", fmt.Errorf("create config parent dir: %w", err)
+		}
+	}
+	return filepath.Join(cdr, "warpdl"), nil
 }
 
 func setConfigDir(dir string) error {
