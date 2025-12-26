@@ -45,14 +45,14 @@ func (vm *VMap[kT, vT]) Get(key kT) (val vT) {
 }
 
 // Dump returns all keys and values as separate slices with write lock protection.
+// RACE FIX: Acquire lock BEFORE reading len(vm.kv) to prevent concurrent modification.
 func (vm *VMap[kT, vT]) Dump() (keys []kT, vals []vT) {
-	n := len(vm.kv)
-
-	keys = make([]kT, n)
-	vals = make([]vT, n)
-
 	vm.mu.Lock()
 	defer vm.mu.Unlock()
+
+	n := len(vm.kv)
+	keys = make([]kT, n)
+	vals = make([]vT, n)
 
 	var i int
 	for key, val := range vm.kv {
