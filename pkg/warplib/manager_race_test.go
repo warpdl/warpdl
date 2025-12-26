@@ -12,6 +12,11 @@ import (
 // This verifies that FlushOne uses a write lock for the entire operation
 // to prevent a race where a download becomes active between the check and delete.
 func TestFlushOneConcurrentDownload(t *testing.T) {
+	iterations := 50
+	if testing.Short() {
+		iterations = 10
+	}
+
 	base := t.TempDir()
 	if err := SetConfigDir(base); err != nil {
 		t.Fatalf("SetConfigDir: %v", err)
@@ -42,7 +47,7 @@ func TestFlushOneConcurrentDownload(t *testing.T) {
 	}
 
 	var wg sync.WaitGroup
-	for i := 0; i < 50; i++ {
+	for i := 0; i < iterations; i++ {
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
@@ -160,6 +165,11 @@ func TestFlushOneCompletedDownload(t *testing.T) {
 
 // TestFlushOneConcurrentMultipleItems tests FlushOne with multiple items being flushed concurrently
 func TestFlushOneConcurrentMultipleItems(t *testing.T) {
+	numItems := 10
+	if testing.Short() {
+		numItems = 5
+	}
+
 	base := t.TempDir()
 	if err := SetConfigDir(base); err != nil {
 		t.Fatalf("SetConfigDir: %v", err)
@@ -172,7 +182,6 @@ func TestFlushOneConcurrentMultipleItems(t *testing.T) {
 	defer m.Close()
 
 	// Create multiple completed items
-	numItems := 10
 	for i := 0; i < numItems; i++ {
 		hash := testHash(i)
 		item := &Item{

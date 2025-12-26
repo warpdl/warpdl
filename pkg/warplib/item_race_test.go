@@ -18,6 +18,11 @@ func (n nopWriteCloser) Close() error                { return nil }
 // preventing a TOCTOU race where StopDownload sets dAlloc=nil between the dAlloc check
 // and the Resume() call on it.
 func TestStopResumeConcurrent(t *testing.T) {
+	iterations := 100
+	if testing.Short() {
+		iterations = 10
+	}
+
 	mu := &sync.RWMutex{}
 	item := &Item{
 		Parts:   make(map[int64]*ItemPart),
@@ -29,7 +34,7 @@ func TestStopResumeConcurrent(t *testing.T) {
 	item.memPart["p1"] = 0
 
 	var wg sync.WaitGroup
-	for i := 0; i < 100; i++ {
+	for i := 0; i < iterations; i++ {
 		// Reset downloader for each iteration with minimal initialization
 		ctx, cancel := context.WithCancel(context.Background())
 		item.dAllocMu.Lock()
@@ -121,6 +126,11 @@ func TestResumePartsSnapshot(t *testing.T) {
 
 // TestStopDownloadConcurrent tests concurrent StopDownload calls
 func TestStopDownloadConcurrent(t *testing.T) {
+	goroutines := 50
+	if testing.Short() {
+		goroutines = 10
+	}
+
 	item := &Item{
 		Parts:   make(map[int64]*ItemPart),
 		memPart: make(map[string]int64),
@@ -133,7 +143,7 @@ func TestStopDownloadConcurrent(t *testing.T) {
 	item.setDAlloc(&Downloader{ctx: ctx, cancel: cancel})
 
 	var wg sync.WaitGroup
-	for i := 0; i < 50; i++ {
+	for i := 0; i < goroutines; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -152,6 +162,15 @@ func TestStopDownloadConcurrent(t *testing.T) {
 // This test focuses on verifying the snapshot is created correctly without
 // actually calling Resume() which would cause races in openFile()
 func TestResumeSnapshotting(t *testing.T) {
+	readers := 10
+	readerIterations := 100
+	writerIterations := 50
+	if testing.Short() {
+		readers = 5
+		readerIterations = 20
+		writerIterations = 10
+	}
+
 	mu := &sync.RWMutex{}
 	item := &Item{
 		Parts:   make(map[int64]*ItemPart),
@@ -166,11 +185,11 @@ func TestResumeSnapshotting(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Multiple goroutines reading (would call Resume's snapshot logic)
-	for i := 0; i < 10; i++ {
+	for i := 0; i < readers; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for j := 0; j < 100; j++ {
+			for j := 0; j < readerIterations; j++ {
 				item.mu.RLock()
 				partsCopy := make(map[int64]*ItemPart, len(item.Parts))
 				for k, v := range item.Parts {
@@ -186,7 +205,7 @@ func TestResumeSnapshotting(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		for i := 1; i < 50; i++ {
+		for i := 1; i < writerIterations; i++ {
 			item.mu.Lock()
 			item.Parts[int64(i*100)] = &ItemPart{Hash: "px", FinalOffset: int64(i * 200)}
 			item.mu.Unlock()
@@ -200,6 +219,11 @@ func TestResumeSnapshotting(t *testing.T) {
 
 // TestIsDownloadingRace tests concurrent access to IsDownloading
 func TestIsDownloadingRace(t *testing.T) {
+	iterations := 100
+	if testing.Short() {
+		iterations = 20
+	}
+
 	item := &Item{
 		Parts:   make(map[int64]*ItemPart),
 		memPart: make(map[string]int64),
@@ -210,7 +234,7 @@ func TestIsDownloadingRace(t *testing.T) {
 	defer cancel()
 
 	var wg sync.WaitGroup
-	for i := 0; i < 100; i++ {
+	for i := 0; i < iterations; i++ {
 		wg.Add(3)
 
 		// Set downloader

@@ -11,27 +11,34 @@ import (
 // TestPartReadAtomicRegression ensures Part.read is accessed atomically
 // via getRead() at parts.go:116-118.
 func TestPartReadAtomicRegression(t *testing.T) {
+	goroutines := 100
+	iterations := 1000
+	if testing.Short() {
+		goroutines = 10
+		iterations = 100
+	}
+
 	p := &Part{read: 0}
 
 	var wg sync.WaitGroup
-	for i := 0; i < 100; i++ {
+	for i := 0; i < goroutines; i++ {
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
-			for j := 0; j < 1000; j++ {
+			for j := 0; j < iterations; j++ {
 				atomic.AddInt64(&p.read, 1)
 			}
 		}()
 		go func() {
 			defer wg.Done()
-			for j := 0; j < 1000; j++ {
+			for j := 0; j < iterations; j++ {
 				_ = p.getRead() // Must use atomic.LoadInt64
 			}
 		}()
 	}
 	wg.Wait()
 
-	expected := int64(100 * 1000)
+	expected := int64(goroutines * iterations)
 	if p.getRead() != expected {
 		t.Errorf("expected %d, got %d", expected, p.getRead())
 	}
@@ -39,6 +46,15 @@ func TestPartReadAtomicRegression(t *testing.T) {
 
 // TestPartReadConsistency ensures atomic reads return consistent values
 func TestPartReadConsistency(t *testing.T) {
+	readers := 10
+	readerIterations := 10000
+	busyLoopIterations := 100000
+	if testing.Short() {
+		readers = 5
+		readerIterations = 500
+		busyLoopIterations = 10000
+	}
+
 	p := &Part{read: 0}
 
 	var wg sync.WaitGroup
@@ -59,12 +75,12 @@ func TestPartReadConsistency(t *testing.T) {
 	}()
 
 	// Reader goroutines - verify we never get torn reads
-	for i := 0; i < 10; i++ {
+	for i := 0; i < readers; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			prevVal := int64(-1)
-			for j := 0; j < 10000; j++ {
+			for j := 0; j < readerIterations; j++ {
 				select {
 				case <-stop:
 					return
@@ -87,7 +103,7 @@ func TestPartReadConsistency(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 100000; i++ {
+		for i := 0; i < busyLoopIterations; i++ {
 			// busy loop
 		}
 		close(stop)
@@ -99,10 +115,16 @@ func TestPartReadConsistency(t *testing.T) {
 // TestPartReadNoTearingRegression verifies that concurrent reads and writes
 // to Part.read don't result in torn/corrupted values when using atomic operations.
 func TestPartReadNoTearingRegression(t *testing.T) {
+	numWriters := 10
+	numReaders := 20
+	iterations := 5000
+	if testing.Short() {
+		numWriters = 5
+		numReaders = 10
+		iterations = 500
+	}
+
 	p := &Part{read: 0}
-	const numWriters = 10
-	const numReaders = 20
-	const iterations = 5000
 
 	var wg sync.WaitGroup
 
@@ -143,6 +165,13 @@ func TestPartReadNoTearingRegression(t *testing.T) {
 
 // TestPartAtomicOperationsConcurrent tests all atomic operations on Part struct
 func TestPartAtomicOperationsConcurrent(t *testing.T) {
+	goroutines := 50
+	iterations := 1000
+	if testing.Short() {
+		goroutines = 10
+		iterations = 100
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -153,8 +182,6 @@ func TestPartAtomicOperationsConcurrent(t *testing.T) {
 	}
 
 	var wg sync.WaitGroup
-	const goroutines = 50
-	const iterations = 1000
 
 	// Mixed read/write workload
 	for i := 0; i < goroutines; i++ {
@@ -195,6 +222,11 @@ func TestPartAtomicOperationsConcurrent(t *testing.T) {
 // TestPartGetReadVsDirectAccess demonstrates why getRead() is necessary
 // This test would fail with race detector if we accessed p.read directly
 func TestPartGetReadVsDirectAccess(t *testing.T) {
+	iterations := 10000
+	if testing.Short() {
+		iterations = 500
+	}
+
 	p := &Part{read: 0}
 
 	var wg sync.WaitGroup
@@ -203,7 +235,7 @@ func TestPartGetReadVsDirectAccess(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 10000; i++ {
+		for i := 0; i < iterations; i++ {
 			atomic.AddInt64(&p.read, 1)
 		}
 	}()
@@ -212,7 +244,7 @@ func TestPartGetReadVsDirectAccess(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 10000; i++ {
+		for i := 0; i < iterations; i++ {
 			val := p.getRead() // Safe: uses atomic.LoadInt64
 			if val < 0 {
 				t.Error("corrupted read via getRead()")
@@ -225,6 +257,17 @@ func TestPartGetReadVsDirectAccess(t *testing.T) {
 
 // TestPartConcurrentReadAndEpeed tests thread-safe read and expected speed calculations
 func TestPartConcurrentReadAndEpeed(t *testing.T) {
+	speedReaders := 20
+	speedIterations := 500
+	incrementers := 10
+	incrementIterations := 1000
+	if testing.Short() {
+		speedReaders = 5
+		speedIterations = 100
+		incrementers = 5
+		incrementIterations = 100
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -237,22 +280,22 @@ func TestPartConcurrentReadAndEpeed(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Concurrent expected speed updates
-	for i := 0; i < 20; i++ {
+	for i := 0; i < speedReaders; i++ {
 		wg.Add(1)
 		go func(speed int64) {
 			defer wg.Done()
-			for j := 0; j < 500; j++ {
+			for j := 0; j < speedIterations; j++ {
 				_ = p.getRead()
 			}
 		}(int64(1024 * (i + 1)))
 	}
 
 	// Concurrent read increments
-	for i := 0; i < 10; i++ {
+	for i := 0; i < incrementers; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for j := 0; j < 1000; j++ {
+			for j := 0; j < incrementIterations; j++ {
 				atomic.AddInt64(&p.read, 100)
 				_ = p.getRead()
 			}
@@ -262,13 +305,23 @@ func TestPartConcurrentReadAndEpeed(t *testing.T) {
 	wg.Wait()
 
 	// Verify no corruption
-	if p.getRead() != 10*1000*100 {
-		t.Errorf("read count mismatch: expected %d, got %d", 10*1000*100, p.getRead())
+	expected := int64(incrementers * incrementIterations * 100)
+	if p.getRead() != expected {
+		t.Errorf("read count mismatch: expected %d, got %d", expected, p.getRead())
 	}
 }
 
 // TestPartContextCancellationRace tests concurrent context cancellation and read access
 func TestPartContextCancellationRace(t *testing.T) {
+	readers := 10
+	writers := 5
+	iterations := 1000
+	if testing.Short() {
+		readers = 5
+		writers = 3
+		iterations = 100
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 
 	p := &Part{
@@ -280,11 +333,11 @@ func TestPartContextCancellationRace(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Readers
-	for i := 0; i < 10; i++ {
+	for i := 0; i < readers; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for j := 0; j < 1000; j++ {
+			for j := 0; j < iterations; j++ {
 				select {
 				case <-p.ctx.Done():
 					return
@@ -296,11 +349,11 @@ func TestPartContextCancellationRace(t *testing.T) {
 	}
 
 	// Writers
-	for i := 0; i < 5; i++ {
+	for i := 0; i < writers; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for j := 0; j < 1000; j++ {
+			for j := 0; j < iterations; j++ {
 				select {
 				case <-p.ctx.Done():
 					return

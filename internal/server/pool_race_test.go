@@ -10,6 +10,11 @@ import (
 // TestAddConnectionRegression ensures AddConnection uses single write lock
 // instead of RLock-unlock-Lock pattern (TOCTOU fix at pool.go:62-66).
 func TestAddConnectionRegression(t *testing.T) {
+	goroutines := 100
+	if testing.Short() {
+		goroutines = 20
+	}
+
 	p := NewPool(log.New(os.Stderr, "", 0))
 	uid := "test-download"
 
@@ -18,7 +23,7 @@ func TestAddConnectionRegression(t *testing.T) {
 	p.AddDownload(uid, initialConn)
 
 	var wg sync.WaitGroup
-	for i := 0; i < 100; i++ {
+	for i := 0; i < goroutines; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -32,17 +37,22 @@ func TestAddConnectionRegression(t *testing.T) {
 	count := len(p.m[uid])
 	p.mu.RUnlock()
 
-	if count != 101 { // 1 initial + 100 added
-		t.Errorf("expected 101 connections, got %d", count)
+	if count != goroutines+1 { // 1 initial + goroutines added
+		t.Errorf("expected %d connections, got %d", goroutines+1, count)
 	}
 }
 
 // TestAddConnectionConcurrentWithRemove tests concurrent AddDownload and StopDownload
 func TestAddConnectionConcurrentWithRemove(t *testing.T) {
+	iterations := 50
+	if testing.Short() {
+		iterations = 10
+	}
+
 	p := NewPool(log.New(os.Stderr, "", 0))
 
 	var wg sync.WaitGroup
-	for i := 0; i < 50; i++ {
+	for i := 0; i < iterations; i++ {
 		uid := "download-" + string(rune('A'+i%26))
 
 		wg.Add(3)
@@ -65,10 +75,15 @@ func TestAddConnectionConcurrentWithRemove(t *testing.T) {
 
 // TestPoolConcurrentOperations stress tests all pool operations
 func TestPoolConcurrentOperations(t *testing.T) {
+	iterations := 100
+	if testing.Short() {
+		iterations = 20
+	}
+
 	p := NewPool(log.New(os.Stderr, "", 0))
 
 	var wg sync.WaitGroup
-	for i := 0; i < 100; i++ {
+	for i := 0; i < iterations; i++ {
 		uid := "uid-" + string(rune('0'+i%10))
 
 		wg.Add(4)
@@ -95,12 +110,19 @@ func TestPoolConcurrentOperations(t *testing.T) {
 // TestAddConnectionNoTOCTOU verifies that AddConnection doesn't suffer from
 // time-of-check-to-time-of-use race by using a single write lock.
 func TestAddConnectionNoTOCTOU(t *testing.T) {
+	goroutines := 50
+	iterations := 100
+	readers := 10
+	if testing.Short() {
+		goroutines = 10
+		iterations = 20
+		readers = 5
+	}
+
 	p := NewPool(log.New(os.Stderr, "", 0))
 	uid := "toctou-test"
 
 	var wg sync.WaitGroup
-	const goroutines = 50
-	const iterations = 100
 
 	// Concurrent AddConnection calls
 	for i := 0; i < goroutines; i++ {
@@ -114,7 +136,7 @@ func TestAddConnectionNoTOCTOU(t *testing.T) {
 	}
 
 	// Concurrent HasDownload calls
-	for i := 0; i < 10; i++ {
+	for i := 0; i < readers; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -139,11 +161,16 @@ func TestAddConnectionNoTOCTOU(t *testing.T) {
 
 // TestPoolAddRemoveRace tests concurrent addition and removal of UIDs
 func TestPoolAddRemoveRace(t *testing.T) {
+	uids := 20
+	iterations := 50
+	if testing.Short() {
+		uids = 10
+		iterations = 10
+	}
+
 	p := NewPool(log.New(os.Stderr, "", 0))
 
 	var wg sync.WaitGroup
-	const uids = 20
-	const iterations = 50
 
 	for i := 0; i < uids; i++ {
 		uid := string(rune('A' + i))
@@ -182,6 +209,15 @@ func TestPoolAddRemoveRace(t *testing.T) {
 
 // TestPoolHasDownloadConsistency ensures HasDownload returns consistent results
 func TestPoolHasDownloadConsistency(t *testing.T) {
+	writerIterations := 1000
+	readers := 10
+	readerIterations := 500
+	if testing.Short() {
+		writerIterations = 100
+		readers = 5
+		readerIterations = 100
+	}
+
 	p := NewPool(log.New(os.Stderr, "", 0))
 	uid := "consistency-test"
 
@@ -191,17 +227,17 @@ func TestPoolHasDownloadConsistency(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 1000; i++ {
+		for i := 0; i < writerIterations; i++ {
 			p.AddConnection(uid, &SyncConn{})
 		}
 	}()
 
 	// Reader goroutines
-	for i := 0; i < 10; i++ {
+	for i := 0; i < readers; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for j := 0; j < 500; j++ {
+			for j := 0; j < readerIterations; j++ {
 				exists := p.HasDownload(uid)
 				// Verify we got a valid boolean
 				_ = exists
@@ -214,11 +250,16 @@ func TestPoolHasDownloadConsistency(t *testing.T) {
 
 // TestPoolMultipleUIDs tests operations on multiple UIDs concurrently
 func TestPoolMultipleUIDs(t *testing.T) {
+	numUIDs := 50
+	opsPerUID := 100
+	if testing.Short() {
+		numUIDs = 10
+		opsPerUID = 20
+	}
+
 	p := NewPool(log.New(os.Stderr, "", 0))
 
 	var wg sync.WaitGroup
-	const numUIDs = 50
-	const opsPerUID = 100
 
 	for i := 0; i < numUIDs; i++ {
 		uid := string(rune('A' + (i % 26)))
@@ -294,11 +335,16 @@ func TestAddConnectionEmptySlice(t *testing.T) {
 
 // TestPoolStressTest intensive concurrent operations to expose any race conditions
 func TestPoolStressTest(t *testing.T) {
+	goroutines := 100
+	iterations := 200
+	if testing.Short() {
+		goroutines = 20
+		iterations = 40
+	}
+
 	p := NewPool(log.New(os.Stderr, "", 0))
 
 	var wg sync.WaitGroup
-	const goroutines = 100
-	const iterations = 200
 
 	for i := 0; i < goroutines; i++ {
 		wg.Add(1)
