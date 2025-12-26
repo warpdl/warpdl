@@ -77,47 +77,8 @@ func TestSpeedCounter_StopCleanup(t *testing.T) {
 	sc.IncrBy(50)
 }
 
-// mockBarForTiming is a mock bar that records EwmaIncrInt64 calls for timing verification
-type mockBarForTiming struct {
-	mu    sync.Mutex
-	calls []struct {
-		delta   int64
-		iterDur time.Duration
-	}
-}
-
-func (m *mockBarForTiming) EwmaIncrInt64(delta int64, iterDur time.Duration) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.calls = append(m.calls, struct {
-		delta   int64
-		iterDur time.Duration
-	}{delta, iterDur})
-}
-
-// getCalls returns a copy of the calls slice
-func (m *mockBarForTiming) getCalls() []struct {
-	delta   int64
-	iterDur time.Duration
-} {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	result := make([]struct {
-		delta   int64
-		iterDur time.Duration
-	}, len(m.calls))
-	copy(result, m.calls)
-	return result
-}
-
-// SpeedCounterWithMock is a test helper that allows injecting a mock bar
-// This requires the SpeedCounter to support an interface for testing
-type barUpdater interface {
-	EwmaIncrInt64(delta int64, iterDur time.Duration)
-}
-
 // TestSpeedCounter_ElapsedTime verifies that the worker uses actual elapsed time
-// rather than the fixed refresh rate. This test will FAIL with current implementation.
+// rather than the fixed refresh rate. This test validates the corrected behavior.
 func TestSpeedCounter_ElapsedTime(t *testing.T) {
 	refreshRate := time.Millisecond * 10
 	sc := NewSpeedCounter(refreshRate)
