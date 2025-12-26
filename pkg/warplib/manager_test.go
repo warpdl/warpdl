@@ -480,7 +480,7 @@ func TestManagerResumeEarlyCompile(t *testing.T) {
 	}
 }
 
-// TDD Tests for GOB persistence fixes (these will FAIL initially as per TDD methodology)
+// Tests for GOB persistence fixes (ensure robust handling of corrupt or empty userdata files)
 
 func TestInitManager_CorruptGOBFile(t *testing.T) {
 	base := t.TempDir()
@@ -556,7 +556,10 @@ func TestManager_TruncateBeforeEncode(t *testing.T) {
 
 	// Record large file size
 	userdataPath := filepath.Join(base, "userdata.warp")
-	largeInfo, _ := os.Stat(userdataPath)
+	largeInfo, err := os.Stat(userdataPath)
+	if err != nil {
+		t.Fatalf("stat large file: %v", err)
+	}
 	largeSize := largeInfo.Size()
 
 	// Phase 2: Reopen and flush all (removes completed items)
@@ -570,7 +573,10 @@ func TestManager_TruncateBeforeEncode(t *testing.T) {
 	m.Close()
 
 	// File should be smaller
-	smallInfo, _ := os.Stat(userdataPath)
+	smallInfo, err := os.Stat(userdataPath)
+	if err != nil {
+		t.Fatalf("stat small file: %v", err)
+	}
 	smallSize := smallInfo.Size()
 	if smallSize >= largeSize {
 		t.Fatalf("file not truncated: large=%d, small=%d", largeSize, smallSize)
@@ -670,7 +676,10 @@ func TestManager_FlushProperlyTruncates(t *testing.T) {
 
 	// Record file size before flush
 	userdataPath := filepath.Join(base, "userdata.warp")
-	beforeInfo, _ := os.Stat(userdataPath)
+	beforeInfo, err := os.Stat(userdataPath)
+	if err != nil {
+		t.Fatalf("stat before flush: %v", err)
+	}
 	beforeSize := beforeInfo.Size()
 
 	// Reopen and flush
@@ -684,7 +693,10 @@ func TestManager_FlushProperlyTruncates(t *testing.T) {
 	m.Close()
 
 	// File should be smaller after flush (all items removed)
-	afterInfo, _ := os.Stat(userdataPath)
+	afterInfo, err := os.Stat(userdataPath)
+	if err != nil {
+		t.Fatalf("stat after flush: %v", err)
+	}
 	afterSize := afterInfo.Size()
 	if afterSize >= beforeSize {
 		t.Errorf("file not truncated after flush: before=%d, after=%d", beforeSize, afterSize)

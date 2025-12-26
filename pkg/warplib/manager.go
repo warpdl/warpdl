@@ -151,7 +151,8 @@ func (m *Manager) patchHandlers(d *Downloader, item *Item) {
 }
 
 // persistItems writes items to disk using buffer-first approach.
-// CALLER MUST HOLD m.mu write lock.
+// Called by encode() which handles locking, or directly by Flush()/Close()
+// which must hold m.mu write lock.
 // Does NOT call Sync() - caller decides if durability is needed.
 func (m *Manager) persistItems() error {
 	var buf bytes.Buffer
@@ -173,7 +174,7 @@ func (m *Manager) persistItems() error {
 // encode persists items to disk.
 // This is a high-frequency operation (called on every progress update),
 // so it does NOT call Sync() for performance reasons.
-func (m *Manager) encode(e any) error {
+func (m *Manager) encode() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.persistItems()
@@ -196,7 +197,7 @@ func (m *Manager) deleteItem(hash string) {
 // UpdateItem updates the item in the manager's items map.
 func (m *Manager) UpdateItem(item *Item) {
 	m.mapItem(item)
-	m.encode(m.items)
+	m.encode()
 }
 
 // GetItems returns all the items in the manager.
@@ -374,11 +375,11 @@ func (m *Manager) FlushOne(hash string) error {
 		return ErrFlushItemDownloading
 	}
 	m.deleteItem(hash)
-	if err := m.encode(m.items); err != nil {
+	m.mu.Lock()
+	if err := m.persistItems(); err != nil {
+		m.mu.Unlock()
 		return fmt.Errorf("flush one persist: %w", err)
 	}
-	// Sync to ensure durability - FlushOne is an explicit user action
-	m.mu.Lock()
 	syncErr := m.f.Sync()
 	m.mu.Unlock()
 	if syncErr != nil {
