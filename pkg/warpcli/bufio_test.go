@@ -101,6 +101,9 @@ func TestReadRejectsOversizedPayload(t *testing.T) {
 }
 
 func TestWriteRejectsOversizedPayload(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping 16MB allocation test in short mode (race detector OOM)")
+	}
 	c1, c2 := net.Pipe()
 	defer c1.Close()
 	defer c2.Close()
@@ -261,6 +264,9 @@ func TestIntToBytesLittleEndian(t *testing.T) {
 }
 
 func TestReadWriteAtMaxMessageSize(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping 16MB allocation test in short mode (race detector OOM)")
+	}
 	c1, c2 := net.Pipe()
 	defer c1.Close()
 	defer c2.Close()
