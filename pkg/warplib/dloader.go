@@ -396,9 +396,6 @@ func (d *Downloader) Start() (err error) {
 	return
 }
 
-// TODO: fix concurrent write and iteration if any.
-
-// map[InitialOffset(int64)]ItemPart
 
 // Resume resumes the download of the file with provided parts.
 // It blocks the current goroutine until the download is complete.
@@ -410,6 +407,13 @@ func (d *Downloader) Resume(parts map[int64]*ItemPart) (err error) {
 	if len(parts) == 0 {
 		return errors.New("no parts to resume; download is already complete")
 	}
+
+	// Create snapshot copy to avoid race with handlers modifying parts
+	partsSnapshot := make(map[int64]*ItemPart, len(parts))
+	for k, v := range parts {
+		partsSnapshot[k] = v
+	}
+
 	err = d.openFile()
 	if err != nil {
 		return
@@ -433,8 +437,8 @@ func (d *Downloader) Resume(parts map[int64]*ItemPart) (err error) {
 	}
 	d.Log("Resuming download...")
 	d.ohmap.Make()
-	espeed := 4 * MB / int64(len(parts))
-	for ioff, ip := range parts {
+	espeed := 4 * MB / int64(len(partsSnapshot))
+	for ioff, ip := range partsSnapshot {
 		if ip.Compiled {
 			d.handlers.CompileSkippedHandler(ip.Hash, ip.FinalOffset-ioff)
 			atomic.AddInt64(&d.nread, ip.FinalOffset-ioff)
@@ -566,7 +570,7 @@ func (d *Downloader) resumePartDownload(hash string, ioff, foff, espeed int64) {
 		return
 	}
 	defer part.close()
-	poff := part.offset + part.read
+	poff := part.offset + part.getRead()
 	if poff >= foff {
 		d.Log("%s: part offset (%d) greater than final offset (%d)", hash, poff, foff)
 		d.handlers.CompileStartHandler(part.hash)
@@ -577,7 +581,7 @@ func (d *Downloader) resumePartDownload(hash string, ioff, foff, espeed int64) {
 			return
 		}
 		atomic.AddInt64(&d.nread, written)
-		d.handlers.CompileCompleteHandler(part.hash, part.read)
+		d.handlers.CompileCompleteHandler(part.hash, part.getRead())
 		return
 	}
 	// CHANGE IMPL
@@ -586,7 +590,8 @@ func (d *Downloader) resumePartDownload(hash string, ioff, foff, espeed int64) {
 		return
 	}
 	d.handlers.CompileStartHandler(part.hash)
-	defer d.handlers.CompileCompleteHandler(part.hash, part.read)
+	readCapture := part.getRead()
+	defer d.handlers.CompileCompleteHandler(part.hash, readCapture)
 
 	d.Log("%s: compiling part", hash)
 
@@ -629,7 +634,8 @@ func (d *Downloader) newPartDownload(ioff, foff, espeed int64) {
 	}
 
 	d.handlers.CompileStartHandler(part.hash)
-	defer d.handlers.CompileCompleteHandler(part.hash, part.read)
+	readCapture := part.getRead()
+	defer d.handlers.CompileCompleteHandler(part.hash, readCapture)
 
 	d.Log("%s: compiling part", hash)
 
@@ -720,14 +726,14 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 
 			// Resume from where we left off
 			body = nil
-			ioff = part.offset + part.read
+			ioff = part.offset + part.getRead()
 			repeated = false
 			continue
 		}
 		if !slow {
 			expectedRead := foff - part.offset + 1
-			if part.read != expectedRead {
-				d.Log("%s: part read bytes (%d) not equal to expected bytes (%d)", hash, part.read, expectedRead)
+			if part.getRead() != expectedRead {
+				d.Log("%s: part read bytes (%d) not equal to expected bytes (%d)", hash, part.getRead(), expectedRead)
 			}
 			err = nil
 			break
@@ -735,7 +741,7 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 
 		// add read bytes to part offset to determine
 		// starting offset for a respawned part.
-		poff := part.offset + part.read
+		poff := part.offset + part.getRead()
 
 		if foff-poff <= 2*MIN_PART_SIZE {
 			d.Log("%s: Detected part as running slow", hash)
@@ -810,7 +816,7 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 
 		d.Log("%s: part respawned", hash)
 		d.handlers.RespawnPartHandler(hash, part.offset, poff, foff)
-		d.Log("%s: slow | %d | %d => %d", part.hash, part.read, part.offset, foff)
+		d.Log("%s: slow | %d | %d => %d", part.hash, part.getRead(), part.offset, foff)
 		repeated = false
 		espeed /= 2
 	}

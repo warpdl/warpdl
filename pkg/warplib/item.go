@@ -44,6 +44,8 @@ type Item struct {
 	Resumable bool `json:"resumable"`
 	// mu is a mutex for synchronizing access to the item's fields.
 	mu *sync.RWMutex
+	// dAllocMu protects access to dAlloc field (value type, not pointer, for GOB serialization)
+	dAllocMu sync.RWMutex
 	// dAlloc is a reference to the Downloader managing this item.
 	dAlloc *Downloader
 	// memPart is an internal map for managing memory allocation of parts.
@@ -126,6 +128,27 @@ func (i *Item) getPart(hash string) (offset int64, part *ItemPart) {
 	return
 }
 
+// getDAlloc returns the current downloader with proper synchronization.
+func (i *Item) getDAlloc() *Downloader {
+	i.dAllocMu.RLock()
+	defer i.dAllocMu.RUnlock()
+	return i.dAlloc
+}
+
+// setDAlloc sets the downloader with proper synchronization.
+func (i *Item) setDAlloc(d *Downloader) {
+	i.dAllocMu.Lock()
+	defer i.dAllocMu.Unlock()
+	i.dAlloc = d
+}
+
+// clearDAlloc clears the downloader with proper synchronization.
+func (i *Item) clearDAlloc() {
+	i.dAllocMu.Lock()
+	defer i.dAllocMu.Unlock()
+	i.dAlloc = nil
+}
+
 // GetPercentage returns the download progress as a percentage.
 func (i *Item) GetPercentage() int64 {
 	p := (i.Downloaded * 100) / i.TotalSize
@@ -146,6 +169,8 @@ func (i *Item) GetAbsolutePath() (aPath string) {
 
 // GetMaxConnections returns the maximum number of connections for the download item.
 func (i *Item) GetMaxConnections() (int32, error) {
+	i.dAllocMu.RLock()
+	defer i.dAllocMu.RUnlock()
 	if i.dAlloc == nil {
 		return 0, ErrItemDownloaderNotFound
 	}
@@ -154,6 +179,8 @@ func (i *Item) GetMaxConnections() (int32, error) {
 
 // GetMaxParts returns the maximum number of parts for the download item.
 func (i *Item) GetMaxParts() (int32, error) {
+	i.dAllocMu.RLock()
+	defer i.dAllocMu.RUnlock()
 	if i.dAlloc == nil {
 		return 0, ErrItemDownloaderNotFound
 	}
@@ -162,6 +189,8 @@ func (i *Item) GetMaxParts() (int32, error) {
 
 // Resume resumes the download of the item.
 func (i *Item) Resume() error {
+	i.dAllocMu.RLock()
+	defer i.dAllocMu.RUnlock()
 	if i.dAlloc == nil {
 		return ErrItemDownloaderNotFound
 	}
@@ -170,17 +199,21 @@ func (i *Item) Resume() error {
 
 // StopDownload pauses the download of the item.
 func (i *Item) StopDownload() error {
+	i.dAllocMu.Lock()
+	defer i.dAllocMu.Unlock()
 	if i.dAlloc == nil {
 		return ErrItemDownloaderNotFound
 	}
 	i.dAlloc.Stop()
-	i.dAlloc = nil // experimental
+	i.dAlloc = nil
 	return nil
 }
 
 // CloseDownloader closes the downloader and releases all file handles.
 // Use this when a download is aborted before Start()/Resume() completes.
 func (i *Item) CloseDownloader() error {
+	i.dAllocMu.Lock()
+	defer i.dAllocMu.Unlock()
 	if i.dAlloc == nil {
 		return nil
 	}
@@ -191,5 +224,7 @@ func (i *Item) CloseDownloader() error {
 
 // IsDownloading returns true if the item is currently being downloaded.
 func (i *Item) IsDownloading() bool {
+	i.dAllocMu.RLock()
+	defer i.dAllocMu.RUnlock()
 	return i.dAlloc != nil
 }

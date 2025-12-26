@@ -58,56 +58,66 @@ func (p *Pool) StopDownload(uid string) {
 
 // AddConnection adds a new connection to an existing download's connection list.
 // The connection will receive broadcast messages for the specified download.
+// Fixed Race 5: Single write lock instead of RLock-unlock-Lock to prevent TOCTOU.
 func (p *Pool) AddConnection(uid string, sconn *SyncConn) {
-	p.mu.RLock()
-	_conns := p.m[uid]
-	p.mu.RUnlock()
-	_conns = append(_conns, sconn)
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.m[uid] = _conns
+	p.m[uid] = append(p.m[uid], sconn)
 }
 
-func (p *Pool) writeBroadcastedMessage(uid string, i int, sconn *SyncConn, head []byte, data []byte) {
+// writeBroadcastedMessage sends a message to a single connection.
+// Fixed Race 6: Always unlock wmu using defer, return success/failure status.
+func (p *Pool) writeBroadcastedMessage(sconn *SyncConn, head, data []byte) bool {
 	sconn.wmu.Lock()
-	_, err := sconn.Conn.Write(head)
-	if err != nil {
-		p.removeConn(uid, i)
-		return
+	defer sconn.wmu.Unlock()
+
+	if _, err := sconn.Conn.Write(head); err != nil {
+		return false
 	}
-	_, err = sconn.Conn.Write(data)
-	if err != nil {
-		p.removeConn(uid, i)
-		return
+	if _, err := sconn.Conn.Write(data); err != nil {
+		return false
 	}
-	sconn.wmu.Unlock()
+	return true
 }
 
 // Broadcast sends the given data to all connections watching the specified download.
 // Connections that fail to receive the message are automatically removed from the pool.
+// Fixed Race 6: Copy slice before iteration, batch removals to prevent corruption.
 func (p *Pool) Broadcast(uid string, data []byte) {
 	head := intToBytes(uint32(len(data)))
+
 	p.mu.RLock()
 	sconns := p.m[uid]
+	if len(sconns) == 0 {
+		p.mu.RUnlock()
+		return
+	}
+	snapshot := make([]*SyncConn, len(sconns))
+	copy(snapshot, sconns)
 	p.mu.RUnlock()
-	for i, sconn := range sconns {
-		p.writeBroadcastedMessage(uid, i, sconn, head, data)
+
+	var failed []*SyncConn
+	for _, sconn := range snapshot {
+		if !p.writeBroadcastedMessage(sconn, head, data) {
+			failed = append(failed, sconn)
+		}
+	}
+
+	if len(failed) > 0 {
+		p.removeConns(uid, failed)
 	}
 }
 
 // WriteError stores an error for the specified download.
 // If a critical error already exists and the new error is not critical,
 // the existing critical error is preserved.
+// Fixed Race bonus: Single write lock to prevent TOCTOU.
 func (p *Pool) WriteError(uid string, errType ErrorType, errMessage string) {
-	p.mu.RLock()
-	err, ok := p.e[uid]
-	if ok && err.Type == ErrorTypeCritical && errType != ErrorTypeCritical {
-		p.mu.RUnlock()
-		return
-	}
-	p.mu.RUnlock()
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if err, ok := p.e[uid]; ok && err.Type == ErrorTypeCritical && errType != ErrorTypeCritical {
+		return
+	}
 	p.e[uid] = &Error{errType, errMessage}
 }
 
@@ -127,6 +137,9 @@ func (p *Pool) GetError(uid string) *Error {
 	return p.e[uid]
 }
 
+// removeConn removes a single connection by index.
+// Note: This method is kept for backward compatibility but should be used with caution
+// as it can lead to slice corruption if the slice is modified during iteration.
 func (p *Pool) removeConn(uid string, connIndex int) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -136,4 +149,27 @@ func (p *Pool) removeConn(uid string, connIndex int) {
 	conns[connIndex] = conns[len(conns)-1]
 	// slice the last connection
 	p.m[uid] = conns[:len(conns)-1]
+}
+
+// removeConns batch removes multiple connections from a download.
+// This is more efficient and safer than removing connections one by one.
+func (p *Pool) removeConns(uid string, toRemove []*SyncConn) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	removeSet := make(map[*SyncConn]struct{}, len(toRemove))
+	for _, sc := range toRemove {
+		removeSet[sc] = struct{}{}
+	}
+
+	conns := p.m[uid]
+	kept := conns[:0]
+	for _, sc := range conns {
+		if _, remove := removeSet[sc]; remove {
+			_ = sc.Conn.Close()
+		} else {
+			kept = append(kept, sc)
+		}
+	}
+	p.m[uid] = kept
 }

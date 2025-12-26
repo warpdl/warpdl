@@ -97,7 +97,7 @@ func (m *Manager) AddDownload(d *Downloader, opts *AddDownloadOpts) (err error) 
 	if err != nil {
 		return err
 	}
-	item.dAlloc = d
+	item.setDAlloc(d)
 	m.UpdateItem(item)
 	m.patchHandlers(d, item)
 	return
@@ -334,7 +334,7 @@ func (m *Manager) ResumeDownload(client *http.Client, hash string, opts *ResumeD
 		return
 	}
 	m.patchHandlers(d, item)
-	item.dAlloc = d
+	item.setDAlloc(d)
 	// m.UpdateItem(item)
 	return
 }
@@ -345,7 +345,15 @@ func (m *Manager) Flush() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for hash, item := range m.items {
-		if item.TotalSize != item.Downloaded && item.dAlloc != nil {
+		// Since item.mu == m.mu, we already hold the lock.
+		// Read fields directly without additional locking.
+		totalSize := item.TotalSize
+		downloaded := item.Downloaded
+
+		// Use getDAlloc() for synchronized access to dAlloc
+		dAlloc := item.getDAlloc()
+
+		if totalSize != downloaded && dAlloc != nil {
 			continue
 		}
 		delete(m.items, hash)

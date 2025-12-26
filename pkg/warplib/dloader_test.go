@@ -748,3 +748,41 @@ func TestGetPartSize(t *testing.T) {
 		})
 	}
 }
+
+// TestResumeConcurrentPartsModification demonstrates the race condition that would occur
+// if Resume() didn't create a snapshot copy of the parts map before iteration.
+// This test is skipped by default and is for documentation purposes.
+// To run: go test -race -run TestResumeConcurrentPartsModification
+func TestResumeConcurrentPartsModification(t *testing.T) {
+	t.Skip("This test demonstrates a race condition pattern and is for documentation purposes only")
+
+	parts := make(map[int64]*ItemPart)
+	for i := int64(0); i < 10; i++ {
+		parts[i*100] = &ItemPart{Hash: fmt.Sprintf("part-%d", i), FinalOffset: i*100 + 99}
+	}
+
+	var wg sync.WaitGroup
+
+	// Iterator goroutine (simulates what Resume() does)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 100; i++ {
+			for k, v := range parts {
+				_ = k
+				_ = v.Hash
+			}
+		}
+	}()
+
+	// Modifier goroutine (simulates what handlers might do)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 100; i++ {
+			parts[int64(1000+i)] = &ItemPart{Hash: fmt.Sprintf("new-%d", i)}
+		}
+	}()
+
+	wg.Wait()
+}

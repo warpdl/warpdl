@@ -1,6 +1,7 @@
 package warplib
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log"
@@ -754,4 +755,47 @@ func TestManager_ConcurrentUpdateItem(t *testing.T) {
 	if len(items) != expectedCount {
 		t.Errorf("expected %d items, got %d", expectedCount, len(items))
 	}
+}
+
+// TestManagerFlushConcurrentProgress tests for Race 4: Manager.Flush()
+// This test verifies that Flush() properly synchronizes access to item fields
+// while concurrent goroutines are modifying item progress.
+func TestManagerFlushConcurrentProgress(t *testing.T) {
+	m := newTestManager(t)
+	defer m.Close()
+
+	for i := 0; i < 10; i++ {
+		item := &Item{
+			Hash: fmt.Sprintf("hash-%d", i), TotalSize: 1000, Downloaded: 0,
+			Parts: make(map[int64]*ItemPart), mu: m.mu, memPart: make(map[string]int64),
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		item.setDAlloc(&Downloader{ctx: ctx, cancel: cancel})
+		m.UpdateItem(item)
+		defer cancel()
+	}
+
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 100; i++ {
+			for _, item := range m.GetItems() {
+				item.mu.Lock()
+				item.Downloaded += 10
+				item.mu.Unlock()
+			}
+		}
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 20; i++ {
+			_ = m.Flush()
+		}
+	}()
+
+	wg.Wait()
 }

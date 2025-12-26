@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestItemBasics(t *testing.T) {
@@ -66,4 +67,39 @@ func TestItemIsDownloading(t *testing.T) {
 	if !item.IsDownloading() {
 		t.Fatalf("expected IsDownloading to be true")
 	}
+}
+
+// TestItemDAllocConcurrentAccess tests for Race 3: Item.dAlloc TOCTOU
+// This test verifies that concurrent access to dAlloc (check-then-use) is properly synchronized.
+func TestItemDAllocConcurrentAccess(t *testing.T) {
+	mu := &sync.RWMutex{}
+	item := &Item{mu: mu, Parts: make(map[int64]*ItemPart), memPart: make(map[string]int64)}
+
+	var wg sync.WaitGroup
+
+	// Goroutine setting/clearing dAlloc
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 500; i++ {
+			ctx, cancel := context.WithCancel(context.Background())
+			item.setDAlloc(&Downloader{ctx: ctx, cancel: cancel, wg: &sync.WaitGroup{}})
+			time.Sleep(time.Microsecond)
+			item.clearDAlloc()
+			cancel()
+		}
+	}()
+
+	// Goroutines checking dAlloc
+	for g := 0; g < 5; g++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < 500; i++ {
+				_ = item.IsDownloading()
+				_, _ = item.GetMaxConnections()
+			}
+		}()
+	}
+	wg.Wait()
 }

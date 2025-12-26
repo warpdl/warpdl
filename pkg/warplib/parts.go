@@ -111,6 +111,12 @@ func (p *Part) setEpeed(espeed int64) {
 	p.etime = getDownloadTime(espeed, p.chunk)
 }
 
+// getRead returns the current read count atomically.
+// RACE FIX: This ensures part.read is always accessed atomically.
+func (p *Part) getRead() int64 {
+	return atomic.LoadInt64(&p.read)
+}
+
 func (p *Part) download(headers Headers, ioff, foff int64, force bool, requestTimeout time.Duration) (body io.ReadCloser, slow bool, err error) {
 	// Create context with timeout if specified
 	ctx := p.ctx
@@ -147,7 +153,7 @@ func (p *Part) copyBuffer(src io.ReadCloser, foff int64, force bool) (slow bool,
 		// number of bytes this part should read
 		tread  = foff + 1 - p.offset
 		chunk  = p.chunk
-		lchunk = tread - p.read
+		lchunk = tread - p.getRead()
 	)
 	if lchunk > 0 && lchunk < chunk {
 		chunk = lchunk
@@ -165,13 +171,13 @@ func (p *Part) copyBuffer(src io.ReadCloser, foff int64, force bool) (slow bool,
 		if slow {
 			return
 		}
-		lchunk = tread - p.read
+		lchunk = tread - p.getRead()
 		if lchunk == 0 {
 			err = io.EOF
 			break
 		}
 		if lchunk < 1 {
-			p.log("corruption detected: lchunk=%d, tread=%d, p.read=%d", lchunk, tread, p.read)
+			p.log("corruption detected: lchunk=%d, tread=%d, p.read=%d", lchunk, tread, p.getRead())
 			return false, fmt.Errorf("corruption detected: lchunk=%d (report: github.com/warpdl/warpdl)", lchunk)
 		}
 		if lchunk < chunk {
@@ -183,7 +189,7 @@ func (p *Part) copyBuffer(src io.ReadCloser, foff int64, force bool) (slow bool,
 	_ = src.Close()
 	if err == io.EOF {
 		expectedBytes := foff + 1 - p.offset
-		if p.read < expectedBytes {
+		if p.getRead() < expectedBytes {
 			// Premature EOF - connection closed before all bytes received
 			// Don't treat as success, return error for retry
 			err = io.ErrUnexpectedEOF
@@ -193,7 +199,7 @@ func (p *Part) copyBuffer(src io.ReadCloser, foff int64, force bool) (slow bool,
 		err = nil
 		p.log("%s: part download complete", p.hash)
 		// fmt.Print("[", p.hash, "]: ", "lchunk: ", tread-p.read, " p.read: ", p.read, " ioff: ", p.offset, " foff: ", foff, " p.chunk: ", p.chunk, " n: ", n, "\n")
-		p.ofunc(p.hash, p.read)
+		p.ofunc(p.hash, p.getRead())
 	}
 	return
 }

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 )
@@ -364,4 +365,41 @@ func TestCopyBufferNegativeLchunk(t *testing.T) {
 		t.Fatalf("expected slow=false")
 	}
 	p.pwg.Wait()
+}
+
+// TestPartReadAtomicAccess tests Race 2: part.read field must be accessed atomically.
+// The field is written atomically at parts.go:228 but read as a plain field elsewhere.
+// This test will fail with -race if part.read is accessed non-atomically.
+func TestPartReadAtomicAccess(t *testing.T) {
+	p := &Part{offset: 0, read: 0}
+	var wg sync.WaitGroup
+
+	// 5 writers incrementing part.read atomically
+	for w := 0; w < 5; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < 1000; i++ {
+				atomic.AddInt64(&p.read, 1)
+			}
+		}()
+	}
+
+	// 5 readers accessing part.read via getRead() helper
+	for r := 0; r < 5; r++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < 1000; i++ {
+				// This will race if getRead() doesn't exist or doesn't use atomic.LoadInt64
+				_ = p.offset + p.getRead()
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	if got := atomic.LoadInt64(&p.read); got != 5000 {
+		t.Errorf("expected 5000, got %d", got)
+	}
 }
