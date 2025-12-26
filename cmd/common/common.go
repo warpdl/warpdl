@@ -85,6 +85,17 @@ func InitBars(p *mpb.Progress, prefix string, cLength int64) (dbar *mpb.Bar, cba
 	return
 }
 
+// InitBarsWithProgress creates progress bars with an initial progress value.
+// This is used when resuming downloads where some bytes are already downloaded.
+// The initialProgress parameter sets the starting position of the download bar.
+func InitBarsWithProgress(p *mpb.Progress, prefix string, cLength int64, initialProgress int64) (dbar *mpb.Bar, cbar *mpb.Bar) {
+	dbar, cbar = InitBars(p, prefix, cLength)
+	if initialProgress > 0 {
+		dbar.SetCurrent(initialProgress)
+	}
+	return
+}
+
 // Help displays help information for the application or a specific command.
 // If no argument is provided or the argument is "help", it displays the
 // application-level help and exits. Otherwise, it shows help for the

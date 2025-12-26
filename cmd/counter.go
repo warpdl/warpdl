@@ -19,6 +19,8 @@ type SpeedCounter struct {
 	refreshRate time.Duration
 	// Bar
 	bar *mpb.Bar
+	// lastTick tracks the actual time of the last tick for accurate EWMA calculation
+	lastTick time.Time
 }
 
 func NewSpeedCounter(refreshRate time.Duration) *SpeedCounter {
@@ -31,10 +33,13 @@ func NewSpeedCounter(refreshRate time.Duration) *SpeedCounter {
 }
 
 func (s *SpeedCounter) SetBar(bar *mpb.Bar) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.bar = bar
 }
 
 func (s *SpeedCounter) Start() {
+	s.lastTick = time.Now()
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -56,17 +61,28 @@ func (s *SpeedCounter) Stop() {
 
 func (s *SpeedCounter) worker() {
 	for range s.ticker.C {
+		now := time.Now()
+
 		if atomic.LoadInt64(&s.bpc) == 0 {
+			s.lastTick = now
 			continue
 		}
-		if s.bar == nil {
+
+		s.mu.RLock()
+		bar := s.bar
+		s.mu.RUnlock()
+
+		if bar == nil {
+			s.lastTick = now
 			continue
 		}
-		s.mu.Lock()
+
+		elapsed := now.Sub(s.lastTick)
+		s.lastTick = now
+
 		bpc := atomic.SwapInt64(&s.bpc, 0)
 		if bpc != 0 {
-			s.bar.EwmaIncrInt64(bpc, s.refreshRate)
+			bar.EwmaIncrInt64(bpc, elapsed)
 		}
-		s.mu.Unlock()
 	}
 }

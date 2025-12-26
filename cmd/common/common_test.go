@@ -27,6 +27,34 @@ func TestInitBars(t *testing.T) {
 	}
 }
 
+// TestInitBarsWithProgress verifies that progress bars can be initialized
+// with a non-zero starting position for resume scenarios.
+// Note: mpb.Bar doesn't expose a public Current() getter, so we can only verify
+// the function executes without error. The actual progress is validated via
+// integration tests and manual testing.
+func TestInitBarsWithProgress(t *testing.T) {
+	p := mpb.New()
+	initialProgress := int64(50)
+	totalSize := int64(100)
+
+	dbar, cbar := InitBarsWithProgress(p, "", totalSize, initialProgress)
+
+	if dbar == nil || cbar == nil {
+		t.Fatal("expected bars to be created")
+	}
+}
+
+// TestInitBarsWithProgressZero ensures backward compatibility
+// when initialProgress is 0 (fresh download scenario).
+func TestInitBarsWithProgressZero(t *testing.T) {
+	p := mpb.New()
+	dbar, cbar := InitBarsWithProgress(p, "", 100, 0)
+
+	if dbar == nil || cbar == nil {
+		t.Fatal("expected bars to be created")
+	}
+}
+
 func TestBeautAndReplic(t *testing.T) {
 	if got := Beaut("hi", 4); got != " hi " {
 		t.Fatalf("unexpected beaut output: %q", got)

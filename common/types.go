@@ -114,6 +114,8 @@ type ResumeResponse struct {
 	AbsoluteLocation string `json:"absolute_location"`
 	// ContentLength is the total size of the file in bytes.
 	ContentLength warplib.ContentLength `json:"content_length"`
+	// Downloaded is the number of bytes already downloaded (for progress bar initialization).
+	Downloaded warplib.ContentLength `json:"downloaded,omitempty"`
 	// MaxConnections is the number of concurrent connections being used.
 	MaxConnections int32 `json:"max_connections"`
 	// MaxSegments is the number of segments the download is split into.
