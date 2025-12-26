@@ -177,3 +177,51 @@ func TestSpawnDaemon_InvalidExecutable(t *testing.T) {
 	// Note: We don't actually test spawnDaemon here since it would
 	// spawn a real daemon process
 }
+
+func TestGetDaemonStartTimeout_Default(t *testing.T) {
+	os.Unsetenv("WARPDL_DAEMON_TIMEOUT")
+	timeout := getDaemonStartTimeout()
+	if timeout != 10*time.Second {
+		t.Fatalf("expected 10s default, got %v", timeout)
+	}
+}
+
+func TestGetDaemonStartTimeout_EnvVar(t *testing.T) {
+	t.Setenv("WARPDL_DAEMON_TIMEOUT", "5s")
+	timeout := getDaemonStartTimeout()
+	if timeout != 5*time.Second {
+		t.Fatalf("expected 5s, got %v", timeout)
+	}
+}
+
+func TestGetDaemonStartTimeout_EnvVarMilliseconds(t *testing.T) {
+	t.Setenv("WARPDL_DAEMON_TIMEOUT", "500ms")
+	timeout := getDaemonStartTimeout()
+	if timeout != 500*time.Millisecond {
+		t.Fatalf("expected 500ms, got %v", timeout)
+	}
+}
+
+func TestGetDaemonStartTimeout_InvalidEnvVar(t *testing.T) {
+	t.Setenv("WARPDL_DAEMON_TIMEOUT", "invalid")
+	timeout := getDaemonStartTimeout()
+	if timeout != 10*time.Second {
+		t.Fatalf("expected 10s fallback for invalid, got %v", timeout)
+	}
+}
+
+func TestGetDaemonStartTimeout_NegativeEnvVar(t *testing.T) {
+	t.Setenv("WARPDL_DAEMON_TIMEOUT", "-5s")
+	timeout := getDaemonStartTimeout()
+	if timeout != 10*time.Second {
+		t.Fatalf("expected 10s fallback for negative, got %v", timeout)
+	}
+}
+
+func TestGetDaemonStartTimeout_ZeroEnvVar(t *testing.T) {
+	t.Setenv("WARPDL_DAEMON_TIMEOUT", "0s")
+	timeout := getDaemonStartTimeout()
+	if timeout != 10*time.Second {
+		t.Fatalf("expected 10s fallback for zero, got %v", timeout)
+	}
+}

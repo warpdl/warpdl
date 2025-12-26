@@ -2,14 +2,26 @@ package warpcli
 
 import (
 	"fmt"
+	"os"
 	"time"
 )
 
 const (
-	daemonStartTimeout = 3 * time.Second
-	socketPollInterval = 50 * time.Millisecond
-	socketDialTimeout  = 100 * time.Millisecond
+	defaultDaemonStartTimeout = 10 * time.Second
+	socketPollInterval        = 50 * time.Millisecond
+	socketDialTimeout         = 100 * time.Millisecond
 )
+
+// getDaemonStartTimeout returns the daemon startup timeout.
+// It can be overridden via WARPDL_DAEMON_TIMEOUT environment variable.
+func getDaemonStartTimeout() time.Duration {
+	if val := os.Getenv("WARPDL_DAEMON_TIMEOUT"); val != "" {
+		if d, err := time.ParseDuration(val); err == nil && d > 0 {
+			return d
+		}
+	}
+	return defaultDaemonStartTimeout
+}
 
 // ensureDaemon checks if the daemon is running and spawns it if not.
 // Returns nil if daemon is running or was successfully started.
@@ -27,7 +39,7 @@ func ensureDaemon() error {
 	}
 
 	// Wait for socket to become available
-	return waitForSocket(path, daemonStartTimeout)
+	return waitForSocket(path, getDaemonStartTimeout())
 }
 
 // waitForSocket polls until the socket/pipe becomes available or timeout expires.
