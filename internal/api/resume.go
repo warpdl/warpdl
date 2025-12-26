@@ -182,6 +182,7 @@ func (s *Api) resumeHandler(sconn *server.SyncConn, pool *server.Pool, body json
 	return common.UPDATE_RESUME, &common.ResumeResponse{
 		ChildHash:         item.ChildHash,
 		ContentLength:     item.TotalSize,
+		Downloaded:        item.Downloaded,
 		FileName:          item.Name,
 		SavePath:          item.GetSavePath(),
 		DownloadDirectory: item.DownloadLocation,

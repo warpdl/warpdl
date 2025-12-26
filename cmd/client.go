@@ -30,6 +30,15 @@ func downloadProgress(sc *SpeedCounter) func(dr *common.DownloadingResponse) err
 	}
 }
 
+// resumeProgress handles ResumeProgress updates during download resumption.
+// It has the same behavior as downloadProgress - incrementing the speed counter.
+func resumeProgress(sc *SpeedCounter) func(dr *common.DownloadingResponse) error {
+	return func(dr *common.DownloadingResponse) error {
+		sc.IncrBy(int(dr.Value))
+		return nil
+	}
+}
+
 func downloadComplete(client *warpcli.Client, dbar, cbar *mpb.Bar, sc *SpeedCounter) func(dr *common.DownloadingResponse) error {
 	return func(dr *common.DownloadingResponse) error {
 		// fmt.Println("Download Complete: ", dr.Hash)
@@ -68,11 +77,13 @@ func compileProgress(bar *mpb.Bar) func(dr *common.DownloadingResponse) error {
 	}
 }
 
-func RegisterHandlers(client *warpcli.Client, contentLength int64) {
+// RegisterHandlersWithProgress registers all download event handlers with
+// initial progress for resume scenarios.
+func RegisterHandlersWithProgress(client *warpcli.Client, contentLength int64, initialProgress int64) {
 	rr := time.Millisecond * 30
 	sc := NewSpeedCounter(rr)
 	p := mpb.New(mpb.WithWidth(64), mpb.WithRefreshRate(rr))
-	dbar, cbar := cmdCommon.InitBars(p, "", contentLength)
+	dbar, cbar := cmdCommon.InitBarsWithProgress(p, "", contentLength, initialProgress)
 	sc.SetBar(dbar)
 	sc.Start()
 	client.AddHandler(
@@ -82,6 +93,10 @@ func RegisterHandlers(client *warpcli.Client, contentLength int64) {
 	client.AddHandler(
 		common.UPDATE_DOWNLOADING,
 		warpcli.NewDownloadingHandler(common.DownloadProgress, downloadProgress(sc)),
+	)
+	client.AddHandler(
+		common.UPDATE_DOWNLOADING,
+		warpcli.NewDownloadingHandler(common.ResumeProgress, resumeProgress(sc)),
 	)
 	client.AddHandler(
 		common.UPDATE_DOWNLOADING,
@@ -99,4 +114,9 @@ func RegisterHandlers(client *warpcli.Client, contentLength int64) {
 		common.UPDATE_DOWNLOADING,
 		warpcli.NewDownloadingHandler(common.CompileStart, compileStart),
 	)
+}
+
+// RegisterHandlers maintains backward compatibility for fresh downloads.
+func RegisterHandlers(client *warpcli.Client, contentLength int64) {
+	RegisterHandlersWithProgress(client, contentLength, 0)
 }

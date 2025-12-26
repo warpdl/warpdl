@@ -63,6 +63,38 @@ func TestDownloadHandlers(t *testing.T) {
 	}
 }
 
+// TestResumeProgressHandler verifies that the resumeProgress handler correctly
+// increments the SpeedCounter, mirroring downloadProgress behavior.
+func TestResumeProgressHandler(t *testing.T) {
+	p := mpb.New()
+	dbar := p.AddBar(100)
+	sc := NewSpeedCounter(time.Millisecond)
+	sc.SetBar(dbar)
+	sc.Start()
+	defer sc.Stop()
+
+	// Test resumeProgress handler increments the counter
+	handler := resumeProgress(sc)
+	err := handler(&common.DownloadingResponse{
+		Action: common.ResumeProgress,
+		Value:  25,
+		Hash:   "part1",
+	})
+	if err != nil {
+		t.Fatalf("resumeProgress: %v", err)
+	}
+
+	// Verify multiple calls work
+	err = handler(&common.DownloadingResponse{
+		Action: common.ResumeProgress,
+		Value:  50,
+		Hash:   "part2",
+	})
+	if err != nil {
+		t.Fatalf("resumeProgress second call: %v", err)
+	}
+}
+
 // TestDownloadComplete_BothBarsCompleted tests the early return path when both
 // download and compile progress bars are already completed. This ensures the
 // handler doesn't attempt to update already-finished bars.
