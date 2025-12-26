@@ -1,10 +1,11 @@
-//go:build !windows
+//go:build darwin || freebsd || linux
 
 package warplib
 
 import (
 	"fmt"
-	"syscall"
+
+	"golang.org/x/sys/unix"
 )
 
 // checkDiskSpace checks if there's enough disk space available at the given path
@@ -16,8 +17,8 @@ func checkDiskSpace(path string, requiredBytes int64) error {
 		return nil
 	}
 
-	var stat syscall.Statfs_t
-	err := syscall.Statfs(path, &stat)
+	var stat unix.Statfs_t
+	err := unix.Statfs(path, &stat)
 	if err != nil {
 		// If we can't check disk space, gracefully ignore and don't fail
 		// (better to try and potentially fail later than block downloads)
