@@ -18,6 +18,9 @@ func TestIsDaemonRunning_NotRunning(t *testing.T) {
 }
 
 func TestIsDaemonRunning_Running(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping in short mode (flaky on Windows race tests)")
+	}
 	listener, socketPath, err := createTestListener(t)
 	if err != nil {
 		t.Fatalf("failed to create listener: %v", err)
@@ -65,6 +68,9 @@ func TestIsDaemonRunning_BothFail(t *testing.T) {
 }
 
 func TestWaitForSocket_AlreadyExists(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping in short mode (flaky on Windows race tests)")
+	}
 	listener, socketPath, err := createTestListener(t)
 	if err != nil {
 		t.Fatalf("failed to create listener: %v", err)
@@ -130,6 +136,9 @@ func TestWaitForSocket_TCPFallback(t *testing.T) {
 }
 
 func TestEnsureDaemon_AlreadyRunning(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping in short mode (flaky on Windows race tests)")
+	}
 	listener, _, err := createTestListener(t)
 	if err != nil {
 		t.Fatalf("failed to create listener: %v", err)

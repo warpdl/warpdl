@@ -11,6 +11,9 @@ import (
 )
 
 func TestNewClient(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping in short mode (flaky on Windows race tests)")
+	}
 	listener, _, err := createTestListener(t)
 	if err != nil {
 		t.Fatalf("createTestListener: %v", err)
