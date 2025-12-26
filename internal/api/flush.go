@@ -14,7 +14,7 @@ func (s *Api) flushHandler(sconn *server.SyncConn, pool *server.Pool, body json.
 		return common.UPDATE_FLUSH, nil, err
 	}
 	if m.DownloadId == "" {
-		s.manager.Flush()
+		err = s.manager.Flush()
 	} else {
 		err = s.manager.FlushOne(m.DownloadId)
 	}

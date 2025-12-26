@@ -1,11 +1,13 @@
 package warplib
 
 import (
+	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -123,7 +125,9 @@ func TestManagerFlush(t *testing.T) {
 	item := m.GetItem(d.hash)
 	item.Downloaded = item.TotalSize
 	m.UpdateItem(item)
-	m.Flush()
+	if err := m.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
 	if m.GetItem(item.Hash) != nil {
 		t.Fatalf("expected item to be flushed")
 	}
@@ -388,7 +392,7 @@ func TestManagerResumeEarlyCompile(t *testing.T) {
 
 	hash := "h-early-compile"
 	partHash := "p-early-compile"
-	
+
 	// Create download directory
 	if err := os.MkdirAll(filepath.Join(DlDataDir, hash), 0755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
@@ -465,13 +469,277 @@ func TestManagerResumeEarlyCompile(t *testing.T) {
 	if updatedItem == nil {
 		t.Fatalf("item not found after resume")
 	}
-	
+
 	part := updatedItem.Parts[0]
 	if part == nil {
 		t.Fatalf("part not found in item")
 	}
-	
+
 	if !part.Compiled {
 		t.Fatalf("expected part.Compiled to be true after early compile, got false")
+	}
+}
+
+// TDD Tests for GOB persistence fixes (these will FAIL initially as per TDD methodology)
+
+func TestInitManager_CorruptGOBFile(t *testing.T) {
+	base := t.TempDir()
+	if err := SetConfigDir(base); err != nil {
+		t.Fatalf("SetConfigDir: %v", err)
+	}
+	// Write garbage bytes to userdata file
+	userdataPath := filepath.Join(base, "userdata.warp")
+	if err := os.WriteFile(userdataPath, []byte{0x00, 0xFF, 0xAB, 0xCD, 0xDE, 0xAD}, 0644); err != nil {
+		t.Fatalf("write corrupt file: %v", err)
+	}
+	// Should succeed despite corrupt data
+	m, err := InitManager()
+	if err != nil {
+		t.Fatalf("InitManager should not fail on corrupt GOB: %v", err)
+	}
+	defer m.Close()
+	// Should have empty items (fresh start)
+	if len(m.GetItems()) != 0 {
+		t.Fatalf("expected empty items after corrupt GOB recovery, got %d", len(m.GetItems()))
+	}
+}
+
+func TestInitManager_EmptyFile(t *testing.T) {
+	base := t.TempDir()
+	if err := SetConfigDir(base); err != nil {
+		t.Fatalf("SetConfigDir: %v", err)
+	}
+	// Create empty file
+	userdataPath := filepath.Join(base, "userdata.warp")
+	f, err := os.Create(userdataPath)
+	if err != nil {
+		t.Fatalf("create empty file: %v", err)
+	}
+	f.Close()
+	// Should succeed with empty file
+	m, err := InitManager()
+	if err != nil {
+		t.Fatalf("InitManager should handle empty file: %v", err)
+	}
+	defer m.Close()
+	if len(m.GetItems()) != 0 {
+		t.Fatalf("expected empty items for empty file")
+	}
+}
+
+func TestManager_TruncateBeforeEncode(t *testing.T) {
+	base := t.TempDir()
+	if err := SetConfigDir(base); err != nil {
+		t.Fatalf("SetConfigDir: %v", err)
+	}
+	m, err := InitManager()
+	if err != nil {
+		t.Fatalf("InitManager: %v", err)
+	}
+
+	// Phase 1: Create large state with many items
+	for i := 0; i < 20; i++ {
+		item := &Item{
+			Hash:       fmt.Sprintf("hash-%d", i),
+			Name:       strings.Repeat("x", 100),
+			Url:        strings.Repeat("y", 200),
+			TotalSize:  ContentLength(1000),
+			Downloaded: ContentLength(1000), // Complete
+			Resumable:  true,
+			Parts:      make(map[int64]*ItemPart),
+			mu:         m.mu,
+			memPart:    make(map[string]int64),
+		}
+		m.UpdateItem(item)
+	}
+	m.Close()
+
+	// Record large file size
+	userdataPath := filepath.Join(base, "userdata.warp")
+	largeInfo, _ := os.Stat(userdataPath)
+	largeSize := largeInfo.Size()
+
+	// Phase 2: Reopen and flush all (removes completed items)
+	m, err = InitManager()
+	if err != nil {
+		t.Fatalf("InitManager after large: %v", err)
+	}
+	if err := m.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	m.Close()
+
+	// File should be smaller
+	smallInfo, _ := os.Stat(userdataPath)
+	smallSize := smallInfo.Size()
+	if smallSize >= largeSize {
+		t.Fatalf("file not truncated: large=%d, small=%d", largeSize, smallSize)
+	}
+
+	// Phase 3: Reopen and verify no garbage
+	m, err = InitManager()
+	if err != nil {
+		t.Fatalf("InitManager after flush: %v", err)
+	}
+	defer m.Close()
+	if len(m.GetItems()) != 0 {
+		t.Fatalf("expected 0 items after flush, got %d (garbage data)", len(m.GetItems()))
+	}
+}
+
+func TestManager_DataIntegrityPersistence(t *testing.T) {
+	m := newTestManager(t)
+
+	// Create item with specific known values
+	item := &Item{
+		Hash:             "integrity-test",
+		Name:             "test-file.bin",
+		Url:              "http://example.com/test.bin",
+		TotalSize:        ContentLength(12345),
+		Downloaded:       ContentLength(6789),
+		DownloadLocation: "/tmp/downloads",
+		AbsoluteLocation: "/tmp/abs",
+		Resumable:        true,
+		Hidden:           true,
+		Children:         false,
+		Parts: map[int64]*ItemPart{
+			0:    {Hash: "p1", FinalOffset: 1000, Compiled: true},
+			1000: {Hash: "p2", FinalOffset: 2000, Compiled: false},
+		},
+		Headers: Headers{{Key: "X-Test", Value: "val1"}},
+		mu:      m.mu,
+		memPart: make(map[string]int64),
+	}
+	m.UpdateItem(item)
+	m.Close()
+
+	// Reopen and verify
+	m2, err := InitManager()
+	if err != nil {
+		t.Fatalf("reopen failed: %v", err)
+	}
+	defer m2.Close()
+
+	loaded := m2.GetItem("integrity-test")
+	if loaded == nil {
+		t.Fatal("item not persisted")
+	}
+	if loaded.Name != "test-file.bin" {
+		t.Errorf("Name: got %s, want test-file.bin", loaded.Name)
+	}
+	if loaded.TotalSize != 12345 {
+		t.Errorf("TotalSize: got %d, want 12345", loaded.TotalSize)
+	}
+	if loaded.Downloaded != 6789 {
+		t.Errorf("Downloaded: got %d, want 6789", loaded.Downloaded)
+	}
+	if len(loaded.Parts) != 2 {
+		t.Errorf("Parts: got %d, want 2", len(loaded.Parts))
+	}
+	if !loaded.Resumable || !loaded.Hidden || loaded.Children {
+		t.Errorf("flags mismatch")
+	}
+}
+
+func TestManager_FlushProperlyTruncates(t *testing.T) {
+	base := t.TempDir()
+	if err := SetConfigDir(base); err != nil {
+		t.Fatalf("SetConfigDir: %v", err)
+	}
+	m, err := InitManager()
+	if err != nil {
+		t.Fatalf("InitManager: %v", err)
+	}
+
+	// Add many completed items to create large file
+	for i := 0; i < 10; i++ {
+		item := &Item{
+			Hash:       fmt.Sprintf("complete-%d", i),
+			Name:       strings.Repeat("x", 100),
+			Url:        strings.Repeat("y", 200),
+			TotalSize:  ContentLength(100),
+			Downloaded: ContentLength(100), // Complete - will be flushed
+			Resumable:  true,
+			Parts:      make(map[int64]*ItemPart),
+			mu:         m.mu,
+			memPart:    make(map[string]int64),
+		}
+		m.UpdateItem(item)
+	}
+	m.Close()
+
+	// Record file size before flush
+	userdataPath := filepath.Join(base, "userdata.warp")
+	beforeInfo, _ := os.Stat(userdataPath)
+	beforeSize := beforeInfo.Size()
+
+	// Reopen and flush
+	m, err = InitManager()
+	if err != nil {
+		t.Fatalf("InitManager: %v", err)
+	}
+	if err := m.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	m.Close()
+
+	// File should be smaller after flush (all items removed)
+	afterInfo, _ := os.Stat(userdataPath)
+	afterSize := afterInfo.Size()
+	if afterSize >= beforeSize {
+		t.Errorf("file not truncated after flush: before=%d, after=%d", beforeSize, afterSize)
+	}
+
+	// Verify we can reload without corruption
+	m, err = InitManager()
+	if err != nil {
+		t.Fatalf("InitManager after flush: %v", err)
+	}
+	defer m.Close()
+
+	// All items should be flushed (complete items with no dAlloc)
+	items := m.GetItems()
+	if len(items) != 0 {
+		t.Errorf("expected 0 items after flush, got %d", len(items))
+	}
+}
+
+func TestManager_ConcurrentUpdateItem(t *testing.T) {
+	m := newTestManager(t)
+	defer m.Close()
+
+	var wg sync.WaitGroup
+	numGoroutines := 50
+	itemsPerGoroutine := 5
+
+	// Concurrent writers
+	for g := 0; g < numGoroutines; g++ {
+		wg.Add(1)
+		go func(gid int) {
+			defer wg.Done()
+			for i := 0; i < itemsPerGoroutine; i++ {
+				item := &Item{
+					Hash:       fmt.Sprintf("g%d-i%d", gid, i),
+					Name:       fmt.Sprintf("file-%d-%d.bin", gid, i),
+					Url:        "http://example.com/file.bin",
+					TotalSize:  ContentLength(1000),
+					Downloaded: ContentLength(gid*10 + i),
+					Resumable:  true,
+					Parts:      make(map[int64]*ItemPart),
+					mu:         m.mu,
+					memPart:    make(map[string]int64),
+				}
+				m.UpdateItem(item)
+			}
+		}(g)
+	}
+
+	wg.Wait()
+
+	// All items should be present
+	items := m.GetItems()
+	expectedCount := numGoroutines * itemsPerGoroutine
+	if len(items) != expectedCount {
+		t.Errorf("expected %d items, got %d", expectedCount, len(items))
 	}
 }
