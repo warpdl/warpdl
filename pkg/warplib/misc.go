@@ -38,6 +38,18 @@ const (
 	DEF_USER_AGENT = "Warp/1.0"
 
 	MIN_PART_SIZE = 512 * KB
+
+	// DEF_MAX_FILE_SIZE is the default maximum file size limit (100GB).
+	// Set to -1 to disable the limit.
+	DEF_MAX_FILE_SIZE = 100 * GB
+
+	// DefaultFileMode is the permission mode for created files.
+	// Owner can read/write, group and others can only read.
+	DefaultFileMode = 0644
+
+	// DefaultDirMode is the permission mode for created directories.
+	// Owner has full access, group and others can read and traverse.
+	DefaultDirMode = 0755
 )
 
 // MAIN_HASH is the identifier used for the main download hash.
@@ -93,7 +105,7 @@ func defaultConfigDir() (string, error) {
 		return "", fmt.Errorf("get user config dir: %w", err)
 	}
 	if !dirExists(cdr) {
-		if err := WarpMkdirAll(cdr, os.ModePerm); err != nil {
+		if err := WarpMkdirAll(cdr, 0755); err != nil {
 			return "", fmt.Errorf("create config parent dir: %w", err)
 		}
 	}
@@ -108,12 +120,12 @@ func setConfigDir(dir string) error {
 	if err != nil {
 		return err
 	}
-	if err := WarpMkdirAll(abs, os.ModePerm); err != nil {
+	if err := WarpMkdirAll(abs, 0755); err != nil {
 		return err
 	}
 	ConfigDir = abs
 	DlDataDir = filepath.Join(abs, "dldata")
-	if err := WarpMkdirAll(DlDataDir, os.ModePerm); err != nil {
+	if err := WarpMkdirAll(DlDataDir, 0755); err != nil {
 		return err
 	}
 	__USERDATA_FILE_NAME = filepath.Join(abs, "userdata.warp")

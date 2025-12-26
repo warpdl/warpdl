@@ -9,9 +9,10 @@ func WarpOpen(path string) (*os.File, error) {
 	return os.Open(NormalizePath(path))
 }
 
-// WarpCreate creates a file, normalizing the path for long path support
+// WarpCreate creates a file with secure default permissions (0644).
+// This replaces os.Create which uses 0666 by default.
 func WarpCreate(path string) (*os.File, error) {
-	return os.Create(NormalizePath(path))
+	return os.OpenFile(NormalizePath(path), os.O_RDWR|os.O_CREATE|os.O_TRUNC, DefaultFileMode)
 }
 
 // WarpOpenFile opens a file with flags and permissions, normalizing the path for long path support
@@ -47,4 +48,9 @@ func WarpStat(path string) (os.FileInfo, error) {
 // WarpRename renames a file or directory, normalizing both paths for long path support
 func WarpRename(src, dst string) error {
 	return os.Rename(NormalizePath(src), NormalizePath(dst))
+}
+
+// WarpChmod changes file permissions, normalizing the path for long path support
+func WarpChmod(path string, perm os.FileMode) error {
+	return os.Chmod(NormalizePath(path), perm)
 }

@@ -3,11 +3,11 @@
 package server
 
 import (
-    "fmt"
-    "net"
+	"fmt"
+	"net"
 
-    "github.com/Microsoft/go-winio"
-    "github.com/warpdl/warpdl/common"
+	"github.com/Microsoft/go-winio"
+	"github.com/warpdl/warpdl/common"
 )
 
 // pipeSecurityDescriptor restricts pipe access to:
@@ -25,27 +25,27 @@ const pipeSecurityDescriptor = "D:(A;;GA;;;SY)(A;;GA;;;BA)(A;;GA;;;CO)"
 // Security: The pipe uses a restricted security descriptor to limit access
 // to SYSTEM, Administrators, and the Creator Owner only.
 func (s *Server) createListener() (net.Listener, error) {
-    if forceTCP() {
-        s.log.Println("Force TCP mode enabled, using TCP listener")
-        return net.Listen("tcp", fmt.Sprintf("%s:%d", common.TCPHost, s.port))
-    }
+	if forceTCP() {
+		s.log.Println("Force TCP mode enabled, using TCP listener")
+		return net.Listen("tcp", fmt.Sprintf("%s:%d", common.TCPHost, s.port))
+	}
 
-    pipePath := pipePath()
+	pipePath := pipePath()
 
-    // Configure pipe with security restrictions
-    cfg := &winio.PipeConfig{
-        SecurityDescriptor: pipeSecurityDescriptor,
-    }
+	// Configure pipe with security restrictions
+	cfg := &winio.PipeConfig{
+		SecurityDescriptor: pipeSecurityDescriptor,
+	}
 
-    l, err := winio.ListenPipe(pipePath, cfg)
-    if err != nil {
-        s.log.Println("Named pipe creation failed:", err.Error())
-        s.log.Println("Falling back to TCP (firewall prompts may occur)")
-        tcpListener, tcpErr := net.Listen("tcp", fmt.Sprintf("%s:%d", common.TCPHost, s.port))
-        if tcpErr != nil {
-            return nil, fmt.Errorf("error listening: %s", tcpErr.Error())
-        }
-        return tcpListener, nil
-    }
-    return l, nil
+	l, err := winio.ListenPipe(pipePath, cfg)
+	if err != nil {
+		s.log.Println("Named pipe creation failed:", err.Error())
+		s.log.Println("Falling back to TCP (firewall prompts may occur)")
+		tcpListener, tcpErr := net.Listen("tcp", fmt.Sprintf("%s:%d", common.TCPHost, s.port))
+		if tcpErr != nil {
+			return nil, fmt.Errorf("error listening: %s", tcpErr.Error())
+		}
+		return tcpListener, nil
+	}
+	return l, nil
 }

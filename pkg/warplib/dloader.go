@@ -78,6 +78,8 @@ type Downloader struct {
 	// requestTimeout is the per-request timeout duration.
 	// Zero means no timeout.
 	requestTimeout time.Duration
+	// maxFileSize is the maximum allowed file size for this download.
+	maxFileSize int64
 }
 
 // DownloaderOptsFunc is a functional option for configuring a Downloader.
@@ -132,6 +134,11 @@ type DownloaderOpts struct {
 	// RequestTimeout specifies the timeout for individual HTTP requests.
 	// If zero, no per-request timeout is applied.
 	RequestTimeout time.Duration
+
+	// MaxFileSize specifies the maximum allowed file size for downloads.
+	// If zero, uses DEF_MAX_FILE_SIZE (100GB).
+	// If negative (-1), no limit is enforced.
+	MaxFileSize int64
 }
 
 // NewDownloader creates a new downloader with provided arguments.
@@ -188,6 +195,7 @@ func NewDownloader(client *http.Client, url string, opts *DownloaderOpts, optFun
 		retryConfig:    retryConfig,
 		overwrite:      opts.Overwrite,
 		requestTimeout: opts.RequestTimeout,
+		maxFileSize:    opts.MaxFileSize,
 	}
 
 	// Apply functional options
@@ -291,6 +299,7 @@ func initDownloader(client *http.Client, hash, url string, cLength ContentLength
 		retryConfig:    retryConfig,
 		overwrite:      opts.Overwrite,
 		requestTimeout: opts.RequestTimeout,
+		maxFileSize:    opts.MaxFileSize,
 	}
 
 	// Apply functional options
@@ -473,12 +482,18 @@ func (d *Downloader) openFile() (err error) {
 			return fmt.Errorf("%w: %s", ErrFileExists, savePath)
 		}
 		// File exists and overwrite=true, truncate it
-		d.f, err = WarpOpenFile(savePath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
+		d.f, err = WarpOpenFile(savePath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, DefaultFileMode)
+		if err != nil {
+			return
+		}
+		// Explicitly set permissions when truncating existing files
+		// (on Unix, O_TRUNC doesn't update permissions)
+		err = WarpChmod(savePath, DefaultFileMode)
 		return
 	}
 
 	// File doesn't exist, create normally
-	d.f, err = WarpOpenFile(savePath, os.O_RDWR|os.O_CREATE, 0666)
+	d.f, err = WarpOpenFile(savePath, os.O_RDWR|os.O_CREATE, DefaultFileMode)
 	return
 }
 
@@ -869,7 +884,7 @@ func (d *Downloader) GetContentLength() ContentLength {
 	return d.contentLength
 }
 
-// GetContentLengthAsInt returns the content length as an int64.
+// GetContentLengthAsInt returns the content length as int64.
 func (d *Downloader) GetContentLengthAsInt() int64 {
 	return d.GetContentLength().v()
 }
@@ -914,15 +929,31 @@ func (d *Downloader) getPartSize() (partSize, rpartSize int64) {
 // setContentLength sets the content length and changes the downloader
 // instance flags appropriately.
 func (d *Downloader) setContentLength(cl int64) error {
-	switch cl {
-	case 0:
+	switch {
+	case cl == 0:
 		return ErrContentLengthInvalid
-	case -1:
+	case cl == -1:
+		// Unknown size - disable multi-part downloading
 		d.resumable = false
 		d.numBaseParts = 1
 		d.maxConn = 1
 		d.maxParts = 1
-		// 	return ErrContentLengthNotImplemented
+	case cl < -1:
+		// Any negative value other than -1 is invalid
+		return fmt.Errorf("%w: received %d", ErrContentLengthInvalid, cl)
+	default:
+		// Positive content length - validate against max file size
+		maxSize := d.maxFileSize
+		if maxSize == 0 {
+			maxSize = DEF_MAX_FILE_SIZE
+		}
+		// maxSize < 0 means unlimited
+		if maxSize > 0 && cl > maxSize {
+			return fmt.Errorf("%w: file size %s exceeds limit %s",
+				ErrFileTooLarge,
+				ContentLength(cl),
+				ContentLength(maxSize))
+		}
 	}
 	d.contentLength = ContentLength(cl)
 	return nil
@@ -949,11 +980,12 @@ func (d *Downloader) setHash() {
 	d.hash = hex.EncodeToString(buf)
 }
 
-// setupDlPath sets up the temporary directory where the downlaod segments
-// and logs will be stored.
+// setupDlPath sets up the temporary directory where the download segments
+// and logs will be stored. Uses WarpMkdirAll which is idempotent and handles
+// concurrent directory creation gracefully.
 func (d *Downloader) setupDlPath() (err error) {
 	dlpath := filepath.Join(DlDataDir, d.hash)
-	err = WarpMkdir(dlpath, os.ModePerm)
+	err = WarpMkdirAll(dlpath, 0755)
 	if err != nil {
 		return
 	}
@@ -962,13 +994,13 @@ func (d *Downloader) setupDlPath() (err error) {
 }
 
 // setupLogger initiates a logger instance as a log file
-// named 'logs.txt' with 0666 permission codes.
+// named 'logs.txt' with DefaultFileMode (0644).
 // Location of logs is DlDirectory/{Hash}/logs.txt
 func (d *Downloader) setupLogger() (err error) {
 	d.lw, err = WarpOpenFile(
 		filepath.Join(d.dlPath, "logs.txt"),
 		os.O_RDWR|os.O_CREATE|os.O_APPEND,
-		0666,
+		DefaultFileMode,
 	)
 	if err != nil {
 		return

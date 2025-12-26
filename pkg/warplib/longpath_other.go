@@ -9,9 +9,10 @@ func WarpOpen(path string) (*os.File, error) {
 	return os.Open(path)
 }
 
-// WarpCreate creates a file (pass-through on non-Windows)
+// WarpCreate creates a file with secure default permissions (0644).
+// This replaces os.Create which uses 0666 by default.
 func WarpCreate(path string) (*os.File, error) {
-	return os.Create(path)
+	return os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, DefaultFileMode)
 }
 
 // WarpOpenFile opens a file with flags and permissions (pass-through on non-Windows)
@@ -47,4 +48,9 @@ func WarpStat(path string) (os.FileInfo, error) {
 // WarpRename renames a file or directory (pass-through on non-Windows)
 func WarpRename(src, dst string) error {
 	return os.Rename(src, dst)
+}
+
+// WarpChmod changes file permissions (pass-through on non-Windows)
+func WarpChmod(path string, perm os.FileMode) error {
+	return os.Chmod(path, perm)
 }

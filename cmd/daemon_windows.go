@@ -15,10 +15,10 @@ import (
 
 // Test hooks for mocking
 var (
-	svcIsWindowsService      = svc.IsWindowsService
-	svcRun                   = svc.Run
-	newEventLogger           = logger.NewEventLogger
-	windowsServerStartFunc   = func(srv *server.Server, ctx context.Context) error { return srv.Start(ctx) }
+	svcIsWindowsService    = svc.IsWindowsService
+	svcRun                 = svc.Run
+	newEventLogger         = logger.NewEventLogger
+	windowsServerStartFunc = func(srv *server.Server, ctx context.Context) error { return srv.Start(ctx) }
 )
 
 // getDaemonAction returns the platform-specific daemon action.

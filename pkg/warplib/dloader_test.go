@@ -608,7 +608,6 @@ func TestOpenFileSucceedsWhenFileDoesNotExist(t *testing.T) {
 	}
 }
 
-
 // TestNumBasePartsInitialization tests that numBaseParts is properly validated during initialization.
 // Since getPartSize() is now a pure getter, validation happens in NewDownloader().
 func TestNumBasePartsInitialization(t *testing.T) {

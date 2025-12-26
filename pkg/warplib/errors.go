@@ -45,4 +45,7 @@ var (
 	// ErrInsufficientDiskSpace is returned when there is not enough disk space available
 	// to download the file.
 	ErrInsufficientDiskSpace = errors.New("insufficient disk space")
+
+	// ErrFileTooLarge is returned when the file size exceeds the maximum allowed file size.
+	ErrFileTooLarge = errors.New("file size exceeds maximum allowed limit")
 )

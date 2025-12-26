@@ -312,7 +312,7 @@ func (p *Part) createPartFile() (err error) {
 }
 
 func (p *Part) openPartFile() (err error) {
-	p.pf, err = WarpOpenFile(p.getFileName(), os.O_RDWR, 0666)
+	p.pf, err = WarpOpenFile(p.getFileName(), os.O_RDWR, DefaultFileMode)
 	return
 }
 

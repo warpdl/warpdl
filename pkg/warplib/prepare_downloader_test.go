@@ -117,7 +117,7 @@ func TestPrepareDownloaderSpeedAllocation(t *testing.T) {
 				t.Fatalf("prepareDownloader: %v", err)
 			}
 			if d.numBaseParts != tt.expectedParts {
-				t.Errorf("%s: %s - expected numBaseParts=%d, got %d", 
+				t.Errorf("%s: %s - expected numBaseParts=%d, got %d",
 					tt.name, tt.description, tt.expectedParts, d.numBaseParts)
 			}
 		})

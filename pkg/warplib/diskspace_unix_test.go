@@ -83,7 +83,7 @@ func TestCheckDiskSpace(t *testing.T) {
 
 func TestCheckDiskSpaceIntegration(t *testing.T) {
 	tmpDir := t.TempDir()
-	
+
 	// Get available space
 	var stat syscall.Statfs_t
 	err := syscall.Statfs(tmpDir, &stat)
@@ -91,7 +91,7 @@ func TestCheckDiskSpaceIntegration(t *testing.T) {
 		t.Fatalf("Failed to get disk stats: %v", err)
 	}
 	availableBytes := int64(stat.Bavail) * int64(stat.Bsize)
-	
+
 	// Test with a file size that exceeds available space
 	hugeSize := availableBytes * 2
 	err = checkDiskSpace(tmpDir, hugeSize)
@@ -101,7 +101,7 @@ func TestCheckDiskSpaceIntegration(t *testing.T) {
 	if !errors.Is(err, ErrInsufficientDiskSpace) {
 		t.Errorf("expected ErrInsufficientDiskSpace, got: %v", err)
 	}
-	
+
 	// Error message should contain human-readable sizes
 	if err != nil {
 		errMsg := err.Error()
@@ -142,9 +142,9 @@ func TestCheckDiskSpacePermissions(t *testing.T) {
 func TestDiskSpaceCheckInDownloadFlow(t *testing.T) {
 	// This is an integration test that verifies disk space checking
 	// is properly integrated into the download flow
-	
+
 	tmpDir := t.TempDir()
-	
+
 	// Create a test file to serve
 	testFile := filepath.Join(tmpDir, "source.txt")
 	testContent := []byte("test content for download")
@@ -152,7 +152,7 @@ func TestDiskSpaceCheckInDownloadFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
-	
+
 	// Get available disk space
 	var stat syscall.Statfs_t
 	err = syscall.Statfs(tmpDir, &stat)
@@ -160,18 +160,18 @@ func TestDiskSpaceCheckInDownloadFlow(t *testing.T) {
 		t.Fatalf("Failed to get disk stats: %v", err)
 	}
 	availableBytes := int64(stat.Bavail) * int64(stat.Bsize)
-	
+
 	// Note: We can't easily test the actual download flow here without
 	// mocking the HTTP server and file system operations. The key validation
 	// is that checkDiskSpace is called and returns appropriate errors.
 	// The actual integration is tested through the Start() and Resume() methods.
-	
+
 	// Test that our check would catch insufficient space
 	err = checkDiskSpace(tmpDir, availableBytes*2)
 	if !errors.Is(err, ErrInsufficientDiskSpace) {
 		t.Errorf("expected ErrInsufficientDiskSpace, got: %v", err)
 	}
-	
+
 	// Test that our check passes for reasonable sizes
 	err = checkDiskSpace(tmpDir, 1024)
 	if err != nil {
@@ -182,13 +182,13 @@ func TestDiskSpaceCheckInDownloadFlow(t *testing.T) {
 func TestCheckDiskSpaceNegativeRemaining(t *testing.T) {
 	// Test that negative remaining bytes are handled gracefully
 	tmpDir := t.TempDir()
-	
+
 	// Negative bytes should be treated as zero (no check needed)
 	err := checkDiskSpace(tmpDir, -100)
 	if err != nil {
 		t.Errorf("expected no error for negative bytes, got: %v", err)
 	}
-	
+
 	// Zero bytes should also pass
 	err = checkDiskSpace(tmpDir, 0)
 	if err != nil {
