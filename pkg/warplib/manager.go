@@ -1,8 +1,12 @@
 package warplib
 
 import (
+	"bytes"
 	"encoding/gob"
 	"errors"
+	"fmt"
+	"io"
+	"log"
 	"net/http"
 	"os"
 	"sync"
@@ -36,7 +40,16 @@ func InitManager() (m *Manager, err error) {
 		m = nil
 		return
 	}
-	_ = gob.NewDecoder(m.f).Decode(&m.items)
+	// Attempt to decode existing data. If file is empty or corrupt,
+	// start fresh with empty items map.
+	if decErr := gob.NewDecoder(m.f).Decode(&m.items); decErr != nil {
+		if decErr != io.EOF {
+			// Log warning for non-empty but corrupt file
+			log.Printf("warplib: warning: failed to decode userdata, starting fresh: %v", decErr)
+		}
+		// Reset to empty map (already initialized, but be explicit)
+		m.items = make(ItemsMap)
+	}
 	m.populateMemPart()
 	return
 }
@@ -137,13 +150,34 @@ func (m *Manager) patchHandlers(d *Downloader, item *Item) {
 	}
 }
 
-// encode is an internal function of Manager
-// which encodes its state and stores them as a file.
-func (m *Manager) encode(e any) (err error) {
+// persistItems writes items to disk using buffer-first approach.
+// Called by encode() which handles locking, or directly by Flush()/Close()
+// which must hold m.mu write lock.
+// Does NOT call Sync() - caller decides if durability is needed.
+func (m *Manager) persistItems() error {
+	var buf bytes.Buffer
+	if err := gob.NewEncoder(&buf).Encode(m.items); err != nil {
+		return fmt.Errorf("encode items: %w", err)
+	}
+	if err := m.f.Truncate(0); err != nil {
+		return fmt.Errorf("truncate: %w", err)
+	}
+	if _, err := m.f.Seek(0, 0); err != nil {
+		return fmt.Errorf("seek: %w", err)
+	}
+	if _, err := m.f.Write(buf.Bytes()); err != nil {
+		return fmt.Errorf("write: %w", err)
+	}
+	return nil
+}
+
+// encode persists items to disk.
+// This is a high-frequency operation (called on every progress update),
+// so it does NOT call Sync() for performance reasons.
+func (m *Manager) encode() error {
 	m.mu.Lock()
-	m.f.Seek(0, 0)
 	defer m.mu.Unlock()
-	return gob.NewEncoder(m.f).Encode(e)
+	return m.persistItems()
 }
 
 // mapItem maps the item to the manager's items map.
@@ -163,7 +197,7 @@ func (m *Manager) deleteItem(hash string) {
 // UpdateItem updates the item in the manager's items map.
 func (m *Manager) UpdateItem(item *Item) {
 	m.mapItem(item)
-	m.encode(m.items)
+	m.encode()
 }
 
 // GetItems returns all the items in the manager.
@@ -306,7 +340,7 @@ func (m *Manager) ResumeDownload(client *http.Client, hash string, opts *ResumeD
 }
 
 // Flush flushes away all the inactive download items.
-func (m *Manager) Flush() {
+func (m *Manager) Flush() error {
 	// add a write lock to prevent data modification while flushing
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -317,8 +351,14 @@ func (m *Manager) Flush() {
 		delete(m.items, hash)
 		_ = WarpRemoveAll(GetPath(DlDataDir, hash))
 	}
-	m.f.Seek(0, 0)
-	gob.NewEncoder(m.f).Encode(m.items)
+	if err := m.persistItems(); err != nil {
+		return fmt.Errorf("flush persist: %w", err)
+	}
+	// Sync to ensure durability - Flush is an explicit user action
+	if err := m.f.Sync(); err != nil {
+		return fmt.Errorf("flush sync: %w", err)
+	}
+	return nil
 }
 
 // TODO: make FlushOne safe for flushing while the item is being downloaded
@@ -335,11 +375,31 @@ func (m *Manager) FlushOne(hash string) error {
 		return ErrFlushItemDownloading
 	}
 	m.deleteItem(hash)
-	m.encode(m.items)
+	m.mu.Lock()
+	if err := m.persistItems(); err != nil {
+		m.mu.Unlock()
+		return fmt.Errorf("flush one persist: %w", err)
+	}
+	syncErr := m.f.Sync()
+	m.mu.Unlock()
+	if syncErr != nil {
+		return fmt.Errorf("flush one sync: %w", syncErr)
+	}
 	return WarpRemoveAll(GetPath(DlDataDir, hash))
 }
 
-// Close closes the manager safely.
+// Close closes the manager safely, ensuring all data is persisted.
 func (m *Manager) Close() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Final persist and sync before closing
+	if err := m.persistItems(); err != nil {
+		// Log but don't fail - still need to close file
+		log.Printf("warplib: warning: failed to persist on close: %v", err)
+	}
+	if err := m.f.Sync(); err != nil {
+		log.Printf("warplib: warning: failed to sync on close: %v", err)
+	}
 	return m.f.Close()
 }
