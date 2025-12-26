@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) and other AI models when working with code in this repository.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Repository
 
@@ -20,6 +20,9 @@ go test ./...
 
 # Run a single test
 go test -run TestName ./pkg/warplib/
+
+# Run tests with race detection
+go test -race -short ./...
 
 # Build with goreleaser (snapshot, no publish)
 make goreleaser
@@ -90,6 +93,8 @@ Example: `core,daemon: feat: implemented feature X`
 - `cmd/uagent_darwin.go`, `cmd/uagent_linux.go` - Platform user-agents
 - `cmd/cookieMan.go` - Cross-platform credential management (uses go-keyring)
 - Keyring abstraction via `zalando/go-keyring`
+- Windows: Uses named pipes via `Microsoft/go-winio`; falls back to TCP on socket failures
+- Test files follow `*_unix_test.go` / `*_windows_test.go` naming conventions for platform-specific tests
 
 ## Test Coverage Requirements
 
@@ -99,6 +104,8 @@ Example: `core,daemon: feat: implemented feature X`
 - Detailed report: `go test -coverprofile=cover.out ./... && go tool cover -func=cover.out`
 
 Note: Coverage may differ slightly between Linux (CI) and macOS (local) due to platform-specific code paths. Aim for ~85% locally to ensure CI passes.
+
+CI also runs race detection tests (`-race -short`) on all platforms.
 
 ## Key Dependencies
 
