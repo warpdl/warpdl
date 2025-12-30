@@ -1,49 +1,38 @@
-# Starlight Starter Kit: Basics
+# WarpDL Documentation
 
-[![Built with Starlight](https://astro.badg.es/v2/built-with-starlight/tiny.svg)](https://starlight.astro.build)
+This is the documentation site for [WarpDL](https://github.com/warpdl/warpdl), a powerful and versatile cross-platform download manager.
 
-```
-bun create astro@latest -- --template starlight
-```
+Built with [Astro](https://astro.build) and [Starlight](https://starlight.astro.build).
 
-> 🧑‍🚀 **Seasoned astronaut?** Delete this file. Have fun!
+## Development
 
-## 🚀 Project Structure
+All commands are run from the `docs/` directory:
 
-Inside of your Astro + Starlight project, you'll see the following folders and files:
+| Command         | Action                                       |
+| :-------------- | :------------------------------------------- |
+| `bun install`   | Install dependencies                         |
+| `bun dev`       | Start local dev server at `localhost:4321`   |
+| `bun build`     | Build production site to `./dist/`           |
+| `bun preview`   | Preview build locally before deploying       |
+
+## Project Structure
 
 ```
 .
-├── public/
+├── public/           # Static assets (favicons, etc.)
 ├── src/
-│   ├── assets/
+│   ├── assets/       # Images embedded in docs
 │   ├── content/
-│   │   └── docs/
+│   │   └── docs/     # Documentation pages (.md/.mdx)
 │   └── content.config.ts
 ├── astro.config.mjs
-├── package.json
-└── tsconfig.json
+└── package.json
 ```
 
-Starlight looks for `.md` or `.mdx` files in the `src/content/docs/` directory. Each file is exposed as a route based on its file name.
+Documentation pages live in `src/content/docs/`. Each file becomes a route based on its filename.
 
-Images can be added to `src/assets/` and embedded in Markdown with a relative link.
+## Related
 
-Static assets, like favicons, can be placed in the `public/` directory.
-
-## 🧞 Commands
-
-All commands are run from the root of the project, from a terminal:
-
-| Command                   | Action                                           |
-| :------------------------ | :----------------------------------------------- |
-| `bun install`             | Installs dependencies                            |
-| `bun dev`             | Starts local dev server at `localhost:4321`      |
-| `bun build`           | Build your production site to `./dist/`          |
-| `bun preview`         | Preview your build locally, before deploying     |
-| `bun astro ...`       | Run CLI commands like `astro add`, `astro check` |
-| `bun astro -- --help` | Get help using the Astro CLI                     |
-
-## 👀 Want to learn more?
-
-Check out [Starlight’s docs](https://starlight.astro.build/), read [the Astro documentation](https://docs.astro.build), or jump into the [Astro Discord server](https://astro.build/chat).
+- [WarpDL Repository](https://github.com/warpdl/warpdl)
+- [Report Bug](https://github.com/warpdl/warpdl/issues)
+- [Request Feature](https://github.com/warpdl/warpdl/issues)
