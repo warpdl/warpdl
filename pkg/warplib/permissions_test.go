@@ -24,7 +24,6 @@ func TestFilePermissionConstants(t *testing.T) {
 }
 
 // TestOpenFilePermissions verifies that openFile() creates files with 0644 permissions.
-// This test will FAIL because current implementation uses 0666.
 func TestOpenFilePermissions(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("File permission tests are not applicable on Windows")
@@ -78,12 +77,11 @@ func TestOpenFilePermissions(t *testing.T) {
 	wantPerm := os.FileMode(0644)
 
 	if gotPerm != wantPerm {
-		t.Errorf("file permissions = %o, want %o (EXPECTED FAILURE: current code uses 0666)", gotPerm, wantPerm)
+		t.Errorf("file permissions = %o, want %o", gotPerm, wantPerm)
 	}
 }
 
 // TestSetupLoggerPermissions verifies that setupLogger() creates logs.txt with 0644 permissions.
-// This test will FAIL because current implementation uses 0666.
 func TestSetupLoggerPermissions(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("File permission tests are not applicable on Windows")
@@ -125,12 +123,11 @@ func TestSetupLoggerPermissions(t *testing.T) {
 	wantPerm := os.FileMode(0644)
 
 	if gotPerm != wantPerm {
-		t.Errorf("logs.txt permissions = %o, want %o (EXPECTED FAILURE: current code uses 0666)", gotPerm, wantPerm)
+		t.Errorf("logs.txt permissions = %o, want %o", gotPerm, wantPerm)
 	}
 }
 
 // TestWarpCreatePermissions verifies that WarpCreate() creates files with 0644 permissions.
-// This test will FAIL because os.Create() defaults to 0666.
 func TestWarpCreatePermissions(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("File permission tests are not applicable on Windows")
@@ -160,12 +157,11 @@ func TestWarpCreatePermissions(t *testing.T) {
 	wantPerm := os.FileMode(0644)
 
 	if gotPerm != wantPerm {
-		t.Errorf("file permissions = %o, want %o (EXPECTED FAILURE: os.Create defaults to 0666)", gotPerm, wantPerm)
+		t.Errorf("file permissions = %o, want %o", gotPerm, wantPerm)
 	}
 }
 
 // TestPartFilePermissions verifies that part files are created with 0644 permissions.
-// This test will FAIL because current implementation uses 0666 in openPartFile.
 func TestPartFilePermissions(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("File permission tests are not applicable on Windows")
@@ -204,13 +200,12 @@ func TestPartFilePermissions(t *testing.T) {
 	wantPerm := os.FileMode(0644)
 
 	if gotPerm != wantPerm {
-		t.Errorf("part file permissions = %o, want %o (EXPECTED FAILURE: current code uses 0666)", gotPerm, wantPerm)
+		t.Errorf("part file permissions = %o, want %o", gotPerm, wantPerm)
 	}
 }
 
 // TestNewFileCreationPermissions verifies that when openFile creates a new file
 // (not overwriting), it uses 0644 permissions.
-// This test will FAIL because current implementation uses 0666.
 func TestNewFileCreationPermissions(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("File permission tests are not applicable on Windows")
@@ -263,13 +258,12 @@ func TestNewFileCreationPermissions(t *testing.T) {
 	wantPerm := os.FileMode(0644)
 
 	if gotPerm != wantPerm {
-		t.Errorf("new file permissions = %o, want %o (EXPECTED FAILURE: current code uses 0666)", gotPerm, wantPerm)
+		t.Errorf("new file permissions = %o, want %o", gotPerm, wantPerm)
 	}
 }
 
 // TestOverwriteFilePermissions verifies that when openFile overwrites an existing file,
 // it uses 0644 permissions.
-// This test will FAIL because current implementation uses 0666.
 func TestOverwriteFilePermissions(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("File permission tests are not applicable on Windows")
@@ -329,6 +323,41 @@ func TestOverwriteFilePermissions(t *testing.T) {
 	wantPerm := os.FileMode(0644)
 
 	if gotPerm != wantPerm {
-		t.Errorf("overwritten file permissions = %o, want %o (EXPECTED FAILURE: current code uses 0666)", gotPerm, wantPerm)
+		t.Errorf("overwritten file permissions = %o, want %o", gotPerm, wantPerm)
+	}
+}
+
+// TestInitManagerPermissions verifies that InitManager() creates userdata.warp with 0644 permissions.
+func TestInitManagerPermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("File permission tests are not applicable on Windows")
+	}
+
+	// Save and restore original umask
+	oldMask := syscall.Umask(0)
+	defer syscall.Umask(oldMask)
+
+	tmpDir := t.TempDir()
+	if err := SetConfigDir(tmpDir); err != nil {
+		t.Fatalf("SetConfigDir: %v", err)
+	}
+
+	m, err := InitManager()
+	if err != nil {
+		t.Fatalf("InitManager: %v", err)
+	}
+	m.Close()
+
+	// Verify userdata.warp permissions (with umask 0, we see the actual mode used)
+	info, err := os.Stat(__USERDATA_FILE_NAME)
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+
+	gotPerm := info.Mode().Perm()
+	wantPerm := os.FileMode(0644)
+
+	if gotPerm != wantPerm {
+		t.Errorf("userdata.warp permissions = %o, want %o", gotPerm, wantPerm)
 	}
 }
