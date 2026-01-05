@@ -46,6 +46,14 @@ type (
 
 	// RetryExhaustedHandlerFunc is called when all retries are exhausted for a part.
 	RetryExhaustedHandlerFunc func(hash string, attempts int, lastErr error)
+
+	// ChecksumValidationHandlerFunc is called when checksum validation completes.
+	// result contains the validation outcome including expected vs actual checksums.
+	ChecksumValidationHandlerFunc func(result ChecksumResult)
+
+	// ChecksumProgressHandlerFunc is called periodically during hash computation.
+	// bytesHashed is the total number of bytes hashed so far.
+	ChecksumProgressHandlerFunc func(bytesHashed int64)
 )
 
 // Handlers holds callback functions for various download lifecycle events.
@@ -65,6 +73,9 @@ type Handlers struct {
 
 	RetryHandler          RetryHandlerFunc
 	RetryExhaustedHandler RetryExhaustedHandlerFunc
+
+	ChecksumValidationHandler ChecksumValidationHandlerFunc
+	ChecksumProgressHandler   ChecksumProgressHandlerFunc
 }
 
 func (h *Handlers) setDefault(l *log.Logger) {
@@ -116,5 +127,11 @@ func (h *Handlers) setDefault(l *log.Logger) {
 		h.RetryExhaustedHandler = func(hash string, attempts int, lastErr error) {
 			wlog(l, "%s: Retry exhausted after %d attempts: %s", hash, attempts, lastErr.Error())
 		}
+	}
+	if h.ChecksumValidationHandler == nil {
+		h.ChecksumValidationHandler = func(result ChecksumResult) {}
+	}
+	if h.ChecksumProgressHandler == nil {
+		h.ChecksumProgressHandler = func(bytesHashed int64) {}
 	}
 }

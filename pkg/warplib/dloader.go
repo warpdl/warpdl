@@ -1,11 +1,13 @@
 package warplib
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"log"
 	"net/http"
@@ -80,6 +82,14 @@ type Downloader struct {
 	requestTimeout time.Duration
 	// maxFileSize is the maximum allowed file size for this download.
 	maxFileSize int64
+	// checksumConfig holds configuration for checksum validation
+	checksumConfig *ChecksumConfig
+	// expectedChecksums holds the checksums extracted from server headers
+	expectedChecksums []ExpectedChecksum
+	// activeHasher is the hash.Hash instance used for validation
+	activeHasher hash.Hash
+	// activeAlgorithm is the algorithm being used for validation
+	activeAlgorithm ChecksumAlgorithm
 }
 
 // DownloaderOptsFunc is a functional option for configuring a Downloader.
@@ -139,6 +149,11 @@ type DownloaderOpts struct {
 	// If zero, uses DEF_MAX_FILE_SIZE (100GB).
 	// If negative (-1), no limit is enforced.
 	MaxFileSize int64
+
+	// ChecksumConfig configures checksum validation behavior.
+	// If nil, uses DefaultChecksumConfig().
+	// Set Enabled=false to disable validation entirely.
+	ChecksumConfig *ChecksumConfig
 }
 
 // NewDownloader creates a new downloader with provided arguments.
@@ -196,6 +211,7 @@ func NewDownloader(client *http.Client, url string, opts *DownloaderOpts, optFun
 		overwrite:      opts.Overwrite,
 		requestTimeout: opts.RequestTimeout,
 		maxFileSize:    opts.MaxFileSize,
+		checksumConfig: opts.ChecksumConfig,
 	}
 
 	// Apply functional options
@@ -300,6 +316,7 @@ func initDownloader(client *http.Client, hash, url string, cLength ContentLength
 		overwrite:      opts.Overwrite,
 		requestTimeout: opts.RequestTimeout,
 		maxFileSize:    opts.MaxFileSize,
+		checksumConfig: opts.ChecksumConfig,
 	}
 
 	// Apply functional options
@@ -387,6 +404,12 @@ func (d *Downloader) Start() (err error) {
 		d.handlers.DownloadStoppedHandler()
 		return
 	}
+	// Validate checksum before declaring completion
+	if atomic.LoadInt32(&d.stopped) == 0 {
+		if err = d.validateChecksum(); err != nil {
+			return
+		}
+	}
 	if v := d.contentLength.v(); v != -1 && v != d.nread {
 		d.Log("Download might be corrupted | Expected bytes: %d Found bytes: %d", d.contentLength.v(), d.nread)
 		// return
@@ -467,6 +490,12 @@ func (d *Downloader) Resume(parts map[int64]*ItemPart) (err error) {
 		d.handlers.DownloadStoppedHandler()
 		return
 	}
+	// Validate checksum before declaring completion
+	if atomic.LoadInt32(&d.stopped) == 0 {
+		if err = d.validateChecksum(); err != nil {
+			return
+		}
+	}
 	if d.contentLength.v() != d.nread {
 		d.Log("Download might be corrupted | Expected bytes: %d Found bytes: %d", d.contentLength.v(), d.nread)
 		// return
@@ -474,6 +503,86 @@ func (d *Downloader) Resume(parts map[int64]*ItemPart) (err error) {
 	d.handlers.DownloadCompleteHandler(MAIN_HASH, d.contentLength.v())
 	d.Log("All segments downloaded!")
 	return
+}
+
+// validateChecksum performs checksum validation on the completed download.
+// It reads through the entire file, computes the hash, and compares with expected value.
+func (d *Downloader) validateChecksum() error {
+	// Skip if explicitly disabled
+	if d.checksumConfig != nil && !d.checksumConfig.Enabled {
+		return nil
+	}
+	if len(d.expectedChecksums) == 0 {
+		return nil // Silent skip when no checksum provided
+	}
+	if d.activeHasher == nil {
+		return nil
+	}
+
+	// Use default config if nil
+	config := d.checksumConfig
+	if config == nil {
+		defaultConfig := DefaultChecksumConfig()
+		config = &defaultConfig
+	}
+
+	d.Log("Starting checksum validation (%s)...", d.activeAlgorithm)
+
+	// Open and read through the completed file
+	f, err := WarpOpen(d.GetSavePath())
+	if err != nil {
+		return fmt.Errorf("checksum validation: open file: %w", err)
+	}
+	defer f.Close()
+
+	buf := make([]byte, d.chunk)
+	var totalHashed int64
+	for {
+		n, err := f.Read(buf)
+		if n > 0 {
+			d.activeHasher.Write(buf[:n])
+			totalHashed += int64(n)
+			d.handlers.ChecksumProgressHandler(totalHashed)
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("checksum validation: read: %w", err)
+		}
+	}
+
+	actual := d.activeHasher.Sum(nil)
+
+	// Find expected checksum for our algorithm
+	var expected []byte
+	for _, cs := range d.expectedChecksums {
+		if cs.Algorithm == d.activeAlgorithm {
+			expected = cs.Value
+			break
+		}
+	}
+
+	match := bytes.Equal(expected, actual)
+	result := ChecksumResult{
+		Algorithm: d.activeAlgorithm,
+		Expected:  expected,
+		Actual:    actual,
+		Match:     match,
+	}
+
+	d.handlers.ChecksumValidationHandler(result)
+
+	if !match {
+		if config.FailOnMismatch {
+			return fmt.Errorf("%w: expected %x, got %x", ErrChecksumMismatch, expected, actual)
+		}
+		d.Log("Checksum mismatch (not failing): expected %x, got %x", expected, actual)
+	} else {
+		d.Log("Checksum validation passed (%s)", d.activeAlgorithm)
+	}
+
+	return nil
 }
 
 func (d *Downloader) openFile() (err error) {
@@ -1045,6 +1154,29 @@ func (d *Downloader) fetchInfo() (err error) {
 	if err != nil {
 		return
 	}
+
+	// Extract checksums from response headers
+	d.expectedChecksums = ExtractChecksums(h)
+	// Enable validation if config is nil (use defaults) or if explicitly enabled
+	if len(d.expectedChecksums) > 0 && (d.checksumConfig == nil || d.checksumConfig.Enabled) {
+		// Select best algorithm
+		d.activeAlgorithm = SelectBestAlgorithm(d.expectedChecksums)
+		// Create hasher
+		d.activeHasher, err = NewHasher(d.activeAlgorithm)
+		if err != nil {
+			// Log but don't fail - checksum is optional
+			if d.l != nil {
+				d.Log("Failed to create hasher for %s: %v", d.activeAlgorithm, err)
+			}
+			d.activeHasher = nil
+			d.activeAlgorithm = ""
+		} else {
+			if d.l != nil {
+				d.Log("Checksum validation enabled using %s", d.activeAlgorithm)
+			}
+		}
+	}
+
 	return d.prepareDownloader()
 }
 

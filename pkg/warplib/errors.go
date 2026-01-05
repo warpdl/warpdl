@@ -57,4 +57,16 @@ var (
 
 	// ErrPartDesync indicates memPart and Parts maps are out of sync.
 	ErrPartDesync = errors.New("memPart/Parts desync: hash exists but offset not in Parts")
+
+	// ErrChecksumMismatch is returned when the downloaded file's checksum
+	// does not match the expected checksum from the server.
+	ErrChecksumMismatch = errors.New("checksum mismatch")
+
+	// ErrChecksumUnavailable is returned when checksum validation is requested
+	// but no checksum is provided by the server.
+	ErrChecksumUnavailable = errors.New("no checksum available from server")
+
+	// ErrChecksumAlgorithmUnsupported is returned when the server provides
+	// a checksum algorithm that is not supported.
+	ErrChecksumAlgorithmUnsupported = errors.New("unsupported checksum algorithm")
 )
