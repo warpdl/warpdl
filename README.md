@@ -44,6 +44,17 @@
 
 Warp is a powerful and versatile cross-platform download manager. With its advanced technology, Warp has the ability to accelerate your download speeds by up to 10 times, revolutionizing the way you obtain files on any operating system.
 
+### Platform Support
+
+| Platform | Support Level | Notes |
+|----------|--------------|-------|
+| Linux | Full | Tested on CI, native packages (deb/rpm) |
+| macOS | Full | Tested on CI, Homebrew available |
+| Windows | Best Effort | Builds provided, not tested on CI |
+| FreeBSD/OpenBSD/NetBSD | Best Effort | Builds provided |
+
+**Windows users:** Binaries are provided via [Releases](https://github.com/warpdl/warpdl/releases) and Scoop. Core functionality works, but Windows-specific bugs should be reported via [issues](https://github.com/warpdl/warpdl/issues).
+
 
 
 ## Getting Started
