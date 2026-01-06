@@ -2,6 +2,7 @@ package warplib
 
 import (
 	"bytes"
+	"io"
 	"net/http"
 	"testing"
 	"time"
@@ -160,4 +161,101 @@ func TestNewDownloaderSkipSetup(t *testing.T) {
 		return
 	}
 	t.Fatalf("expected hash to be empty when SkipSetup is true")
+}
+
+// TestPrepareDownloaderNoAcceptRanges tests when server doesn't support range requests.
+func TestPrepareDownloaderNoAcceptRanges(t *testing.T) {
+	client := &http.Client{
+		Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
+			h := make(http.Header)
+			// No Accept-Ranges header
+			h.Set("Content-Length", "1048576")
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(bytes.NewReader(bytes.Repeat([]byte("x"), 1024))),
+				Header:     h,
+			}, nil
+		}),
+	}
+	d := &Downloader{
+		client:        client,
+		url:           "http://example.com/file.bin",
+		chunk:         1024,
+		force:         false, // Not forcing range requests
+		numBaseParts:  0,
+		contentLength: 1048576,
+		headers:       Headers{},
+	}
+	if err := d.prepareDownloader(); err != nil {
+		t.Fatalf("prepareDownloader: %v", err)
+	}
+	if d.numBaseParts != 1 {
+		t.Errorf("expected numBaseParts=1 without Accept-Ranges, got %d", d.numBaseParts)
+	}
+	if d.resumable {
+		t.Error("expected resumable=false without Accept-Ranges")
+	}
+}
+
+// TestPrepareDownloaderSmallContent tests when content is smaller than chunk size.
+func TestPrepareDownloaderSmallContent(t *testing.T) {
+	client := &http.Client{
+		Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
+			h := make(http.Header)
+			h.Set("Accept-Ranges", "bytes")
+			h.Set("Content-Length", "100") // Very small file
+			return &http.Response{
+				StatusCode: http.StatusPartialContent,
+				Body:       io.NopCloser(bytes.NewReader(bytes.Repeat([]byte("x"), 100))),
+				Header:     h,
+			}, nil
+		}),
+	}
+	d := &Downloader{
+		client:        client,
+		url:           "http://example.com/file.bin",
+		chunk:         1024, // Larger than content
+		force:         false,
+		numBaseParts:  0,
+		contentLength: 100, // Content smaller than chunk
+		headers:       Headers{},
+	}
+	if err := d.prepareDownloader(); err != nil {
+		t.Fatalf("prepareDownloader: %v", err)
+	}
+	if d.numBaseParts != 1 {
+		t.Errorf("expected numBaseParts=1 for small content, got %d", d.numBaseParts)
+	}
+}
+
+// TestPrepareDownloaderNumBasePartsPreset tests when numBaseParts is already set.
+func TestPrepareDownloaderNumBasePartsPreset(t *testing.T) {
+	client := &http.Client{
+		Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
+			h := make(http.Header)
+			h.Set("Accept-Ranges", "bytes")
+			h.Set("Content-Length", "1048576")
+			return &http.Response{
+				StatusCode: http.StatusPartialContent,
+				Body:       io.NopCloser(bytes.NewReader(bytes.Repeat([]byte("x"), 1024))),
+				Header:     h,
+			}, nil
+		}),
+	}
+	d := &Downloader{
+		client:        client,
+		url:           "http://example.com/file.bin",
+		chunk:         1024,
+		force:         false,
+		numBaseParts:  7, // Already set
+		contentLength: 1048576,
+		headers:       Headers{},
+	}
+	if err := d.prepareDownloader(); err != nil {
+		t.Fatalf("prepareDownloader: %v", err)
+	}
+	// Should remain unchanged
+	if d.numBaseParts != 7 {
+		t.Errorf("expected numBaseParts=7 (preset), got %d", d.numBaseParts)
+	}
 }
