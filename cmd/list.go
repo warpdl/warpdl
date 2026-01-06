@@ -44,7 +44,7 @@ func list(ctx *cli.Context) error {
 	if ctx.Args().First() == "help" {
 		return cli.ShowCommandHelp(ctx, ctx.Command.Name)
 	}
-	client, err := warpcli.NewClient()
+	client, err := getClient()
 	if err != nil {
 		common.PrintRuntimeErr(ctx, "list", "new_client", err)
 		return nil

@@ -10,6 +10,18 @@ import (
 	"github.com/warpdl/warpdl/pkg/warplib"
 )
 
+var daemonURI string
+
+// getClient creates a warpcli client, using --daemon-uri if specified.
+// If daemonURI is set, it connects directly without auto-spawning the daemon.
+// Otherwise, it uses the default NewClient() which spawns the daemon if needed.
+func getClient() (*warpcli.Client, error) {
+	if daemonURI != "" {
+		return warpcli.NewClientWithURI(daemonURI)
+	}
+	return warpcli.NewClient()
+}
+
 func downloadStopped(client *warpcli.Client, sc *SpeedCounter) func(dr *common.DownloadingResponse) error {
 	return func(dr *common.DownloadingResponse) error {
 		if dr.Hash != warplib.MAIN_HASH {

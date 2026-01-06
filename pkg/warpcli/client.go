@@ -26,6 +26,7 @@ type Client struct {
 var (
 	ensureDaemonFunc = ensureDaemon
 	dialFunc         = net.Dial
+	dialURIFunc      = dialURI
 )
 
 // NewClient creates a new client connection to the WarpDL daemon.
@@ -53,6 +54,31 @@ func NewClient() (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
+	return newClientWithConn(conn), nil
+}
+
+// NewClientWithURI creates a client using an explicit daemon URI.
+// Unlike NewClient(), this does NOT spawn a daemon - it assumes the daemon exists.
+// The URI should be in one of these formats:
+//   - unix:///absolute/path/to/socket
+//   - tcp://host:port (or tcp://host for default port 3849)
+//   - pipe://name (Windows only)
+//
+// Returns an error if the URI is invalid or connection fails.
+func NewClientWithURI(rawURI string) (*Client, error) {
+	// Parse the URI
+	uri, err := ParseDaemonURI(rawURI)
+	if err != nil {
+		return nil, fmt.Errorf("invalid daemon URI: %w", err)
+	}
+
+	// Connect using the parsed URI (does NOT ensure daemon is running)
+	conn, err := dialURIFunc(uri)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to daemon at %s: %w", rawURI, err)
+	}
+
+	debugLog("Successfully connected to daemon via URI: %s", rawURI)
 	return newClientWithConn(conn), nil
 }
 

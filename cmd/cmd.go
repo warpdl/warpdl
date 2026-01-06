@@ -29,6 +29,16 @@ type BuildArgs struct {
 // currentBuildArgs stores the build arguments for use by daemon and other commands.
 var currentBuildArgs BuildArgs
 
+// globalFlags are flags that apply to daemon-connecting commands
+var globalFlags = []cli.Flag{
+	cli.StringFlag{
+		Name:        "daemon-uri",
+		Usage:       "daemon URI (unix:///path, tcp://host:port, pipe://name)",
+		EnvVar:      "WARPDL_DAEMON_URI",
+		Destination: &daemonURI,
+	},
+}
+
 // GetApp returns the configured CLI application for documentation generation
 // and other programmatic uses. It builds the complete command structure with
 // all flags, descriptions, and help templates. This function is useful when
@@ -51,6 +61,7 @@ func GetApp(bArgs BuildArgs) *cli.App {
 			Name:   "stop-daemon",
 			Action: stopDaemon,
 			Usage:  "stop the running daemon gracefully",
+			Flags:  globalFlags,
 		},
 		{
 			Name:               "info",
@@ -66,11 +77,13 @@ func GetApp(bArgs BuildArgs) *cli.App {
 			Name:   "stop",
 			Action: stop,
 			Usage:  "stop a running download",
+			Flags:  globalFlags,
 		},
 		{
 			Name:   "attach",
 			Action: attach,
 			Usage:  "attach console to a running download",
+			Flags:  globalFlags,
 		},
 		{
 			Name:                   "download",
@@ -79,7 +92,7 @@ func GetApp(bArgs BuildArgs) *cli.App {
 			CustomHelpTemplate:     CMD_HELP_TEMPL,
 			OnUsageError:           common.UsageErrorCallback,
 			Action:                 download,
-			Flags:                  dlFlags,
+			Flags:                  append(dlFlags, globalFlags...),
 			UseShortOptionHandling: true,
 			Description:            DownloadDescription,
 		},
@@ -92,7 +105,7 @@ func GetApp(bArgs BuildArgs) *cli.App {
 			CustomHelpTemplate:     CMD_HELP_TEMPL,
 			Description:            ListDescription,
 			UseShortOptionHandling: true,
-			Flags:                  lsFlags,
+			Flags:                  append(lsFlags, globalFlags...),
 		},
 		{
 			Name:                   "resume",
@@ -103,7 +116,7 @@ func GetApp(bArgs BuildArgs) *cli.App {
 			CustomHelpTemplate:     CMD_HELP_TEMPL,
 			Action:                 resume,
 			UseShortOptionHandling: true,
-			Flags:                  rsFlags,
+			Flags:                  append(rsFlags, globalFlags...),
 		},
 		{
 			Name:                   "flush",
@@ -114,7 +127,7 @@ func GetApp(bArgs BuildArgs) *cli.App {
 			CustomHelpTemplate:     CMD_HELP_TEMPL,
 			Action:                 flush,
 			UseShortOptionHandling: true,
-			Flags:                  flsFlags,
+			Flags:                  append(flsFlags, globalFlags...),
 		},
 		{
 			Name:    "help",
@@ -149,7 +162,7 @@ func GetApp(bArgs BuildArgs) *cli.App {
 		OnUsageError:           common.UsageErrorCallback,
 		Commands:               commands,
 		Action:                 download,
-		Flags:                  dlFlags,
+		Flags:                  append(dlFlags, globalFlags...),
 		UseShortOptionHandling: true,
 		HideHelp:               true,
 		HideVersion:            true,

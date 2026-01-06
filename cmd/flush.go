@@ -6,7 +6,6 @@ import (
 
 	"github.com/urfave/cli"
 	"github.com/warpdl/warpdl/cmd/common"
-	"github.com/warpdl/warpdl/pkg/warpcli"
 )
 
 var (
@@ -40,7 +39,7 @@ func flush(ctx *cli.Context) error {
 	if !confirm(command("flush"), forceFlush) {
 		return nil
 	}
-	client, err := warpcli.NewClient()
+	client, err := getClient()
 	if err != nil {
 		common.PrintRuntimeErr(ctx, "flush", "new_client", err)
 		return nil

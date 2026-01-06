@@ -6,7 +6,6 @@ import (
 
 	"github.com/urfave/cli"
 	"github.com/warpdl/warpdl/cmd/common"
-	"github.com/warpdl/warpdl/pkg/warpcli"
 )
 
 func stop(ctx *cli.Context) (err error) {
@@ -22,7 +21,7 @@ func stop(ctx *cli.Context) (err error) {
 	} else if hash == "help" {
 		return cli.ShowCommandHelp(ctx, ctx.Command.Name)
 	}
-	client, err := warpcli.NewClient()
+	client, err := getClient()
 	if err != nil {
 		common.PrintRuntimeErr(ctx, "stop", "new_client", err)
 		return nil
