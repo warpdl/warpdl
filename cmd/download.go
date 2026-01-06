@@ -113,6 +113,13 @@ func download(ctx *cli.Context) (err error) {
 			Key: warplib.USER_AGENT_KEY, Value: getUserAgent(userAgent),
 		}}
 	}
+	// Parse and append cookie flags
+	cookies := ctx.StringSlice("cookie")
+	headers, err = AppendCookieHeader(headers, cookies)
+	if err != nil {
+		cmdcommon.PrintRuntimeErr(ctx, "download", "parse_cookies", err)
+		return nil
+	}
 	dlPath, err = resolveDownloadPath(dlPath)
 	if err != nil {
 		cmdcommon.PrintRuntimeErr(ctx, "download", "resolve_path", err)

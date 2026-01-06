@@ -92,6 +92,13 @@ func resume(ctx *cli.Context) (err error) {
 			Key: warplib.USER_AGENT_KEY, Value: getUserAgent(userAgent),
 		}}
 	}
+	// Parse and append cookie flags
+	cookies := ctx.StringSlice("cookie")
+	headers, err = AppendCookieHeader(headers, cookies)
+	if err != nil {
+		common.PrintRuntimeErr(ctx, "resume", "parse_cookies", err)
+		return nil
+	}
 	client, err := getClient()
 	if err != nil {
 		common.PrintRuntimeErr(ctx, "resume", "new_client", err)

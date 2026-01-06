@@ -312,13 +312,8 @@ func (m *Manager) ResumeDownload(client *http.Client, hash string, opts *ResumeD
 		item.Headers = make(Headers, 0)
 	}
 	if opts.Headers != nil {
-		for i, ih := range item.Headers {
-			for _, oh := range opts.Headers {
-				if ih != oh {
-					continue
-				}
-				item.Headers[i] = oh
-			}
+		for _, newHeader := range opts.Headers {
+			item.Headers.Update(newHeader.Key, newHeader.Value)
 		}
 	}
 	d, er := initDownloader(client, hash, item.Url, item.TotalSize, &DownloaderOpts{
@@ -338,7 +333,7 @@ func (m *Manager) ResumeDownload(client *http.Client, hash string, opts *ResumeD
 	}
 	m.patchHandlers(d, item)
 	item.setDAlloc(d)
-	// m.UpdateItem(item)
+	m.UpdateItem(item)
 	return
 }
 

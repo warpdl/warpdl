@@ -37,6 +37,10 @@ var globalFlags = []cli.Flag{
 		EnvVar:      "WARPDL_DAEMON_URI",
 		Destination: &daemonURI,
 	},
+	cli.StringSliceFlag{
+		Name:  "cookie",
+		Usage: "HTTP cookie(s) for authentication (format: 'name=value', can be specified multiple times)",
+	},
 }
 
 // GetApp returns the configured CLI application for documentation generation
