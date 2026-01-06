@@ -155,6 +155,14 @@ Max Connections`+"\t"+`: %d
 		txt += fmt.Sprintf("Max Segments\t: %d\n", d.MaxSegments)
 	}
 	fmt.Println(txt)
+
+	if ctx.Bool("background") {
+		fmt.Printf("Started download %s in background.\n", d.DownloadId)
+		fmt.Printf("Use 'warpdl attach %s' to view progress.\n", d.DownloadId)
+		fmt.Println("Use 'warpdl list' to check status.")
+		return nil
+	}
+
 	RegisterHandlers(client, int64(d.ContentLength))
 	return client.Listen()
 }

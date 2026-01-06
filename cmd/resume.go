@@ -66,6 +66,10 @@ var (
 			EnvVar:      "WARPDL_RETRY_DELAY",
 			Destination: &retryDelay,
 		},
+		cli.BoolFlag{
+			Name:  "background, b",
+			Usage: "run download in background (exit immediately without progress display)",
+		},
 	}
 )
 
@@ -139,6 +143,14 @@ Max Connections`+"\t"+`: %d
 		txt += fmt.Sprintf("Max Segments\t: %d\n", r.MaxSegments)
 	}
 	fmt.Println(txt)
+
+	if ctx.Bool("background") {
+		fmt.Printf("Resumed download %s in background.\n", hash)
+		fmt.Printf("Use 'warpdl attach %s' to view progress.\n", hash)
+		fmt.Println("Use 'warpdl list' to check status.")
+		return nil
+	}
+
 	RegisterHandlersWithProgress(client, int64(r.ContentLength), int64(r.Downloaded))
 	return client.Listen()
 }
