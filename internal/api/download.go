@@ -58,6 +58,15 @@ func (s *Api) downloadHandler(sconn *server.SyncConn, pool *server.Pool, body js
 		requestTimeout = time.Duration(m.Timeout) * time.Second
 	}
 
+	// Parse speed limit
+	var speedLimit int64
+	if m.SpeedLimit != "" {
+		speedLimit, err = warplib.ParseSpeedLimit(m.SpeedLimit)
+		if err != nil {
+			return common.UPDATE_DOWNLOAD, nil, fmt.Errorf("invalid speed limit: %w", err)
+		}
+	}
+
 	d, err = warplib.NewDownloader(dlClient, url, &warplib.DownloaderOpts{
 		Headers:           m.Headers,
 		ForceParts:        m.ForceParts,
@@ -68,6 +77,7 @@ func (s *Api) downloadHandler(sconn *server.SyncConn, pool *server.Pool, body js
 		Overwrite:         m.Overwrite,
 		RetryConfig:       retryConfig,
 		RequestTimeout:    requestTimeout,
+		SpeedLimit:        speedLimit,
 		Handlers: &warplib.Handlers{
 			ErrorHandler: func(_ string, err error) {
 				uid := d.GetHash()

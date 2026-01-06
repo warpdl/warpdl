@@ -1026,3 +1026,121 @@ func TestResumeHandlerWithRetryConfig(t *testing.T) {
 		t.Fatalf("unexpected resume response")
 	}
 }
+
+func TestDownloadHandlerWithSpeedLimit(t *testing.T) {
+	api, pool, cleanup := newTestApi(t)
+	defer cleanup()
+
+	content := bytes.Repeat([]byte("s"), 2048)
+	srv := newRangeServer(content)
+	defer srv.Close()
+
+	params := common.DownloadParams{
+		Url:               srv.URL + "/file.bin",
+		DownloadDirectory: warplib.ConfigDir,
+		MaxConnections:    1,
+		MaxSegments:       1,
+		SpeedLimit:        "1MB",
+	}
+	body, _ := json.Marshal(params)
+	_, msg, err := api.downloadHandler(nil, pool, body)
+	if err != nil {
+		t.Fatalf("downloadHandler with speed limit: %v", err)
+	}
+	resp := msg.(*common.DownloadResponse)
+	if resp.DownloadId == "" {
+		t.Fatalf("expected download id")
+	}
+	// Wait for download to complete
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		info, err := os.Stat(resp.SavePath)
+		if err == nil && info.Size() == int64(resp.ContentLength) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestDownloadHandlerInvalidSpeedLimit(t *testing.T) {
+	api, pool, cleanup := newTestApi(t)
+	defer cleanup()
+
+	params := common.DownloadParams{
+		Url:               "http://example.com/file.bin",
+		DownloadDirectory: warplib.ConfigDir,
+		SpeedLimit:        "invalid",
+	}
+	body, _ := json.Marshal(params)
+	_, _, err := api.downloadHandler(nil, pool, body)
+	if err == nil {
+		t.Fatalf("expected error for invalid speed limit")
+	}
+	if !strings.Contains(err.Error(), "invalid speed limit") {
+		t.Fatalf("expected 'invalid speed limit' error, got: %v", err)
+	}
+}
+
+func TestResumeHandlerWithSpeedLimit(t *testing.T) {
+	api, pool, cleanup := newTestApi(t)
+	defer cleanup()
+
+	item := &warplib.Item{
+		Hash:             "speed-limit-test",
+		Name:             "test",
+		Url:              "http://example.com/file",
+		TotalSize:        100,
+		DownloadLocation: warplib.ConfigDir,
+		AbsoluteLocation: warplib.ConfigDir,
+		Resumable:        true,
+		Parts:            make(map[int64]*warplib.ItemPart),
+	}
+	api.manager.UpdateItem(item)
+	if err := os.MkdirAll(filepath.Join(warplib.DlDataDir, item.Hash), 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	params := common.ResumeParams{
+		DownloadId: item.Hash,
+		SpeedLimit: "512KB",
+	}
+	body, _ := json.Marshal(params)
+	_, msg, err := api.resumeHandler(nil, pool, body)
+	if err != nil {
+		t.Fatalf("resumeHandler with speed limit: %v", err)
+	}
+	resp := msg.(*common.ResumeResponse)
+	if resp.FileName != item.Name {
+		t.Fatalf("unexpected resume response")
+	}
+}
+
+func TestResumeHandlerInvalidSpeedLimit(t *testing.T) {
+	api, pool, cleanup := newTestApi(t)
+	defer cleanup()
+
+	item := &warplib.Item{
+		Hash:             "invalid-speed-test",
+		Name:             "test",
+		Url:              "http://example.com/file",
+		TotalSize:        100,
+		DownloadLocation: warplib.ConfigDir,
+		AbsoluteLocation: warplib.ConfigDir,
+		Resumable:        true,
+		Parts:            make(map[int64]*warplib.ItemPart),
+	}
+	api.manager.UpdateItem(item)
+
+	params := common.ResumeParams{
+		DownloadId: item.Hash,
+		SpeedLimit: "abc",
+	}
+	body, _ := json.Marshal(params)
+	_, _, err := api.resumeHandler(nil, pool, body)
+	if err == nil {
+		t.Fatalf("expected error for invalid speed limit")
+	}
+	if !strings.Contains(err.Error(), "invalid speed limit") {
+		t.Fatalf("expected 'invalid speed limit' error, got: %v", err)
+	}
+}

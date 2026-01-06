@@ -130,8 +130,17 @@ func (s *Api) resumeHandler(sconn *server.SyncConn, pool *server.Pool, body json
 		requestTimeout = time.Duration(m.Timeout) * time.Second
 	}
 
+	// Parse speed limit
+	var speedLimit int64
+	var err error
+	if m.SpeedLimit != "" {
+		speedLimit, err = warplib.ParseSpeedLimit(m.SpeedLimit)
+		if err != nil {
+			return common.UPDATE_RESUME, nil, fmt.Errorf("invalid speed limit: %w", err)
+		}
+	}
+
 	var (
-		err          error
 		item         *warplib.Item
 		hash         = &m.DownloadId
 		stopDownload = &__stop
@@ -144,6 +153,7 @@ func (s *Api) resumeHandler(sconn *server.SyncConn, pool *server.Pool, body json
 		Handlers:       getHandler(pool, hash, stopDownload),
 		RetryConfig:    retryConfig,
 		RequestTimeout: requestTimeout,
+		SpeedLimit:     speedLimit,
 	})
 	if err != nil {
 		return common.UPDATE_RESUME, nil, err
@@ -162,6 +172,7 @@ func (s *Api) resumeHandler(sconn *server.SyncConn, pool *server.Pool, body json
 			Handlers:       getHandler(pool, &item.ChildHash, cStopDownload),
 			RetryConfig:    retryConfig,
 			RequestTimeout: requestTimeout,
+			SpeedLimit:     speedLimit,
 		})
 		if err != nil {
 			// Clean up parent's downloader before returning

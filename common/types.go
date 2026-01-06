@@ -44,6 +44,9 @@ type DownloadParams struct {
 	MaxRetries int `json:"max_retries,omitempty"`
 	// RetryDelay specifies the base delay between retries in milliseconds.
 	RetryDelay int `json:"retry_delay,omitempty"`
+	// SpeedLimit specifies the maximum download speed (e.g., "1MB", "512KB", or raw bytes).
+	// If empty or "0", no limit is applied.
+	SpeedLimit string `json:"speed_limit,omitempty"`
 }
 
 // DownloadResponse contains the server response after initiating a download.
@@ -98,6 +101,9 @@ type ResumeParams struct {
 	MaxRetries int `json:"max_retries,omitempty"`
 	// RetryDelay specifies the base delay between retries in milliseconds.
 	RetryDelay int `json:"retry_delay,omitempty"`
+	// SpeedLimit specifies the maximum download speed (e.g., "1MB", "512KB", or raw bytes).
+	// If empty or "0", no limit is applied.
+	SpeedLimit string `json:"speed_limit,omitempty"`
 }
 
 // ResumeResponse contains the server response after resuming a download.

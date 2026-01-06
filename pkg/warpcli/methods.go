@@ -45,6 +45,9 @@ type DownloadOpts struct {
 	MaxRetries int `json:"max_retries,omitempty"`
 	// RetryDelay specifies the base delay between retries in milliseconds.
 	RetryDelay int `json:"retry_delay,omitempty"`
+	// SpeedLimit specifies the maximum download speed (e.g., "1MB", "512KB", or raw bytes).
+	// If empty or "0", no limit is applied.
+	SpeedLimit string `json:"speed_limit,omitempty"`
 }
 
 // Download initiates a new download from the specified URL.
@@ -71,6 +74,7 @@ func (c *Client) Download(url, fileName, downloadDirectory string, opts *Downloa
 		Timeout:           opts.Timeout,
 		MaxRetries:        opts.MaxRetries,
 		RetryDelay:        opts.RetryDelay,
+		SpeedLimit:        opts.SpeedLimit,
 	})
 }
 
@@ -95,6 +99,9 @@ type ResumeOpts struct {
 	MaxRetries int `json:"max_retries,omitempty"`
 	// RetryDelay specifies the base delay between retries in milliseconds.
 	RetryDelay int `json:"retry_delay,omitempty"`
+	// SpeedLimit specifies the maximum download speed (e.g., "1MB", "512KB", or raw bytes).
+	// If empty or "0", no limit is applied.
+	SpeedLimit string `json:"speed_limit,omitempty"`
 }
 
 // Resume resumes a previously paused or interrupted download.
@@ -115,6 +122,7 @@ func (c *Client) Resume(downloadId string, opts *ResumeOpts) (*common.ResumeResp
 		Timeout:        opts.Timeout,
 		MaxRetries:     opts.MaxRetries,
 		RetryDelay:     opts.RetryDelay,
+		SpeedLimit:     opts.SpeedLimit,
 	})
 }
 

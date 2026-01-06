@@ -90,6 +90,9 @@ type Downloader struct {
 	activeHasher hash.Hash
 	// activeAlgorithm is the algorithm being used for validation
 	activeAlgorithm ChecksumAlgorithm
+	// speedLimit is the maximum download speed in bytes per second.
+	// If zero, no limit is applied.
+	speedLimit int64
 }
 
 // DownloaderOptsFunc is a functional option for configuring a Downloader.
@@ -154,6 +157,11 @@ type DownloaderOpts struct {
 	// If nil, uses DefaultChecksumConfig().
 	// Set Enabled=false to disable validation entirely.
 	ChecksumConfig *ChecksumConfig
+
+	// SpeedLimit specifies the maximum download speed in bytes per second.
+	// If zero or negative, no limit is applied.
+	// The limit is distributed equally among active download parts.
+	SpeedLimit int64
 }
 
 // NewDownloader creates a new downloader with provided arguments.
@@ -212,6 +220,7 @@ func NewDownloader(client *http.Client, url string, opts *DownloaderOpts, optFun
 		requestTimeout: opts.RequestTimeout,
 		maxFileSize:    opts.MaxFileSize,
 		checksumConfig: opts.ChecksumConfig,
+		speedLimit:     opts.SpeedLimit,
 	}
 
 	// Apply functional options
@@ -317,6 +326,7 @@ func initDownloader(client *http.Client, hash, url string, cLength ContentLength
 		requestTimeout: opts.RequestTimeout,
 		maxFileSize:    opts.MaxFileSize,
 		checksumConfig: opts.ChecksumConfig,
+		speedLimit:     opts.SpeedLimit,
 	}
 
 	// Apply functional options
@@ -610,20 +620,26 @@ func (d *Downloader) openFile() (err error) {
 }
 
 func (d *Downloader) spawnPart(ioff, foff int64) (part *Part, err error) {
+	// Calculate per-part speed limit: total limit / number of parts
+	partSpeedLimit := d.speedLimit
+	if partSpeedLimit > 0 && d.numBaseParts > 1 {
+		partSpeedLimit = d.speedLimit / int64(d.numBaseParts)
+	}
 	part, err = newPart(
 		d.ctx,
 		d.client,
 		d.url,
 		partArgs{
-			int64(d.chunk),
-			d.dlPath,
-			d.handlers.ResumeProgressHandler,
-			d.handlers.DownloadProgressHandler,
-			d.handlers.DownloadCompleteHandler,
-			d.handlers.CompileProgressHandler,
-			d.l,
-			ioff,
-			d.f,
+			copyChunk:  int64(d.chunk),
+			preName:    d.dlPath,
+			rpHandler:  d.handlers.ResumeProgressHandler,
+			pHandler:   d.handlers.DownloadProgressHandler,
+			oHandler:   d.handlers.DownloadCompleteHandler,
+			cpHandler:  d.handlers.CompileProgressHandler,
+			logger:     d.l,
+			offset:     ioff,
+			f:          d.f,
+			speedLimit: partSpeedLimit,
 		},
 	)
 	if err != nil {
@@ -639,21 +655,27 @@ func (d *Downloader) spawnPart(ioff, foff int64) (part *Part, err error) {
 }
 
 func (d *Downloader) initPart(hash string, ioff, foff int64) (part *Part, err error) {
+	// Calculate per-part speed limit: total limit / number of parts
+	partSpeedLimit := d.speedLimit
+	if partSpeedLimit > 0 && d.numBaseParts > 1 {
+		partSpeedLimit = d.speedLimit / int64(d.numBaseParts)
+	}
 	part, err = initPart(
 		d.ctx,
 		d.client,
 		hash,
 		d.url,
 		partArgs{
-			int64(d.chunk),
-			d.dlPath,
-			d.handlers.ResumeProgressHandler,
-			d.handlers.DownloadProgressHandler,
-			d.handlers.DownloadCompleteHandler,
-			d.handlers.CompileProgressHandler,
-			d.l,
-			ioff,
-			d.f,
+			copyChunk:  int64(d.chunk),
+			preName:    d.dlPath,
+			rpHandler:  d.handlers.ResumeProgressHandler,
+			pHandler:   d.handlers.DownloadProgressHandler,
+			oHandler:   d.handlers.DownloadCompleteHandler,
+			cpHandler:  d.handlers.CompileProgressHandler,
+			logger:     d.l,
+			offset:     ioff,
+			f:          d.f,
+			speedLimit: partSpeedLimit,
 		},
 	)
 	if err != nil {

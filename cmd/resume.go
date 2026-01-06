@@ -19,6 +19,13 @@ var (
 	maxRetries int
 	retryDelay int
 
+	// speedLimitFlag is shared between download and resume commands
+	speedLimitFlag = cli.StringFlag{
+		Name:   "speed-limit, S",
+		Usage:  "limit download speed (e.g., 1MB, 512KB, 0 for unlimited)",
+		EnvVar: "WARPDL_SPEED_LIMIT",
+	}
+
 	rsFlags = []cli.Flag{
 		cli.IntFlag{
 			Name:        "max-parts, s",
@@ -70,6 +77,7 @@ var (
 			Name:  "background, b",
 			Usage: "run download in background (exit immediately without progress display)",
 		},
+		speedLimitFlag,
 	}
 )
 
@@ -122,6 +130,7 @@ func resume(ctx *cli.Context) (err error) {
 		Timeout:        timeout,
 		MaxRetries:     maxRetries,
 		RetryDelay:     retryDelay,
+		SpeedLimit:     ctx.String("speed-limit"),
 	})
 	if err != nil {
 		common.PrintRuntimeErr(ctx, "resume", "client-resume", err)

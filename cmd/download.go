@@ -141,6 +141,7 @@ func download(ctx *cli.Context) (err error) {
 		Timeout:        timeout,
 		MaxRetries:     maxRetries,
 		RetryDelay:     retryDelay,
+		SpeedLimit:     ctx.String("speed-limit"),
 	})
 	if err != nil {
 		cmdcommon.PrintRuntimeErr(ctx, "info", "download", err)

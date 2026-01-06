@@ -288,6 +288,9 @@ type ResumeDownloadOpts struct {
 	// RequestTimeout specifies the timeout for individual HTTP requests.
 	// If zero, no per-request timeout is applied.
 	RequestTimeout time.Duration
+	// SpeedLimit specifies the maximum download speed in bytes per second.
+	// If zero, no limit is applied.
+	SpeedLimit int64
 }
 
 // ResumeDownload resumes a download item.
@@ -326,6 +329,7 @@ func (m *Manager) ResumeDownload(client *http.Client, hash string, opts *ResumeD
 		Headers:           item.Headers,
 		RetryConfig:       opts.RetryConfig,
 		RequestTimeout:    opts.RequestTimeout,
+		SpeedLimit:        opts.SpeedLimit,
 	})
 	if er != nil {
 		err = er

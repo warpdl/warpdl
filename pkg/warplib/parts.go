@@ -48,34 +48,39 @@ type Part struct {
 	pwg sync.WaitGroup
 	// main download file
 	f *os.File
+	// speedLimit is the maximum download speed for this part in bytes per second.
+	// If zero, no limit is applied.
+	speedLimit int64
 }
 
 type partArgs struct {
-	copyChunk int64
-	preName   string
-	rpHandler ResumeProgressHandlerFunc
-	pHandler  DownloadProgressHandlerFunc
-	oHandler  DownloadCompleteHandlerFunc
-	cpHandler CompileProgressHandlerFunc
-	logger    *log.Logger
-	offset    int64
-	f         *os.File
+	copyChunk  int64
+	preName    string
+	rpHandler  ResumeProgressHandlerFunc
+	pHandler   DownloadProgressHandlerFunc
+	oHandler   DownloadCompleteHandlerFunc
+	cpHandler  CompileProgressHandlerFunc
+	logger     *log.Logger
+	offset     int64
+	f          *os.File
+	speedLimit int64
 }
 
 func initPart(ctx context.Context, client *http.Client, hash, url string, args partArgs) (*Part, error) {
 	p := Part{
-		ctx:     ctx,
-		url:     url,
-		client:  client,
-		chunk:   args.copyChunk,
-		preName: args.preName,
-		pfunc:   args.pHandler,
-		ofunc:   args.oHandler,
-		cfunc:   args.cpHandler,
-		l:       args.logger,
-		offset:  args.offset,
-		hash:    hash,
-		f:       args.f,
+		ctx:        ctx,
+		url:        url,
+		client:     client,
+		chunk:      args.copyChunk,
+		preName:    args.preName,
+		pfunc:      args.pHandler,
+		ofunc:      args.oHandler,
+		cfunc:      args.cpHandler,
+		l:          args.logger,
+		offset:     args.offset,
+		hash:       hash,
+		f:          args.f,
+		speedLimit: args.speedLimit,
 	}
 	err := p.openPartFile()
 	if err != nil {
@@ -91,17 +96,18 @@ func initPart(ctx context.Context, client *http.Client, hash, url string, args p
 
 func newPart(ctx context.Context, client *http.Client, url string, args partArgs) (*Part, error) {
 	p := Part{
-		ctx:     ctx,
-		url:     url,
-		client:  client,
-		chunk:   args.copyChunk,
-		preName: args.preName,
-		pfunc:   args.pHandler,
-		ofunc:   args.oHandler,
-		cfunc:   args.cpHandler,
-		l:       args.logger,
-		offset:  args.offset,
-		f:       args.f,
+		ctx:        ctx,
+		url:        url,
+		client:     client,
+		chunk:      args.copyChunk,
+		preName:    args.preName,
+		pfunc:      args.pHandler,
+		ofunc:      args.oHandler,
+		cfunc:      args.cpHandler,
+		l:          args.logger,
+		offset:     args.offset,
+		f:          args.f,
+		speedLimit: args.speedLimit,
 	}
 	p.setHash()
 	return &p, p.createPartFile()
@@ -143,7 +149,14 @@ func (p *Part) download(headers Headers, ioff, foff int64, force bool, requestTi
 		err = er
 		return
 	}
-	slow, err = p.copyBuffer(resp.Body, foff, force)
+
+	// Wrap response body with rate limiter if speed limit is set
+	var reader io.ReadCloser = resp.Body
+	if p.speedLimit > 0 {
+		reader = NewRateLimitedReadCloser(resp.Body, p.speedLimit)
+	}
+
+	slow, err = p.copyBuffer(reader, foff, force)
 	body = resp.Body
 	return
 }
