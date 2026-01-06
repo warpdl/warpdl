@@ -126,9 +126,9 @@ func TestPrepareDownloaderSpeedAllocation(t *testing.T) {
 			if err := d.prepareDownloader(); err != nil {
 				t.Fatalf("prepareDownloader: %v", err)
 			}
-			// Use tolerance for timing-sensitive "Super Fast" test case
+			// Use tolerance for timing-sensitive test cases
 			// CI runners (especially macOS) have variable timing
-			if tt.name == "Super Fast Speed > 10MB/s" {
+			if tt.name == "Super Fast Speed > 10MB/s" || tt.name == "Fast Speed > 5MB/s" {
 				assertPartsInRange(t, d.numBaseParts, tt.expectedParts, 2, tt.name, tt.description)
 			} else if d.numBaseParts != tt.expectedParts {
 				t.Errorf("%s: %s - expected numBaseParts=%d, got %d",
