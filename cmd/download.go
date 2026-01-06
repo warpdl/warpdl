@@ -4,10 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/urfave/cli"
-	"github.com/warpdl/warpdl/cmd/common"
+	cmdcommon "github.com/warpdl/warpdl/cmd/common"
+	"github.com/warpdl/warpdl/common"
 	"github.com/warpdl/warpdl/pkg/warpcli"
 	"github.com/warpdl/warpdl/pkg/warplib"
 )
@@ -25,7 +27,7 @@ var (
 		},
 		cli.StringFlag{
 			Name:        "download-path, l",
-			Usage:       "set the path where downloaded file should be saved",
+			Usage:       "set the path where downloaded file should be saved (default: $WARPDL_DEFAULT_DL_DIR or current directory)",
 			Value:       "",
 			Destination: &dlPath,
 		},
@@ -42,22 +44,62 @@ var (
 	}
 )
 
+// resolveDownloadPath determines the download directory path based on priority:
+// 1. CLI flag (-l) - highest priority
+// 2. Environment variable (WARPDL_DEFAULT_DL_DIR) - medium priority
+// 3. Current working directory - fallback
+// Returns the validated absolute path or an error if the path is invalid.
+func resolveDownloadPath(cliPath string) (string, error) {
+	var selectedPath string
+
+	// Priority 1: CLI flag
+	if cliPath != "" {
+		selectedPath = cliPath
+	} else {
+		// Priority 2: Environment variable
+		envPath := os.Getenv(common.DefaultDlDirEnv)
+		if envPath != "" {
+			selectedPath = envPath
+		} else {
+			// Priority 3: Current working directory
+			cwd, err := os.Getwd()
+			if err != nil {
+				return "", fmt.Errorf("failed to get current directory: %w", err)
+			}
+			selectedPath = cwd
+		}
+	}
+
+	// Convert to absolute path
+	absPath, err := filepath.Abs(selectedPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve absolute path: %w", err)
+	}
+
+	// Validate the directory
+	if err := warplib.ValidateDownloadDirectory(absPath); err != nil {
+		return "", fmt.Errorf("invalid download directory: %w", err)
+	}
+
+	return absPath, nil
+}
+
 func download(ctx *cli.Context) (err error) {
 	url := ctx.Args().First()
 	if url == "" {
 		if ctx.Command.Name == "" {
-			return common.Help(ctx)
+			return cmdcommon.Help(ctx)
 		}
-		return common.PrintErrWithCmdHelp(
+		return cmdcommon.PrintErrWithCmdHelp(
 			ctx,
 			errors.New("no url provided"),
 		)
 	} else if url == "help" {
 		return cli.ShowCommandHelp(ctx, ctx.Command.Name)
 	}
-	client, err := warpcli.NewClient()
+	client, err := getClient()
 	if err != nil {
-		common.PrintRuntimeErr(ctx, "download", "new_client", err)
+		cmdcommon.PrintRuntimeErr(ctx, "download", "new_client", err)
 		return
 	}
 	defer client.Close()
@@ -71,17 +113,14 @@ func download(ctx *cli.Context) (err error) {
 			Key: warplib.USER_AGENT_KEY, Value: getUserAgent(userAgent),
 		}}
 	}
-	cwd, err := os.Getwd()
+	dlPath, err = resolveDownloadPath(dlPath)
 	if err != nil {
-		common.PrintRuntimeErr(ctx, "download", "getwd", err)
+		cmdcommon.PrintRuntimeErr(ctx, "download", "resolve_path", err)
 		return nil
-	}
-	if dlPath == "" {
-		dlPath = cwd
 	}
 	if proxyURL != "" {
 		if _, err := warplib.ParseProxyURL(proxyURL); err != nil {
-			common.PrintRuntimeErr(ctx, "download", "invalid_proxy", err)
+			cmdcommon.PrintRuntimeErr(ctx, "download", "invalid_proxy", err)
 			return nil
 		}
 	}
@@ -97,7 +136,7 @@ func download(ctx *cli.Context) (err error) {
 		RetryDelay:     retryDelay,
 	})
 	if err != nil {
-		common.PrintRuntimeErr(ctx, "info", "download", err)
+		cmdcommon.PrintRuntimeErr(ctx, "info", "download", err)
 		return nil
 	}
 	txt := fmt.Sprintf(`

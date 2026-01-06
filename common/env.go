@@ -20,4 +20,12 @@ const (
 	// When set, the value is used as the pipe name (e.g., "custom" becomes "\\.\pipe\custom").
 	// If the value already contains the full pipe path prefix, it's used as-is.
 	PipeNameEnv = "WARPDL_PIPE_NAME"
+
+	// DefaultDlDirEnv is the environment variable for the default download directory.
+	// When set, it provides the default directory for downloads when -l flag is not specified.
+	DefaultDlDirEnv = "WARPDL_DEFAULT_DL_DIR"
+
+	// DaemonURIEnv is the environment variable for daemon URI.
+	// Format: unix:///path/to/socket, tcp://host:port, or pipe://name
+	DaemonURIEnv = "WARPDL_DAEMON_URI"
 )

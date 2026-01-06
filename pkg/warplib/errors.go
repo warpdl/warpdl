@@ -69,4 +69,13 @@ var (
 	// ErrChecksumAlgorithmUnsupported is returned when the server provides
 	// a checksum algorithm that is not supported.
 	ErrChecksumAlgorithmUnsupported = errors.New("unsupported checksum algorithm")
+
+	// ErrDirectoryNotFound is returned when the specified download directory does not exist.
+	ErrDirectoryNotFound = errors.New("download directory does not exist")
+
+	// ErrNotADirectory is returned when the specified path is not a directory.
+	ErrNotADirectory = errors.New("path is not a directory")
+
+	// ErrDirectoryNotWritable is returned when the download directory is not writable.
+	ErrDirectoryNotWritable = errors.New("download directory is not writable")
 )
