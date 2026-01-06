@@ -48,6 +48,9 @@ type DownloadOpts struct {
 	// SpeedLimit specifies the maximum download speed (e.g., "1MB", "512KB", or raw bytes).
 	// If empty or "0", no limit is applied.
 	SpeedLimit string `json:"speed_limit,omitempty"`
+	// DisableWorkStealing disables dynamic work stealing where fast parts
+	// take over remaining work from slow adjacent parts.
+	DisableWorkStealing bool `json:"disable_work_stealing,omitempty"`
 }
 
 // Download initiates a new download from the specified URL.
@@ -59,22 +62,23 @@ func (c *Client) Download(url, fileName, downloadDirectory string, opts *Downloa
 		opts = &DownloadOpts{}
 	}
 	return invoke[common.DownloadResponse](c, "download", &common.DownloadParams{
-		Url:               url,
-		DownloadDirectory: downloadDirectory,
-		FileName:          fileName,
-		Headers:           opts.Headers,
-		ForceParts:        opts.ForceParts,
-		MaxConnections:    opts.MaxConnections,
-		MaxSegments:       opts.MaxSegments,
-		ChildHash:         opts.ChildHash,
-		IsHidden:          opts.IsHidden,
-		IsChildren:        opts.IsChildren,
-		Overwrite:         opts.Overwrite,
-		Proxy:             opts.Proxy,
-		Timeout:           opts.Timeout,
-		MaxRetries:        opts.MaxRetries,
-		RetryDelay:        opts.RetryDelay,
-		SpeedLimit:        opts.SpeedLimit,
+		Url:                 url,
+		DownloadDirectory:   downloadDirectory,
+		FileName:            fileName,
+		Headers:             opts.Headers,
+		ForceParts:          opts.ForceParts,
+		MaxConnections:      opts.MaxConnections,
+		MaxSegments:         opts.MaxSegments,
+		ChildHash:           opts.ChildHash,
+		IsHidden:            opts.IsHidden,
+		IsChildren:          opts.IsChildren,
+		Overwrite:           opts.Overwrite,
+		Proxy:               opts.Proxy,
+		Timeout:             opts.Timeout,
+		MaxRetries:          opts.MaxRetries,
+		RetryDelay:          opts.RetryDelay,
+		SpeedLimit:          opts.SpeedLimit,
+		DisableWorkStealing: opts.DisableWorkStealing,
 	})
 }
 

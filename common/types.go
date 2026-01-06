@@ -47,6 +47,9 @@ type DownloadParams struct {
 	// SpeedLimit specifies the maximum download speed (e.g., "1MB", "512KB", or raw bytes).
 	// If empty or "0", no limit is applied.
 	SpeedLimit string `json:"speed_limit,omitempty"`
+	// DisableWorkStealing disables dynamic work stealing where fast parts
+	// take over remaining work from slow adjacent parts.
+	DisableWorkStealing bool `json:"disable_work_stealing,omitempty"`
 }
 
 // DownloadResponse contains the server response after initiating a download.

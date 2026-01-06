@@ -41,6 +41,11 @@ var (
 			EnvVar:      "WARPDL_PROXY",
 			Destination: &proxyURL,
 		},
+		cli.BoolFlag{
+			Name:   "no-work-steal",
+			Usage:  "disable work stealing (fast parts taking over slow part ranges)",
+			EnvVar: "WARPDL_NO_WORK_STEAL",
+		},
 	}
 )
 
@@ -132,16 +137,17 @@ func download(ctx *cli.Context) (err error) {
 		}
 	}
 	d, err := client.Download(url, fileName, dlPath, &warpcli.DownloadOpts{
-		ForceParts:     forceParts,
-		MaxConnections: int32(maxConns),
-		MaxSegments:    int32(maxParts),
-		Headers:        headers,
-		Overwrite:      ctx.Bool("overwrite"),
-		Proxy:          proxyURL,
-		Timeout:        timeout,
-		MaxRetries:     maxRetries,
-		RetryDelay:     retryDelay,
-		SpeedLimit:     ctx.String("speed-limit"),
+		ForceParts:          forceParts,
+		MaxConnections:      int32(maxConns),
+		MaxSegments:         int32(maxParts),
+		Headers:             headers,
+		Overwrite:           ctx.Bool("overwrite"),
+		Proxy:               proxyURL,
+		Timeout:             timeout,
+		MaxRetries:          maxRetries,
+		RetryDelay:          retryDelay,
+		SpeedLimit:          ctx.String("speed-limit"),
+		DisableWorkStealing: ctx.Bool("no-work-steal"),
 	})
 	if err != nil {
 		cmdcommon.PrintRuntimeErr(ctx, "info", "download", err)

@@ -62,3 +62,24 @@ func (vm *VMap[kT, vT]) Dump() (keys []kT, vals []vT) {
 	}
 	return
 }
+
+// Range iterates over all key-value pairs with read lock protection.
+// The function f is called for each key-value pair. If f returns false,
+// iteration stops early. The function f should not modify the map.
+func (vm *VMap[kT, vT]) Range(f func(key kT, val vT) bool) {
+	vm.mu.RLock()
+	defer vm.mu.RUnlock()
+	for k, v := range vm.kv {
+		if !f(k, v) {
+			return
+		}
+	}
+}
+
+// Delete removes a key from the map with write lock protection.
+// If the key does not exist, this is a no-op.
+func (vm *VMap[kT, vT]) Delete(key kT) {
+	vm.mu.Lock()
+	defer vm.mu.Unlock()
+	delete(vm.kv, key)
+}

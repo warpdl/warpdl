@@ -93,6 +93,13 @@ type Downloader struct {
 	// speedLimit is the maximum download speed in bytes per second.
 	// If zero, no limit is applied.
 	speedLimit int64
+
+	// enableWorkStealing controls whether completed parts can steal
+	// work from slower adjacent parts. Enabled by default.
+	enableWorkStealing bool
+	// activeParts tracks currently downloading parts for work stealing lookup.
+	// Maps part hash to *activePartInfo for O(1) access.
+	activeParts VMap[string, *activePartInfo]
 }
 
 // DownloaderOptsFunc is a functional option for configuring a Downloader.
@@ -162,6 +169,11 @@ type DownloaderOpts struct {
 	// If zero or negative, no limit is applied.
 	// The limit is distributed equally among active download parts.
 	SpeedLimit int64
+
+	// DisableWorkStealing disables dynamic work stealing where fast parts
+	// take over remaining work from slow adjacent parts.
+	// When false (default), work stealing is enabled.
+	DisableWorkStealing bool
 }
 
 // NewDownloader creates a new downloader with provided arguments.
@@ -201,26 +213,27 @@ func NewDownloader(client *http.Client, url string, opts *DownloaderOpts, optFun
 
 	ctx, cancel := context.WithCancel(context.Background())
 	d = &Downloader{
-		ctx:            ctx,
-		cancel:         cancel,
-		wg:             &sync.WaitGroup{},
-		client:         client,
-		url:            url,
-		maxConn:        opts.MaxConnections,
-		chunk:          int(DEF_CHUNK_SIZE),
-		force:          opts.ForceParts,
-		handlers:       opts.Handlers,
-		fileName:       opts.FileName,
-		dlLoc:          opts.DownloadDirectory,
-		maxParts:       opts.MaxSegments,
-		headers:        opts.Headers,
-		resumable:      true,
-		retryConfig:    retryConfig,
-		overwrite:      opts.Overwrite,
-		requestTimeout: opts.RequestTimeout,
-		maxFileSize:    opts.MaxFileSize,
-		checksumConfig: opts.ChecksumConfig,
-		speedLimit:     opts.SpeedLimit,
+		ctx:                ctx,
+		cancel:             cancel,
+		wg:                 &sync.WaitGroup{},
+		client:             client,
+		url:                url,
+		maxConn:            opts.MaxConnections,
+		chunk:              int(DEF_CHUNK_SIZE),
+		force:              opts.ForceParts,
+		handlers:           opts.Handlers,
+		fileName:           opts.FileName,
+		dlLoc:              opts.DownloadDirectory,
+		maxParts:           opts.MaxSegments,
+		headers:            opts.Headers,
+		resumable:          true,
+		retryConfig:        retryConfig,
+		overwrite:          opts.Overwrite,
+		requestTimeout:     opts.RequestTimeout,
+		maxFileSize:        opts.MaxFileSize,
+		checksumConfig:     opts.ChecksumConfig,
+		speedLimit:         opts.SpeedLimit,
+		enableWorkStealing: !opts.DisableWorkStealing,
 	}
 
 	// Apply functional options
@@ -369,6 +382,7 @@ func (d *Downloader) Start() (err error) {
 	}
 	d.Log("Starting download...")
 	d.ohmap.Make()
+	d.activeParts.Make() // Initialize work stealing map
 	partSize, rpartSize := d.getPartSize()
 	if partSize == -1 {
 		d.wg.Add(1)
@@ -469,6 +483,7 @@ func (d *Downloader) Resume(parts map[int64]*ItemPart) (err error) {
 	}
 	d.Log("Resuming download...")
 	d.ohmap.Make()
+	d.activeParts.Make() // Initialize work stealing map
 	espeed := 4 * MB / int64(len(partsSnapshot))
 	for ioff, ip := range partsSnapshot {
 		if ip.Compiled {
@@ -797,6 +812,13 @@ func (d *Downloader) newPartDownload(ioff, foff, espeed int64) {
 func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool, body io.ReadCloser) (err error) {
 	hash := part.hash
 	retryState := &RetryState{}
+	partStartTime := time.Now()
+	foffPtr := &foff // Pointer to allow work stealing to modify victim's foff
+
+	// Register part for work stealing
+	d.registerActivePart(part, foffPtr)
+	defer d.unregisterActivePart(hash)
+
 	for {
 		if !repeated {
 			// set espeed each time the runPart function is called to update
@@ -804,6 +826,7 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 			part.setEpeed(espeed)
 			d.Log("%s: Set part espeed to %s", hash, ContentLength(espeed))
 			d.Log("%s: Started downloading part", hash)
+			partStartTime = time.Now() // Reset on new download attempt
 		}
 
 		var (
@@ -865,6 +888,18 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 			if part.getRead() != expectedRead {
 				d.Log("%s: part read bytes (%d) not equal to expected bytes (%d)", hash, part.getRead(), expectedRead)
 			}
+
+			// Attempt work stealing after fast completion
+			if d.enableWorkStealing {
+				downloadDuration := time.Since(partStartTime)
+				if downloadDuration > 0 {
+					partSpeed := (part.getRead() * int64(time.Second)) / int64(downloadDuration)
+					if d.attemptWorkSteal(hash, partSpeed) {
+						d.Log("%s: initiated work steal after fast completion at %s/s", hash, ContentLength(partSpeed))
+					}
+				}
+			}
+
 			err = nil
 			break
 		}

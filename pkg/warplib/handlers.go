@@ -54,6 +54,14 @@ type (
 	// ChecksumProgressHandlerFunc is called periodically during hash computation.
 	// bytesHashed is the total number of bytes hashed so far.
 	ChecksumProgressHandlerFunc func(bytesHashed int64)
+
+	// WorkStealHandlerFunc is called when a fast part steals work from a slower part.
+	// Parameters:
+	//   - stealerHash: the hash of the part that finished fast and is stealing work
+	//   - victimHash: the hash of the part being stolen from
+	//   - stolenIoff: the starting offset of the stolen byte range
+	//   - stolenFoff: the ending offset of the stolen byte range (inclusive)
+	WorkStealHandlerFunc func(stealerHash, victimHash string, stolenIoff, stolenFoff int64)
 )
 
 // Handlers holds callback functions for various download lifecycle events.
@@ -76,6 +84,9 @@ type Handlers struct {
 
 	ChecksumValidationHandler ChecksumValidationHandlerFunc
 	ChecksumProgressHandler   ChecksumProgressHandlerFunc
+
+	// WorkStealHandler is called when work stealing occurs between parts.
+	WorkStealHandler WorkStealHandlerFunc
 }
 
 func (h *Handlers) setDefault(l *log.Logger) {
@@ -133,5 +144,8 @@ func (h *Handlers) setDefault(l *log.Logger) {
 	}
 	if h.ChecksumProgressHandler == nil {
 		h.ChecksumProgressHandler = func(bytesHashed int64) {}
+	}
+	if h.WorkStealHandler == nil {
+		h.WorkStealHandler = func(stealerHash, victimHash string, stolenIoff, stolenFoff int64) {}
 	}
 }
