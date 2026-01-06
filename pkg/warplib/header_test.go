@@ -72,12 +72,12 @@ func TestHeaders_SetAndAdd(t *testing.T) {
 // to ensure cookie persistence works correctly.
 func TestHeaders_Update_Cookie(t *testing.T) {
 	tests := []struct {
-		name           string
-		initial        Headers
-		key            string
-		value          string
-		expectedLen    int
-		expectedValue  string
+		name          string
+		initial       Headers
+		key           string
+		value         string
+		expectedLen   int
+		expectedValue string
 	}{
 		{
 			name:          "add cookie to empty headers",

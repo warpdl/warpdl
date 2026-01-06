@@ -42,6 +42,32 @@ const (
 	// DEF_MAX_FILE_SIZE is the default maximum file size limit (100GB).
 	// Set to -1 to disable the limit.
 	DEF_MAX_FILE_SIZE = 100 * GB
+)
+
+// getMinPartSize returns the minimum part size based on file size.
+// Larger files use larger minimum part sizes to improve stability.
+//
+// Thresholds:
+//   - <100MB:    512KB
+//   - 100MB-1GB: 1MB
+//   - 1GB-10GB:  2MB
+//   - >10GB:     4MB (max cap)
+func getMinPartSize(contentLength int64) int64 {
+	switch {
+	case contentLength <= 0:
+		return 512 * KB
+	case contentLength < 100*MB:
+		return 512 * KB
+	case contentLength < 1*GB:
+		return 1 * MB
+	case contentLength < 10*GB:
+		return 2 * MB
+	default:
+		return 4 * MB
+	}
+}
+
+const (
 
 	// DefaultFileMode is the permission mode for created files.
 	// Owner can read/write, group and others can only read.

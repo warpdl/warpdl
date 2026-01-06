@@ -89,8 +89,8 @@ func TestPrepareDownloaderSpeedAllocation(t *testing.T) {
 		},
 		{
 			name:          "Super Fast Speed > 10MB/s",
-			chunkSize:     64 * 1024,                // 64KB - doubled for CI timing margin
-			readDelay:     1 * time.Millisecond,     // ~64MB/s with 64KB chunks
+			chunkSize:     64 * 1024,            // 64KB - doubled for CI timing margin
+			readDelay:     1 * time.Millisecond, // ~64MB/s with 64KB chunks
 			expectedParts: 12,
 			description:   "Super fast downloads should use more parts to maximize throughput",
 		},

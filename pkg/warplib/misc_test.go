@@ -305,3 +305,42 @@ func TestSetConfigDirInvalidPathReturnsError(t *testing.T) {
 		t.Errorf("setConfigDir should return error for path with null byte")
 	}
 }
+
+func TestGetMinPartSize(t *testing.T) {
+	tests := []struct {
+		name        string
+		fileSize    int64
+		expectedMin int64
+	}{
+		// <100MB -> 512KB
+		{"small 1MB", 1 * MB, 512 * KB},
+		{"small 50MB", 50 * MB, 512 * KB},
+		{"boundary 100MB-1", 100*MB - 1, 512 * KB},
+
+		// 100MB-1GB -> 1MB
+		{"boundary 100MB", 100 * MB, 1 * MB},
+		{"medium 500MB", 500 * MB, 1 * MB},
+		{"boundary 1GB-1", 1*GB - 1, 1 * MB},
+
+		// 1GB-10GB -> 2MB
+		{"boundary 1GB", 1 * GB, 2 * MB},
+		{"large 5GB", 5 * GB, 2 * MB},
+		{"boundary 10GB-1", 10*GB - 1, 2 * MB},
+
+		// >10GB -> 4MB (max cap)
+		{"boundary 10GB", 10 * GB, 4 * MB},
+		{"huge 50GB", 50 * GB, 4 * MB},
+
+		// Edge cases
+		{"zero", 0, 512 * KB},
+		{"unknown -1", -1, 512 * KB},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := getMinPartSize(tt.fileSize)
+			if got != tt.expectedMin {
+				t.Errorf("getMinPartSize(%d) = %d, want %d", tt.fileSize, got, tt.expectedMin)
+			}
+		})
+	}
+}

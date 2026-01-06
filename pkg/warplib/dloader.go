@@ -873,7 +873,7 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 		// starting offset for a respawned part.
 		poff := part.offset + part.getRead()
 
-		if foff-poff <= 2*MIN_PART_SIZE {
+		if foff-poff <= 2*d.getMinPartSize() {
 			d.Log("%s: Detected part as running slow", hash)
 			// Min part size has been reached and hence
 			// don't spawn new part out of the current part.
@@ -1093,6 +1093,12 @@ func (d *Downloader) setContentLength(cl int64) error {
 	}
 	d.contentLength = ContentLength(cl)
 	return nil
+}
+
+// getMinPartSize returns the minimum part size for this download
+// based on the content length.
+func (d *Downloader) getMinPartSize() int64 {
+	return getMinPartSize(d.contentLength.v())
 }
 
 // setFileName sets up file name and other flags, along with the headers

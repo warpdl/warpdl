@@ -786,3 +786,27 @@ func TestResumeConcurrentPartsModification(t *testing.T) {
 
 	wg.Wait()
 }
+
+func TestDownloaderMinPartSizeByFileSize(t *testing.T) {
+	tests := []struct {
+		name          string
+		contentLength int64
+		expectedMin   int64
+	}{
+		{"small 50MB", 50 * MB, 512 * KB},
+		{"medium 500MB", 500 * MB, 1 * MB},
+		{"large 5GB", 5 * GB, 2 * MB},
+		{"huge 50GB", 50 * GB, 4 * MB},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := &Downloader{
+				contentLength: ContentLength(tt.contentLength),
+			}
+			got := d.getMinPartSize()
+			if got != tt.expectedMin {
+				t.Errorf("getMinPartSize() = %d, want %d", got, tt.expectedMin)
+			}
+		})
+	}
+}
