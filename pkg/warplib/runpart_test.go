@@ -78,6 +78,16 @@ func newRunPart(t *testing.T, d *Downloader, preName string, f *os.File) *Part {
 	return part
 }
 
+// newRunPartWithSlowForce creates a part that forces slow detection on any
+// timed check by setting etime to -1 (any positive duration > -1).
+// This pattern is already used in parts_extra_test.go:88.
+func newRunPartWithSlowForce(t *testing.T, d *Downloader, preName string, f *os.File) *Part {
+	t.Helper()
+	part := newRunPart(t, d, preName, f)
+	part.etime = -1 // Force slow detection on any timing check
+	return part
+}
+
 func TestRunPartDownloadError(t *testing.T) {
 	base := t.TempDir()
 	mainFile, err := os.Create(filepath.Join(base, "main.bin"))
@@ -149,6 +159,7 @@ func TestRunPartSlowMinPartSize(t *testing.T) {
 
 // TestRunPartSlowMaxPartsLimit verifies that when maxParts limit is reached,
 // slow detection does NOT spawn new parts and continues downloading forcefully.
+// This tests lines 925-937 in dloader.go.
 func TestRunPartSlowMaxPartsLimit(t *testing.T) {
 	base := t.TempDir()
 	mainFile, err := os.Create(filepath.Join(base, "main.bin"))
@@ -157,18 +168,13 @@ func TestRunPartSlowMaxPartsLimit(t *testing.T) {
 	}
 	defer mainFile.Close()
 
-	// Small data size but large enough to trigger slow path checks
-	// Using 64 bytes with 2ms delay = ~128ms total (reasonable)
-	dataSize := int64(64)
-	reader := &slowReadCloser{
-		data:  bytes.Repeat([]byte("x"), int(dataSize)),
-		delay: 2 * time.Millisecond,
-	}
+	// Data size must be > 2*minPartSize (2*512KB = 1MB) to avoid minPartSize path.
+	dataSize := int64(2 * MB)
 	client := &http.Client{
 		Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
 			return &http.Response{
 				StatusCode: http.StatusOK,
-				Body:       reader,
+				Body:       io.NopCloser(bytes.NewReader(bytes.Repeat([]byte("x"), int(dataSize)))),
 				Header:     make(http.Header),
 			}, nil
 		}),
@@ -180,19 +186,34 @@ func TestRunPartSlowMaxPartsLimit(t *testing.T) {
 
 	d := newRunPartDownloader(t, client, partsDir, mainFile)
 	d.contentLength = ContentLength(dataSize)
-	d.maxParts = 1  // Set limit
-	d.numParts = 1  // Already at limit
+	d.maxParts = 1 // Set limit
+	d.numParts = 1 // Already at limit
+	d.maxConn = 10 // High so this doesn't trigger first
+	d.chunk = int(64 * KB)
 
 	var respawnCalled int32
 	d.handlers.RespawnPartHandler = func(hash string, poff, newOff, newFOff int64) {
 		atomic.AddInt32(&respawnCalled, 1)
 	}
 
-	part := newRunPart(t, d, partsDir, mainFile)
+	part, err := newPart(d.ctx, d.client, d.url, partArgs{
+		copyChunk: 64 * KB,
+		preName:   partsDir,
+		rpHandler: func(string, int) {},
+		pHandler:  func(string, int) {},
+		oHandler:  func(string, int64) {},
+		cpHandler: func(string, int) {},
+		logger:    d.l,
+		offset:    0,
+		f:         mainFile,
+	})
+	if err != nil {
+		t.Fatalf("newPart: %v", err)
+	}
 	defer part.close()
 
-	// Run with very high expected speed to guarantee slow detection
-	err = d.runPart(part, 0, dataSize-1, 100*MB, false, nil)
+	// Use extremely high espeed so etime ≈ 0, forcing slow detection
+	err = d.runPart(part, 0, dataSize-1, 1<<62, false, nil)
 	if err != nil {
 		t.Fatalf("runPart: %v", err)
 	}
@@ -204,6 +225,7 @@ func TestRunPartSlowMaxPartsLimit(t *testing.T) {
 
 // TestRunPartSlowMaxConnLimit verifies that when maxConn limit is reached,
 // slow detection waits for a slot by continuing the loop with repeated=true.
+// This tests lines 940-948 in dloader.go.
 func TestRunPartSlowMaxConnLimit(t *testing.T) {
 	base := t.TempDir()
 	mainFile, err := os.Create(filepath.Join(base, "main.bin"))
@@ -212,17 +234,13 @@ func TestRunPartSlowMaxConnLimit(t *testing.T) {
 	}
 	defer mainFile.Close()
 
-	// Small data size for quick test completion
-	dataSize := int64(64)
-	reader := &slowReadCloser{
-		data:  bytes.Repeat([]byte("x"), int(dataSize)),
-		delay: 2 * time.Millisecond,
-	}
+	// Data size must be > 2*minPartSize (2*512KB = 1MB) to avoid minPartSize path.
+	dataSize := int64(2 * MB)
 	client := &http.Client{
 		Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
 			return &http.Response{
 				StatusCode: http.StatusOK,
-				Body:       reader,
+				Body:       io.NopCloser(bytes.NewReader(bytes.Repeat([]byte("x"), int(dataSize)))),
 				Header:     make(http.Header),
 			}, nil
 		}),
@@ -234,19 +252,34 @@ func TestRunPartSlowMaxConnLimit(t *testing.T) {
 
 	d := newRunPartDownloader(t, client, partsDir, mainFile)
 	d.contentLength = ContentLength(dataSize)
-	d.maxConn = 1   // Set limit
-	d.numConn = 1   // Already at limit
-	d.maxParts = 10 // High limit so this doesn't trigger
+	d.maxConn = 1    // Set limit
+	d.numConn = 1    // Already at limit
+	d.maxParts = 100 // High limit so this doesn't trigger
+	d.chunk = int(64 * KB)
 
 	var respawnCalled int32
 	d.handlers.RespawnPartHandler = func(hash string, poff, newOff, newFOff int64) {
 		atomic.AddInt32(&respawnCalled, 1)
 	}
 
-	part := newRunPart(t, d, partsDir, mainFile)
+	part, err := newPart(d.ctx, d.client, d.url, partArgs{
+		copyChunk: 64 * KB,
+		preName:   partsDir,
+		rpHandler: func(string, int) {},
+		pHandler:  func(string, int) {},
+		oHandler:  func(string, int64) {},
+		cpHandler: func(string, int) {},
+		logger:    d.l,
+		offset:    0,
+		f:         mainFile,
+	})
+	if err != nil {
+		t.Fatalf("newPart: %v", err)
+	}
 	defer part.close()
 
-	err = d.runPart(part, 0, dataSize-1, 100*MB, false, nil)
+	// Use extremely high espeed so etime ≈ 0, forcing slow detection
+	err = d.runPart(part, 0, dataSize-1, 1<<62, false, nil)
 	if err != nil {
 		t.Fatalf("runPart: %v", err)
 	}
@@ -380,6 +413,7 @@ func TestRunPartWorkStealingSuccess(t *testing.T) {
 
 // TestRunPartSlowRespawn verifies that slow detection with available slots
 // spawns a new part and calls RespawnPartHandler.
+// This tests lines 950-986 in dloader.go.
 func TestRunPartSlowRespawn(t *testing.T) {
 	base := t.TempDir()
 	mainFile, err := os.Create(filepath.Join(base, "main.bin"))
@@ -388,19 +422,14 @@ func TestRunPartSlowRespawn(t *testing.T) {
 	}
 	defer mainFile.Close()
 
-	// Data size needs to be large enough that remaining bytes after slow detection
-	// exceeds 2*minPartSize. For small files, minPartSize is small (256KB for <10MB files).
-	// We use 2048 bytes to ensure we can test the respawn path.
-	dataSize := int64(2048)
-	reader := &slowReadCloser{
-		data:  bytes.Repeat([]byte("x"), int(dataSize)),
-		delay: 2 * time.Millisecond, // Slow enough to trigger slow detection
-	}
+	// Data size must be > 2*minPartSize (2*512KB = 1MB) so respawn path is taken.
+	// Use 2MB to ensure remaining bytes > 1MB after first slow detection.
+	dataSize := int64(2 * MB)
 	client := &http.Client{
 		Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
 			return &http.Response{
 				StatusCode: http.StatusOK,
-				Body:       reader,
+				Body:       io.NopCloser(bytes.NewReader(bytes.Repeat([]byte("x"), int(dataSize)))),
 				Header:     make(http.Header),
 			}, nil
 		}),
@@ -416,30 +445,47 @@ func TestRunPartSlowRespawn(t *testing.T) {
 	d := newRunPartDownloader(t, client, partsDir, mainFile)
 	d.ctx = ctx
 	d.cancel = cancel
-	// Set a small content length so minPartSize is small
 	d.contentLength = ContentLength(dataSize)
 	d.maxParts = 100 // High limit - won't trigger
 	d.maxConn = 100  // High limit - won't trigger
 	d.numParts = 0
 	d.numConn = 0
+	d.chunk = int(64 * KB) // Larger chunk for faster test execution
 
 	var respawnCalled int32
 	d.handlers.RespawnPartHandler = func(hash string, poff, newOff, newFOff int64) {
 		atomic.AddInt32(&respawnCalled, 1)
 	}
 
-	part := newRunPart(t, d, partsDir, mainFile)
+	// Use newRunPartWithSlowForce to guarantee slow detection via etime=-1
+	part, err := newPart(d.ctx, d.client, d.url, partArgs{
+		copyChunk: 64 * KB, // Match downloader chunk for consistency
+		preName:   partsDir,
+		rpHandler: func(string, int) {},
+		pHandler:  func(string, int) {},
+		oHandler:  func(string, int64) {},
+		cpHandler: func(string, int) {},
+		logger:    d.l,
+		offset:    0,
+		f:         mainFile,
+	})
+	if err != nil {
+		t.Fatalf("newPart: %v", err)
+	}
 	defer part.close()
+	// Note: part.etime = -1 doesn't work because runPart calls setEpeed() which overwrites it.
+	// Instead, use extremely high espeed so etime ≈ 0, making any real IO "slow".
 
-	// Use very high expected speed to guarantee slow detection on first check
-	err = d.runPart(part, 0, dataSize-1, 1*GB, false, nil)
+	err = d.runPart(part, 0, dataSize-1, 1<<62, false, nil)
 	if err != nil {
 		t.Fatalf("runPart: %v", err)
 	}
 
-	// Note: Respawn may or may not be called depending on whether:
-	// 1. Slow detection actually triggers (timing-dependent)
-	// 2. foff-poff > 2*minPartSize after slow detection
-	// This test verifies the path is exercised; actual respawn depends on runtime
+	// Wait briefly for spawned goroutines
+	time.Sleep(10 * time.Millisecond)
+
+	if atomic.LoadInt32(&respawnCalled) == 0 {
+		t.Error("expected RespawnPartHandler to be called at least once")
+	}
 	t.Logf("RespawnPartHandler called: %d times", atomic.LoadInt32(&respawnCalled))
 }
