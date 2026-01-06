@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -uo pipefail
+set +e -uo pipefail  # +e disables errexit (may be inherited from GitHub Actions shell on Windows)
 
 min_total=${COVERAGE_MIN:-80}
 min_pkg=${COVERAGE_MIN_PER_PKG:-80}
