@@ -10,6 +10,7 @@ import (
 	"github.com/urfave/cli"
 	"github.com/warpdl/warpdl/cmd/common"
 	"github.com/warpdl/warpdl/cmd/ext"
+	"github.com/warpdl/warpdl/cmd/nativehost"
 )
 
 // BuildArgs contains build-time information passed to the CLI application.
@@ -55,6 +56,11 @@ func GetApp(bArgs BuildArgs) *cli.App {
 			Name:        "ext",
 			Usage:       "manage warpdl extensions",
 			Subcommands: ext.Commands,
+		},
+		{
+			Name:        "native-host",
+			Usage:       "manage native messaging host for browser extensions",
+			Subcommands: nativehost.Commands,
 		},
 		{
 			Name:   "daemon",
