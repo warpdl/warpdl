@@ -1,0 +1,179 @@
+/* WarpDL Popup Styles */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+  font-size: 14px;
+  color: #333;
+  background: #fff;
+  min-width: 280px;
+}
+
+.popup-container {
+  padding: 16px;
+}
+
+/* Header */
+.popup-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.popup-header .logo {
+  width: 32px;
+  height: 32px;
+}
+
+.popup-header h1 {
+  font-size: 18px;
+  font-weight: 600;
+  color: #1a73e8;
+}
+
+/* Status Section */
+.status-section {
+  margin-bottom: 16px;
+}
+
+.status-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+}
+
+.status-label {
+  color: #666;
+  font-size: 13px;
+}
+
+.status-badge {
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.status-badge.connected {
+  background: #e6f4ea;
+  color: #1e8e3e;
+}
+
+.status-badge.disconnected {
+  background: #fce8e6;
+  color: #d93025;
+}
+
+.status-badge.connecting {
+  background: #fef7e0;
+  color: #f9ab00;
+}
+
+.download-count {
+  font-weight: 600;
+  color: #1a73e8;
+  padding: 4px 10px;
+  background: #e8f0fe;
+  border-radius: 12px;
+  font-size: 13px;
+}
+
+/* Toggle Section */
+.toggle-section {
+  padding: 12px 0;
+  border-top: 1px solid #e0e0e0;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.toggle-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+}
+
+.toggle-label span:first-child {
+  font-size: 14px;
+  color: #333;
+}
+
+.toggle-checkbox {
+  display: none;
+}
+
+.toggle-slider {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  background: #ccc;
+  border-radius: 12px;
+  transition: background 0.2s ease;
+}
+
+.toggle-slider::before {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.2s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.toggle-checkbox:checked + .toggle-slider {
+  background: #1a73e8;
+}
+
+.toggle-checkbox:checked + .toggle-slider::before {
+  transform: translateX(20px);
+}
+
+.toggle-checkbox:disabled + .toggle-slider {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Links Section */
+.links-section {
+  margin-top: 12px;
+  display: flex;
+  justify-content: center;
+}
+
+.link-button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  color: #666;
+  text-decoration: none;
+  font-size: 13px;
+  border-radius: 6px;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.link-button:hover {
+  background: #f0f0f0;
+  color: #333;
+}
+
+.link-button svg {
+  opacity: 0.7;
+}
+
+.link-button:hover svg {
+  opacity: 1;
+}

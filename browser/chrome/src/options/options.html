@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WarpDL Settings</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <div class="options-container">
+    <header class="options-header">
+      <img src="../assets/icons/icon.svg" alt="WarpDL" class="logo">
+      <h1>WarpDL Settings</h1>
+    </header>
+
+    <main class="options-content">
+      <!-- Download Settings -->
+      <section class="settings-section">
+        <h2>Download Settings</h2>
+
+        <div class="setting-item">
+          <label for="size-threshold" class="setting-label">
+            <span class="label-text">File Size Threshold</span>
+            <span class="label-description">Only intercept files larger than this size</span>
+          </label>
+          <div class="setting-control slider-control">
+            <input type="range" id="size-threshold" min="1" max="100" value="1">
+            <span id="size-threshold-value" class="slider-value">1 MB</span>
+          </div>
+        </div>
+
+        <div class="setting-item">
+          <label for="download-directory" class="setting-label">
+            <span class="label-text">Download Directory</span>
+            <span class="label-description">Default directory for downloads (leave empty for default)</span>
+          </label>
+          <div class="setting-control">
+            <input type="text" id="download-directory" placeholder="/path/to/downloads" class="text-input">
+          </div>
+        </div>
+      </section>
+
+      <!-- Connection Settings -->
+      <section class="settings-section">
+        <h2>Connection Settings</h2>
+
+        <div class="setting-item">
+          <label for="max-connections" class="setting-label">
+            <span class="label-text">Max Connections</span>
+            <span class="label-description">Maximum concurrent connections per download</span>
+          </label>
+          <div class="setting-control slider-control">
+            <input type="range" id="max-connections" min="1" max="32" value="8">
+            <span id="max-connections-value" class="slider-value">8</span>
+          </div>
+        </div>
+
+        <div class="setting-item">
+          <label for="max-segments" class="setting-label">
+            <span class="label-text">Max Segments</span>
+            <span class="label-description">Maximum number of segments per download</span>
+          </label>
+          <div class="setting-control slider-control">
+            <input type="range" id="max-segments" min="1" max="64" value="16">
+            <span id="max-segments-value" class="slider-value">16</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Domain Exclusions -->
+      <section class="settings-section">
+        <h2>Domain Exclusions</h2>
+        <p class="section-description">Downloads from these domains will not be intercepted</p>
+
+        <div class="domain-list" id="domain-list">
+          <!-- Domains will be added here dynamically -->
+        </div>
+
+        <div class="add-domain">
+          <input type="text" id="new-domain" placeholder="example.com" class="text-input">
+          <button id="add-domain-btn" class="btn btn-secondary">Add Domain</button>
+        </div>
+      </section>
+
+      <!-- Actions -->
+      <section class="actions-section">
+        <button id="save-btn" class="btn btn-primary">Save Settings</button>
+        <button id="reset-btn" class="btn btn-secondary">Reset to Defaults</button>
+      </section>
+
+      <div id="status-message" class="status-message hidden"></div>
+    </main>
+
+    <footer class="options-footer">
+      <p>WarpDL v1.0.0</p>
+    </footer>
+  </div>
+
+  <script src="./options.js" type="module"></script>
+</body>
+</html>

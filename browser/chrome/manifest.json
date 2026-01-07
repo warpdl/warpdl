@@ -1,0 +1,39 @@
+{
+  "manifest_version": 3,
+  "name": "WarpDL",
+  "version": "1.0.0",
+  "description": "Accelerate downloads with WarpDL's parallel downloading engine",
+  "permissions": [
+    "nativeMessaging",
+    "downloads",
+    "contextMenus",
+    "storage",
+    "alarms",
+    "notifications"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "service-worker.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "assets/icons/icon.svg",
+      "32": "assets/icons/icon.svg",
+      "48": "assets/icons/icon.svg",
+      "128": "assets/icons/icon.svg"
+    },
+    "default_title": "WarpDL"
+  },
+  "options_page": "options/options.html",
+  "icons": {
+    "16": "assets/icons/icon.svg",
+    "32": "assets/icons/icon.svg",
+    "48": "assets/icons/icon.svg",
+    "128": "assets/icons/icon.svg"
+  },
+  "minimum_chrome_version": "110"
+}

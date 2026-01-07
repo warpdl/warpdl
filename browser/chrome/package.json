@@ -1,0 +1,26 @@
+{
+  "name": "warpdl-chrome-extension",
+  "version": "0.1.1",
+  "description": "WarpDL Chrome Extension - Intercept downloads for accelerated parallel downloading",
+  "type": "module",
+  "scripts": {
+    "dev": "vite build --watch",
+    "build": "vite build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src tests --ext .ts"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.287",
+    "@vitest/coverage-v8": "^2.1.8",
+    "jsdom": "^25.0.1",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.6",
+    "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
