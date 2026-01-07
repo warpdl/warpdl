@@ -10,6 +10,10 @@ import (
 	"github.com/warpdl/warpdl/pkg/warpcli"
 )
 
+// newClientFunc is the function used to create warpcli clients.
+// It can be overridden in tests to inject mock clients.
+var newClientFunc = warpcli.NewClient
+
 // warpcliAdapter wraps warpcli.Client to implement nativehost.Client
 type warpcliAdapter struct {
 	*warpcli.Client
@@ -70,7 +74,7 @@ func (w *warpcliAdapter) Close() error {
 
 func run(c *cli.Context) error {
 	// Connect to daemon
-	client, err := warpcli.NewClient()
+	client, err := newClientFunc()
 	if err != nil {
 		// Write error to stderr - browser will see it
 		fmt.Fprintf(os.Stderr, "failed to connect to daemon: %v\n", err)
