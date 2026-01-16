@@ -90,7 +90,7 @@ Add remaining package manager hooks.
   - _Requirements: FR-7_
   - _Design: Scoop Manifest Hook_
 
-- [ ] 2.4 Update DEB/RPM postinstall.sh
+- [x] 2.4 Update DEB/RPM postinstall.sh
   - **Do**: Add native host install call at end of `scripts/postinstall.sh` with proper error handling
   - **Files**: `/Users/divkix/GitHub/warpdl/scripts/postinstall.sh`
   - **Done when**: Script contains `warpdl native-host install --auto` with `|| true`

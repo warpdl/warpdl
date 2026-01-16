@@ -20,3 +20,6 @@ echo "     sudo loginctl enable-linger \$USER"
 echo ""
 echo "==================================================================="
 echo ""
+
+# Install native messaging host for browser extensions (non-fatal)
+warpdl native-host install --auto 2>/dev/null || true
