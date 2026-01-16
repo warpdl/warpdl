@@ -35,5 +35,10 @@ warpd
 
 test/
 
-*.bin*specs/.current-spec
+*.bin
+
+# Ralph-specum state files
+specs/.current-spec
 **/.progress.md
+**/.ralph-state.json
+**/.coordinator-prompt.md
