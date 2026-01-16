@@ -12,7 +12,7 @@ generated: auto
 
 Focus: Get defaults working and one package manager hook functional. Skip tests initially.
 
-- [ ] 1.1 Create defaults.go with placeholder extension IDs
+- [x] 1.1 Create defaults.go with placeholder extension IDs
   - **Do**: Create `internal/nativehost/defaults.go` with `OfficialChromeExtensionID`, `OfficialFirefoxExtensionID` constants (empty strings), and `HasOfficialExtensions()` function
   - **Files**: `/Users/divkix/GitHub/warpdl/internal/nativehost/defaults.go`
   - **Done when**: File compiles, `go build .` succeeds
