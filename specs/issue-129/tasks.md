@@ -30,7 +30,7 @@ Focus: Get defaults working and one package manager hook functional. Skip tests 
   - _Requirements: FR-3_
   - _Design: CLI Changes_
 
-- [ ] 1.3 Modify install.go to use defaults and handle --auto
+- [x] 1.3 Modify install.go to use defaults and handle --auto
   - **Do**:
     1. Import `nativehost` package for defaults
     2. Read `--auto` flag
