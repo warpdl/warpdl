@@ -35,4 +35,5 @@ warpd
 
 test/
 
-*.bin*
+*.bin*specs/.current-spec
+**/.progress.md
