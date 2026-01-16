@@ -99,7 +99,7 @@ Add remaining package manager hooks.
   - _Requirements: FR-8_
   - _Design: DEB/RPM Scripts_
 
-- [ ] 2.5 Update DEB/RPM preremove.sh
+- [x] 2.5 Update DEB/RPM preremove.sh
   - **Do**: Add native host uninstall call near top of `scripts/preremove.sh` (before daemon stop)
   - **Files**: `/Users/divkix/GitHub/warpdl/scripts/preremove.sh`
   - **Done when**: Script contains `warpdl native-host uninstall --browser all` with `|| true`
