@@ -22,4 +22,6 @@ echo "==================================================================="
 echo ""
 
 # Install native messaging host for browser extensions (non-fatal)
-warpdl native-host install --auto 2>/dev/null || true
+if command -v warpdl >/dev/null 2>&1; then
+    warpdl native-host install --auto 2>/dev/null || true
+fi

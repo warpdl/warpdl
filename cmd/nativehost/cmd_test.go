@@ -938,16 +938,19 @@ func TestInstallExplicitFlagsOverrideDefaults(t *testing.T) {
 	})
 
 	// With explicit ID, installation should be attempted (may fail due to missing dirs)
-	// But it should NOT silently succeed like when no IDs are available
-	// The key is that it attempts installation rather than exiting early
-	if nativehost.OfficialChromeExtensionID == "" && nativehost.OfficialFirefoxExtensionID == "" {
-		// If defaults are empty, providing explicit ID should trigger installation attempt
-		// Not a silent early return
-		if err == nil && stdout == "" {
-			// This is fine if install succeeds
+	// But it should NOT return the "at least one extension ID is required" error
+	// The key is that explicit IDs override any defaults check
+	if exitErr, ok := err.(cli.ExitCoder); ok {
+		errMsg := exitErr.Error()
+		if strings.Contains(errMsg, "at least one extension ID is required") {
+			t.Error("Explicit IDs should override defaults - should not fail with missing extension ID error")
 		}
 	}
-	// Test passes as long as no panic and explicit IDs are processed
+
+	// Verify behavior differs from no-IDs case: with explicit IDs we should
+	// either succeed or fail with a different error (e.g., directory not found)
+	// not silently return like when auto mode has no IDs available
+	_ = stdout // Used to capture output, assertion is on error type above
 }
 
 // TestInstallAutoFlagRegistered tests that --auto flag is properly registered
