@@ -183,13 +183,6 @@ brews:
       rescue
         # Installation failed, user can run manually if needed
       end
-    post_uninstall: |
-      # Remove native messaging host registration from all browsers
-      begin
-        system "#{bin}/warpdl", "native-host", "uninstall", "--browser", "all"
-      rescue
-        # Uninstall failed, manifests may need manual cleanup
-      end
     caveats: |
       To start WarpDL daemon now and auto-start at login:
         brew services start warpdl
@@ -200,8 +193,10 @@ brews:
       To restart after upgrade:
         brew services restart warpdl
 
-      IMPORTANT: Before uninstalling, stop the service first:
-        brew services stop warpdl && brew uninstall warpdl
+      IMPORTANT: Before uninstalling, run:
+        brew services stop warpdl
+        warpdl native-host uninstall --browser all
+        brew uninstall warpdl
     test: |
       system "#{bin}/warpdl", "--version"
 
