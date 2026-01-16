@@ -3,6 +3,14 @@
 # POSIX sh compatible
 # Gracefully stops daemon and cleans up - never fails
 
+# Uninstall native messaging host from all browsers (before stopping daemon)
+echo "==================================================================="
+echo "Uninstalling native messaging host..."
+echo "==================================================================="
+if command -v warpdl >/dev/null 2>&1; then
+    warpdl native-host uninstall --browser all 2>/dev/null || true
+fi
+
 echo "==================================================================="
 echo "Stopping WarpDL daemon before removal..."
 echo "==================================================================="

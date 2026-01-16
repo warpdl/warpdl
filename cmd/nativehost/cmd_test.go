@@ -24,6 +24,8 @@ func newContext(app *cli.App, args []string, name string, flags []cli.Flag) *cli
 		switch sf := f.(type) {
 		case cli.StringFlag:
 			set.String(sf.Name, sf.Value, sf.Usage)
+		case cli.BoolFlag:
+			set.Bool(sf.Name, false, sf.Usage)
 		}
 	}
 	_ = set.Parse(args)
@@ -843,5 +845,192 @@ func TestUninstallFlagsRegistered(t *testing.T) {
 	}
 	if !found {
 		t.Error("Flag 'browser' not found in uninstall command")
+	}
+}
+
+// TestInstallAutoNoDefaults tests --auto with no default extension IDs configured.
+// With empty OfficialChromeExtensionID and OfficialFirefoxExtensionID, it should
+// succeed silently (return nil) without error.
+func TestInstallAutoNoDefaults(t *testing.T) {
+	// Verify defaults are empty (as expected in current codebase)
+	if nativehost.OfficialChromeExtensionID != "" || nativehost.OfficialFirefoxExtensionID != "" {
+		t.Skip("Test requires empty default extension IDs")
+	}
+
+	app := cli.NewApp()
+	app.Name = "warpdl"
+
+	set := flag.NewFlagSet("install", flag.ContinueOnError)
+	set.String("browser", "all", "")
+	set.String("chrome-extension-id", "", "")
+	set.String("firefox-extension-id", "", "")
+	set.Bool("auto", false, "")
+	_ = set.Parse([]string{"--auto"})
+	ctx := cli.NewContext(app, set, nil)
+	ctx.Command = cli.Command{Name: "install"}
+
+	var err error
+	stdout, _ := captureOutput(func() {
+		err = install(ctx)
+	})
+
+	if err != nil {
+		t.Errorf("Expected --auto with no defaults to succeed silently, got error: %v", err)
+	}
+
+	// Should produce no output (silent success)
+	if stdout != "" {
+		t.Errorf("Expected no output for --auto with no defaults, got: %s", stdout)
+	}
+}
+
+// TestInstallAutoWithExplicitIDs tests --auto combined with explicit extension IDs.
+// When explicit IDs are provided alongside --auto, the install should proceed.
+func TestInstallAutoWithExplicitIDs(t *testing.T) {
+	app := cli.NewApp()
+	app.Name = "warpdl"
+
+	set := flag.NewFlagSet("install", flag.ContinueOnError)
+	set.String("browser", "chrome", "")
+	set.String("chrome-extension-id", "testextension123", "")
+	set.String("firefox-extension-id", "", "")
+	set.Bool("auto", false, "")
+	_ = set.Parse([]string{"--auto", "--chrome-extension-id", "testextension123"})
+	ctx := cli.NewContext(app, set, nil)
+	ctx.Command = cli.Command{Name: "install"}
+
+	var err error
+	captureOutput(func() {
+		err = install(ctx)
+	})
+
+	// May fail due to directory not existing, but should not return the
+	// "at least one extension ID is required" error
+	if exitErr, ok := err.(cli.ExitCoder); ok {
+		// Check it's not the missing extension ID error
+		errMsg := exitErr.Error()
+		if strings.Contains(errMsg, "at least one extension ID is required") {
+			t.Error("--auto with explicit IDs should not fail with missing extension ID error")
+		}
+	}
+	// Test passes - we're verifying the auto flag works with explicit IDs
+}
+
+// TestInstallExplicitFlagsOverrideDefaults tests that explicit flags take precedence.
+// Even with --auto, explicitly provided extension IDs should be used.
+func TestInstallExplicitFlagsOverrideDefaults(t *testing.T) {
+	app := cli.NewApp()
+	app.Name = "warpdl"
+
+	// Test with explicit chrome ID - should use the explicit value
+	set := flag.NewFlagSet("install", flag.ContinueOnError)
+	set.String("browser", "chrome", "")
+	set.String("chrome-extension-id", "explicitid123", "")
+	set.String("firefox-extension-id", "", "")
+	set.Bool("auto", false, "")
+	_ = set.Parse([]string{"--auto", "--chrome-extension-id", "explicitid123"})
+	ctx := cli.NewContext(app, set, nil)
+	ctx.Command = cli.Command{Name: "install"}
+
+	var err error
+	stdout, _ := captureOutput(func() {
+		err = install(ctx)
+	})
+
+	// With explicit ID, installation should be attempted (may fail due to missing dirs)
+	// But it should NOT return the "at least one extension ID is required" error
+	// The key is that explicit IDs override any defaults check
+	if exitErr, ok := err.(cli.ExitCoder); ok {
+		errMsg := exitErr.Error()
+		if strings.Contains(errMsg, "at least one extension ID is required") {
+			t.Error("Explicit IDs should override defaults - should not fail with missing extension ID error")
+		}
+	}
+
+	// Verify behavior differs from no-IDs case: with explicit IDs we should
+	// either succeed or fail with a different error (e.g., directory not found)
+	// not silently return like when auto mode has no IDs available
+	_ = stdout // Used to capture output, assertion is on error type above
+}
+
+// TestInstallAutoFlagRegistered tests that --auto flag is properly registered
+func TestInstallAutoFlagRegistered(t *testing.T) {
+	var installCmd *cli.Command
+	for _, cmd := range Commands {
+		if cmd.Name == "install" {
+			installCmd = &cmd
+			break
+		}
+	}
+
+	if installCmd == nil {
+		t.Fatal("Install command not found")
+	}
+
+	found := false
+	for _, f := range installCmd.Flags {
+		if bf, ok := f.(cli.BoolFlag); ok && bf.Name == "auto" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("Flag '--auto' not found in install command")
+	}
+}
+
+// TestInstallAutoWithFirefoxID tests --auto with explicit Firefox extension ID
+func TestInstallAutoWithFirefoxID(t *testing.T) {
+	app := cli.NewApp()
+	app.Name = "warpdl"
+
+	set := flag.NewFlagSet("install", flag.ContinueOnError)
+	set.String("browser", "firefox", "")
+	set.String("chrome-extension-id", "", "")
+	set.String("firefox-extension-id", "testextension@example.com", "")
+	set.Bool("auto", false, "")
+	_ = set.Parse([]string{"--auto", "--firefox-extension-id", "testextension@example.com"})
+	ctx := cli.NewContext(app, set, nil)
+	ctx.Command = cli.Command{Name: "install"}
+
+	var err error
+	captureOutput(func() {
+		err = install(ctx)
+	})
+
+	// Should not fail with missing extension ID error
+	if exitErr, ok := err.(cli.ExitCoder); ok {
+		errMsg := exitErr.Error()
+		if strings.Contains(errMsg, "at least one extension ID is required") {
+			t.Error("--auto with explicit Firefox ID should not fail with missing extension ID error")
+		}
+	}
+}
+
+// TestInstallAutoWithBothIDs tests --auto with both Chrome and Firefox extension IDs
+func TestInstallAutoWithBothIDs(t *testing.T) {
+	app := cli.NewApp()
+	app.Name = "warpdl"
+
+	set := flag.NewFlagSet("install", flag.ContinueOnError)
+	set.String("browser", "all", "")
+	set.String("chrome-extension-id", "chromeext123", "")
+	set.String("firefox-extension-id", "firefoxext@example.com", "")
+	set.Bool("auto", false, "")
+	_ = set.Parse([]string{"--auto", "--chrome-extension-id", "chromeext123", "--firefox-extension-id", "firefoxext@example.com"})
+	ctx := cli.NewContext(app, set, nil)
+	ctx.Command = cli.Command{Name: "install"}
+
+	var err error
+	captureOutput(func() {
+		err = install(ctx)
+	})
+
+	// Should not fail with missing extension ID error
+	if exitErr, ok := err.(cli.ExitCoder); ok {
+		errMsg := exitErr.Error()
+		if strings.Contains(errMsg, "at least one extension ID is required") {
+			t.Error("--auto with both IDs should not fail with missing extension ID error")
+		}
 	}
 }

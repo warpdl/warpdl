@@ -12,8 +12,23 @@ func install(c *cli.Context) error {
 	chromeID := c.String("chrome-extension-id")
 	firefoxID := c.String("firefox-extension-id")
 	browser := c.String("browser")
+	auto := c.Bool("auto")
 
-	// Validate required extension IDs
+	// In auto mode, use default extension IDs if flags are empty
+	if auto {
+		if chromeID == "" {
+			chromeID = nativehost.OfficialChromeExtensionID
+		}
+		if firefoxID == "" {
+			firefoxID = nativehost.OfficialFirefoxExtensionID
+		}
+		// If auto mode and no IDs available, exit silently (success)
+		if chromeID == "" && firefoxID == "" {
+			return nil
+		}
+	}
+
+	// Validate required extension IDs (non-auto mode)
 	if chromeID == "" && firefoxID == "" {
 		return cli.NewExitError("at least one extension ID is required (--chrome-extension-id or --firefox-extension-id)", 1)
 	}
