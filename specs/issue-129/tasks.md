@@ -131,7 +131,7 @@ Add remaining package manager hooks.
 
 ## Phase 4: Quality Gates
 
-- [ ] 4.1 Local quality check
+- [x] 4.1 Local quality check
   - **Do**: Run full test suite, coverage check, lint
   - **Verify**: `go test -race -short ./... && go vet ./... && go build .`
   - **Done when**: All commands pass
