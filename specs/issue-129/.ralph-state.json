@@ -1,0 +1,8 @@
+{
+  "spec": "issue-129",
+  "phase": "execution",
+  "totalTasks": 14,
+  "taskIndex": 0,
+  "created": "2026-01-16",
+  "branch": "feat/issue-129-auto-native-host"
+}
