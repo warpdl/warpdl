@@ -110,7 +110,7 @@ Add remaining package manager hooks.
 
 ## Phase 3: Testing
 
-- [ ] 3.1 Unit tests for defaults.go
+- [x] 3.1 Unit tests for defaults.go
   - **Do**: Create `internal/nativehost/defaults_test.go` with tests for `HasOfficialExtensions()` - test with empty IDs, test table-driven approach
   - **Files**: `/Users/divkix/GitHub/warpdl/internal/nativehost/defaults_test.go`
   - **Done when**: Tests cover both true/false return cases
