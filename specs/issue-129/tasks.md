@@ -137,7 +137,7 @@ Add remaining package manager hooks.
   - **Done when**: All commands pass
   - **Commit**: `chore: fix any lint/test issues` (if needed)
 
-- [ ] 4.2 Create PR and verify CI
+- [x] 4.2 Create PR and verify CI
   - **Do**: Push branch, create PR with summary referencing #129
   - **Verify**: `gh pr checks --watch` all green
   - **Done when**: PR created, CI passes
