@@ -118,7 +118,7 @@ Add remaining package manager hooks.
   - **Commit**: `core: test: add unit tests for default extension IDs`
   - _Requirements: AC-1.1_
 
-- [ ] 3.2 Integration tests for install --auto
+- [x] 3.2 Integration tests for install --auto
   - **Do**: Add test cases to `cmd/nativehost/cmd_test.go` for:
     1. `--auto` with no defaults (should succeed silently)
     2. `--auto` with defaults set (should install)
