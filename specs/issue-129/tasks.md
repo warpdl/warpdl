@@ -72,7 +72,7 @@ Add remaining package manager hooks.
   - _Requirements: FR-5_
   - _Design: Homebrew Formula Hook_
 
-- [ ] 2.2 Update Scoop manifest patching for post_install
+- [x] 2.2 Update Scoop manifest patching for post_install
   - **Do**: Modify `scripts/patch-scoop-manifest.sh` to add `post_install` array with native host install command
   - **Files**: `/Users/divkix/GitHub/warpdl/scripts/patch-scoop-manifest.sh`
   - **Done when**: Script adds post_install with native-host install to manifest
