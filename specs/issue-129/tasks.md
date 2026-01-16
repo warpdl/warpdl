@@ -53,7 +53,7 @@ Focus: Get defaults working and one package manager hook functional. Skip tests 
   - _Requirements: FR-4_
   - _Design: Homebrew Formula Hook_
 
-- [ ] 1.5 POC Checkpoint
+- [x] 1.5 POC Checkpoint
   - **Do**: Verify core flow works - defaults created, auto flag works, Homebrew hook present
   - **Done when**: Manual test of `warpdl native-host install --auto` succeeds silently
   - **Verify**: `go build . && ./warpdl native-host install --auto && echo "POC works"`
