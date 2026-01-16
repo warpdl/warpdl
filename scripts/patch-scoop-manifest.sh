@@ -45,13 +45,14 @@ fi
 
 # Add pre_uninstall hook if not present
 if ! jq -e '.pre_uninstall' "$MANIFEST_PATH" > /dev/null 2>&1; then
-    # Add pre_uninstall hook that stops the daemon
-    # The PowerShell script:
-    # 1. Finds the PID file in user's config directory
-    # 2. If it exists, stops the process
-    # 3. Cleans up the PID file
+    # Add pre_uninstall hook that:
+    # 1. Uninstalls native messaging host (before daemon stop)
+    # 2. Finds the PID file in user's config directory
+    # 3. If it exists, stops the process
+    # 4. Cleans up the PID file
     jq '. + {
       "pre_uninstall": [
+        "& (Join-Path $dir \"warpdl.exe\") native-host uninstall --browser all 2>$null",
         "$pidFile = Join-Path $env:APPDATA \"warpdl\\daemon.pid\"",
         "if (Test-Path $pidFile) {",
         "  $pid = Get-Content $pidFile -ErrorAction SilentlyContinue",

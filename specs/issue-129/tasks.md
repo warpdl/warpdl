@@ -81,7 +81,7 @@ Add remaining package manager hooks.
   - _Requirements: FR-6_
   - _Design: Scoop Manifest Hook_
 
-- [ ] 2.3 Update Scoop manifest patching for pre_uninstall native host
+- [x] 2.3 Update Scoop manifest patching for pre_uninstall native host
   - **Do**: Modify `scripts/patch-scoop-manifest.sh` to add native host uninstall to `pre_uninstall` array (before existing daemon stop)
   - **Files**: `/Users/divkix/GitHub/warpdl/scripts/patch-scoop-manifest.sh`
   - **Done when**: pre_uninstall includes native-host uninstall before daemon stop
