@@ -44,6 +44,10 @@ var installFlags = []cli.Flag{
 		Name:  "firefox-extension-id",
 		Usage: "Firefox extension ID (required for Firefox)",
 	},
+	cli.BoolFlag{
+		Name:  "auto",
+		Usage: "use default extension IDs (for package manager hooks)",
+	},
 }
 
 var uninstallFlags = []cli.Flag{

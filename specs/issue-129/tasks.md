@@ -21,7 +21,7 @@ Focus: Get defaults working and one package manager hook functional. Skip tests 
   - _Requirements: FR-1_
   - _Design: Component defaults.go_
 
-- [ ] 1.2 Add --auto flag to install command
+- [x] 1.2 Add --auto flag to install command
   - **Do**: Add `--auto` BoolFlag to `installFlags` in `cmd/nativehost/cmd.go`
   - **Files**: `/Users/divkix/GitHub/warpdl/cmd/nativehost/cmd.go`
   - **Done when**: `warpdl native-host install --help` shows `--auto` flag
