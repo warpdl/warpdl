@@ -63,7 +63,7 @@ Focus: Get defaults working and one package manager hook functional. Skip tests 
 
 Add remaining package manager hooks.
 
-- [ ] 2.1 Add Homebrew post_uninstall hook
+- [x] 2.1 Add Homebrew post_uninstall hook
   - **Do**: Add `post_uninstall` to `.goreleaser.yml` brews section with `native-host uninstall --browser all`
   - **Files**: `/Users/divkix/GitHub/warpdl/.goreleaser.yml`
   - **Done when**: post_uninstall section exists with native-host uninstall
