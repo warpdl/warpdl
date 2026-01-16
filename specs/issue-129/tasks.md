@@ -44,7 +44,7 @@ Focus: Get defaults working and one package manager hook functional. Skip tests 
   - _Requirements: FR-2, FR-3, FR-10_
   - _Design: Component Modified install.go_
 
-- [ ] 1.4 Update Homebrew formula with post_install hook
+- [x] 1.4 Update Homebrew formula with post_install hook
   - **Do**: Add native host install call to `.goreleaser.yml` brews[0].post_install section after daemon stop
   - **Files**: `/Users/divkix/GitHub/warpdl/.goreleaser.yml`
   - **Done when**: post_install contains `native-host install --auto` command

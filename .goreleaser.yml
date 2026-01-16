@@ -177,6 +177,12 @@ brews:
       rescue
         # Daemon wasn't running, that's fine
       end
+      # Install native messaging host for browser extensions
+      begin
+        system "#{bin}/warpdl", "native-host", "install", "--auto"
+      rescue
+        # Installation failed, user can run manually if needed
+      end
     caveats: |
       To start WarpDL daemon now and auto-start at login:
         brew services start warpdl
