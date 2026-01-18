@@ -17,6 +17,26 @@ import (
 	"time"
 )
 
+// cancelOnClose wraps an io.ReadCloser and calls a cancel function when Close() is called.
+// This ties the context cancellation to the body lifecycle, ensuring the context stays
+// alive as long as the body is being read (even across function boundaries).
+type cancelOnClose struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+	once   sync.Once
+}
+
+// Close closes the underlying ReadCloser and cancels the associated context.
+// It is safe to call multiple times; the cancel function is only called once.
+func (c *cancelOnClose) Close() error {
+	c.once.Do(func() {
+		if c.cancel != nil {
+			c.cancel()
+		}
+	})
+	return c.ReadCloser.Close()
+}
+
 type Part struct {
 	ctx context.Context
 	// URL
@@ -124,16 +144,17 @@ func (p *Part) getRead() int64 {
 }
 
 func (p *Part) download(headers Headers, ioff, foff int64, force bool, requestTimeout time.Duration) (body io.ReadCloser, slow bool, err error) {
-	// Create context with timeout if specified
 	ctx := p.ctx
+	var cancel context.CancelFunc
 	if requestTimeout > 0 {
-		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(p.ctx, requestTimeout)
-		defer cancel()
 	}
 
 	req, er := http.NewRequestWithContext(ctx, http.MethodGet, p.url, nil)
 	if er != nil {
+		if cancel != nil {
+			cancel()
+		}
 		err = er
 		return
 	}
@@ -146,18 +167,27 @@ func (p *Part) download(headers Headers, ioff, foff int64, force bool, requestTi
 	}
 	resp, er := p.client.Do(req)
 	if er != nil {
+		if cancel != nil {
+			cancel()
+		}
 		err = er
 		return
 	}
 
-	// Wrap response body with rate limiter if speed limit is set
 	var reader io.ReadCloser = resp.Body
 	if p.speedLimit > 0 {
 		reader = NewRateLimitedReadCloser(resp.Body, p.speedLimit)
 	}
 
 	slow, err = p.copyBuffer(reader, foff, force)
-	body = resp.Body
+
+	// Wrap body with cancelOnClose so cancel() is called when body is closed.
+	// This ties context lifecycle to body lifecycle, allowing body reuse.
+	if cancel != nil {
+		body = &cancelOnClose{ReadCloser: resp.Body, cancel: cancel}
+	} else {
+		body = resp.Body
+	}
 	return
 }
 

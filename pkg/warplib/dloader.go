@@ -1076,6 +1076,11 @@ func (d *Downloader) NumConnections() int32 {
 	return d.numConn
 }
 
+// IsStopped returns true if the download was intentionally stopped.
+func (d *Downloader) IsStopped() bool {
+	return atomic.LoadInt32(&d.stopped) == 1
+}
+
 // Log adds the provided string to download's log file.
 // It can't be used once download is complete.
 func (d *Downloader) Log(s string, a ...any) {

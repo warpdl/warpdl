@@ -12,12 +12,10 @@ import (
 	"github.com/warpdl/warpdl/pkg/warplib"
 )
 
-func getHandler(pool *server.Pool, uidPtr *string, stopDownloadPtr *func() error) *warplib.Handlers {
+func getHandler(pool *server.Pool, uidPtr *string, stopDownloadPtr *func() error, isStoppedPtr *func() bool) *warplib.Handlers {
 	return &warplib.Handlers{
 		ErrorHandler: func(_ string, err error) {
-			// Ignore context.Canceled errors - they're intentional stops,
-			// not critical errors. The DownloadStoppedHandler handles graceful stops.
-			if errors.Is(err, context.Canceled) {
+			if errors.Is(err, context.Canceled) && *isStoppedPtr != nil && (*isStoppedPtr)() {
 				return
 			}
 			uid := *uidPtr
@@ -151,13 +149,14 @@ func (s *Api) resumeHandler(sconn *server.SyncConn, pool *server.Pool, body json
 		item         *warplib.Item
 		hash         = &m.DownloadId
 		stopDownload = &__stop
+		isStopped    = func() bool { return false }
 	)
 	item, err = s.manager.ResumeDownload(rsClient, m.DownloadId, &warplib.ResumeDownloadOpts{
 		Headers:        m.Headers,
 		ForceParts:     m.ForceParts,
 		MaxConnections: m.MaxConnections,
 		MaxSegments:    m.MaxSegments,
-		Handlers:       getHandler(pool, hash, stopDownload),
+		Handlers:       getHandler(pool, hash, stopDownload, &isStopped),
 		RetryConfig:    retryConfig,
 		RequestTimeout: requestTimeout,
 		SpeedLimit:     speedLimit,
@@ -168,15 +167,17 @@ func (s *Api) resumeHandler(sconn *server.SyncConn, pool *server.Pool, body json
 	pool.AddDownload(m.DownloadId, sconn)
 	*hash = item.Hash
 	*stopDownload = item.StopDownload
+	isStopped = item.IsStopped
 	var cItem *warplib.Item
 	if item.ChildHash != "" {
 		var cStopDownload = &__stop
+		cIsStopped := func() bool { return false }
 		cItem, err = s.manager.ResumeDownload(rsClient, item.ChildHash, &warplib.ResumeDownloadOpts{
 			Headers:        m.Headers,
 			ForceParts:     m.ForceParts,
 			MaxConnections: m.MaxConnections,
 			MaxSegments:    m.MaxSegments,
-			Handlers:       getHandler(pool, &item.ChildHash, cStopDownload),
+			Handlers:       getHandler(pool, &item.ChildHash, cStopDownload, &cIsStopped),
 			RetryConfig:    retryConfig,
 			RequestTimeout: requestTimeout,
 			SpeedLimit:     speedLimit,
@@ -188,6 +189,7 @@ func (s *Api) resumeHandler(sconn *server.SyncConn, pool *server.Pool, body json
 		}
 		pool.AddDownload(item.ChildHash, sconn)
 		*cStopDownload = cItem.StopDownload
+		cIsStopped = cItem.IsStopped
 		// need more opinions on this one:
 		item.TotalSize += cItem.TotalSize
 	}

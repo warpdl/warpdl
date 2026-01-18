@@ -82,9 +82,7 @@ func (s *Api) downloadHandler(sconn *server.SyncConn, pool *server.Pool, body js
 		SpeedLimit:        speedLimit,
 		Handlers: &warplib.Handlers{
 			ErrorHandler: func(_ string, err error) {
-				// Ignore context.Canceled errors - they're intentional stops,
-				// not critical errors. The DownloadStoppedHandler handles graceful stops.
-				if errors.Is(err, context.Canceled) {
+				if errors.Is(err, context.Canceled) && d.IsStopped() {
 					return
 				}
 				uid := d.GetHash()

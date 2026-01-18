@@ -271,3 +271,13 @@ func (i *Item) IsDownloading() bool {
 	defer i.dAllocMu.RUnlock()
 	return i.dAlloc != nil
 }
+
+// IsStopped returns true if the download was intentionally stopped.
+func (i *Item) IsStopped() bool {
+	i.dAllocMu.RLock()
+	defer i.dAllocMu.RUnlock()
+	if i.dAlloc == nil {
+		return true
+	}
+	return i.dAlloc.IsStopped()
+}

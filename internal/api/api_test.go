@@ -506,7 +506,8 @@ func TestGetHandler(t *testing.T) {
 	uid := "id"
 	stopCalled := false
 	stopFn := func() error { stopCalled = true; return nil }
-	handlers := getHandler(pool, &uid, &stopFn)
+	isStopped := func() bool { return false }
+	handlers := getHandler(pool, &uid, &stopFn, &isStopped)
 	handlers.ErrorHandler("hash", errors.New("boom"))
 	handlers.DownloadProgressHandler("hash", 1)
 	handlers.ResumeProgressHandler("hash", 1)
