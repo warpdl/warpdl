@@ -1,7 +1,9 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -13,6 +15,11 @@ import (
 func getHandler(pool *server.Pool, uidPtr *string, stopDownloadPtr *func() error) *warplib.Handlers {
 	return &warplib.Handlers{
 		ErrorHandler: func(_ string, err error) {
+			// Ignore context.Canceled errors - they're intentional stops,
+			// not critical errors. The DownloadStoppedHandler handles graceful stops.
+			if errors.Is(err, context.Canceled) {
+				return
+			}
 			uid := *uidPtr
 			pool.Broadcast(uid, server.InitError(err))
 			pool.WriteError(uid, server.ErrorTypeCritical, err.Error())

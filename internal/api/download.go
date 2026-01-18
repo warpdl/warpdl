@@ -1,7 +1,9 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -80,6 +82,11 @@ func (s *Api) downloadHandler(sconn *server.SyncConn, pool *server.Pool, body js
 		SpeedLimit:        speedLimit,
 		Handlers: &warplib.Handlers{
 			ErrorHandler: func(_ string, err error) {
+				// Ignore context.Canceled errors - they're intentional stops,
+				// not critical errors. The DownloadStoppedHandler handles graceful stops.
+				if errors.Is(err, context.Canceled) {
+					return
+				}
 				uid := d.GetHash()
 				pool.Broadcast(uid, server.InitError(err))
 				pool.WriteError(uid, server.ErrorTypeCritical, err.Error())
