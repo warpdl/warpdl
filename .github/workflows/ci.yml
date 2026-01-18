@@ -94,7 +94,7 @@ jobs:
 
       - name: Run E2E test
         id: e2e
-        run: go test -v -tags=e2e -run "TestE2EDownload_${{ matrix.location }}" -timeout=5m ./pkg/warplib/
+        run: go test -v -tags=e2e -run "TestCLIDownload_${{ matrix.location }}" -timeout=10m ./tests/e2e/
 
       - name: Record result
         if: always()
