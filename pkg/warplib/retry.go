@@ -64,8 +64,9 @@ func ClassifyError(err error) ErrorCategory {
 		return ErrCategoryFatal
 	}
 
-	// Context cancellation is not retryable
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+	// Context cancellation is not retryable (user stopped download)
+	// Deadline exceeded (timeout) is retryable (per-request timeout)
+	if errors.Is(err, context.Canceled) {
 		return ErrCategoryFatal
 	}
 

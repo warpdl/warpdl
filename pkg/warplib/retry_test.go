@@ -33,7 +33,7 @@ func TestClassifyError(t *testing.T) {
 		{
 			name:     "context.DeadlineExceeded",
 			err:      context.DeadlineExceeded,
-			expected: ErrCategoryFatal,
+			expected: ErrCategoryRetryable,
 		},
 		{
 			name:     "unknown error",
@@ -326,7 +326,6 @@ func TestShouldRetry(t *testing.T) {
 		fatalErrors := []error{
 			nil,
 			context.Canceled,
-			context.DeadlineExceeded,
 			errors.New("unknown error"),
 		}
 
@@ -347,6 +346,7 @@ func TestShouldRetry(t *testing.T) {
 			syscall.ECONNRESET,
 			errors.New("connection reset"),
 			errors.New("timeout occurred"),
+			context.DeadlineExceeded,
 		}
 
 		for _, err := range retryableErrors {
