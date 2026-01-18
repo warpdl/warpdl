@@ -5,12 +5,14 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"runtime"
 
 	"github.com/urfave/cli"
 	"github.com/warpdl/warpdl/cmd/common"
 	"github.com/warpdl/warpdl/cmd/ext"
 	"github.com/warpdl/warpdl/cmd/nativehost"
+	sharedcommon "github.com/warpdl/warpdl/common"
 )
 
 // BuildArgs contains build-time information passed to the CLI application.
@@ -41,6 +43,11 @@ var globalFlags = []cli.Flag{
 	cli.StringSliceFlag{
 		Name:  "cookie",
 		Usage: "HTTP cookie(s) for authentication (format: 'name=value', can be specified multiple times)",
+	},
+	cli.BoolFlag{
+		Name:   "debug, d",
+		Usage:  "enable debug logging for troubleshooting",
+		EnvVar: sharedcommon.DebugEnv,
 	},
 }
 
@@ -176,6 +183,14 @@ func GetApp(bArgs BuildArgs) *cli.App {
 		UseShortOptionHandling: true,
 		HideHelp:               true,
 		HideVersion:            true,
+		Before: func(ctx *cli.Context) error {
+			// Set WARPDL_DEBUG=1 if --debug/-d flag is set
+			// This enables debug logging throughout the application
+			if ctx.GlobalBool("debug") {
+				_ = os.Setenv(sharedcommon.DebugEnv, "1")
+			}
+			return nil
+		},
 	}
 }
 
