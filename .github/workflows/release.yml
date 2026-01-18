@@ -11,9 +11,72 @@ on:
         required: true
 
 jobs:
+  # Validation jobs - same checks as regular CI
+  validate:
+    name: Validate (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            run-race: true
+          - os: macos-latest
+            run-race: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: stable
+          cache: true
+
+      - name: Build
+        run: go build -ldflags="-w -s" .
+
+      - name: Run tests with coverage
+        run: scripts/check_coverage.sh
+        env:
+          COVERAGE_MIN: "80"
+          COVERAGE_MIN_PER_PKG: "80"
+
+      - name: Run race tests
+        if: matrix.run-race
+        shell: bash
+        run: scripts/go_test_retry.sh -race -short ./...
+
+  validate-windows:
+    name: Validate (Windows)
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: stable
+          cache: true
+
+      - name: Build
+        run: go build -ldflags="-w -s" .
+
   release:
     name: Release
     runs-on: ubuntu-latest
+    needs: [validate, validate-windows]
     permissions:
       contents: write
       packages: write
@@ -33,12 +96,6 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version: stable
-
-      - name: Run tests with coverage gating
-        run: scripts/check_coverage.sh
-        env:
-          COVERAGE_MIN: "80"
-          COVERAGE_MIN_PER_PKG: "80"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
