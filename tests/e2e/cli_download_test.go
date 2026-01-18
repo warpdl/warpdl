@@ -57,8 +57,8 @@ func testCLIDownload(t *testing.T, url string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Start daemon in background with debug logging
-	daemonCmd := exec.CommandContext(ctx, binaryPath, "daemon", "-d")
+	// Start daemon in background
+	daemonCmd := exec.CommandContext(ctx, binaryPath, "daemon")
 	daemonCmd.Env = env
 	daemonCmd.Stdout = os.Stdout
 	daemonCmd.Stderr = os.Stderr
