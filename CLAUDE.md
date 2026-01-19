@@ -101,6 +101,7 @@ Example: `core,daemon: feat: implemented feature X`
 - `cmd/cookieMan.go` - Cross-platform credential management (uses go-keyring)
 - Keyring abstraction via `zalando/go-keyring`
 - Windows: Uses named pipes via `Microsoft/go-winio`; falls back to TCP on socket failures
+- Disk space checking: Unix uses `golang.org/x/sys/unix.Statfs`, Windows uses `golang.org/x/sys/windows.GetDiskFreeSpaceEx`
 - Test files follow `*_unix_test.go` / `*_windows_test.go` naming conventions for platform-specific tests
 
 ## Test Coverage Requirements
