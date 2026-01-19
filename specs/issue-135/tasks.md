@@ -39,7 +39,7 @@ Focus: Validate queue concept works end-to-end. Hardcoded limit, minimal error h
   - _Requirements: FR-4, AC-2.1_
   - _Design: Completion Flow_
 
-- [ ] 1.4 Implement OnComplete and onStart callback
+- [x] 1.4 Implement OnComplete and onStart callback
   - **Do**: Add `OnComplete(hash)` that removes from active, pops waiting, calls `onStart` callback. Add `onStart` callback field to QueueManager.
   - **Files**: `/Users/divkix/GitHub/warpdl/pkg/warplib/queue.go`
   - **Done when**: Test from 1.3 passes

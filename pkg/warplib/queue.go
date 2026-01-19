@@ -84,3 +84,27 @@ func (qm *QueueManager) WaitingCount() int {
     defer qm.mu.Unlock()
     return len(qm.waiting)
 }
+
+// OnComplete marks a download as complete and starts the next waiting download if available.
+func (qm *QueueManager) OnComplete(hash string) {
+    qm.mu.Lock()
+    defer qm.mu.Unlock()
+
+    // Remove from active
+    delete(qm.active, hash)
+
+    // If there are waiting items and we have capacity, start the next one
+    if len(qm.waiting) > 0 && len(qm.active) < qm.maxConcurrent {
+        // Pop first item from waiting queue
+        next := qm.waiting[0]
+        qm.waiting = qm.waiting[1:]
+
+        // Add to active
+        qm.active[next.hash] = struct{}{}
+
+        // Call onStart callback
+        if qm.onStart != nil {
+            qm.onStart(next.hash)
+        }
+    }
+}
