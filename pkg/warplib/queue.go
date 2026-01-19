@@ -68,11 +68,21 @@ func (qm *QueueManager) Add(hash string, priority Priority) {
         return
     }
 
-    // Queue the download
-    qm.waiting = append(qm.waiting, queuedItem{
-        hash:     hash,
-        priority: priority,
-    })
+    // Queue the download based on priority (higher priority inserted before lower)
+    // Find insertion point: insert before first item with lower priority
+    insertIdx := len(qm.waiting) // Default: append at end
+    for i, item := range qm.waiting {
+        if item.priority < priority {
+            insertIdx = i
+            break
+        }
+    }
+
+    // Insert at the correct position
+    newItem := queuedItem{hash: hash, priority: priority}
+    qm.waiting = append(qm.waiting, queuedItem{}) // Grow slice
+    copy(qm.waiting[insertIdx+1:], qm.waiting[insertIdx:])
+    qm.waiting[insertIdx] = newItem
 }
 
 // ActiveCount returns the number of currently active downloads.

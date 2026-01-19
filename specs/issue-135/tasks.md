@@ -57,7 +57,7 @@ Focus: Validate queue concept works end-to-end. Hardcoded limit, minimal error h
   - _Requirements: FR-10, AC-7.2_
   - _Design: QueuedItem_
 
-- [ ] 1.6 Implement Priority type and priority-based dequeue
+- [x] 1.6 Implement Priority type and priority-based dequeue
   - **Do**: Add `Priority` type (Low=0, Normal=1, High=2). Modify queue insertion to maintain priority order. High priority items inserted before lower priority.
   - **Files**: `/Users/divkix/GitHub/warpdl/pkg/warplib/queue.go`
   - **Done when**: Test from 1.5 passes
