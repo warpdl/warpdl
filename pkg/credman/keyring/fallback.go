@@ -15,6 +15,12 @@ const (
 	keyFileMode = 0600
 )
 
+type TempFile interface {
+	Name() string
+	WriteString(s string) (int, error)
+	Close() error
+}
+
 // FileKeyStore provides file-based key storage as a fallback when the system
 // keyring is unavailable. Keys are stored as hex-encoded strings with 0600 permissions.
 type FileKeyStore struct {
@@ -28,8 +34,9 @@ var (
 	fileRemove      = os.Remove
 	fileRename      = os.Rename
 	fileMkdirAll    = os.MkdirAll
-	fileTempFile    = os.CreateTemp
+	fileTempFile    = func(dir, pattern string) (TempFile, error) { return os.CreateTemp(dir, pattern) }
 	fileTempFileDir = ""
+	fileChmod       = os.Chmod
 )
 
 // NewFileKeyStore creates a new FileKeyStore that stores keys in the specified
@@ -83,7 +90,7 @@ func (f *FileKeyStore) SetKey() ([]byte, error) {
 		return nil, fmt.Errorf("close temp file: %w", err)
 	}
 
-	if err := os.Chmod(tmpPath, keyFileMode); err != nil {
+	if err := fileChmod(tmpPath, keyFileMode); err != nil {
 		fileRemove(tmpPath)
 		return nil, fmt.Errorf("set permissions: %w", err)
 	}

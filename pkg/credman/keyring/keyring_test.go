@@ -183,3 +183,163 @@ func TestGetKeyInvalidHex(t *testing.T) {
 		t.Fatal("expected error for invalid hex string")
 	}
 }
+
+type mockLogger struct {
+	warnings []string
+}
+
+func (m *mockLogger) Warning(format string, args ...interface{}) {
+	m.warnings = append(m.warnings, format)
+}
+
+func TestNewKeyringWithFallback(t *testing.T) {
+	tmpDir := t.TempDir()
+	logger := &mockLogger{}
+
+	ks := NewKeyringWithFallback(tmpDir, logger)
+	if ks == nil {
+		t.Fatal("expected non-nil KeyStore")
+	}
+}
+
+func TestFallbackKeyStore_GetKey_KeyringSuccess(t *testing.T) {
+	origGet := keyringGet
+	defer func() { keyringGet = origGet }()
+
+	expectedKey := []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+		0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10,
+		0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
+		0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20}
+	keyringGet = func(app, key string) (string, error) {
+		return hex.EncodeToString(expectedKey), nil
+	}
+
+	tmpDir := t.TempDir()
+	ks := NewKeyringWithFallback(tmpDir, nil)
+
+	key, err := ks.GetKey()
+	if err != nil {
+		t.Fatalf("GetKey: %v", err)
+	}
+	if !bytes.Equal(key, expectedKey) {
+		t.Fatalf("got %x, want %x", key, expectedKey)
+	}
+}
+
+func TestFallbackKeyStore_GetKey_FallsBackToFile(t *testing.T) {
+	origGet := keyringGet
+	defer func() { keyringGet = origGet }()
+
+	keyringGet = func(app, key string) (string, error) {
+		return "", errors.New("keyring unavailable")
+	}
+
+	tmpDir := t.TempDir()
+	fileStore := NewFileKeyStore(tmpDir)
+	expectedKey, err := fileStore.SetKey()
+	if err != nil {
+		t.Fatalf("setup file key: %v", err)
+	}
+
+	ks := NewKeyringWithFallback(tmpDir, nil)
+
+	key, err := ks.GetKey()
+	if err != nil {
+		t.Fatalf("GetKey: %v", err)
+	}
+	if !bytes.Equal(key, expectedKey) {
+		t.Fatalf("got %x, want %x", key, expectedKey)
+	}
+}
+
+func TestFallbackKeyStore_SetKey_KeyringSuccess(t *testing.T) {
+	origSet := keyringSet
+	origRandRead := randRead
+	defer func() {
+		keyringSet = origSet
+		randRead = origRandRead
+	}()
+
+	var storedValue string
+	keyringSet = func(app, keyField, value string) error {
+		storedValue = value
+		return nil
+	}
+	randRead = func(b []byte) (int, error) {
+		for i := range b {
+			b[i] = byte(i)
+		}
+		return len(b), nil
+	}
+
+	tmpDir := t.TempDir()
+	logger := &mockLogger{}
+	ks := NewKeyringWithFallback(tmpDir, logger)
+
+	key, err := ks.SetKey()
+	if err != nil {
+		t.Fatalf("SetKey: %v", err)
+	}
+	if len(key) != 32 {
+		t.Fatalf("expected 32 bytes, got %d", len(key))
+	}
+	if storedValue != hex.EncodeToString(key) {
+		t.Fatal("key not stored in keyring")
+	}
+	if len(logger.warnings) != 0 {
+		t.Fatalf("unexpected warnings: %v", logger.warnings)
+	}
+}
+
+func TestFallbackKeyStore_SetKey_FallsBackToFile(t *testing.T) {
+	origSet := keyringSet
+	defer func() { keyringSet = origSet }()
+
+	keyringSet = func(app, keyField, value string) error {
+		return errors.New("keyring unavailable")
+	}
+
+	tmpDir := t.TempDir()
+	logger := &mockLogger{}
+	ks := NewKeyringWithFallback(tmpDir, logger)
+
+	key, err := ks.SetKey()
+	if err != nil {
+		t.Fatalf("SetKey: %v", err)
+	}
+	if len(key) != 32 {
+		t.Fatalf("expected 32 bytes, got %d", len(key))
+	}
+	if len(logger.warnings) != 1 {
+		t.Fatalf("expected 1 warning, got %d", len(logger.warnings))
+	}
+
+	fileStore := NewFileKeyStore(tmpDir)
+	fileKey, err := fileStore.GetKey()
+	if err != nil {
+		t.Fatalf("file key not set: %v", err)
+	}
+	if !bytes.Equal(key, fileKey) {
+		t.Fatal("returned key doesn't match file key")
+	}
+}
+
+func TestFallbackKeyStore_SetKey_NilLogger(t *testing.T) {
+	origSet := keyringSet
+	defer func() { keyringSet = origSet }()
+
+	keyringSet = func(app, keyField, value string) error {
+		return errors.New("keyring unavailable")
+	}
+
+	tmpDir := t.TempDir()
+	ks := NewKeyringWithFallback(tmpDir, nil)
+
+	key, err := ks.SetKey()
+	if err != nil {
+		t.Fatalf("SetKey: %v", err)
+	}
+	if len(key) != 32 {
+		t.Fatalf("expected 32 bytes, got %d", len(key))
+	}
+}

@@ -149,6 +149,123 @@ func TestFileKeyStore_DeleteKey_NotFound(t *testing.T) {
 	}
 }
 
+type mockTempFile struct {
+	name        string
+	writeErr    error
+	closeErr    error
+	closeCalled bool
+	writeCalled bool
+}
+
+func (m *mockTempFile) Name() string { return m.name }
+func (m *mockTempFile) WriteString(s string) (int, error) {
+	m.writeCalled = true
+	if m.writeErr != nil {
+		return 0, m.writeErr
+	}
+	return len(s), nil
+}
+func (m *mockTempFile) Close() error {
+	m.closeCalled = true
+	return m.closeErr
+}
+
+func TestFileKeyStore_SetKey_TempFileError(t *testing.T) {
+	origTempFile := fileTempFile
+	defer func() { fileTempFile = origTempFile }()
+
+	fileTempFile = func(dir, pattern string) (TempFile, error) {
+		return nil, errors.New("tempfile fail")
+	}
+
+	tmpDir := t.TempDir()
+	store := NewFileKeyStore(tmpDir)
+
+	_, err := store.SetKey()
+	if err == nil {
+		t.Fatal("expected error for temp file creation failure")
+	}
+}
+
+func TestFileKeyStore_SetKey_WriteError(t *testing.T) {
+	origTempFile := fileTempFile
+	origRemove := fileRemove
+	defer func() {
+		fileTempFile = origTempFile
+		fileRemove = origRemove
+	}()
+
+	tmpPath := "/tmp/mock-temp-file"
+	var removeCalledWith string
+	fileRemove = func(path string) error {
+		removeCalledWith = path
+		return nil
+	}
+
+	fileTempFile = func(dir, pattern string) (TempFile, error) {
+		return &mockTempFile{name: tmpPath, writeErr: errors.New("write fail")}, nil
+	}
+
+	tmpDir := t.TempDir()
+	store := NewFileKeyStore(tmpDir)
+
+	_, err := store.SetKey()
+	if err == nil {
+		t.Fatal("expected error for write failure")
+	}
+	if removeCalledWith != tmpPath {
+		t.Fatalf("expected cleanup of %s, got %s", tmpPath, removeCalledWith)
+	}
+}
+
+func TestFileKeyStore_SetKey_CloseError(t *testing.T) {
+	origTempFile := fileTempFile
+	origRemove := fileRemove
+	defer func() {
+		fileTempFile = origTempFile
+		fileRemove = origRemove
+	}()
+
+	tmpPath := "/tmp/mock-temp-file"
+	var removeCalledWith string
+	fileRemove = func(path string) error {
+		removeCalledWith = path
+		return nil
+	}
+
+	fileTempFile = func(dir, pattern string) (TempFile, error) {
+		return &mockTempFile{name: tmpPath, closeErr: errors.New("close fail")}, nil
+	}
+
+	tmpDir := t.TempDir()
+	store := NewFileKeyStore(tmpDir)
+
+	_, err := store.SetKey()
+	if err == nil {
+		t.Fatal("expected error for close failure")
+	}
+	if removeCalledWith != tmpPath {
+		t.Fatalf("expected cleanup of %s, got %s", tmpPath, removeCalledWith)
+	}
+}
+
+func TestFileKeyStore_SetKey_ChmodError(t *testing.T) {
+	origChmod := fileChmod
+	defer func() { fileChmod = origChmod }()
+
+	fileChmod = func(name string, mode os.FileMode) error {
+		return errors.New("chmod fail")
+	}
+
+	tmpDir := t.TempDir()
+	store := NewFileKeyStore(tmpDir)
+
+	_, err := store.SetKey()
+	if err == nil {
+		t.Fatal("expected error for chmod failure")
+	}
+}
+
 func TestFileKeyStore_SetKey_OverwritesExisting(t *testing.T) {
 	tmpDir := t.TempDir()
 	store := NewFileKeyStore(tmpDir)
