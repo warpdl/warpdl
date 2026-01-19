@@ -51,6 +51,9 @@ type DownloadOpts struct {
 	// DisableWorkStealing disables dynamic work stealing where fast parts
 	// take over remaining work from slow adjacent parts.
 	DisableWorkStealing bool `json:"disable_work_stealing,omitempty"`
+	// Priority specifies the queue priority (0=low, 1=normal, 2=high).
+	// Defaults to normal if not specified.
+	Priority int `json:"priority,omitempty"`
 }
 
 // Download initiates a new download from the specified URL.
@@ -79,6 +82,7 @@ func (c *Client) Download(url, fileName, downloadDirectory string, opts *Downloa
 		RetryDelay:          opts.RetryDelay,
 		SpeedLimit:          opts.SpeedLimit,
 		DisableWorkStealing: opts.DisableWorkStealing,
+		Priority:            opts.Priority,
 	})
 }
 

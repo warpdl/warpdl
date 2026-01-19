@@ -50,6 +50,9 @@ type DownloadParams struct {
 	// DisableWorkStealing disables dynamic work stealing where fast parts
 	// take over remaining work from slow adjacent parts.
 	DisableWorkStealing bool `json:"disable_work_stealing,omitempty"`
+	// Priority specifies the queue priority (0=low, 1=normal, 2=high).
+	// Defaults to normal (1) if not specified.
+	Priority int `json:"priority,omitempty"`
 }
 
 // DownloadResponse contains the server response after initiating a download.

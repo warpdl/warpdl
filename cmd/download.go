@@ -46,8 +46,27 @@ var (
 			Usage:  "disable work stealing (fast parts taking over slow part ranges)",
 			EnvVar: "WARPDL_NO_WORK_STEAL",
 		},
+		cli.StringFlag{
+			Name:   "priority",
+			Usage:  "queue priority: high, normal, low (default: normal)",
+			Value:  "normal",
+			EnvVar: "WARPDL_PRIORITY",
+		},
 	}
 )
+
+// parsePriority converts a priority string to the corresponding integer value.
+// Returns 1 (normal) for invalid values.
+func parsePriority(s string) int {
+	switch strings.ToLower(s) {
+	case "high":
+		return 2
+	case "low":
+		return 0
+	default:
+		return 1 // normal
+	}
+}
 
 // resolveDownloadPath determines the download directory path based on priority:
 // 1. CLI flag (-l) - highest priority
@@ -148,6 +167,7 @@ func download(ctx *cli.Context) (err error) {
 		RetryDelay:          retryDelay,
 		SpeedLimit:          ctx.String("speed-limit"),
 		DisableWorkStealing: ctx.Bool("no-work-steal"),
+		Priority:            parsePriority(ctx.String("priority")),
 	})
 	if err != nil {
 		cmdcommon.PrintRuntimeErr(ctx, "info", "download", err)

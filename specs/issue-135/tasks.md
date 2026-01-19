@@ -154,7 +154,7 @@ After POC validated, clean up code and add missing features.
   - _Requirements: FR-6, FR-7, FR-8_
   - _Design: CLI Commands_
 
-- [ ] 2.8 Add --priority flag to download command
+- [x] 2.8 Add --priority flag to download command
   - **Do**: Add `--priority high|normal|low` flag to download command. Pass priority to API. Default to "normal".
   - **Files**: `/Users/divkix/GitHub/warpdl/cmd/download.go`
   - **Done when**: `warpdl download --priority high <url>` works

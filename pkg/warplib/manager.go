@@ -132,6 +132,7 @@ type AddDownloadOpts struct {
 	IsChildren       bool
 	ChildHash        string
 	AbsoluteLocation string
+	Priority         Priority
 }
 
 // AddDownload adds a new download item entry.
@@ -167,7 +168,7 @@ func (m *Manager) AddDownload(d *Downloader, opts *AddDownloadOpts) (err error) 
 
 	// Register with queue if enabled
 	if m.queue != nil {
-		m.queue.Add(d.hash, PriorityNormal)
+		m.queue.Add(d.hash, opts.Priority)
 	}
 	return
 }
