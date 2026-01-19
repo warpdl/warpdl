@@ -48,7 +48,7 @@ Focus: Validate queue concept works end-to-end. Hardcoded limit, minimal error h
   - _Requirements: FR-4_
   - _Design: Completion Flow_
 
-- [ ] 1.5 Write failing test for Priority sorting
+- [x] 1.5 Write failing test for Priority sorting
   - **Do**: Add test that queues low, normal, high priority items, expects high to dequeue first.
   - **Files**: `/Users/divkix/GitHub/warpdl/pkg/warplib/queue_test.go`
   - **Done when**: Test exists and fails

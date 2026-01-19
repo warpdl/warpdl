@@ -8,8 +8,12 @@ import (
 type Priority int
 
 const (
+    // PriorityLow is the lowest priority for downloads.
+    PriorityLow Priority = iota
     // PriorityNormal is the default priority for downloads.
-    PriorityNormal Priority = iota
+    PriorityNormal
+    // PriorityHigh is the highest priority for downloads.
+    PriorityHigh
 )
 
 // queuedItem represents a download waiting in the queue.

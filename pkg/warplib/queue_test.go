@@ -81,3 +81,54 @@ func TestQueueManager_OnComplete(t *testing.T) {
         t.Fatalf("expected 0 waiting downloads after completion, got %d", qm.WaitingCount())
     }
 }
+
+// TestQueueManager_Priority tests that waiting queue is ordered by priority, not FIFO.
+// High priority items should be started before lower priority items, regardless of add order.
+func TestQueueManager_Priority(t *testing.T) {
+    var mu sync.Mutex
+    startedHashes := make([]string, 0)
+
+    onStart := func(hash string) {
+        mu.Lock()
+        defer mu.Unlock()
+        startedHashes = append(startedHashes, hash)
+    }
+
+    // maxConcurrent=1 so only first item is active, rest go to waiting
+    qm := NewQueueManager(1, onStart)
+
+    // Add first item - becomes active immediately
+    qm.Add("first", PriorityNormal)
+
+    // Add items to waiting queue in order: low, normal, high
+    qm.Add("low", PriorityLow)
+    qm.Add("normal", PriorityNormal)
+    qm.Add("high", PriorityHigh)
+
+    // Verify initial state: 1 active (first), 3 waiting
+    if qm.ActiveCount() != 1 {
+        t.Fatalf("expected 1 active, got %d", qm.ActiveCount())
+    }
+    if qm.WaitingCount() != 3 {
+        t.Fatalf("expected 3 waiting, got %d", qm.WaitingCount())
+    }
+
+    // Clear started hashes to only track new starts
+    mu.Lock()
+    startedHashes = startedHashes[:0]
+    mu.Unlock()
+
+    // Complete the active download to free a slot
+    qm.OnComplete("first")
+
+    // Verify HIGH priority item was started (not low which was added first)
+    mu.Lock()
+    defer mu.Unlock()
+
+    if len(startedHashes) != 1 {
+        t.Fatalf("expected onStart called once, got %d calls", len(startedHashes))
+    }
+    if startedHashes[0] != "high" {
+        t.Fatalf("expected high priority item to start first, got %s", startedHashes[0])
+    }
+}
