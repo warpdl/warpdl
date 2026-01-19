@@ -11,5 +11,5 @@ const OfficialFirefoxExtensionID = ""
 // HasOfficialExtensions returns true if at least one official extension ID is configured.
 // Package manager hooks use this to determine if native host installation should proceed.
 func HasOfficialExtensions() bool {
-    return OfficialChromeExtensionID != "" || OfficialFirefoxExtensionID != ""
+	return OfficialChromeExtensionID != "" || OfficialFirefoxExtensionID != ""
 }

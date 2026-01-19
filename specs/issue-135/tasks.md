@@ -221,7 +221,7 @@ After POC validated, clean up code and add missing features.
   - **Commit**: `core: fix: address race conditions` (if needed)
   - _Requirements: NFR-5_
 
-- [ ] 4.3 Lint and format
+- [x] 4.3 Lint and format
   - **Do**: Run go fmt and go vet on all files.
   - **Verify**: `go fmt ./... && go vet ./...`
   - **Done when**: No warnings
