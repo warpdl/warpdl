@@ -59,6 +59,14 @@ const (
 	UPDATE_UNLOAD_EXT UpdateType = "unload_extension"
 	// UPDATE_VERSION requests the daemon's version information.
 	UPDATE_VERSION UpdateType = "version"
+	// UPDATE_QUEUE_STATUS requests the current queue status.
+	UPDATE_QUEUE_STATUS UpdateType = "queue_status"
+	// UPDATE_QUEUE_PAUSE pauses the download queue (stops auto-starting new downloads).
+	UPDATE_QUEUE_PAUSE UpdateType = "queue_pause"
+	// UPDATE_QUEUE_RESUME resumes the download queue (allows auto-starting downloads).
+	UPDATE_QUEUE_RESUME UpdateType = "queue_resume"
+	// UPDATE_QUEUE_MOVE moves a queued item to a new position.
+	UPDATE_QUEUE_MOVE UpdateType = "queue_move"
 )
 
 // DownloadingAction represents the current state or action occurring during

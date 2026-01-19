@@ -121,7 +121,7 @@ After POC validated, clean up code and add missing features.
   - _Requirements: FR-8, AC-6.1, AC-6.2, AC-6.3, AC-6.4_
   - _Design: QueueManager_
 
-- [ ] 2.4 Add common types for queue API
+- [x] 2.4 Add common types for queue API
   - **Do**: Add `UPDATE_QUEUE_STATUS`, `UPDATE_QUEUE_PAUSE`, `UPDATE_QUEUE_RESUME`, `UPDATE_QUEUE_MOVE` constants. Add `QueueStatusResponse`, `QueueMoveParams` types.
   - **Files**: `/Users/divkix/GitHub/warpdl/common/const.go`, `/Users/divkix/GitHub/warpdl/common/types.go`
   - **Done when**: Types compile, no errors

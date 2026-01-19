@@ -211,3 +211,37 @@ type VersionResponse struct {
 	// BuildType indicates the build variant (e.g., "stable", "dev").
 	BuildType string `json:"build_type,omitempty"`
 }
+
+// QueueItemInfo represents a queued download item in the waiting queue.
+type QueueItemInfo struct {
+	// Hash is the unique identifier for the queued download.
+	Hash string `json:"hash"`
+	// Priority is the priority level (0=Low, 1=Normal, 2=High).
+	Priority int `json:"priority"`
+	// Position is the 0-indexed position in the waiting queue.
+	Position int `json:"position"`
+}
+
+// QueueStatusResponse is the response for queue status requests.
+type QueueStatusResponse struct {
+	// MaxConcurrent is the maximum number of concurrent downloads allowed.
+	MaxConcurrent int `json:"max_concurrent"`
+	// ActiveCount is the number of currently active downloads.
+	ActiveCount int `json:"active_count"`
+	// WaitingCount is the number of downloads waiting in the queue.
+	WaitingCount int `json:"waiting_count"`
+	// Paused indicates whether the queue is paused.
+	Paused bool `json:"paused"`
+	// Active contains the hashes of currently active downloads.
+	Active []string `json:"active"`
+	// Waiting contains information about queued downloads in priority order.
+	Waiting []QueueItemInfo `json:"waiting"`
+}
+
+// QueueMoveParams holds parameters for moving a queue item to a new position.
+type QueueMoveParams struct {
+	// Hash is the unique identifier of the queued download to move.
+	Hash string `json:"hash"`
+	// Position is the target 0-indexed position in the queue.
+	Position int `json:"position"`
+}
