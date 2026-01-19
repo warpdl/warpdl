@@ -94,7 +94,7 @@ Focus: Validate queue concept works end-to-end. Hardcoded limit, minimal error h
 
 After POC validated, clean up code and add missing features.
 
-- [ ] 2.1 Add queue state persistence
+- [x] 2.1 Add queue state persistence
   - **Do**: Create `QueueState` struct. Add `GetState()` and `LoadState()` methods. Integrate with Manager's GOB persistence.
   - **Files**: `/Users/divkix/GitHub/warpdl/pkg/warplib/queue.go`, `/Users/divkix/GitHub/warpdl/pkg/warplib/manager.go`
   - **Done when**: Queue state survives daemon restart
