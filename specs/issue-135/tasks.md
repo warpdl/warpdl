@@ -103,7 +103,7 @@ After POC validated, clean up code and add missing features.
   - _Requirements: FR-5, AC-3.1_
   - _Design: QueueState_
 
-- [ ] 2.2 Implement Pause/Resume methods
+- [x] 2.2 Implement Pause/Resume methods
   - **Do**: Add `paused` field to QueueManager. `Pause()` sets flag, prevents auto-start. `Resume()` clears flag, starts waiting if capacity.
   - **Files**: `/Users/divkix/GitHub/warpdl/pkg/warplib/queue.go`
   - **Done when**: Pause/Resume work correctly

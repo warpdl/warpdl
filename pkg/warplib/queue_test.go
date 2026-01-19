@@ -133,6 +133,109 @@ func TestQueueManager_Priority(t *testing.T) {
 	}
 }
 
+// TestQueueManager_Pause tests that pause prevents auto-start and resume re-enables it.
+// When paused, completing an active download should NOT auto-start waiting items.
+func TestQueueManager_Pause(t *testing.T) {
+	var mu sync.Mutex
+	startedHashes := make([]string, 0)
+
+	onStart := func(hash string) {
+		mu.Lock()
+		defer mu.Unlock()
+		startedHashes = append(startedHashes, hash)
+	}
+
+	qm := NewQueueManager(2, onStart)
+
+	// Add 3 items: 2 active, 1 waiting
+	qm.Add("hash0", PriorityNormal)
+	qm.Add("hash1", PriorityNormal)
+	qm.Add("hash2", PriorityNormal)
+
+	// Verify initial state
+	if qm.ActiveCount() != 2 {
+		t.Fatalf("expected 2 active, got %d", qm.ActiveCount())
+	}
+	if qm.WaitingCount() != 1 {
+		t.Fatalf("expected 1 waiting, got %d", qm.WaitingCount())
+	}
+
+	// Clear started hashes to track only new starts
+	mu.Lock()
+	startedHashes = startedHashes[:0]
+	mu.Unlock()
+
+	// Pause the queue
+	qm.Pause()
+	if !qm.IsPaused() {
+		t.Fatal("expected queue to be paused")
+	}
+
+	// Complete one active item
+	qm.OnComplete("hash0")
+
+	// Verify NO auto-start happened (paused)
+	mu.Lock()
+	startCount := len(startedHashes)
+	mu.Unlock()
+
+	if startCount != 0 {
+		t.Fatalf("expected no auto-start when paused, got %d starts", startCount)
+	}
+
+	// State: 1 active (hash1), 1 waiting (hash2)
+	if qm.ActiveCount() != 1 {
+		t.Fatalf("expected 1 active after completion while paused, got %d", qm.ActiveCount())
+	}
+	if qm.WaitingCount() != 1 {
+		t.Fatalf("expected 1 waiting (not auto-started), got %d", qm.WaitingCount())
+	}
+
+	// Resume the queue
+	qm.Resume()
+	if qm.IsPaused() {
+		t.Fatal("expected queue to be unpaused after Resume")
+	}
+
+	// Verify waiting item now started
+	mu.Lock()
+	startCount = len(startedHashes)
+	mu.Unlock()
+
+	if startCount != 1 {
+		t.Fatalf("expected 1 auto-start after resume, got %d", startCount)
+	}
+
+	// State: 2 active (hash1, hash2), 0 waiting
+	if qm.ActiveCount() != 2 {
+		t.Fatalf("expected 2 active after resume, got %d", qm.ActiveCount())
+	}
+	if qm.WaitingCount() != 0 {
+		t.Fatalf("expected 0 waiting after resume, got %d", qm.WaitingCount())
+	}
+}
+
+// TestQueueManager_PausePersistence tests that pause state is persisted.
+func TestQueueManager_PausePersistence(t *testing.T) {
+	qm := NewQueueManager(2, nil)
+
+	// Pause and get state
+	qm.Pause()
+	state := qm.GetState()
+
+	if !state.Paused {
+		t.Fatal("expected Paused=true in state")
+	}
+
+	// Restore to new queue
+	qm2 := NewQueueManager(2, nil)
+	qm2.LoadState(state)
+
+	if !qm2.IsPaused() {
+		t.Fatal("expected queue to be paused after LoadState")
+	}
+}
+
 // TestQueueManager_StatePersistence tests that queue state can be saved and restored.
 // Waiting items should survive GetState/LoadState cycle. Active items are not persisted.
 func TestQueueManager_StatePersistence(t *testing.T) {

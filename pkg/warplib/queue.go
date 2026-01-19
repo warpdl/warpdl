@@ -33,6 +33,7 @@ type QueuedItemState struct {
 type QueueState struct {
 	MaxConcurrent int
 	Waiting       []QueuedItemState
+	Paused        bool
 }
 
 // QueueManager manages concurrent download limits.
@@ -42,6 +43,7 @@ type QueueManager struct {
 	active        map[string]struct{}
 	waiting       []queuedItem
 	onStart       func(hash string)
+	paused        bool
 	mu            sync.Mutex
 }
 
@@ -120,6 +122,11 @@ func (qm *QueueManager) OnComplete(hash string) {
 	// Remove from active
 	delete(qm.active, hash)
 
+	// If paused, don't auto-start
+	if qm.paused {
+		return
+	}
+
 	// If there are waiting items and we have capacity, start the next one
 	if len(qm.waiting) > 0 && len(qm.active) < qm.maxConcurrent {
 		// Pop first item from waiting queue
@@ -160,6 +167,7 @@ func (qm *QueueManager) GetState() QueueState {
 	return QueueState{
 		MaxConcurrent: qm.maxConcurrent,
 		Waiting:       waiting,
+		Paused:        qm.paused,
 	}
 }
 
@@ -172,6 +180,7 @@ func (qm *QueueManager) LoadState(state QueueState) {
 	qm.maxConcurrent = state.MaxConcurrent
 	qm.active = make(map[string]struct{})
 	qm.waiting = make([]queuedItem, len(state.Waiting))
+	qm.paused = state.Paused
 
 	for i, item := range state.Waiting {
 		qm.waiting[i] = queuedItem{
@@ -179,4 +188,41 @@ func (qm *QueueManager) LoadState(state QueueState) {
 			priority: item.Priority,
 		}
 	}
+}
+
+// Pause pauses the queue, preventing auto-start of waiting items.
+func (qm *QueueManager) Pause() {
+	qm.mu.Lock()
+	defer qm.mu.Unlock()
+	qm.paused = true
+}
+
+// Resume resumes the queue, enabling auto-start and starting waiting items up to capacity.
+func (qm *QueueManager) Resume() {
+	qm.mu.Lock()
+	defer qm.mu.Unlock()
+
+	qm.paused = false
+
+	// Start waiting items up to capacity
+	for len(qm.waiting) > 0 && len(qm.active) < qm.maxConcurrent {
+		// Pop first item from waiting queue
+		next := qm.waiting[0]
+		qm.waiting = qm.waiting[1:]
+
+		// Add to active
+		qm.active[next.hash] = struct{}{}
+
+		// Call onStart callback
+		if qm.onStart != nil {
+			qm.onStart(next.hash)
+		}
+	}
+}
+
+// IsPaused returns whether the queue is paused.
+func (qm *QueueManager) IsPaused() bool {
+	qm.mu.Lock()
+	defer qm.mu.Unlock()
+	return qm.paused
 }
