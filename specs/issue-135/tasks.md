@@ -181,7 +181,7 @@ After POC validated, clean up code and add missing features.
   - **Commit**: `core: test: add QueueManager edge case tests`
   - _Requirements: NFR-4_
 
-- [ ] 3.2 Race condition tests for QueueManager
+- [x] 3.2 Race condition tests for QueueManager
   - **Do**: Add parallel tests that hammer Add/OnComplete/Move concurrently. Run with `-race` flag.
   - **Files**: `/Users/divkix/GitHub/warpdl/pkg/warplib/queue_race_test.go`
   - **Done when**: No races detected
