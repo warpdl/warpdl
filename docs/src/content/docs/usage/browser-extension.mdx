@@ -1,0 +1,117 @@
+---
+title: Browser Extension
+description: Integrating WarpDL with browser extensions via native messaging
+---
+
+WarpDL supports browser extension integration through the Native Messaging Host protocol. This allows browser extensions to communicate directly with the WarpDL daemon.
+
+## Supported Browsers
+
+| Browser | Protocol | Status |
+|---------|----------|--------|
+| Chrome | Native Messaging | Supported |
+| Firefox | Native Messaging | Supported |
+| Chromium | Native Messaging | Supported |
+| Edge | Native Messaging | Supported |
+| Brave | Native Messaging | Supported |
+
+## Installation
+
+### Package Manager Install (Automatic)
+
+If you installed WarpDL via Homebrew, Scoop, or a Linux package manager (deb/rpm), the native messaging host is configured automatically during installation.
+
+### Manual Install
+
+For manual installations, run:
+
+```bash
+warpdl native-host install --auto
+```
+
+This uses default extension IDs. For custom extension IDs:
+
+```bash
+warpdl native-host install \
+  --chrome-extension-id "your-chrome-extension-id" \
+  --firefox-extension-id "your-firefox-extension-id"
+```
+
+### Single Browser Install
+
+```bash
+warpdl native-host install --browser chrome --chrome-extension-id "extension-id"
+warpdl native-host install --browser firefox --firefox-extension-id "extension-id"
+```
+
+## Check Status
+
+```bash
+warpdl native-host status
+```
+
+This shows installation status for all supported browsers.
+
+## Uninstallation
+
+```bash
+warpdl native-host uninstall
+```
+
+Or for a specific browser:
+
+```bash
+warpdl native-host uninstall --browser chrome
+```
+
+## How It Works
+
+```
+Browser Extension → Native Messaging → warpdl native-host run → Daemon
+```
+
+1. Browser extension sends download requests via Native Messaging protocol
+2. WarpDL's native host binary receives the message
+3. Request is forwarded to the WarpDL daemon
+4. Download proceeds with all WarpDL features (parallel segments, resume, etc.)
+
+## Manifest Locations
+
+The native messaging manifests are installed to browser-specific locations:
+
+### Chrome/Chromium/Edge/Brave
+- **macOS**: `~/Library/Application Support/Google/Chrome/NativeMessagingHosts/`
+- **Linux**: `~/.config/google-chrome/NativeMessagingHosts/`
+- **Windows**: Registry + `%LOCALAPPDATA%\Google\Chrome\User Data\NativeMessagingHosts\`
+
+### Firefox
+- **macOS**: `~/Library/Application Support/Mozilla/NativeMessagingHosts/`
+- **Linux**: `~/.mozilla/native-messaging-hosts/`
+- **Windows**: Registry + `%APPDATA%\Mozilla\NativeMessagingHosts\`
+
+## Troubleshooting
+
+### Extension can't communicate with WarpDL
+
+1. Check if the daemon is running:
+   ```bash
+   warpdl list
+   ```
+
+2. Verify native host installation:
+   ```bash
+   warpdl native-host status
+   ```
+
+3. Reinstall native host:
+   ```bash
+   warpdl native-host uninstall
+   warpdl native-host install --auto
+   ```
+
+### Permission Denied
+
+Ensure the WarpDL binary has execute permissions:
+```bash
+chmod +x $(which warpdl)
+```

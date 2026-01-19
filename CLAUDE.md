@@ -40,18 +40,25 @@ WarpDL is a daemon-based download manager with parallel segment downloading. The
 
 ### Package Structure
 
-- **`cmd/`** - CLI application using urfave/cli. Entry point delegates to these commands (download, resume, list, daemon, etc.)
+- **`cmd/`** - CLI application using urfave/cli. Entry point delegates to these commands (download, resume, list, daemon, attach, stop, etc.)
 - **`cmd/ext/`** - Extension management subcommands (install, uninstall, activate, deactivate)
+- **`cmd/nativehost/`** - Browser native messaging host commands (install, uninstall, status)
 - **`pkg/warplib/`** - Core download engine. Key files:
   - `manager.go` - Download state persistence (GOB encoded to `~/.config/warpdl/userdata.warp`)
   - `dloader.go` - Parallel segment downloader with HTTP range requests
   - `handlers.go` - Event-driven callbacks for progress, errors, completion
   - `item.go` - Download item and part state
+  - `checksum.go` - Automatic checksum validation
+  - `speed.go` - Speed limiting and work stealing logic
 - **`pkg/warpcli/`** - CLI-to-daemon communication layer (JSON-RPC style over Unix socket)
-- **`pkg/credman/`** - Credential management with OS keyring integration
+- **`pkg/credman/`** - Credential management with OS keyring integration and file-based fallback
+- **`pkg/logger/`** - Centralized logging system with debug mode support
 - **`internal/server/`** - Daemon server (Unix domain socket at `/tmp/warpdl.sock`, falls back to TCP)
 - **`internal/api/`** - API handlers implementing download, resume, stop, extension management
 - **`internal/extl/`** - JavaScript extension engine using Goja runtime
+- **`internal/daemon/`** - Daemon lifecycle management and runner
+- **`internal/nativehost/`** - Browser extension native messaging implementation
+- **`internal/service/`** - Windows service management
 - **`common/`** - Shared types and constants (UpdateType, DownloadingAction enums)
 
 ### Data Flow

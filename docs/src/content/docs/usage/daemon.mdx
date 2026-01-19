@@ -38,6 +38,24 @@ warpdl stop-daemon
 | Linux/macOS | Unix socket at `$TMPDIR/warpdl.sock` (defaults to `/tmp/warpdl.sock`) |
 | Windows | Named pipe `\\.\pipe\warpdl` |
 
+### Custom Daemon URI
+
+Use the `--daemon-uri` flag to connect to a specific daemon:
+
+```bash
+warpdl download --daemon-uri unix:///custom/path.sock https://example.com/file.zip
+warpdl download --daemon-uri tcp://192.168.1.100:3849 https://example.com/file.zip
+warpdl download --daemon-uri pipe://custom-pipe https://example.com/file.zip  # Windows
+```
+
+Or set via environment variable:
+
+```bash
+export WARPDL_DAEMON_URI=tcp://192.168.1.100:3849
+```
+
+### Legacy Configuration
+
 To customize the socket path:
 
 ```bash

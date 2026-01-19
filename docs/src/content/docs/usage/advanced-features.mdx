@@ -1,0 +1,116 @@
+---
+title: Advanced Features
+description: Background downloads, speed limiting, and work stealing
+---
+
+WarpDL includes several advanced features for optimizing download performance and flexibility.
+
+## Background Downloads
+
+Run downloads in the background without blocking your terminal:
+
+```bash
+warpdl download --background https://example.com/large-file.zip
+```
+
+The download starts immediately and returns control to your terminal. Use `attach` to reconnect:
+
+```bash
+warpdl list -p          # Find the download hash
+warpdl attach <hash>    # Reconnect to view progress
+```
+
+### Environment Variable
+
+```bash
+export WARPDL_BACKGROUND=1  # Not yet implemented, use --background flag
+```
+
+## Speed Limiting
+
+Limit download speed to avoid saturating your network:
+
+```bash
+warpdl download --speed-limit 1MB https://example.com/file.zip
+warpdl download -S 512KB https://example.com/file.zip
+```
+
+Supported units:
+- `B` - Bytes per second
+- `KB` - Kilobytes per second
+- `MB` - Megabytes per second
+- `0` - Unlimited (default)
+
+### Environment Variable
+
+```bash
+export WARPDL_SPEED_LIMIT=1MB
+```
+
+## Work Stealing
+
+Work stealing is an optimization where faster download segments "steal" remaining work from slower segments. This maximizes bandwidth utilization when some connections are slower than others.
+
+**Enabled by default.** To disable:
+
+```bash
+warpdl download --no-work-steal https://example.com/file.zip
+```
+
+### How It Works
+
+1. File is split into segments (default: up to 200 parts)
+2. Each segment downloads in parallel
+3. When a fast segment completes, it takes over a portion of the slowest segment's remaining range
+4. This continues until the entire file is downloaded
+
+### When to Disable
+
+- When downloading from servers that don't handle range requests well
+- When you want predictable segment boundaries
+- When debugging download issues
+
+### Environment Variable
+
+```bash
+export WARPDL_NO_WORK_STEAL=1
+```
+
+## Checksum Validation
+
+WarpDL automatically validates downloads when the server provides checksums:
+
+- `Content-MD5` header
+- `Digest` header (SHA-256, SHA-512)
+
+If validation fails, the download is marked as corrupted and you'll be notified.
+
+## Debug Logging
+
+Enable verbose logging for troubleshooting:
+
+```bash
+warpdl download --debug https://example.com/file.zip
+```
+
+Or globally:
+
+```bash
+export WARPDL_DEBUG=1
+```
+
+Debug output includes:
+- HTTP request/response details
+- Segment allocation decisions
+- Work stealing events
+- Retry attempts and errors
+
+## Default Download Directory
+
+Set a default download location:
+
+```bash
+export WARPDL_DEFAULT_DL_DIR=~/Downloads
+```
+
+When set, downloads go to this directory unless overridden with `--download-path`.

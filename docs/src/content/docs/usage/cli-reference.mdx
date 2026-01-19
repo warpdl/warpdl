@@ -15,15 +15,21 @@ warpdl - An ultra fast download manager.
 warpdl
 
 ```
+[--background|-b]
+[--cookie]=[value]
+[--daemon-uri]=[value]
+[--debug|-d]
 [--download-path|-l]=[value]
 [--file-name|-o]=[value]
 [--force-parts|-f]
 [--max-connection|-x]=[value]
 [--max-parts|-s]=[value]
 [--max-retries]=[value]
+[--no-work-steal]
 [--overwrite|-y]
 [--proxy]=[value]
 [--retry-delay]=[value]
+[--speed-limit|-S]=[value]
 [--time-taken|-e]
 [--timeout|-t]=[value]
 [--user-agent]=[value]
@@ -41,7 +47,15 @@ warpdl [GLOBAL OPTIONS] command [COMMAND OPTIONS] [ARGUMENTS...]
 
 ## Global Options
 
-**--download-path, -l**="": set the path where downloaded file should be saved
+**--background, -b**: run download in background (exit immediately without progress display)
+
+**--cookie**="": HTTP cookie(s) for authentication (format: 'name=value', can be specified multiple times)
+
+**--daemon-uri**="": daemon URI (unix:///path, tcp://host:port, pipe://name)
+
+**--debug, -d**: enable debug logging for troubleshooting
+
+**--download-path, -l**="": set the path where downloaded file should be saved (default: $WARPDL_DEFAULT_DL_DIR or current directory)
 
 **--file-name, -o**="": explicitly set the name of file (determined automatically if not specified)
 
@@ -53,11 +67,15 @@ warpdl [GLOBAL OPTIONS] command [COMMAND OPTIONS] [ARGUMENTS...]
 
 **--max-retries**="": maximum retry attempts for transient errors (0 = unlimited) (default: 5)
 
+**--no-work-steal**: disable work stealing (fast parts taking over slow part ranges)
+
 **--overwrite, -y**: overwrite existing file at destination path
 
 **--proxy**="": proxy server URL (http://host:port, https://host:port, socks5://host:port)
 
 **--retry-delay**="": base delay between retries in milliseconds (default: 500)
+
+**--speed-limit, -S**="": limit download speed (e.g., 1MB, 512KB, 0 for unlimited)
 
 **--time-taken, -e**: 
 
@@ -98,6 +116,32 @@ activate an unactivated warpdl extension
 
 deactivate a warpdl extension
 
+## native-host
+
+manage native messaging host for browser extensions
+
+### install
+
+install native messaging manifest for browsers
+
+**--auto**: use default extension IDs (for package manager hooks)
+
+**--browser**="": browser to install for (chrome, firefox, chromium, edge, brave, all) (default: all)
+
+**--chrome-extension-id**="": Chrome extension ID (required for Chrome-based browsers)
+
+**--firefox-extension-id**="": Firefox extension ID (required for Firefox)
+
+### uninstall
+
+remove native messaging manifest from browsers
+
+**--browser**="": browser to uninstall from (chrome, firefox, chromium, edge, brave, all) (default: all)
+
+### status
+
+show installation status for all browsers
+
 ## daemon
 
 start the warpdl daemon
@@ -105,6 +149,12 @@ start the warpdl daemon
 ## stop-daemon
 
 stop the running daemon gracefully
+
+**--cookie**="": HTTP cookie(s) for authentication (format: 'name=value', can be specified multiple times)
+
+**--daemon-uri**="": daemon URI (unix:///path, tcp://host:port, pipe://name)
+
+**--debug, -d**: enable debug logging for troubleshooting
 
 ## info, i
 
@@ -116,15 +166,35 @@ shows info about a file
 
 stop a running download
 
+**--cookie**="": HTTP cookie(s) for authentication (format: 'name=value', can be specified multiple times)
+
+**--daemon-uri**="": daemon URI (unix:///path, tcp://host:port, pipe://name)
+
+**--debug, -d**: enable debug logging for troubleshooting
+
 ## attach
 
 attach console to a running download
+
+**--cookie**="": HTTP cookie(s) for authentication (format: 'name=value', can be specified multiple times)
+
+**--daemon-uri**="": daemon URI (unix:///path, tcp://host:port, pipe://name)
+
+**--debug, -d**: enable debug logging for troubleshooting
 
 ## download, d
 
 fastly download a file 
 
-**--download-path, -l**="": set the path where downloaded file should be saved
+**--background, -b**: run download in background (exit immediately without progress display)
+
+**--cookie**="": HTTP cookie(s) for authentication (format: 'name=value', can be specified multiple times)
+
+**--daemon-uri**="": daemon URI (unix:///path, tcp://host:port, pipe://name)
+
+**--debug, -d**: enable debug logging for troubleshooting
+
+**--download-path, -l**="": set the path where downloaded file should be saved (default: $WARPDL_DEFAULT_DL_DIR or current directory)
 
 **--file-name, -o**="": explicitly set the name of file (determined automatically if not specified)
 
@@ -136,11 +206,15 @@ fastly download a file
 
 **--max-retries**="": maximum retry attempts for transient errors (0 = unlimited) (default: 5)
 
+**--no-work-steal**: disable work stealing (fast parts taking over slow part ranges)
+
 **--overwrite, -y**: overwrite existing file at destination path
 
 **--proxy**="": proxy server URL (http://host:port, https://host:port, socks5://host:port)
 
 **--retry-delay**="": base delay between retries in milliseconds (default: 500)
+
+**--speed-limit, -S**="": limit download speed (e.g., 1MB, 512KB, 0 for unlimited)
 
 **--time-taken, -e**: 
 
@@ -151,6 +225,12 @@ fastly download a file
 ## list, l
 
 display downloads history
+
+**--cookie**="": HTTP cookie(s) for authentication (format: 'name=value', can be specified multiple times)
+
+**--daemon-uri**="": daemon URI (unix:///path, tcp://host:port, pipe://name)
+
+**--debug, -d**: enable debug logging for troubleshooting
 
 **--show-all, -a**: use this flag to list all downloads (default: false)
 
@@ -164,6 +244,14 @@ display downloads history
 
 resume an incomplete download
 
+**--background, -b**: run download in background (exit immediately without progress display)
+
+**--cookie**="": HTTP cookie(s) for authentication (format: 'name=value', can be specified multiple times)
+
+**--daemon-uri**="": daemon URI (unix:///path, tcp://host:port, pipe://name)
+
+**--debug, -d**: enable debug logging for troubleshooting
+
 **--force-parts, -f**: forceful file segmentation (default: true)
 
 **--max-connection, -x**="": specify the number of maximum parallel connection (default: 24)
@@ -174,6 +262,8 @@ resume an incomplete download
 
 **--retry-delay**="": base delay between retries in milliseconds (default: 500)
 
+**--speed-limit, -S**="": limit download speed (e.g., 1MB, 512KB, 0 for unlimited)
+
 **--time-taken, -e**: 
 
 **--timeout, -t**="": per-request timeout in seconds (0 = no timeout) (default: 30)
@@ -183,6 +273,12 @@ resume an incomplete download
 ## flush, c
 
 flush the user download history
+
+**--cookie**="": HTTP cookie(s) for authentication (format: 'name=value', can be specified multiple times)
+
+**--daemon-uri**="": daemon URI (unix:///path, tcp://host:port, pipe://name)
+
+**--debug, -d**: enable debug logging for troubleshooting
 
 **--force, -f**: use this flag to force flush (default: false)
 

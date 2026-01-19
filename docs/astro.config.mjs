@@ -34,6 +34,8 @@ export default defineConfig({
             { label: 'CLI Reference', slug: 'usage/cli-reference' },
             { label: 'Daemon', slug: 'usage/daemon' },
             { label: 'Resume Downloads', slug: 'usage/resume-downloads' },
+            { label: 'Advanced Features', slug: 'usage/advanced-features' },
+            { label: 'Browser Extension', slug: 'usage/browser-extension' },
             { label: 'Extensions', slug: 'usage/extensions' },
           ],
         },

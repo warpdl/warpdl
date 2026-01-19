@@ -32,6 +32,18 @@ WarpDL can be configured using environment variables. These take precedence over
 | `WARPDL_TIMEOUT` | Per-request timeout in seconds | `30` |
 | `WARPDL_MAX_RETRIES` | Maximum retry attempts | `5` |
 | `WARPDL_RETRY_DELAY` | Base retry delay in milliseconds | `500` |
+| `WARPDL_DEFAULT_DL_DIR` | Default download directory | current directory |
+| `WARPDL_SPEED_LIMIT` | Default speed limit (e.g., 1MB, 512KB) | unlimited |
+| `WARPDL_NO_WORK_STEAL` | Disable work stealing (set to "1") | `false` |
+| `WARP_MAX_PARTS` | Maximum file segments | `200` |
+| `WARP_MAX_CONN` | Maximum parallel connections | `24` |
+| `WARP_FORCE_SEGMENTS` | Force file segmentation (set to "1") | `true` |
+
+## Daemon Connection
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `WARPDL_DAEMON_URI` | Daemon URI (unix:///path, tcp://host:port, pipe://name) | auto-detected |
 
 ## Storage & Security
 
