@@ -226,3 +226,51 @@ func (qm *QueueManager) IsPaused() bool {
 	defer qm.mu.Unlock()
 	return qm.paused
 }
+
+// Move reorders a waiting item to a new position in the queue.
+// Active downloads cannot be moved. Position is clamped to valid range [0, len-1].
+func (qm *QueueManager) Move(hash string, position int) error {
+	qm.mu.Lock()
+	defer qm.mu.Unlock()
+
+	// Check if hash is in active (error - can't move active downloads)
+	if _, exists := qm.active[hash]; exists {
+		return ErrCannotMoveActive
+	}
+
+	// Find hash in waiting queue
+	idx := -1
+	for i, item := range qm.waiting {
+		if item.hash == hash {
+			idx = i
+			break
+		}
+	}
+	if idx == -1 {
+		return ErrQueueHashNotFound
+	}
+
+	// Clamp position to valid range
+	if position < 0 {
+		position = 0
+	}
+	if position >= len(qm.waiting) {
+		position = len(qm.waiting) - 1
+	}
+
+	// No-op if moving to same position
+	if idx == position {
+		return nil
+	}
+
+	// Extract the item to move
+	item := qm.waiting[idx]
+
+	// Remove from current position
+	qm.waiting = append(qm.waiting[:idx], qm.waiting[idx+1:]...)
+
+	// Insert at new position
+	qm.waiting = append(qm.waiting[:position], append([]queuedItem{item}, qm.waiting[position:]...)...)
+
+	return nil
+}

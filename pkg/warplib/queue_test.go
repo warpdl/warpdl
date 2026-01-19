@@ -236,6 +236,188 @@ func TestQueueManager_PausePersistence(t *testing.T) {
 	}
 }
 
+// TestQueueManager_Move tests the Move method for reordering waiting queue.
+func TestQueueManager_Move(t *testing.T) {
+	t.Run("MoveToFront", func(t *testing.T) {
+		qm := NewQueueManager(1, nil)
+
+		// Add items: first becomes active, rest go to waiting
+		qm.Add("active", PriorityNormal)
+		qm.Add("a", PriorityNormal)
+		qm.Add("b", PriorityNormal)
+		qm.Add("c", PriorityNormal)
+		// waiting: [a, b, c]
+
+		err := qm.Move("c", 0)
+		if err != nil {
+			t.Fatalf("Move failed: %v", err)
+		}
+
+		// waiting should be: [c, a, b]
+		qm.mu.Lock()
+		defer qm.mu.Unlock()
+		if len(qm.waiting) != 3 {
+			t.Fatalf("expected 3 waiting, got %d", len(qm.waiting))
+		}
+		if qm.waiting[0].hash != "c" {
+			t.Errorf("expected c at position 0, got %s", qm.waiting[0].hash)
+		}
+		if qm.waiting[1].hash != "a" {
+			t.Errorf("expected a at position 1, got %s", qm.waiting[1].hash)
+		}
+		if qm.waiting[2].hash != "b" {
+			t.Errorf("expected b at position 2, got %s", qm.waiting[2].hash)
+		}
+	})
+
+	t.Run("MoveToEnd", func(t *testing.T) {
+		qm := NewQueueManager(1, nil)
+
+		qm.Add("active", PriorityNormal)
+		qm.Add("a", PriorityNormal)
+		qm.Add("b", PriorityNormal)
+		qm.Add("c", PriorityNormal)
+		// waiting: [a, b, c]
+
+		err := qm.Move("a", 2)
+		if err != nil {
+			t.Fatalf("Move failed: %v", err)
+		}
+
+		// waiting should be: [b, c, a]
+		qm.mu.Lock()
+		defer qm.mu.Unlock()
+		if qm.waiting[0].hash != "b" {
+			t.Errorf("expected b at position 0, got %s", qm.waiting[0].hash)
+		}
+		if qm.waiting[1].hash != "c" {
+			t.Errorf("expected c at position 1, got %s", qm.waiting[1].hash)
+		}
+		if qm.waiting[2].hash != "a" {
+			t.Errorf("expected a at position 2, got %s", qm.waiting[2].hash)
+		}
+	})
+
+	t.Run("MoveToMiddle", func(t *testing.T) {
+		qm := NewQueueManager(1, nil)
+
+		qm.Add("active", PriorityNormal)
+		qm.Add("a", PriorityNormal)
+		qm.Add("b", PriorityNormal)
+		qm.Add("c", PriorityNormal)
+		qm.Add("d", PriorityNormal)
+		// waiting: [a, b, c, d]
+
+		err := qm.Move("d", 1)
+		if err != nil {
+			t.Fatalf("Move failed: %v", err)
+		}
+
+		// waiting should be: [a, d, b, c]
+		qm.mu.Lock()
+		defer qm.mu.Unlock()
+		expected := []string{"a", "d", "b", "c"}
+		for i, exp := range expected {
+			if qm.waiting[i].hash != exp {
+				t.Errorf("expected %s at position %d, got %s", exp, i, qm.waiting[i].hash)
+			}
+		}
+	})
+
+	t.Run("MoveInvalidHash", func(t *testing.T) {
+		qm := NewQueueManager(1, nil)
+
+		qm.Add("active", PriorityNormal)
+		qm.Add("a", PriorityNormal)
+
+		err := qm.Move("nonexistent", 0)
+		if err != ErrQueueHashNotFound {
+			t.Fatalf("expected ErrQueueHashNotFound, got %v", err)
+		}
+	})
+
+	t.Run("MoveActiveHash", func(t *testing.T) {
+		qm := NewQueueManager(1, nil)
+
+		qm.Add("active", PriorityNormal)
+		qm.Add("a", PriorityNormal)
+
+		err := qm.Move("active", 0)
+		if err != ErrCannotMoveActive {
+			t.Fatalf("expected ErrCannotMoveActive, got %v", err)
+		}
+	})
+
+	t.Run("PositionClampNegative", func(t *testing.T) {
+		qm := NewQueueManager(1, nil)
+
+		qm.Add("active", PriorityNormal)
+		qm.Add("a", PriorityNormal)
+		qm.Add("b", PriorityNormal)
+		qm.Add("c", PriorityNormal)
+		// waiting: [a, b, c]
+
+		err := qm.Move("c", -5) // negative should clamp to 0
+		if err != nil {
+			t.Fatalf("Move failed: %v", err)
+		}
+
+		// waiting should be: [c, a, b]
+		qm.mu.Lock()
+		defer qm.mu.Unlock()
+		if qm.waiting[0].hash != "c" {
+			t.Errorf("expected c at position 0 after negative clamp, got %s", qm.waiting[0].hash)
+		}
+	})
+
+	t.Run("PositionClampTooLarge", func(t *testing.T) {
+		qm := NewQueueManager(1, nil)
+
+		qm.Add("active", PriorityNormal)
+		qm.Add("a", PriorityNormal)
+		qm.Add("b", PriorityNormal)
+		qm.Add("c", PriorityNormal)
+		// waiting: [a, b, c]
+
+		err := qm.Move("a", 100) // too large should clamp to end
+		if err != nil {
+			t.Fatalf("Move failed: %v", err)
+		}
+
+		// waiting should be: [b, c, a]
+		qm.mu.Lock()
+		defer qm.mu.Unlock()
+		if qm.waiting[2].hash != "a" {
+			t.Errorf("expected a at position 2 after large clamp, got %s", qm.waiting[2].hash)
+		}
+	})
+
+	t.Run("MoveSamePosition", func(t *testing.T) {
+		qm := NewQueueManager(1, nil)
+
+		qm.Add("active", PriorityNormal)
+		qm.Add("a", PriorityNormal)
+		qm.Add("b", PriorityNormal)
+		qm.Add("c", PriorityNormal)
+		// waiting: [a, b, c]
+
+		err := qm.Move("b", 1) // Move to same position should be no-op
+		if err != nil {
+			t.Fatalf("Move failed: %v", err)
+		}
+
+		// waiting should remain: [a, b, c]
+		qm.mu.Lock()
+		defer qm.mu.Unlock()
+		expected := []string{"a", "b", "c"}
+		for i, exp := range expected {
+			if qm.waiting[i].hash != exp {
+				t.Errorf("expected %s at position %d, got %s", exp, i, qm.waiting[i].hash)
+			}
+		}
+	})
+}
+
 // TestQueueManager_StatePersistence tests that queue state can be saved and restored.
 // Waiting items should survive GetState/LoadState cycle. Active items are not persisted.
 func TestQueueManager_StatePersistence(t *testing.T) {

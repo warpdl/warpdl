@@ -112,7 +112,7 @@ After POC validated, clean up code and add missing features.
   - _Requirements: FR-7, AC-5.1, AC-5.2, AC-5.3_
   - _Design: QueueManager_
 
-- [ ] 2.3 Implement Move method
+- [x] 2.3 Implement Move method
   - **Do**: Add `Move(hash, position)` that reorders waiting queue. Validate hash exists in waiting (not active). Clamp position to valid range.
   - **Files**: `/Users/divkix/GitHub/warpdl/pkg/warplib/queue.go`
   - **Done when**: Move reorders queue correctly
