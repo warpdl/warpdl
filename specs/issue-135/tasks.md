@@ -84,7 +84,7 @@ Focus: Validate queue concept works end-to-end. Hardcoded limit, minimal error h
   - _Requirements: FR-2, FR-3_
   - _Design: CLI Commands_
 
-- [ ] 1.9 POC Checkpoint - End-to-end queue verification
+- [x] 1.9 POC Checkpoint - End-to-end queue verification
   - **Do**: Manual E2E test: 1) Start daemon with --max-concurrent 2, 2) Download 4 files, 3) Verify only 2 active, 2 waiting, 4) Verify auto-start on completion.
   - **Done when**: Queue limits and auto-start work end-to-end
   - **Verify**: Manual CLI testing with multiple downloads
