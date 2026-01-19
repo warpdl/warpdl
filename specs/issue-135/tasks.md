@@ -75,7 +75,7 @@ Focus: Validate queue concept works end-to-end. Hardcoded limit, minimal error h
   - _Requirements: FR-1, FR-4_
   - _Design: Manager Integration_
 
-- [ ] 1.8 Add --max-concurrent flag to daemon
+- [x] 1.8 Add --max-concurrent flag to daemon
   - **Do**: Add `--max-concurrent` flag to daemon command. Pass to Manager initialization. Add `WARPDL_MAX_CONCURRENT` env var support.
   - **Files**: `/Users/divkix/GitHub/warpdl/cmd/daemon.go`, `/Users/divkix/GitHub/warpdl/cmd/daemon_core.go`
   - **Done when**: `warpdl daemon --max-concurrent 2` limits concurrent downloads

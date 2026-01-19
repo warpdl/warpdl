@@ -45,7 +45,7 @@ func TestDaemonWindows_ConsoleMode(t *testing.T) {
 	var cm *credman.CookieManager
 	oldInit := initDaemonComponents
 	oldStart := startServerFunc
-	initDaemonComponents = func(log logger.Logger) (*DaemonComponents, error) {
+	initDaemonComponents = func(log logger.Logger, maxConcurrent int) (*DaemonComponents, error) {
 		key := bytes.Repeat([]byte{0x11}, 32)
 		m, err := credman.NewCookieManager(filepath.Join(base, "cookies.warp"), key)
 		if err != nil {
@@ -115,7 +115,7 @@ func TestRunAsWindowsService_UsesEventLog(t *testing.T) {
 	// Mock initDaemonComponents
 	var cm *credman.CookieManager
 	oldInit := initDaemonComponents
-	initDaemonComponents = func(log logger.Logger) (*DaemonComponents, error) {
+	initDaemonComponents = func(log logger.Logger, maxConcurrent int) (*DaemonComponents, error) {
 		usedLogger = log
 		key := bytes.Repeat([]byte{0x11}, 32)
 		m, err := credman.NewCookieManager(filepath.Join(base, "cookies.warp"), key)
@@ -184,7 +184,7 @@ func TestRunAsWindowsService_FallsBackToConsole(t *testing.T) {
 	// Mock initDaemonComponents
 	var cm *credman.CookieManager
 	oldInit := initDaemonComponents
-	initDaemonComponents = func(log logger.Logger) (*DaemonComponents, error) {
+	initDaemonComponents = func(log logger.Logger, maxConcurrent int) (*DaemonComponents, error) {
 		usedLogger = log
 		key := bytes.Repeat([]byte{0x11}, 32)
 		m, err := credman.NewCookieManager(filepath.Join(base, "cookies.warp"), key)
@@ -230,7 +230,7 @@ func TestRunServiceWithLogger_InitError(t *testing.T) {
 	expectedErr := errors.New("init error")
 
 	oldInit := initDaemonComponents
-	initDaemonComponents = func(log logger.Logger) (*DaemonComponents, error) {
+	initDaemonComponents = func(log logger.Logger, maxConcurrent int) (*DaemonComponents, error) {
 		return nil, expectedErr
 	}
 	defer func() { initDaemonComponents = oldInit }()

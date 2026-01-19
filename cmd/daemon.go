@@ -34,8 +34,11 @@ func daemon(ctx *cli.Context) error {
 	shutdownCtx, cancel := setupShutdownHandler()
 	defer cancel()
 
+	// Get max concurrent downloads setting (flag or env var via urfave/cli)
+	maxConcurrent := ctx.Int("max-concurrent")
+
 	// Initialize all daemon components using shared initialization
-	components, err := initDaemonComponents(stdLog)
+	components, err := initDaemonComponents(stdLog, maxConcurrent)
 	if err != nil {
 		common.PrintRuntimeErr(ctx, "daemon", "init_components", err)
 		return nil
