@@ -189,7 +189,7 @@ After POC validated, clean up code and add missing features.
   - **Commit**: `core: test: add QueueManager race tests`
   - _Requirements: NFR-3, NFR-5_
 
-- [ ] 3.3 API handler tests
+- [x] 3.3 API handler tests
   - **Do**: Add unit tests for queue API handlers. Mock Manager and test request/response.
   - **Files**: `/Users/divkix/GitHub/warpdl/internal/api/queue_test.go`
   - **Done when**: API tests pass
