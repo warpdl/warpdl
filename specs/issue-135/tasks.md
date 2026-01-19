@@ -21,7 +21,7 @@ Focus: Validate queue concept works end-to-end. Hardcoded limit, minimal error h
   - _Requirements: FR-1_
   - _Design: QueueManager_
 
-- [ ] 1.2 Implement QueueManager struct and Add method
+- [x] 1.2 Implement QueueManager struct and Add method
   - **Do**: Create `pkg/warplib/queue.go`. Implement `QueueManager` struct with `maxConcurrent`, `active` map, `waiting` slice, `mu` mutex. Implement `Add()` that either activates or queues.
   - **Files**: `/Users/divkix/GitHub/warpdl/pkg/warplib/queue.go`
   - **Done when**: Test from 1.1 passes
