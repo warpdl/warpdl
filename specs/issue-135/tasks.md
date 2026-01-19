@@ -163,7 +163,7 @@ After POC validated, clean up code and add missing features.
   - _Requirements: FR-9, AC-7.1, AC-7.4_
   - _Design: CLI Commands_
 
-- [ ] 2.9 Add error handling and validation
+- [x] 2.9 Add error handling and validation
   - **Do**: Add error types: `ErrQueueHashNotFound`, `ErrCannotMoveActive`. Validate inputs in all queue methods. Return descriptive errors.
   - **Files**: `/Users/divkix/GitHub/warpdl/pkg/warplib/errors.go`, `/Users/divkix/GitHub/warpdl/pkg/warplib/queue.go`
   - **Done when**: Invalid operations return proper errors
