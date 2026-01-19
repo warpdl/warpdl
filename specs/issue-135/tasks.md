@@ -197,7 +197,7 @@ After POC validated, clean up code and add missing features.
   - **Commit**: `api: test: add queue handler tests`
   - _Requirements: NFR-4_
 
-- [ ] 3.4 Integration test for queue persistence
+- [x] 3.4 Integration test for queue persistence
   - **Do**: Add test that: 1) Creates queue, 2) Closes Manager, 3) Reopens Manager, 4) Verifies queue restored.
   - **Files**: `/Users/divkix/GitHub/warpdl/pkg/warplib/queue_integration_test.go`
   - **Done when**: Persistence test passes
