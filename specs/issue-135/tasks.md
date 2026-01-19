@@ -207,7 +207,7 @@ After POC validated, clean up code and add missing features.
 
 ## Phase 4: Quality Gates
 
-- [ ] 4.1 Coverage check
+- [x] 4.1 Coverage check
   - **Do**: Run coverage for all modified packages. Ensure 80%+ per package.
   - **Verify**: `go test -cover ./pkg/warplib/... ./internal/api/... ./pkg/warpcli/...`
   - **Done when**: All packages >= 80% coverage
