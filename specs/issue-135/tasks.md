@@ -12,7 +12,7 @@ generated: auto
 
 Focus: Validate queue concept works end-to-end. Hardcoded limit, minimal error handling.
 
-- [ ] 1.1 Write failing test for QueueManager.Add with capacity check
+- [x] 1.1 Write failing test for QueueManager.Add with capacity check
   - **Do**: Create `pkg/warplib/queue_test.go`. Write test that adds 4 downloads with maxConcurrent=3, expect 3 active, 1 waiting.
   - **Files**: `/Users/divkix/GitHub/warpdl/pkg/warplib/queue_test.go`
   - **Done when**: Test exists and fails (QueueManager not implemented)
