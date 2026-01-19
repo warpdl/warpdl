@@ -30,7 +30,7 @@ Focus: Validate queue concept works end-to-end. Hardcoded limit, minimal error h
   - _Requirements: FR-1_
   - _Design: QueueManager_
 
-- [ ] 1.3 Write failing test for OnComplete triggering next download
+- [x] 1.3 Write failing test for OnComplete triggering next download
   - **Do**: Add test that fills queue, calls OnComplete on one active, expects waiting item to become active via onStart callback.
   - **Files**: `/Users/divkix/GitHub/warpdl/pkg/warplib/queue_test.go`
   - **Done when**: Test exists and fails
