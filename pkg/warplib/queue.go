@@ -274,3 +274,30 @@ func (qm *QueueManager) Move(hash string, position int) error {
 
 	return nil
 }
+
+// GetActiveHashes returns a copy of the active download hashes.
+func (qm *QueueManager) GetActiveHashes() []string {
+	qm.mu.Lock()
+	defer qm.mu.Unlock()
+
+	hashes := make([]string, 0, len(qm.active))
+	for hash := range qm.active {
+		hashes = append(hashes, hash)
+	}
+	return hashes
+}
+
+// GetWaitingItems returns a copy of the waiting queue items with their positions.
+func (qm *QueueManager) GetWaitingItems() []QueuedItemState {
+	qm.mu.Lock()
+	defer qm.mu.Unlock()
+
+	items := make([]QueuedItemState, len(qm.waiting))
+	for i, item := range qm.waiting {
+		items[i] = QueuedItemState{
+			Hash:     item.hash,
+			Priority: item.priority,
+		}
+	}
+	return items
+}

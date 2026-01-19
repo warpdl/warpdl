@@ -129,7 +129,7 @@ After POC validated, clean up code and add missing features.
   - **Commit**: `common: feat: add queue API types`
   - _Design: API Handlers_
 
-- [ ] 2.5 Implement queue API handlers
+- [x] 2.5 Implement queue API handlers
   - **Do**: Create `internal/api/queue.go` with handlers: `queueStatusHandler`, `queuePauseHandler`, `queueResumeHandler`, `queueMoveHandler`. Register in `api.go`.
   - **Files**: `/Users/divkix/GitHub/warpdl/internal/api/queue.go`, `/Users/divkix/GitHub/warpdl/internal/api/api.go`
   - **Done when**: API handlers registered

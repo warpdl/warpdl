@@ -66,6 +66,12 @@ func (s *Api) RegisterHandlers(server *server.Server) {
 
 	// daemon info methods
 	server.RegisterHandler(common.UPDATE_VERSION, s.versionHandler)
+
+	// queue management methods
+	server.RegisterHandler(common.UPDATE_QUEUE_STATUS, s.queueStatusHandler)
+	server.RegisterHandler(common.UPDATE_QUEUE_PAUSE, s.queuePauseHandler)
+	server.RegisterHandler(common.UPDATE_QUEUE_RESUME, s.queueResumeHandler)
+	server.RegisterHandler(common.UPDATE_QUEUE_MOVE, s.queueMoveHandler)
 }
 
 // Close releases resources held by the Api, specifically closing the
