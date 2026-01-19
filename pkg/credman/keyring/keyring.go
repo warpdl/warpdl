@@ -1,6 +1,5 @@
 // Package keyring provides secure key storage using the operating system's
-// native keyring service. It wraps the go-keyring library to manage
-// cryptographic keys for the WarpDL application.
+// native keyring service with automatic fallback to file-based storage.
 package keyring
 
 import (
@@ -9,6 +8,17 @@ import (
 
 	"github.com/zalando/go-keyring"
 )
+
+// KeyStore defines the interface for key storage backends.
+type KeyStore interface {
+	GetKey() ([]byte, error)
+	SetKey() ([]byte, error)
+}
+
+// Logger defines the interface for logging warnings during fallback.
+type Logger interface {
+	Warning(format string, args ...interface{})
+}
 
 // Keyring provides secure storage using the operating system's keyring service.
 // It stores and retrieves cryptographic keys identified by application name
@@ -69,4 +79,42 @@ func (k *Keyring) GetKey() ([]byte, error) {
 // error if the key does not exist or cannot be deleted.
 func (k *Keyring) DeleteKey() error {
 	return keyringDelete(k.AppName, k.KeyField)
+}
+
+type fallbackKeyStore struct {
+	keyring   *Keyring
+	fileStore *FileKeyStore
+	logger    Logger
+}
+
+// NewKeyringWithFallback creates a KeyStore that tries the system keyring first,
+// falling back to file-based storage if the keyring is unavailable.
+func NewKeyringWithFallback(configDir string, logger Logger) KeyStore {
+	return &fallbackKeyStore{
+		keyring:   NewKeyring(),
+		fileStore: NewFileKeyStore(configDir),
+		logger:    logger,
+	}
+}
+
+func (f *fallbackKeyStore) GetKey() ([]byte, error) {
+	key, err := f.keyring.GetKey()
+	if err == nil {
+		return key, nil
+	}
+
+	return f.fileStore.GetKey()
+}
+
+func (f *fallbackKeyStore) SetKey() ([]byte, error) {
+	key, err := f.keyring.SetKey()
+	if err == nil {
+		return key, nil
+	}
+
+	if f.logger != nil {
+		f.logger.Warning("System keyring unavailable, using file-based key storage: %v", err)
+	}
+
+	return f.fileStore.SetKey()
 }

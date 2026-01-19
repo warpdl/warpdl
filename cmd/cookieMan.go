@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/hex"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -19,7 +20,15 @@ type keyringProvider interface {
 	SetKey() ([]byte, error)
 }
 
-var newKeyring = func() keyringProvider { return keyring.NewKeyring() }
+type cliKeyringLogger struct{}
+
+func (l *cliKeyringLogger) Warning(format string, args ...interface{}) {
+	fmt.Fprintf(os.Stderr, "[WARNING] "+format+"\n", args...)
+}
+
+var newKeyring = func(configDir string, logger keyring.Logger) keyringProvider {
+	return keyring.NewKeyringWithFallback(configDir, logger)
+}
 
 func getCookieManager(ctx *cli.Context) (*credman.CookieManager, error) {
 	if keyHex := os.Getenv(cookieKeyEnv); keyHex != "" {
@@ -37,7 +46,7 @@ func getCookieManager(ctx *cli.Context) (*credman.CookieManager, error) {
 		return cm, nil
 	}
 
-	kr := newKeyring()
+	kr := newKeyring(warplib.ConfigDir, &cliKeyringLogger{})
 	key, err := kr.GetKey()
 	if err != nil {
 		key, err = kr.SetKey()

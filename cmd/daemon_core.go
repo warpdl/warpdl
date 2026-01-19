@@ -15,6 +15,14 @@ import (
 	"github.com/warpdl/warpdl/pkg/warplib"
 )
 
+type loggerKeyringAdapter struct {
+	log logger.Logger
+}
+
+func (l *loggerKeyringAdapter) Warning(format string, args ...interface{}) {
+	l.log.Warning(format, args...)
+}
+
 // DaemonComponents holds all initialized daemon components.
 // This allows for unified initialization and cleanup across
 // console mode and Windows service mode.
@@ -152,7 +160,7 @@ func getCookieManagerWithLogger(log logger.Logger) (*credman.CookieManager, erro
 		return cm, nil
 	}
 
-	kr := newKeyring()
+	kr := newKeyring(warplib.ConfigDir, &loggerKeyringAdapter{log: log})
 	key, err := kr.GetKey()
 	if err != nil {
 		key, err = kr.SetKey()

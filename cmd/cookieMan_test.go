@@ -10,6 +10,7 @@ import (
 
 	"github.com/urfave/cli"
 	"github.com/warpdl/warpdl/pkg/credman"
+	"github.com/warpdl/warpdl/pkg/credman/keyring"
 	"github.com/warpdl/warpdl/pkg/credman/types"
 	"github.com/warpdl/warpdl/pkg/warplib"
 )
@@ -51,7 +52,7 @@ func TestGetCookieManagerKeyringFallback(t *testing.T) {
 		setKey: bytes.Repeat([]byte{0x11}, 32),
 	}
 	oldKeyring := newKeyring
-	newKeyring = func() keyringProvider { return fake }
+	newKeyring = func(configDir string, logger keyring.Logger) keyringProvider { return fake }
 	defer func() { newKeyring = oldKeyring }()
 
 	cm, err := getCookieManager(newContext(cli.NewApp(), nil, "daemon"))
@@ -75,7 +76,7 @@ func TestGetCookieManagerKeyringGetSuccess(t *testing.T) {
 		getKey: bytes.Repeat([]byte{0x22}, 32),
 	}
 	oldKeyring := newKeyring
-	newKeyring = func() keyringProvider { return fake }
+	newKeyring = func(configDir string, logger keyring.Logger) keyringProvider { return fake }
 	defer func() { newKeyring = oldKeyring }()
 
 	cm, err := getCookieManager(newContext(cli.NewApp(), nil, "daemon"))
@@ -100,7 +101,7 @@ func TestGetCookieManagerKeyringSetError(t *testing.T) {
 		setErr: errors.New("set failed"),
 	}
 	oldKeyring := newKeyring
-	newKeyring = func() keyringProvider { return fake }
+	newKeyring = func(configDir string, logger keyring.Logger) keyringProvider { return fake }
 	defer func() { newKeyring = oldKeyring }()
 
 	if _, err := getCookieManager(newContext(cli.NewApp(), nil, "daemon")); err == nil {
@@ -222,7 +223,7 @@ func TestGetCookieManagerKeyringCredmanError(t *testing.T) {
 		getKey: bytes.Repeat([]byte{0x22}, 32),
 	}
 	oldKeyring := newKeyring
-	newKeyring = func() keyringProvider { return fake }
+	newKeyring = func(configDir string, logger keyring.Logger) keyringProvider { return fake }
 	defer func() { newKeyring = oldKeyring }()
 
 	_, err := getCookieManager(newContext(cli.NewApp(), nil, "daemon"))
