@@ -215,3 +215,28 @@ func (c *Client) ListExtension(all bool) (*[]common.ExtensionInfoShort, error) {
 func (c *Client) GetDaemonVersion() (*common.VersionResponse, error) {
 	return invoke[common.VersionResponse](c, common.UPDATE_VERSION, nil)
 }
+
+// QueueStatus returns the current queue status including active and waiting downloads.
+func (c *Client) QueueStatus() (*common.QueueStatusResponse, error) {
+	return invoke[common.QueueStatusResponse](c, common.UPDATE_QUEUE_STATUS, nil)
+}
+
+// QueuePause pauses the download queue, preventing new downloads from auto-starting.
+func (c *Client) QueuePause() error {
+	_, err := invoke[any](c, common.UPDATE_QUEUE_PAUSE, nil)
+	return err
+}
+
+// QueueResume resumes the download queue, allowing waiting downloads to start.
+func (c *Client) QueueResume() error {
+	_, err := invoke[any](c, common.UPDATE_QUEUE_RESUME, nil)
+	return err
+}
+
+// QueueMove moves a queued download to a new position in the waiting queue.
+// The hash identifies the download to move, and position is the target 0-indexed position.
+func (c *Client) QueueMove(hash string, position int) error {
+	params := common.QueueMoveParams{Hash: hash, Position: position}
+	_, err := invoke[any](c, common.UPDATE_QUEUE_MOVE, params)
+	return err
+}

@@ -137,7 +137,7 @@ After POC validated, clean up code and add missing features.
   - **Commit**: `api: feat: implement queue API handlers`
   - _Design: API Handlers_
 
-- [ ] 2.6 Add queue client methods
+- [x] 2.6 Add queue client methods
   - **Do**: Add `QueueStatus()`, `QueuePause()`, `QueueResume()`, `QueueMove()` methods to Client in `pkg/warpcli/methods.go`.
   - **Files**: `/Users/divkix/GitHub/warpdl/pkg/warpcli/methods.go`
   - **Done when**: Client methods compile
