@@ -66,7 +66,7 @@ Focus: Validate queue concept works end-to-end. Hardcoded limit, minimal error h
   - _Requirements: FR-10_
   - _Design: Priority impl_
 
-- [ ] 1.7 Integrate QueueManager with Manager
+- [x] 1.7 Integrate QueueManager with Manager
   - **Do**: Add `queue *QueueManager` to Manager. Modify `AddDownload` to use queue. Wire `onStart` to call `ResumeDownload`. Patch `DownloadCompleteHandler` to call `queue.OnComplete`.
   - **Files**: `/Users/divkix/GitHub/warpdl/pkg/warplib/manager.go`
   - **Done when**: Downloads use queue when limit set

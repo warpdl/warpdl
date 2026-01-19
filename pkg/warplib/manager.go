@@ -22,6 +22,8 @@ type Manager struct {
 	items ItemsMap
 	f     *os.File
 	mu    *sync.RWMutex
+	// queue manages concurrent download limits (nil if disabled)
+	queue *QueueManager
 }
 
 // InitManager creates a new manager instance.
@@ -64,6 +66,24 @@ func (m *Manager) populateMemPart() {
 	}
 }
 
+// SetMaxConcurrentDownloads enables the download queue with a concurrency limit.
+// When a slot becomes available for a queued download, onStartDownload is called
+// with the hash. The callback should start the download (e.g., via ResumeDownload
+// or by getting the item's downloader and calling Start).
+// If maxConcurrent is 0 or negative, the queue is disabled.
+func (m *Manager) SetMaxConcurrentDownloads(maxConcurrent int, onStartDownload func(hash string)) {
+	if maxConcurrent <= 0 {
+		m.queue = nil
+		return
+	}
+	m.queue = NewQueueManager(maxConcurrent, onStartDownload)
+}
+
+// GetQueue returns the QueueManager if enabled, or nil if disabled.
+func (m *Manager) GetQueue() *QueueManager {
+	return m.queue
+}
+
 // AddDownloadOpts contains optional parameters for AddDownload.
 type AddDownloadOpts struct {
 	IsHidden         bool
@@ -73,6 +93,9 @@ type AddDownloadOpts struct {
 }
 
 // AddDownload adds a new download item entry.
+// If the queue is enabled, the download is registered with the queue.
+// The queue's onStart callback will be invoked when a slot is available
+// (immediately if under capacity, or when another download completes).
 func (m *Manager) AddDownload(d *Downloader, opts *AddDownloadOpts) (err error) {
 	if opts == nil {
 		opts = &AddDownloadOpts{}
@@ -99,6 +122,11 @@ func (m *Manager) AddDownload(d *Downloader, opts *AddDownloadOpts) (err error) 
 	item.setDAlloc(d)
 	m.UpdateItem(item)
 	m.patchHandlers(d, item)
+
+	// Register with queue if enabled
+	if m.queue != nil {
+		m.queue.Add(d.hash, PriorityNormal)
+	}
 	return
 }
 
@@ -149,6 +177,12 @@ func (m *Manager) patchHandlers(d *Downloader, item *Item) {
 		item.Downloaded = item.TotalSize
 		item.mu.Unlock()
 		m.UpdateItem(item)
+
+		// Notify queue that download is complete (use item.Hash, not part hash)
+		if m.queue != nil {
+			m.queue.OnComplete(item.Hash)
+		}
+
 		oDCH(hash, tread)
 	}
 }
