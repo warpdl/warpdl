@@ -145,7 +145,7 @@ After POC validated, clean up code and add missing features.
   - **Commit**: `cli: feat: add queue client methods`
   - _Design: Client methods_
 
-- [ ] 2.7 Implement CLI queue command
+- [x] 2.7 Implement CLI queue command
   - **Do**: Create `cmd/queue.go` with `queue`, `queue pause`, `queue resume`, `queue move` subcommands. Register in main command list.
   - **Files**: `/Users/divkix/GitHub/warpdl/cmd/queue.go`, `/Users/divkix/GitHub/warpdl/cmd/cmd.go`
   - **Done when**: `warpdl queue` commands work

@@ -154,6 +154,7 @@ func GetApp(bArgs BuildArgs) *cli.App {
 			UseShortOptionHandling: true,
 			Flags:                  append(flsFlags, globalFlags...),
 		},
+		queueCmd,
 		{
 			Name:    "help",
 			Aliases: []string{"h"},
