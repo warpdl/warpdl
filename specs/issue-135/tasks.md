@@ -173,7 +173,7 @@ After POC validated, clean up code and add missing features.
 
 ## Phase 3: Testing
 
-- [ ] 3.1 Unit tests for QueueManager edge cases
+- [x] 3.1 Unit tests for QueueManager edge cases
   - **Do**: Add tests for: empty queue, single item, max concurrent = 1, concurrent modifications, invalid move positions.
   - **Files**: `/Users/divkix/GitHub/warpdl/pkg/warplib/queue_test.go`
   - **Done when**: Edge cases covered

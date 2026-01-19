@@ -482,3 +482,591 @@ func TestQueueManager_StatePersistence(t *testing.T) {
 		t.Fatalf("expected hash3 (high priority) started first, got %v", startedHashes)
 	}
 }
+
+// =============================================================================
+// Edge Case Tests
+// =============================================================================
+
+// TestQueueManager_EmptyQueue tests operations on an empty queue.
+func TestQueueManager_EmptyQueue(t *testing.T) {
+	t.Run("OnCompleteEmptyQueue", func(t *testing.T) {
+		qm := NewQueueManager(3, nil)
+
+		// Should not panic when calling OnComplete on empty queue
+		qm.OnComplete("nonexistent")
+
+		if qm.ActiveCount() != 0 {
+			t.Fatalf("expected 0 active, got %d", qm.ActiveCount())
+		}
+		if qm.WaitingCount() != 0 {
+			t.Fatalf("expected 0 waiting, got %d", qm.WaitingCount())
+		}
+	})
+
+	t.Run("ResumeEmptyQueue", func(t *testing.T) {
+		startCalled := false
+		onStart := func(hash string) {
+			startCalled = true
+		}
+
+		qm := NewQueueManager(3, onStart)
+		qm.Pause()
+		qm.Resume()
+
+		if startCalled {
+			t.Fatal("expected onStart not called on empty queue resume")
+		}
+		if qm.ActiveCount() != 0 {
+			t.Fatalf("expected 0 active, got %d", qm.ActiveCount())
+		}
+	})
+
+	t.Run("MoveEmptyQueue", func(t *testing.T) {
+		qm := NewQueueManager(3, nil)
+
+		err := qm.Move("nonexistent", 0)
+		if err != ErrQueueHashNotFound {
+			t.Fatalf("expected ErrQueueHashNotFound, got %v", err)
+		}
+	})
+
+	t.Run("GetStateEmptyQueue", func(t *testing.T) {
+		qm := NewQueueManager(3, nil)
+
+		state := qm.GetState()
+		if state.MaxConcurrent != 3 {
+			t.Fatalf("expected MaxConcurrent=3, got %d", state.MaxConcurrent)
+		}
+		if len(state.Waiting) != 0 {
+			t.Fatalf("expected empty waiting, got %d items", len(state.Waiting))
+		}
+		if state.Paused {
+			t.Fatal("expected not paused")
+		}
+	})
+
+	t.Run("GetActiveHashesEmptyQueue", func(t *testing.T) {
+		qm := NewQueueManager(3, nil)
+
+		hashes := qm.GetActiveHashes()
+		if len(hashes) != 0 {
+			t.Fatalf("expected empty hashes, got %v", hashes)
+		}
+	})
+
+	t.Run("GetWaitingItemsEmptyQueue", func(t *testing.T) {
+		qm := NewQueueManager(3, nil)
+
+		items := qm.GetWaitingItems()
+		if len(items) != 0 {
+			t.Fatalf("expected empty items, got %v", items)
+		}
+	})
+}
+
+// TestQueueManager_SingleItem tests single item edge cases.
+func TestQueueManager_SingleItem(t *testing.T) {
+	t.Run("SingleItemMaxConcurrent1", func(t *testing.T) {
+		startCalled := false
+		startedHash := ""
+		onStart := func(hash string) {
+			startCalled = true
+			startedHash = hash
+		}
+
+		qm := NewQueueManager(1, onStart)
+		qm.Add("single", PriorityNormal)
+
+		// Single item with maxConcurrent=1 should become active immediately
+		if !startCalled {
+			t.Fatal("expected onStart called for single item")
+		}
+		if startedHash != "single" {
+			t.Fatalf("expected 'single' started, got %s", startedHash)
+		}
+		if qm.ActiveCount() != 1 {
+			t.Fatalf("expected 1 active, got %d", qm.ActiveCount())
+		}
+		if qm.WaitingCount() != 0 {
+			t.Fatalf("expected 0 waiting, got %d", qm.WaitingCount())
+		}
+	})
+
+	t.Run("TwoItemsMaxConcurrent1", func(t *testing.T) {
+		var startedHashes []string
+		onStart := func(hash string) {
+			startedHashes = append(startedHashes, hash)
+		}
+
+		qm := NewQueueManager(1, onStart)
+		qm.Add("first", PriorityNormal)
+		qm.Add("second", PriorityNormal)
+
+		// First becomes active, second waits
+		if qm.ActiveCount() != 1 {
+			t.Fatalf("expected 1 active, got %d", qm.ActiveCount())
+		}
+		if qm.WaitingCount() != 1 {
+			t.Fatalf("expected 1 waiting, got %d", qm.WaitingCount())
+		}
+		if len(startedHashes) != 1 || startedHashes[0] != "first" {
+			t.Fatalf("expected only 'first' started, got %v", startedHashes)
+		}
+	})
+
+	t.Run("OnCompleteWithSingleWaiting", func(t *testing.T) {
+		var startedHashes []string
+		onStart := func(hash string) {
+			startedHashes = append(startedHashes, hash)
+		}
+
+		qm := NewQueueManager(1, onStart)
+		qm.Add("first", PriorityNormal)
+		qm.Add("second", PriorityNormal)
+
+		// Clear to track only new starts
+		startedHashes = startedHashes[:0]
+
+		// Complete first, second should auto-start
+		qm.OnComplete("first")
+
+		if len(startedHashes) != 1 || startedHashes[0] != "second" {
+			t.Fatalf("expected 'second' auto-started, got %v", startedHashes)
+		}
+		if qm.ActiveCount() != 1 {
+			t.Fatalf("expected 1 active, got %d", qm.ActiveCount())
+		}
+		if qm.WaitingCount() != 0 {
+			t.Fatalf("expected 0 waiting, got %d", qm.WaitingCount())
+		}
+	})
+}
+
+// TestQueueManager_MaxConcurrentOne tests strict serialization with maxConcurrent=1.
+func TestQueueManager_MaxConcurrentOne(t *testing.T) {
+	t.Run("StrictSerialization", func(t *testing.T) {
+		var startOrder []string
+		onStart := func(hash string) {
+			startOrder = append(startOrder, hash)
+		}
+
+		qm := NewQueueManager(1, onStart)
+
+		// Add 5 items, all same priority (FIFO within priority)
+		for i := 0; i < 5; i++ {
+			qm.Add(string(rune('a'+i)), PriorityNormal)
+		}
+
+		// Only first should be active
+		if qm.ActiveCount() != 1 {
+			t.Fatalf("expected 1 active, got %d", qm.ActiveCount())
+		}
+		if qm.WaitingCount() != 4 {
+			t.Fatalf("expected 4 waiting, got %d", qm.WaitingCount())
+		}
+
+		// Complete each one, verify serial execution
+		for i := 0; i < 5; i++ {
+			if qm.ActiveCount() != 1 && i < 4 {
+				t.Fatalf("at step %d: expected 1 active, got %d", i, qm.ActiveCount())
+			}
+			qm.OnComplete(string(rune('a' + i)))
+		}
+
+		// All should have started in order a, b, c, d, e
+		expectedOrder := []string{"a", "b", "c", "d", "e"}
+		if len(startOrder) != 5 {
+			t.Fatalf("expected 5 starts, got %d", len(startOrder))
+		}
+		for i, exp := range expectedOrder {
+			if startOrder[i] != exp {
+				t.Errorf("expected start[%d]=%s, got %s", i, exp, startOrder[i])
+			}
+		}
+	})
+
+	t.Run("PriorityOrderingSerialExecution", func(t *testing.T) {
+		var startOrder []string
+		onStart := func(hash string) {
+			startOrder = append(startOrder, hash)
+		}
+
+		qm := NewQueueManager(1, onStart)
+
+		// First item becomes active
+		qm.Add("blocker", PriorityNormal)
+
+		// Add items with different priorities
+		qm.Add("low1", PriorityLow)
+		qm.Add("normal1", PriorityNormal)
+		qm.Add("high1", PriorityHigh)
+		qm.Add("low2", PriorityLow)
+		qm.Add("high2", PriorityHigh)
+
+		// Clear start order to track dequeue order
+		startOrder = startOrder[:0]
+
+		// Complete blocker and all waiting items
+		qm.OnComplete("blocker")
+		qm.OnComplete("high1")
+		qm.OnComplete("high2")
+		qm.OnComplete("normal1")
+		qm.OnComplete("low1")
+		qm.OnComplete("low2")
+
+		// Expected order: high1, high2, normal1, low1, low2 (priority then FIFO)
+		expectedOrder := []string{"high1", "high2", "normal1", "low1", "low2"}
+		if len(startOrder) != 5 {
+			t.Fatalf("expected 5 starts, got %d: %v", len(startOrder), startOrder)
+		}
+		for i, exp := range expectedOrder {
+			if startOrder[i] != exp {
+				t.Errorf("expected start[%d]=%s, got %s", i, exp, startOrder[i])
+			}
+		}
+	})
+}
+
+// TestQueueManager_BoundaryPositions tests extreme position values.
+func TestQueueManager_BoundaryPositions(t *testing.T) {
+	t.Run("MoveToNegative100", func(t *testing.T) {
+		qm := NewQueueManager(1, nil)
+
+		qm.Add("active", PriorityNormal)
+		qm.Add("a", PriorityNormal)
+		qm.Add("b", PriorityNormal)
+		qm.Add("c", PriorityNormal)
+		// waiting: [a, b, c]
+
+		err := qm.Move("c", -100)
+		if err != nil {
+			t.Fatalf("Move failed: %v", err)
+		}
+
+		// Should clamp to 0, waiting: [c, a, b]
+		qm.mu.Lock()
+		defer qm.mu.Unlock()
+		expected := []string{"c", "a", "b"}
+		for i, exp := range expected {
+			if qm.waiting[i].hash != exp {
+				t.Errorf("expected %s at position %d, got %s", exp, i, qm.waiting[i].hash)
+			}
+		}
+	})
+
+	t.Run("MoveToPosition1000000", func(t *testing.T) {
+		qm := NewQueueManager(1, nil)
+
+		qm.Add("active", PriorityNormal)
+		qm.Add("a", PriorityNormal)
+		qm.Add("b", PriorityNormal)
+		qm.Add("c", PriorityNormal)
+		// waiting: [a, b, c]
+
+		err := qm.Move("a", 1000000)
+		if err != nil {
+			t.Fatalf("Move failed: %v", err)
+		}
+
+		// Should clamp to end (2), waiting: [b, c, a]
+		qm.mu.Lock()
+		defer qm.mu.Unlock()
+		expected := []string{"b", "c", "a"}
+		for i, exp := range expected {
+			if qm.waiting[i].hash != exp {
+				t.Errorf("expected %s at position %d, got %s", exp, i, qm.waiting[i].hash)
+			}
+		}
+	})
+
+	t.Run("MoveToSamePositionNoOp", func(t *testing.T) {
+		qm := NewQueueManager(1, nil)
+
+		qm.Add("active", PriorityNormal)
+		qm.Add("a", PriorityNormal)
+		qm.Add("b", PriorityNormal)
+		qm.Add("c", PriorityNormal)
+		// waiting: [a, b, c]
+
+		// Move b to position 1 (same position)
+		err := qm.Move("b", 1)
+		if err != nil {
+			t.Fatalf("Move failed: %v", err)
+		}
+
+		// Should remain: [a, b, c]
+		qm.mu.Lock()
+		defer qm.mu.Unlock()
+		expected := []string{"a", "b", "c"}
+		for i, exp := range expected {
+			if qm.waiting[i].hash != exp {
+				t.Errorf("expected %s at position %d, got %s", exp, i, qm.waiting[i].hash)
+			}
+		}
+	})
+
+	t.Run("MoveFirstItemToZero", func(t *testing.T) {
+		qm := NewQueueManager(1, nil)
+
+		qm.Add("active", PriorityNormal)
+		qm.Add("a", PriorityNormal)
+		qm.Add("b", PriorityNormal)
+		// waiting: [a, b]
+
+		// Move first item to position 0 (no-op)
+		err := qm.Move("a", 0)
+		if err != nil {
+			t.Fatalf("Move failed: %v", err)
+		}
+
+		qm.mu.Lock()
+		defer qm.mu.Unlock()
+		expected := []string{"a", "b"}
+		for i, exp := range expected {
+			if qm.waiting[i].hash != exp {
+				t.Errorf("expected %s at position %d, got %s", exp, i, qm.waiting[i].hash)
+			}
+		}
+	})
+}
+
+// TestQueueManager_IdempotentOperations tests that repeated operations are safe.
+func TestQueueManager_IdempotentOperations(t *testing.T) {
+	t.Run("PauseTwice", func(t *testing.T) {
+		qm := NewQueueManager(3, nil)
+
+		qm.Pause()
+		if !qm.IsPaused() {
+			t.Fatal("expected paused after first Pause()")
+		}
+
+		qm.Pause()
+		if !qm.IsPaused() {
+			t.Fatal("expected still paused after second Pause()")
+		}
+	})
+
+	t.Run("ResumeTwice", func(t *testing.T) {
+		var startCount int
+		onStart := func(hash string) {
+			startCount++
+		}
+
+		qm := NewQueueManager(2, onStart)
+		qm.Add("hash0", PriorityNormal)
+		qm.Add("hash1", PriorityNormal)
+		qm.Add("hash2", PriorityNormal) // waiting
+
+		qm.Pause()
+
+		// Complete one to free a slot while paused
+		qm.OnComplete("hash0")
+
+		// Reset start count
+		startCount = 0
+
+		// First resume should start the waiting item (now there's capacity)
+		qm.Resume()
+		if qm.IsPaused() {
+			t.Fatal("expected not paused after first Resume()")
+		}
+		if startCount != 1 {
+			t.Fatalf("expected 1 start after first resume, got %d", startCount)
+		}
+
+		// Second resume should be no-op (nothing waiting)
+		qm.Resume()
+		if qm.IsPaused() {
+			t.Fatal("expected still not paused after second Resume()")
+		}
+		if startCount != 1 {
+			t.Fatalf("expected still 1 start after second resume, got %d", startCount)
+		}
+	})
+
+	t.Run("AddSameHashTwice", func(t *testing.T) {
+		var startCount int
+		onStart := func(hash string) {
+			startCount++
+		}
+
+		qm := NewQueueManager(3, onStart)
+
+		qm.Add("same", PriorityNormal)
+		if startCount != 1 {
+			t.Fatalf("expected 1 start after first Add, got %d", startCount)
+		}
+
+		// Second Add with same hash should be ignored
+		qm.Add("same", PriorityNormal)
+		if startCount != 1 {
+			t.Fatalf("expected still 1 start after duplicate Add, got %d", startCount)
+		}
+		if qm.ActiveCount() != 1 {
+			t.Fatalf("expected 1 active, got %d", qm.ActiveCount())
+		}
+	})
+
+	t.Run("AddSameHashTwiceInWaiting", func(t *testing.T) {
+		qm := NewQueueManager(1, nil)
+
+		qm.Add("active", PriorityNormal)
+		qm.Add("waiting1", PriorityNormal)
+		qm.Add("waiting1", PriorityNormal) // duplicate - should be ignored
+
+		if qm.WaitingCount() != 1 {
+			t.Fatalf("expected 1 waiting, got %d", qm.WaitingCount())
+		}
+	})
+
+	t.Run("OnCompleteNonexistent", func(t *testing.T) {
+		qm := NewQueueManager(3, nil)
+		qm.Add("hash0", PriorityNormal)
+
+		// Should not panic or cause issues
+		qm.OnComplete("nonexistent")
+
+		if qm.ActiveCount() != 1 {
+			t.Fatalf("expected 1 active, got %d", qm.ActiveCount())
+		}
+	})
+
+	t.Run("OnCompleteTwice", func(t *testing.T) {
+		var startCount int
+		onStart := func(hash string) {
+			startCount++
+		}
+
+		qm := NewQueueManager(1, onStart)
+		qm.Add("first", PriorityNormal)
+		qm.Add("second", PriorityNormal)
+
+		startCount = 0
+
+		// First complete should start waiting item
+		qm.OnComplete("first")
+		if startCount != 1 {
+			t.Fatalf("expected 1 start after first complete, got %d", startCount)
+		}
+
+		// Second complete of same hash should be no-op
+		qm.OnComplete("first")
+		if startCount != 1 {
+			t.Fatalf("expected still 1 start after duplicate complete, got %d", startCount)
+		}
+	})
+}
+
+// TestQueueManager_ConcurrentModifications tests concurrent access safety.
+func TestQueueManager_ConcurrentModifications(t *testing.T) {
+	t.Run("ConcurrentAddAndComplete", func(t *testing.T) {
+		qm := NewQueueManager(5, nil)
+		var wg sync.WaitGroup
+
+		// Concurrent adds
+		for i := 0; i < 100; i++ {
+			wg.Add(1)
+			go func(id int) {
+				defer wg.Done()
+				hash := "hash" + string(rune('A'+id%26)) + string(rune('0'+id%10))
+				qm.Add(hash, Priority(id%3))
+			}(i)
+		}
+
+		// Concurrent completes
+		for i := 0; i < 50; i++ {
+			wg.Add(1)
+			go func(id int) {
+				defer wg.Done()
+				hash := "hash" + string(rune('A'+id%26)) + string(rune('0'+id%10))
+				qm.OnComplete(hash)
+			}(i)
+		}
+
+		wg.Wait()
+
+		// Should not panic, state should be consistent
+		active := qm.ActiveCount()
+		waiting := qm.WaitingCount()
+		t.Logf("After concurrent ops: active=%d, waiting=%d", active, waiting)
+	})
+
+	t.Run("ConcurrentPauseResume", func(t *testing.T) {
+		qm := NewQueueManager(3, nil)
+		var wg sync.WaitGroup
+
+		for i := 0; i < 100; i++ {
+			wg.Add(1)
+			go func(id int) {
+				defer wg.Done()
+				if id%2 == 0 {
+					qm.Pause()
+				} else {
+					qm.Resume()
+				}
+			}(i)
+		}
+
+		wg.Wait()
+
+		// Should not panic, final state is either paused or not
+		_ = qm.IsPaused()
+	})
+
+	t.Run("ConcurrentMoves", func(t *testing.T) {
+		qm := NewQueueManager(1, nil)
+
+		qm.Add("active", PriorityNormal)
+		for i := 0; i < 10; i++ {
+			qm.Add("item"+string(rune('0'+i)), PriorityNormal)
+		}
+
+		var wg sync.WaitGroup
+		for i := 0; i < 50; i++ {
+			wg.Add(1)
+			go func(id int) {
+				defer wg.Done()
+				hash := "item" + string(rune('0'+id%10))
+				_ = qm.Move(hash, id%10)
+			}(i)
+		}
+
+		wg.Wait()
+
+		// Should not panic, waiting count should be 10
+		if qm.WaitingCount() != 10 {
+			t.Fatalf("expected 10 waiting, got %d", qm.WaitingCount())
+		}
+	})
+
+	t.Run("ConcurrentGetState", func(t *testing.T) {
+		qm := NewQueueManager(3, nil)
+
+		// Add some items
+		for i := 0; i < 10; i++ {
+			qm.Add("hash"+string(rune('0'+i)), PriorityNormal)
+		}
+
+		var wg sync.WaitGroup
+		for i := 0; i < 50; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_ = qm.GetState()
+				_ = qm.GetActiveHashes()
+				_ = qm.GetWaitingItems()
+			}()
+		}
+
+		// Concurrent modifications
+		for i := 0; i < 50; i++ {
+			wg.Add(1)
+			go func(id int) {
+				defer wg.Done()
+				qm.Add("new"+string(rune('A'+id%26)), Priority(id%3))
+			}(i)
+		}
+
+		wg.Wait()
+	})
+}
