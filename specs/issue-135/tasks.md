@@ -214,7 +214,7 @@ After POC validated, clean up code and add missing features.
   - **Commit**: `core: test: improve coverage to 80%+` (if needed)
   - _Requirements: NFR-4_
 
-- [ ] 4.2 Race detector pass
+- [x] 4.2 Race detector pass
   - **Do**: Run full test suite with race detector.
   - **Verify**: `go test -race -short ./...`
   - **Done when**: No races detected
