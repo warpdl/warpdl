@@ -93,7 +93,7 @@ Focus: End-to-end batch download working. Skip tests initially, hardcode accepta
   - **Commit**: `cli: feat: integrate input file into download command`
   - _Requirements: US-1_
 
-- [ ] 1.8 POC Checkpoint - Manual E2E Test
+- [x] 1.8 POC Checkpoint - Manual E2E Test
   - **Do**: Create test input file, verify batch download works end-to-end
   - **Test scenario**:
     1. Create `/tmp/urls.txt` with 3 URLs (mix valid/invalid)
