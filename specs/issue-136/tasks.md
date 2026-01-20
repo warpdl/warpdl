@@ -12,7 +12,7 @@ generated: auto
 
 Focus: End-to-end batch download working. Skip tests initially, hardcode acceptable.
 
-- [ ] 1.1 Write failing test for input file parser
+- [x] 1.1 Write failing test for input file parser
   - **Do**: Create `cmd/input_file_test.go` with test for `ParseInputFile()`
   - **Files**: `/Users/divkix/GitHub/warpdl/cmd/input_file_test.go`
   - **Test cases**:
@@ -26,7 +26,7 @@ Focus: End-to-end batch download working. Skip tests initially, hardcode accepta
   - _Requirements: FR-1, FR-2, FR-3_
   - _Design: Component A_
 
-- [ ] 1.2 Implement input file parser to pass tests
+- [x] 1.2 Implement input file parser to pass tests
   - **Do**: Create `cmd/input_file.go` with `ParseInputFile()` function
   - **Files**: `/Users/divkix/GitHub/warpdl/cmd/input_file.go`
   - **Implementation**:
@@ -40,7 +40,7 @@ Focus: End-to-end batch download working. Skip tests initially, hardcode accepta
   - _Requirements: FR-1, FR-2, FR-3_
   - _Design: Component A_
 
-- [ ] 1.3 Write failing test for -i flag registration
+- [x] 1.3 Write failing test for -i flag registration
   - **Do**: Add test in `cmd/cmd_test.go` verifying `-i` flag exists on download command
   - **Files**: `/Users/divkix/GitHub/warpdl/cmd/cmd_test.go`
   - **Test**: Check `download` command has `input-file` flag
@@ -49,7 +49,7 @@ Focus: End-to-end batch download working. Skip tests initially, hardcode accepta
   - **Commit**: `cli: test: add input-file flag test (red)`
   - _Requirements: AC-1.1_
 
-- [ ] 1.4 Add -i flag to download command
+- [x] 1.4 Add -i flag to download command
   - **Do**: Add `cli.StringFlag` for `input-file, i` to `dlFlags` in `cmd/download.go`
   - **Files**: `/Users/divkix/GitHub/warpdl/cmd/download.go`
   - **Done when**: Flag test passes, `warpdl download --help` shows `-i` flag
@@ -57,7 +57,7 @@ Focus: End-to-end batch download working. Skip tests initially, hardcode accepta
   - **Commit**: `cli: feat: add -i/--input-file flag to download command`
   - _Requirements: AC-1.1_
 
-- [ ] 1.5 Write failing test for batch download function
+- [x] 1.5 Write failing test for batch download function
   - **Do**: Create `cmd/download_batch_test.go` with test for batch download logic
   - **Files**: `/Users/divkix/GitHub/warpdl/cmd/download_batch_test.go`
   - **Test cases**:
@@ -70,7 +70,7 @@ Focus: End-to-end batch download working. Skip tests initially, hardcode accepta
   - _Requirements: FR-4, FR-6_
   - _Design: Component B_
 
-- [ ] 1.6 Implement batch download logic
+- [x] 1.6 Implement batch download logic
   - **Do**: Add `downloadFromInputFile()` function in `cmd/download.go`
   - **Files**: `/Users/divkix/GitHub/warpdl/cmd/download.go`
   - **Implementation**:
@@ -85,7 +85,7 @@ Focus: End-to-end batch download working. Skip tests initially, hardcode accepta
   - _Requirements: FR-4, FR-5, FR-6_
   - _Design: Component B_
 
-- [ ] 1.7 Integrate batch logic into download command
+- [x] 1.7 Integrate batch logic into download command
   - **Do**: Modify `download()` function to check `-i` flag and route to batch logic
   - **Files**: `/Users/divkix/GitHub/warpdl/cmd/download.go`
   - **Done when**: `warpdl download -i urls.txt` downloads all URLs
@@ -93,7 +93,7 @@ Focus: End-to-end batch download working. Skip tests initially, hardcode accepta
   - **Commit**: `cli: feat: integrate input file into download command`
   - _Requirements: US-1_
 
-- [ ] 1.8 POC Checkpoint - Manual E2E Test
+- [x] 1.8 POC Checkpoint - Manual E2E Test
   - **Do**: Create test input file, verify batch download works end-to-end
   - **Test scenario**:
     1. Create `/tmp/urls.txt` with 3 URLs (mix valid/invalid)
@@ -109,7 +109,7 @@ Focus: End-to-end batch download working. Skip tests initially, hardcode accepta
 
 After POC validated, clean up code.
 
-- [ ] 2.1 Extract result tracking to separate struct
+- [x] 2.1 Extract result tracking to separate struct
   - **Do**: Create `BatchResult` and `BatchError` types, extract tracking logic
   - **Files**: `/Users/divkix/GitHub/warpdl/cmd/input_file.go`
   - **Done when**: Code follows single responsibility, types documented
@@ -117,7 +117,7 @@ After POC validated, clean up code.
   - **Commit**: `cli: refactor: extract batch result types`
   - _Design: Component C_
 
-- [ ] 2.2 Add comprehensive error handling
+- [x] 2.2 Add comprehensive error handling
   - **Do**: Add error types for file not found, permission denied, empty file
   - **Files**: `/Users/divkix/GitHub/warpdl/cmd/input_file.go`
   - **Error messages**: Clear, actionable
@@ -126,7 +126,7 @@ After POC validated, clean up code.
   - **Commit**: `cli: refactor: add comprehensive error handling for input file`
   - _Design: Error Handling_
 
-- [ ] 2.3 Add input validation
+- [x] 2.3 Add input validation
   - **Do**: Validate URLs have scheme (http/https), log warnings for suspicious lines
   - **Files**: `/Users/divkix/GitHub/warpdl/cmd/input_file.go`
   - **Done when**: Invalid URLs logged with line numbers
@@ -136,7 +136,7 @@ After POC validated, clean up code.
 
 ## Phase 3: Testing
 
-- [ ] 3.1 Add edge case tests for parser
+- [x] 3.1 Add edge case tests for parser
   - **Do**: Add tests for: empty file, only comments, Unicode, Windows line endings
   - **Files**: `/Users/divkix/GitHub/warpdl/cmd/input_file_test.go`
   - **Done when**: All edge cases covered
@@ -144,7 +144,7 @@ After POC validated, clean up code.
   - **Commit**: `cli: test: add edge case tests for input file parser`
   - _Requirements: NFR-4_
 
-- [ ] 3.2 Add integration tests for batch download
+- [x] 3.2 Add integration tests for batch download
   - **Do**: Add tests using mock client to verify batch flow
   - **Files**: `/Users/divkix/GitHub/warpdl/cmd/download_batch_test.go`
   - **Test scenarios**:
@@ -157,7 +157,7 @@ After POC validated, clean up code.
   - **Commit**: `cli: test: add batch download integration tests`
   - _Requirements: NFR-4_
 
-- [ ] 3.3 Verify test coverage
+- [x] 3.3 Verify test coverage
   - **Do**: Run coverage report, ensure 80%+ for new files
   - **Files**: N/A
   - **Done when**: Coverage >= 80% for `input_file.go`
@@ -167,7 +167,7 @@ After POC validated, clean up code.
 
 ## Phase 4: Quality Gates
 
-- [ ] 4.1 Local quality check
+- [x] 4.1 Local quality check
   - **Do**: Run all quality checks locally
   - **Commands**:
     - `go fmt ./...`
@@ -178,7 +178,7 @@ After POC validated, clean up code.
   - **Verify**: Exit codes all 0
   - **Commit**: `cli: fix: address lint/type issues` (if needed)
 
-- [ ] 4.2 Update help text and documentation
+- [x] 4.2 Update help text and documentation
   - **Do**: Update download command description, add examples
   - **Files**: `/Users/divkix/GitHub/warpdl/cmd/templ.go`
   - **Add**: Example showing `-i` usage in help
@@ -186,7 +186,7 @@ After POC validated, clean up code.
   - **Verify**: `./warpdl download --help`
   - **Commit**: `docs: update download command help with input file examples`
 
-- [ ] 4.3 Create PR and verify CI
+- [x] 4.3 Create PR and verify CI
   - **Do**: Push branch, create PR with gh CLI
   - **PR title**: "feat(cli): add batch URL download from input file (issue #136)"
   - **Verify**: `gh pr checks --watch` all green

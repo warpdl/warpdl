@@ -52,6 +52,10 @@ var (
 			Value:  "normal",
 			EnvVar: "WARPDL_PRIORITY",
 		},
+		cli.StringFlag{
+			Name:  "input-file, i",
+			Usage: "read URLs from input file (one URL per line, # for comments)",
+		},
 	}
 )
 
@@ -109,18 +113,24 @@ func resolveDownloadPath(cliPath string) (string, error) {
 }
 
 func download(ctx *cli.Context) (err error) {
+	inputFile := ctx.String("input-file")
 	url := ctx.Args().First()
-	if url == "" {
+
+	// Check if we have any URLs to download
+	if inputFile == "" && url == "" {
 		if ctx.Command.Name == "" {
 			return cmdcommon.Help(ctx)
 		}
 		return cmdcommon.PrintErrWithCmdHelp(
 			ctx,
-			errors.New("no url provided"),
+			errors.New("no url provided (use URL argument or -i/--input-file)"),
 		)
-	} else if url == "help" {
+	}
+
+	if url == "help" {
 		return cli.ShowCommandHelp(ctx, ctx.Command.Name)
 	}
+
 	client, err := getClient()
 	if err != nil {
 		cmdcommon.PrintRuntimeErr(ctx, "download", "new_client", err)
@@ -128,6 +138,12 @@ func download(ctx *cli.Context) (err error) {
 	}
 	defer client.Close()
 	client.CheckVersionMismatch(currentBuildArgs.Version)
+
+	// Handle batch download if input file is provided
+	if inputFile != "" {
+		return downloadBatchFromFile(ctx, client, inputFile)
+	}
+
 	fmt.Println(">> Initiating a WARP download << ")
 	url = strings.TrimSpace(url)
 
@@ -199,4 +215,82 @@ Max Connections`+"\t"+`: %d
 
 	RegisterHandlers(client, int64(d.ContentLength))
 	return client.Listen()
+}
+
+// downloadBatchFromFile handles batch download from an input file.
+// It reads URLs from the file, combines with any direct URL arguments,
+// and downloads them all using the batch download logic.
+func downloadBatchFromFile(ctx *cli.Context, client *warpcli.Client, inputFile string) error {
+	fmt.Println(">> Initiating WARP batch download << ")
+
+	// Resolve download path
+	resolvedPath, err := resolveDownloadPath(dlPath)
+	if err != nil {
+		cmdcommon.PrintRuntimeErr(ctx, "download", "resolve_path", err)
+		return nil
+	}
+
+	// Build headers
+	var headers warplib.Headers
+	if userAgent != "" {
+		headers = warplib.Headers{{
+			Key: warplib.USER_AGENT_KEY, Value: getUserAgent(userAgent),
+		}}
+	}
+
+	// Parse and append cookie flags
+	cookies := ctx.StringSlice("cookie")
+	headers, err = AppendCookieHeader(headers, cookies)
+	if err != nil {
+		cmdcommon.PrintRuntimeErr(ctx, "download", "parse_cookies", err)
+		return nil
+	}
+
+	// Validate proxy if provided
+	if proxyURL != "" {
+		if _, err := warplib.ParseProxyURL(proxyURL); err != nil {
+			cmdcommon.PrintRuntimeErr(ctx, "download", "invalid_proxy", err)
+			return nil
+		}
+	}
+
+	// Build download options
+	opts := &BatchDownloadOpts{
+		DownloadDir: resolvedPath,
+		DownloadOpts: &warpcli.DownloadOpts{
+			ForceParts:          forceParts,
+			MaxConnections:      int32(maxConns),
+			MaxSegments:         int32(maxParts),
+			Headers:             headers,
+			Overwrite:           ctx.Bool("overwrite"),
+			Proxy:               proxyURL,
+			Timeout:             timeout,
+			MaxRetries:          maxRetries,
+			RetryDelay:          retryDelay,
+			SpeedLimit:          ctx.String("speed-limit"),
+			DisableWorkStealing: ctx.Bool("no-work-steal"),
+			Priority:            parsePriority(ctx.String("priority")),
+		},
+	}
+
+	// Collect direct URLs from positional arguments
+	directURLs := ctx.Args()
+
+	fmt.Printf("Input file: %s\n", inputFile)
+	if len(directURLs) > 0 {
+		fmt.Printf("Additional URLs: %d\n", len(directURLs))
+	}
+
+	// Perform batch download
+	result, err := DownloadBatch(client, inputFile, directURLs, opts)
+	if err != nil {
+		cmdcommon.PrintRuntimeErr(ctx, "download", "batch_download", err)
+		return nil
+	}
+
+	// Print summary using BatchResult's String() method
+	fmt.Println()
+	fmt.Print(result.String())
+
+	return nil
 }

@@ -51,8 +51,17 @@ bandwidth
 
 Example:
         warpdl https://domain.com/file.zip
-					OR
         warpdl download https://domain.com/file.zip
+
+Batch Download (from input file):
+        warpdl download -i urls.txt
+        warpdl download -i urls.txt --background
+        warpdl download -i urls.txt https://extra.com/file.zip
+
+Input file format (one URL per line, # for comments):
+        # My download list
+        https://example.com/file1.zip
+        https://example.com/file2.zip
 
 `
 	ResumeDescription = `The resume command lets you resume an incomplete download
