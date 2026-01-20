@@ -1,7 +1,7 @@
 ---
 spec: issue-136
 phase: tasks
-total_tasks: 16
+total_tasks: 17
 created: 2026-01-19
 generated: auto
 ---
