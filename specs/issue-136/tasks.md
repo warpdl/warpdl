@@ -167,7 +167,7 @@ After POC validated, clean up code.
 
 ## Phase 4: Quality Gates
 
-- [ ] 4.1 Local quality check
+- [x] 4.1 Local quality check
   - **Do**: Run all quality checks locally
   - **Commands**:
     - `go fmt ./...`
@@ -178,7 +178,7 @@ After POC validated, clean up code.
   - **Verify**: Exit codes all 0
   - **Commit**: `cli: fix: address lint/type issues` (if needed)
 
-- [ ] 4.2 Update help text and documentation
+- [x] 4.2 Update help text and documentation
   - **Do**: Update download command description, add examples
   - **Files**: `/Users/divkix/GitHub/warpdl/cmd/templ.go`
   - **Add**: Example showing `-i` usage in help
