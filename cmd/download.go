@@ -52,6 +52,10 @@ var (
 			Value:  "normal",
 			EnvVar: "WARPDL_PRIORITY",
 		},
+		cli.StringFlag{
+			Name:  "input-file, i",
+			Usage: "read URLs from input file (one URL per line, # for comments)",
+		},
 	}
 )
 

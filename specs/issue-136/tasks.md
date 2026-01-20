@@ -49,7 +49,7 @@ Focus: End-to-end batch download working. Skip tests initially, hardcode accepta
   - **Commit**: `cli: test: add input-file flag test (red)`
   - _Requirements: AC-1.1_
 
-- [ ] 1.4 Add -i flag to download command
+- [x] 1.4 Add -i flag to download command
   - **Do**: Add `cli.StringFlag` for `input-file, i` to `dlFlags` in `cmd/download.go`
   - **Files**: `/Users/divkix/GitHub/warpdl/cmd/download.go`
   - **Done when**: Flag test passes, `warpdl download --help` shows `-i` flag
