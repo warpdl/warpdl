@@ -186,7 +186,7 @@ After POC validated, clean up code.
   - **Verify**: `./warpdl download --help`
   - **Commit**: `docs: update download command help with input file examples`
 
-- [ ] 4.3 Create PR and verify CI
+- [x] 4.3 Create PR and verify CI
   - **Do**: Push branch, create PR with gh CLI
   - **PR title**: "feat(cli): add batch URL download from input file (issue #136)"
   - **Verify**: `gh pr checks --watch` all green
