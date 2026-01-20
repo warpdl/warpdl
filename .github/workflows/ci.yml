@@ -24,6 +24,10 @@ jobs:
             coverage-min: 80
             coverage-pkg-min: 80
             run-race: true
+          - os: macos-latest
+            coverage-min: 80
+            coverage-pkg-min: 80
+            run-race: true
 
     steps:
       - name: Checkout
