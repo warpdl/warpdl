@@ -163,19 +163,27 @@ func TestDownloadBatch_EmptyFile(t *testing.T) {
 
 	mock := &MockClient{}
 
-	result, err := DownloadBatch(mock, tmpFile, nil, &BatchDownloadOpts{
+	_, err := DownloadBatch(mock, tmpFile, nil, &BatchDownloadOpts{
 		DownloadDir: "/tmp/downloads",
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+
+	// Empty file should return an error
+	if err == nil {
+		t.Fatal("expected error for empty input file, got nil")
 	}
 
-	// No URLs to download
+	// Verify it's the correct error type
+	var inputFileErr *InputFileError
+	if !errors.As(err, &inputFileErr) {
+		t.Errorf("expected InputFileError, got %T", err)
+	}
+	if !errors.Is(inputFileErr.Err, ErrInputFileEmpty) {
+		t.Errorf("expected ErrInputFileEmpty, got %v", inputFileErr.Err)
+	}
+
+	// No downloads should have been attempted
 	if len(mock.Calls) != 0 {
 		t.Errorf("expected 0 download calls, got %d", len(mock.Calls))
-	}
-	if result.Total != 0 {
-		t.Errorf("expected total 0, got %d", result.Total)
 	}
 }
 

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -141,6 +142,155 @@ func TestParseInputFile_FileNotFound(t *testing.T) {
 	_, err := ParseInputFile("/nonexistent/path/urls.txt")
 	if err == nil {
 		t.Error("expected error for non-existent file")
+	}
+
+	// Verify error type
+	var inputFileErr *InputFileError
+	if !errors.As(err, &inputFileErr) {
+		t.Fatalf("expected InputFileError, got %T", err)
+	}
+	if !errors.Is(inputFileErr.Err, ErrInputFileNotFound) {
+		t.Errorf("expected ErrInputFileNotFound, got %v", inputFileErr.Err)
+	}
+	if inputFileErr.Path != "/nonexistent/path/urls.txt" {
+		t.Errorf("expected path '/nonexistent/path/urls.txt', got '%s'", inputFileErr.Path)
+	}
+}
+
+func TestParseInputFile_PermissionDenied(t *testing.T) {
+	// Create temp file with no read permissions
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "unreadable.txt")
+	err := os.WriteFile(tmpFile, []byte("https://example.com"), 0000)
+	if err != nil {
+		t.Fatalf("failed to create temp file: %v", err)
+	}
+
+	_, err = ParseInputFile(tmpFile)
+	if err == nil {
+		t.Error("expected error for unreadable file")
+	}
+
+	// Verify error type
+	var inputFileErr *InputFileError
+	if !errors.As(err, &inputFileErr) {
+		t.Fatalf("expected InputFileError, got %T", err)
+	}
+	if !errors.Is(inputFileErr.Err, ErrInputFilePermission) {
+		t.Errorf("expected ErrInputFilePermission, got %v", inputFileErr.Err)
+	}
+}
+
+func TestParseInputFile_EmptyFile(t *testing.T) {
+	// Create empty file
+	tmpFile := createTempInputFile(t, "")
+	defer os.Remove(tmpFile)
+
+	_, err := ParseInputFile(tmpFile)
+	if err == nil {
+		t.Error("expected error for empty file")
+	}
+
+	// Verify error type
+	var inputFileErr *InputFileError
+	if !errors.As(err, &inputFileErr) {
+		t.Fatalf("expected InputFileError, got %T", err)
+	}
+	if !errors.Is(inputFileErr.Err, ErrInputFileEmpty) {
+		t.Errorf("expected ErrInputFileEmpty, got %v", inputFileErr.Err)
+	}
+}
+
+func TestParseInputFile_OnlyCommentsAndEmptyLines(t *testing.T) {
+	// Create file with only comments and empty lines (no valid URLs)
+	content := `# This is a comment
+# Another comment
+
+
+# More comments`
+	tmpFile := createTempInputFile(t, content)
+	defer os.Remove(tmpFile)
+
+	result, err := ParseInputFile(tmpFile)
+	if err == nil {
+		t.Error("expected error for file with no valid URLs")
+	}
+
+	// Verify error type
+	var inputFileErr *InputFileError
+	if !errors.As(err, &inputFileErr) {
+		t.Fatalf("expected InputFileError, got %T", err)
+	}
+	if !errors.Is(inputFileErr.Err, ErrInputFileEmpty) {
+		t.Errorf("expected ErrInputFileEmpty, got %v", inputFileErr.Err)
+	}
+
+	// Result should still be returned with metadata
+	if result == nil {
+		t.Error("expected result to be returned even on empty file error")
+	}
+	if result.SkippedLines != 3 {
+		t.Errorf("expected 3 skipped comment lines, got %d", result.SkippedLines)
+	}
+}
+
+func TestInputFileError_Error(t *testing.T) {
+	err := NewInputFileError("/path/to/file.txt", ErrInputFileNotFound)
+	expected := "input file not found: /path/to/file.txt"
+	if err.Error() != expected {
+		t.Errorf("expected %q, got %q", expected, err.Error())
+	}
+}
+
+func TestInputFileError_Unwrap(t *testing.T) {
+	err := NewInputFileError("/path/to/file.txt", ErrInputFileNotFound)
+	unwrapped := err.Unwrap()
+	if unwrapped != ErrInputFileNotFound {
+		t.Errorf("expected ErrInputFileNotFound, got %v", unwrapped)
+	}
+}
+
+func TestNewInputFileError(t *testing.T) {
+	tests := []struct {
+		name     string
+		path     string
+		err      error
+		wantPath string
+		wantErr  error
+	}{
+		{
+			name:     "file not found",
+			path:     "/tmp/missing.txt",
+			err:      ErrInputFileNotFound,
+			wantPath: "/tmp/missing.txt",
+			wantErr:  ErrInputFileNotFound,
+		},
+		{
+			name:     "permission denied",
+			path:     "/etc/shadow",
+			err:      ErrInputFilePermission,
+			wantPath: "/etc/shadow",
+			wantErr:  ErrInputFilePermission,
+		},
+		{
+			name:     "empty file",
+			path:     "/tmp/empty.txt",
+			err:      ErrInputFileEmpty,
+			wantPath: "/tmp/empty.txt",
+			wantErr:  ErrInputFileEmpty,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := NewInputFileError(tt.path, tt.err)
+			if err.Path != tt.wantPath {
+				t.Errorf("Path = %q, want %q", err.Path, tt.wantPath)
+			}
+			if err.Err != tt.wantErr {
+				t.Errorf("Err = %v, want %v", err.Err, tt.wantErr)
+			}
+		})
 	}
 }
 
