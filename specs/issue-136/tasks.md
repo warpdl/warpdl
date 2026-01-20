@@ -136,7 +136,7 @@ After POC validated, clean up code.
 
 ## Phase 3: Testing
 
-- [ ] 3.1 Add edge case tests for parser
+- [x] 3.1 Add edge case tests for parser
   - **Do**: Add tests for: empty file, only comments, Unicode, Windows line endings
   - **Files**: `/Users/divkix/GitHub/warpdl/cmd/input_file_test.go`
   - **Done when**: All edge cases covered
