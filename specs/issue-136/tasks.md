@@ -70,7 +70,7 @@ Focus: End-to-end batch download working. Skip tests initially, hardcode accepta
   - _Requirements: FR-4, FR-6_
   - _Design: Component B_
 
-- [ ] 1.6 Implement batch download logic
+- [x] 1.6 Implement batch download logic
   - **Do**: Add `downloadFromInputFile()` function in `cmd/download.go`
   - **Files**: `/Users/divkix/GitHub/warpdl/cmd/download.go`
   - **Implementation**:
