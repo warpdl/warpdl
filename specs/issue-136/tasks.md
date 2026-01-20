@@ -57,7 +57,7 @@ Focus: End-to-end batch download working. Skip tests initially, hardcode accepta
   - **Commit**: `cli: feat: add -i/--input-file flag to download command`
   - _Requirements: AC-1.1_
 
-- [ ] 1.5 Write failing test for batch download function
+- [x] 1.5 Write failing test for batch download function
   - **Do**: Create `cmd/download_batch_test.go` with test for batch download logic
   - **Files**: `/Users/divkix/GitHub/warpdl/cmd/download_batch_test.go`
   - **Test cases**:
