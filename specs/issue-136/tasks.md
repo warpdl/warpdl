@@ -109,7 +109,7 @@ Focus: End-to-end batch download working. Skip tests initially, hardcode accepta
 
 After POC validated, clean up code.
 
-- [ ] 2.1 Extract result tracking to separate struct
+- [x] 2.1 Extract result tracking to separate struct
   - **Do**: Create `BatchResult` and `BatchError` types, extract tracking logic
   - **Files**: `/Users/divkix/GitHub/warpdl/cmd/input_file.go`
   - **Done when**: Code follows single responsibility, types documented

@@ -288,19 +288,9 @@ func downloadBatchFromFile(ctx *cli.Context, client *warpcli.Client, inputFile s
 		return nil
 	}
 
-	// Print summary
+	// Print summary using BatchResult's String() method
 	fmt.Println()
-	fmt.Println("=== Batch Download Summary ===")
-	fmt.Printf("Total URLs: %d\n", result.Total)
-	fmt.Printf("Succeeded:  %d\n", result.Succeeded)
-	fmt.Printf("Failed:     %d\n", result.Failed)
-
-	if len(result.Errors) > 0 {
-		fmt.Println("\nFailed downloads:")
-		for _, e := range result.Errors {
-			fmt.Printf("  - %s: %v\n", e.URL, e.Error)
-		}
-	}
+	fmt.Print(result.String())
 
 	return nil
 }

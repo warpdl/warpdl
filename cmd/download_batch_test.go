@@ -201,3 +201,211 @@ func TestDownloadBatch_OnlyDirectURLs(t *testing.T) {
 		t.Errorf("expected 1 succeeded, got %d", result.Succeeded)
 	}
 }
+
+// Tests for BatchResult helper methods
+
+func TestBatchResult_NewBatchResult(t *testing.T) {
+	result := NewBatchResult(5)
+
+	if result.Total != 5 {
+		t.Errorf("expected total 5, got %d", result.Total)
+	}
+	if result.Succeeded != 0 {
+		t.Errorf("expected succeeded 0, got %d", result.Succeeded)
+	}
+	if result.Failed != 0 {
+		t.Errorf("expected failed 0, got %d", result.Failed)
+	}
+	if result.Errors == nil {
+		t.Error("expected Errors slice to be initialized")
+	}
+}
+
+func TestBatchResult_AddSuccess(t *testing.T) {
+	result := NewBatchResult(3)
+	result.AddSuccess()
+	result.AddSuccess()
+
+	if result.Succeeded != 2 {
+		t.Errorf("expected succeeded 2, got %d", result.Succeeded)
+	}
+}
+
+func TestBatchResult_AddError(t *testing.T) {
+	result := NewBatchResult(3)
+	result.AddError("https://example.com/fail.zip", errors.New("connection refused"))
+
+	if result.Failed != 1 {
+		t.Errorf("expected failed 1, got %d", result.Failed)
+	}
+	if len(result.Errors) != 1 {
+		t.Fatalf("expected 1 error, got %d", len(result.Errors))
+	}
+	if result.Errors[0].URL != "https://example.com/fail.zip" {
+		t.Errorf("expected URL 'https://example.com/fail.zip', got '%s'", result.Errors[0].URL)
+	}
+	if result.Errors[0].Reason != "connection refused" {
+		t.Errorf("expected reason 'connection refused', got '%s'", result.Errors[0].Reason)
+	}
+}
+
+func TestBatchResult_IsSuccess(t *testing.T) {
+	tests := []struct {
+		name     string
+		setup    func() *BatchResult
+		expected bool
+	}{
+		{
+			name: "all succeeded",
+			setup: func() *BatchResult {
+				r := NewBatchResult(2)
+				r.AddSuccess()
+				r.AddSuccess()
+				return r
+			},
+			expected: true,
+		},
+		{
+			name: "some failed",
+			setup: func() *BatchResult {
+				r := NewBatchResult(2)
+				r.AddSuccess()
+				r.AddError("url", errors.New("failed"))
+				return r
+			},
+			expected: false,
+		},
+		{
+			name: "all failed",
+			setup: func() *BatchResult {
+				r := NewBatchResult(1)
+				r.AddError("url", errors.New("failed"))
+				return r
+			},
+			expected: false,
+		},
+		{
+			name: "empty",
+			setup: func() *BatchResult {
+				return NewBatchResult(0)
+			},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.setup()
+			if got := result.IsSuccess(); got != tt.expected {
+				t.Errorf("IsSuccess() = %v, want %v", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestBatchResult_HasErrors(t *testing.T) {
+	tests := []struct {
+		name     string
+		setup    func() *BatchResult
+		expected bool
+	}{
+		{
+			name: "no errors",
+			setup: func() *BatchResult {
+				r := NewBatchResult(2)
+				r.AddSuccess()
+				r.AddSuccess()
+				return r
+			},
+			expected: false,
+		},
+		{
+			name: "has errors",
+			setup: func() *BatchResult {
+				r := NewBatchResult(2)
+				r.AddSuccess()
+				r.AddError("url", errors.New("failed"))
+				return r
+			},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.setup()
+			if got := result.HasErrors(); got != tt.expected {
+				t.Errorf("HasErrors() = %v, want %v", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestBatchResult_String(t *testing.T) {
+	t.Run("success only", func(t *testing.T) {
+		result := NewBatchResult(2)
+		result.AddSuccess()
+		result.AddSuccess()
+
+		s := result.String()
+		if !contains(s, "Total URLs: 2") {
+			t.Errorf("expected 'Total URLs: 2' in output, got: %s", s)
+		}
+		if !contains(s, "Succeeded:  2") {
+			t.Errorf("expected 'Succeeded:  2' in output, got: %s", s)
+		}
+		if !contains(s, "Failed:     0") {
+			t.Errorf("expected 'Failed:     0' in output, got: %s", s)
+		}
+		if contains(s, "Failed downloads:") {
+			t.Errorf("should not contain 'Failed downloads:' section when no errors")
+		}
+	})
+
+	t.Run("with failures", func(t *testing.T) {
+		result := NewBatchResult(3)
+		result.AddSuccess()
+		result.AddSuccess()
+		result.AddError("https://example.com/fail.zip", errors.New("404 Not Found"))
+
+		s := result.String()
+		if !contains(s, "Total URLs: 3") {
+			t.Errorf("expected 'Total URLs: 3' in output, got: %s", s)
+		}
+		if !contains(s, "Failed:     1") {
+			t.Errorf("expected 'Failed:     1' in output, got: %s", s)
+		}
+		if !contains(s, "Failed downloads:") {
+			t.Errorf("expected 'Failed downloads:' section")
+		}
+		if !contains(s, "https://example.com/fail.zip: 404 Not Found") {
+			t.Errorf("expected error details in output, got: %s", s)
+		}
+	})
+}
+
+func TestNewBatchError(t *testing.T) {
+	err := errors.New("connection timeout")
+	be := NewBatchError("https://example.com/file.zip", err)
+
+	if be.URL != "https://example.com/file.zip" {
+		t.Errorf("expected URL 'https://example.com/file.zip', got '%s'", be.URL)
+	}
+	if be.Reason != "connection timeout" {
+		t.Errorf("expected reason 'connection timeout', got '%s'", be.Reason)
+	}
+}
+
+// Helper function for string contains check
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
+}
+
+func containsHelper(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}

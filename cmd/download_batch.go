@@ -1,6 +1,9 @@
 package cmd
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/warpdl/warpdl/common"
 	"github.com/warpdl/warpdl/pkg/warpcli"
 )
@@ -22,11 +25,22 @@ type BatchDownloadOpts struct {
 
 // BatchError represents an error that occurred during a specific URL download.
 type BatchError struct {
-	URL   string
-	Error error
+	// URL is the URL that failed to download.
+	URL string
+	// Reason is a human-readable error message describing why the download failed.
+	Reason string
+}
+
+// NewBatchError creates a BatchError from a URL and an error.
+func NewBatchError(url string, err error) BatchError {
+	return BatchError{
+		URL:    url,
+		Reason: err.Error(),
+	}
 }
 
 // BatchResult contains the results of a batch download operation.
+// It tracks success/failure counts and provides methods for result aggregation.
 type BatchResult struct {
 	// Succeeded is the count of successful downloads.
 	Succeeded int
@@ -36,6 +50,55 @@ type BatchResult struct {
 	Total int
 	// Errors contains details about each failed download.
 	Errors []BatchError
+}
+
+// NewBatchResult creates a new BatchResult with the specified total count.
+func NewBatchResult(total int) *BatchResult {
+	return &BatchResult{
+		Total:  total,
+		Errors: make([]BatchError, 0),
+	}
+}
+
+// AddSuccess increments the success count.
+func (r *BatchResult) AddSuccess() {
+	r.Succeeded++
+}
+
+// AddError records a download failure with the URL and error message.
+func (r *BatchResult) AddError(url string, err error) {
+	r.Failed++
+	r.Errors = append(r.Errors, NewBatchError(url, err))
+}
+
+// IsSuccess returns true if all downloads succeeded (no failures).
+func (r *BatchResult) IsSuccess() bool {
+	return r.Failed == 0
+}
+
+// HasErrors returns true if any downloads failed.
+func (r *BatchResult) HasErrors() bool {
+	return r.Failed > 0
+}
+
+// String returns a formatted summary of the batch download results.
+// The summary includes total count, succeeded/failed counts, and error details.
+func (r *BatchResult) String() string {
+	var sb strings.Builder
+
+	sb.WriteString("=== Batch Download Summary ===\n")
+	sb.WriteString(fmt.Sprintf("Total URLs: %d\n", r.Total))
+	sb.WriteString(fmt.Sprintf("Succeeded:  %d\n", r.Succeeded))
+	sb.WriteString(fmt.Sprintf("Failed:     %d\n", r.Failed))
+
+	if len(r.Errors) > 0 {
+		sb.WriteString("\nFailed downloads:\n")
+		for _, e := range r.Errors {
+			sb.WriteString(fmt.Sprintf("  - %s: %s\n", e.URL, e.Reason))
+		}
+	}
+
+	return sb.String()
 }
 
 // DownloadBatch downloads multiple URLs from an input file and/or direct URL arguments.
@@ -49,8 +112,6 @@ type BatchResult struct {
 //
 // Returns the batch result with success/failure counts and any errors encountered.
 func DownloadBatch(client BatchDownloadClient, inputFilePath string, directURLs []string, opts *BatchDownloadOpts) (*BatchResult, error) {
-	result := &BatchResult{}
-
 	// Collect all URLs
 	var allURLs []string
 
@@ -66,7 +127,8 @@ func DownloadBatch(client BatchDownloadClient, inputFilePath string, directURLs 
 	// Add direct URLs
 	allURLs = append(allURLs, directURLs...)
 
-	result.Total = len(allURLs)
+	// Initialize result tracker with total count
+	result := NewBatchResult(len(allURLs))
 
 	// Download each URL
 	for _, url := range allURLs {
@@ -77,13 +139,9 @@ func DownloadBatch(client BatchDownloadClient, inputFilePath string, directURLs 
 
 		_, err := client.Download(url, "", opts.DownloadDir, downloadOpts)
 		if err != nil {
-			result.Failed++
-			result.Errors = append(result.Errors, BatchError{
-				URL:   url,
-				Error: err,
-			})
+			result.AddError(url, err)
 		} else {
-			result.Succeeded++
+			result.AddSuccess()
 		}
 	}
 
