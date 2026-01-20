@@ -126,7 +126,7 @@ After POC validated, clean up code.
   - **Commit**: `cli: refactor: add comprehensive error handling for input file`
   - _Design: Error Handling_
 
-- [ ] 2.3 Add input validation
+- [x] 2.3 Add input validation
   - **Do**: Validate URLs have scheme (http/https), log warnings for suspicious lines
   - **Files**: `/Users/divkix/GitHub/warpdl/cmd/input_file.go`
   - **Done when**: Invalid URLs logged with line numbers

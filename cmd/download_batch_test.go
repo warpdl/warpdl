@@ -404,6 +404,109 @@ func TestNewBatchError(t *testing.T) {
 	}
 }
 
+func TestSkippedURL(t *testing.T) {
+	s := SkippedURL{
+		LineNumber: 5,
+		Content:    "ftp://example.com/file.zip",
+		Reason:     "URL must start with http:// or https://",
+	}
+
+	if s.LineNumber != 5 {
+		t.Errorf("expected LineNumber 5, got %d", s.LineNumber)
+	}
+	if s.Content != "ftp://example.com/file.zip" {
+		t.Errorf("expected Content 'ftp://example.com/file.zip', got %q", s.Content)
+	}
+	if s.Reason != "URL must start with http:// or https://" {
+		t.Errorf("expected Reason about http/https, got %q", s.Reason)
+	}
+}
+
+func TestBatchResult_StringWithSkippedURLs(t *testing.T) {
+	result := NewBatchResult(2)
+	result.AddSuccess()
+	result.AddSuccess()
+	result.SkippedURLs = []SkippedURL{
+		{LineNumber: 3, Content: "ftp://example.com/file.zip", Reason: "URL must start with http:// or https://"},
+		{LineNumber: 5, Content: "magnet:?xt=abc", Reason: "URL must start with http:// or https://"},
+	}
+
+	s := result.String()
+
+	// Check skipped count
+	if !contains(s, "Skipped:    2 (invalid URLs)") {
+		t.Errorf("expected 'Skipped:    2 (invalid URLs)' in output, got: %s", s)
+	}
+
+	// Check warning header
+	if !contains(s, "Warning - Skipped URLs with invalid scheme:") {
+		t.Errorf("expected warning header in output, got: %s", s)
+	}
+
+	// Check line number and content are included
+	if !contains(s, "Line 3: ftp://example.com/file.zip") {
+		t.Errorf("expected 'Line 3: ftp://example.com/file.zip' in output, got: %s", s)
+	}
+	if !contains(s, "Line 5: magnet:?xt=abc") {
+		t.Errorf("expected 'Line 5: magnet:?xt=abc' in output, got: %s", s)
+	}
+}
+
+func TestDownloadBatch_WithSkippedURLs(t *testing.T) {
+	// Create input file with mix of valid and invalid URLs
+	content := `https://example.com/file1.zip
+ftp://example.com/invalid.zip
+https://example.com/file2.zip
+magnet:?xt=urn:btih:abc123`
+	tmpFile := createTempInputFile(t, content)
+	defer os.Remove(tmpFile)
+
+	mock := &MockClient{}
+
+	result, err := DownloadBatch(mock, tmpFile, nil, &BatchDownloadOpts{
+		DownloadDir: "/tmp/downloads",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Only 2 valid URLs should be downloaded
+	if len(mock.Calls) != 2 {
+		t.Errorf("expected 2 download calls (valid URLs only), got %d", len(mock.Calls))
+	}
+
+	// Result should track 2 valid URLs
+	if result.Total != 2 {
+		t.Errorf("expected total 2 (valid URLs), got %d", result.Total)
+	}
+	if result.Succeeded != 2 {
+		t.Errorf("expected 2 succeeded, got %d", result.Succeeded)
+	}
+
+	// 2 invalid URLs should be tracked as skipped
+	if len(result.SkippedURLs) != 2 {
+		t.Errorf("expected 2 skipped URLs, got %d", len(result.SkippedURLs))
+	}
+
+	// Verify skipped URLs have correct line numbers
+	foundFTP := false
+	foundMagnet := false
+	for _, s := range result.SkippedURLs {
+		if s.LineNumber == 2 && s.Content == "ftp://example.com/invalid.zip" {
+			foundFTP = true
+		}
+		if s.LineNumber == 4 && s.Content == "magnet:?xt=urn:btih:abc123" {
+			foundMagnet = true
+		}
+	}
+	if !foundFTP {
+		t.Error("did not find expected skipped URL for ftp:// at line 2")
+	}
+	if !foundMagnet {
+		t.Error("did not find expected skipped URL for magnet: at line 4")
+	}
+}
+
 // Helper function for string contains check
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))

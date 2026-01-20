@@ -39,6 +39,16 @@ func NewBatchError(url string, err error) BatchError {
 	}
 }
 
+// SkippedURL represents a URL that was skipped during input file parsing.
+type SkippedURL struct {
+	// LineNumber is the 1-indexed line number in the input file.
+	LineNumber int
+	// Content is the content of the skipped line.
+	Content string
+	// Reason explains why the line was skipped.
+	Reason string
+}
+
 // BatchResult contains the results of a batch download operation.
 // It tracks success/failure counts and provides methods for result aggregation.
 type BatchResult struct {
@@ -50,6 +60,8 @@ type BatchResult struct {
 	Total int
 	// Errors contains details about each failed download.
 	Errors []BatchError
+	// SkippedURLs contains URLs that were skipped during input file parsing.
+	SkippedURLs []SkippedURL
 }
 
 // NewBatchResult creates a new BatchResult with the specified total count.
@@ -82,7 +94,7 @@ func (r *BatchResult) HasErrors() bool {
 }
 
 // String returns a formatted summary of the batch download results.
-// The summary includes total count, succeeded/failed counts, and error details.
+// The summary includes total count, succeeded/failed counts, skipped URLs warnings, and error details.
 func (r *BatchResult) String() string {
 	var sb strings.Builder
 
@@ -90,6 +102,14 @@ func (r *BatchResult) String() string {
 	sb.WriteString(fmt.Sprintf("Total URLs: %d\n", r.Total))
 	sb.WriteString(fmt.Sprintf("Succeeded:  %d\n", r.Succeeded))
 	sb.WriteString(fmt.Sprintf("Failed:     %d\n", r.Failed))
+
+	if len(r.SkippedURLs) > 0 {
+		sb.WriteString(fmt.Sprintf("Skipped:    %d (invalid URLs)\n", len(r.SkippedURLs)))
+		sb.WriteString("\nWarning - Skipped URLs with invalid scheme:\n")
+		for _, s := range r.SkippedURLs {
+			sb.WriteString(fmt.Sprintf("  Line %d: %s (%s)\n", s.LineNumber, s.Content, s.Reason))
+		}
+	}
 
 	if len(r.Errors) > 0 {
 		sb.WriteString("\nFailed downloads:\n")
@@ -103,6 +123,7 @@ func (r *BatchResult) String() string {
 
 // DownloadBatch downloads multiple URLs from an input file and/or direct URL arguments.
 // It continues processing even if individual downloads fail.
+// Invalid URLs (e.g., non-http/https) are skipped with warnings logged.
 //
 // Parameters:
 //   - client: the download client to use
@@ -110,10 +131,11 @@ func (r *BatchResult) String() string {
 //   - directURLs: additional URLs provided directly as arguments
 //   - opts: batch download options
 //
-// Returns the batch result with success/failure counts and any errors encountered.
+// Returns the batch result with success/failure counts, skipped URLs, and any errors encountered.
 func DownloadBatch(client BatchDownloadClient, inputFilePath string, directURLs []string, opts *BatchDownloadOpts) (*BatchResult, error) {
 	// Collect all URLs
 	var allURLs []string
+	var skippedURLs []SkippedURL
 
 	// Parse URLs from input file if provided
 	if inputFilePath != "" {
@@ -122,6 +144,15 @@ func DownloadBatch(client BatchDownloadClient, inputFilePath string, directURLs 
 			return nil, err
 		}
 		allURLs = append(allURLs, parseResult.URLs...)
+
+		// Copy invalid lines to skipped URLs for reporting
+		for _, inv := range parseResult.InvalidLines {
+			skippedURLs = append(skippedURLs, SkippedURL{
+				LineNumber: inv.LineNumber,
+				Content:    inv.Content,
+				Reason:     inv.Reason,
+			})
+		}
 	}
 
 	// Add direct URLs
@@ -129,6 +160,7 @@ func DownloadBatch(client BatchDownloadClient, inputFilePath string, directURLs 
 
 	// Initialize result tracker with total count
 	result := NewBatchResult(len(allURLs))
+	result.SkippedURLs = skippedURLs
 
 	// Download each URL
 	for _, url := range allURLs {

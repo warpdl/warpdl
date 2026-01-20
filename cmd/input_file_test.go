@@ -294,6 +294,159 @@ func TestNewInputFileError(t *testing.T) {
 	}
 }
 
+func TestParseInputFile_ValidateURLScheme(t *testing.T) {
+	content := `https://example.com/file1.zip
+http://example.com/file2.zip
+ftp://example.com/file3.zip
+example.com/file4.zip
+/local/path/file5.zip
+https://example.com/file6.zip`
+
+	tmpFile := createTempInputFile(t, content)
+	defer os.Remove(tmpFile)
+
+	result, err := ParseInputFile(tmpFile)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should only accept http/https URLs
+	if len(result.URLs) != 3 {
+		t.Errorf("expected 3 valid URLs (http/https only), got %d: %v", len(result.URLs), result.URLs)
+	}
+
+	// Should track invalid lines with line numbers
+	if len(result.InvalidLines) != 3 {
+		t.Errorf("expected 3 invalid lines, got %d", len(result.InvalidLines))
+	}
+
+	// Verify invalid lines have correct line numbers (1-indexed)
+	expectedInvalid := []struct {
+		line    int
+		content string
+	}{
+		{3, "ftp://example.com/file3.zip"},
+		{4, "example.com/file4.zip"},
+		{5, "/local/path/file5.zip"},
+	}
+
+	for i, expected := range expectedInvalid {
+		if i >= len(result.InvalidLines) {
+			t.Errorf("missing invalid line %d", i)
+			continue
+		}
+		inv := result.InvalidLines[i]
+		if inv.LineNumber != expected.line {
+			t.Errorf("invalid line %d: expected line number %d, got %d", i, expected.line, inv.LineNumber)
+		}
+		if inv.Content != expected.content {
+			t.Errorf("invalid line %d: expected content %q, got %q", i, expected.content, inv.Content)
+		}
+	}
+}
+
+func TestParseInputFile_ValidateURLScheme_AllInvalid(t *testing.T) {
+	content := `ftp://example.com/file1.zip
+magnet:?xt=urn:btih:abc123
+/local/path/file.zip`
+
+	tmpFile := createTempInputFile(t, content)
+	defer os.Remove(tmpFile)
+
+	result, err := ParseInputFile(tmpFile)
+	// Should return error since no valid URLs
+	if err == nil {
+		t.Error("expected error when all URLs are invalid")
+	}
+
+	// Verify error type
+	var inputFileErr *InputFileError
+	if !errors.As(err, &inputFileErr) {
+		t.Fatalf("expected InputFileError, got %T", err)
+	}
+	if !errors.Is(inputFileErr.Err, ErrInputFileEmpty) {
+		t.Errorf("expected ErrInputFileEmpty, got %v", inputFileErr.Err)
+	}
+
+	// Should still track invalid lines
+	if result == nil {
+		t.Fatal("expected result to be returned even with all invalid URLs")
+	}
+	if len(result.InvalidLines) != 3 {
+		t.Errorf("expected 3 invalid lines, got %d", len(result.InvalidLines))
+	}
+}
+
+func TestParseInputFile_ValidateURLScheme_MixedWithComments(t *testing.T) {
+	content := `# Valid URLs
+https://example.com/file1.zip
+# Invalid URL below
+ftp://invalid.com/file.zip
+
+http://example.com/file2.zip
+no-scheme.com/file.zip`
+
+	tmpFile := createTempInputFile(t, content)
+	defer os.Remove(tmpFile)
+
+	result, err := ParseInputFile(tmpFile)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should have 2 valid http/https URLs
+	if len(result.URLs) != 2 {
+		t.Errorf("expected 2 valid URLs, got %d: %v", len(result.URLs), result.URLs)
+	}
+
+	// Should have 2 comments and 2 invalid URLs
+	if result.SkippedLines != 2 {
+		t.Errorf("expected 2 skipped comment lines, got %d", result.SkippedLines)
+	}
+
+	if len(result.InvalidLines) != 2 {
+		t.Errorf("expected 2 invalid lines, got %d", len(result.InvalidLines))
+	}
+
+	// Check invalid URLs are tracked with correct line numbers
+	// Line 4: ftp://invalid.com/file.zip
+	// Line 7: no-scheme.com/file.zip
+	foundFTP := false
+	foundNoScheme := false
+	for _, inv := range result.InvalidLines {
+		if inv.LineNumber == 4 && inv.Content == "ftp://invalid.com/file.zip" {
+			foundFTP = true
+		}
+		if inv.LineNumber == 7 && inv.Content == "no-scheme.com/file.zip" {
+			foundNoScheme = true
+		}
+	}
+	if !foundFTP {
+		t.Error("did not find expected invalid line for ftp://invalid.com/file.zip at line 4")
+	}
+	if !foundNoScheme {
+		t.Error("did not find expected invalid line for no-scheme.com/file.zip at line 7")
+	}
+}
+
+func TestInvalidLine(t *testing.T) {
+	inv := InvalidLine{
+		LineNumber: 5,
+		Content:    "ftp://example.com/file.zip",
+		Reason:     "URL must start with http:// or https://",
+	}
+
+	if inv.LineNumber != 5 {
+		t.Errorf("expected LineNumber 5, got %d", inv.LineNumber)
+	}
+	if inv.Content != "ftp://example.com/file.zip" {
+		t.Errorf("expected Content 'ftp://example.com/file.zip', got %q", inv.Content)
+	}
+	if inv.Reason != "URL must start with http:// or https://" {
+		t.Errorf("expected Reason about http/https, got %q", inv.Reason)
+	}
+}
+
 // Helper function to create temporary input file
 func createTempInputFile(t *testing.T, content string) string {
 	t.Helper()
