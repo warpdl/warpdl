@@ -5,6 +5,8 @@ package cmd
 import (
 	"context"
 	"log"
+	"os"
+	"strconv"
 
 	"github.com/urfave/cli"
 	daemonpkg "github.com/warpdl/warpdl/internal/daemon"
@@ -63,10 +65,23 @@ func runAsWindowsService() error {
 	return runServiceWithLogger(multiLogger)
 }
 
+// getMaxConcurrentFromEnv reads WARPDL_MAX_CONCURRENT env var, defaults to 3.
+func getMaxConcurrentFromEnv() int {
+	if val := os.Getenv("WARPDL_MAX_CONCURRENT"); val != "" {
+		if n, err := strconv.Atoi(val); err == nil {
+			return n
+		}
+	}
+	return 3 // default
+}
+
 // runServiceWithLogger runs the Windows service handler with full daemon functionality.
 func runServiceWithLogger(log logger.Logger) error {
+	// Read max concurrent from env var (no CLI context in service mode)
+	maxConcurrent := getMaxConcurrentFromEnv()
+
 	// Initialize all daemon components using shared initialization
-	components, err := initDaemonComponents(log)
+	components, err := initDaemonComponents(log, maxConcurrent)
 	if err != nil {
 		log.Error("Failed to initialize daemon components: %v", err)
 		return err

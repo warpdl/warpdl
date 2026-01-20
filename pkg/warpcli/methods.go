@@ -51,6 +51,9 @@ type DownloadOpts struct {
 	// DisableWorkStealing disables dynamic work stealing where fast parts
 	// take over remaining work from slow adjacent parts.
 	DisableWorkStealing bool `json:"disable_work_stealing,omitempty"`
+	// Priority specifies the queue priority (0=low, 1=normal, 2=high).
+	// Defaults to normal if not specified.
+	Priority int `json:"priority,omitempty"`
 }
 
 // Download initiates a new download from the specified URL.
@@ -79,6 +82,7 @@ func (c *Client) Download(url, fileName, downloadDirectory string, opts *Downloa
 		RetryDelay:          opts.RetryDelay,
 		SpeedLimit:          opts.SpeedLimit,
 		DisableWorkStealing: opts.DisableWorkStealing,
+		Priority:            opts.Priority,
 	})
 }
 
@@ -214,4 +218,29 @@ func (c *Client) ListExtension(all bool) (*[]common.ExtensionInfoShort, error) {
 // Returns the daemon's version, commit hash, and build type.
 func (c *Client) GetDaemonVersion() (*common.VersionResponse, error) {
 	return invoke[common.VersionResponse](c, common.UPDATE_VERSION, nil)
+}
+
+// QueueStatus returns the current queue status including active and waiting downloads.
+func (c *Client) QueueStatus() (*common.QueueStatusResponse, error) {
+	return invoke[common.QueueStatusResponse](c, common.UPDATE_QUEUE_STATUS, nil)
+}
+
+// QueuePause pauses the download queue, preventing new downloads from auto-starting.
+func (c *Client) QueuePause() error {
+	_, err := invoke[any](c, common.UPDATE_QUEUE_PAUSE, nil)
+	return err
+}
+
+// QueueResume resumes the download queue, allowing waiting downloads to start.
+func (c *Client) QueueResume() error {
+	_, err := invoke[any](c, common.UPDATE_QUEUE_RESUME, nil)
+	return err
+}
+
+// QueueMove moves a queued download to a new position in the waiting queue.
+// The hash identifies the download to move, and position is the target 0-indexed position.
+func (c *Client) QueueMove(hash string, position int) error {
+	params := common.QueueMoveParams{Hash: hash, Position: position}
+	_, err := invoke[any](c, common.UPDATE_QUEUE_MOVE, params)
+	return err
 }

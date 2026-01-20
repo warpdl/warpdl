@@ -153,6 +153,7 @@ func (s *Api) downloadHandler(sconn *server.SyncConn, pool *server.Pool, body js
 		IsHidden:         m.IsHidden,
 		IsChildren:       m.IsChildren,
 		AbsoluteLocation: d.GetDownloadDirectory(),
+		Priority:         warplib.Priority(m.Priority),
 	})
 	if err != nil {
 		return common.UPDATE_DOWNLOAD, nil, err

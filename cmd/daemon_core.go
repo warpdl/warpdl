@@ -77,10 +77,11 @@ func (c *DaemonComponents) Close() {
 
 // initDaemonComponents initializes all daemon components with the provided logger.
 // This is the shared initialization used by both console mode and Windows service mode.
+// maxConcurrent sets the maximum concurrent downloads (0 = unlimited).
 // Returns the initialized components or an error if initialization fails.
 //
 // On error, any partially initialized components are cleaned up before returning.
-var initDaemonComponents = func(log logger.Logger) (*DaemonComponents, error) {
+var initDaemonComponents = func(log logger.Logger, maxConcurrent int) (*DaemonComponents, error) {
 	stdLog := logger.ToStdLogger(log)
 
 	// Initialize cookie manager
@@ -114,6 +115,28 @@ var initDaemonComponents = func(log logger.Logger) (*DaemonComponents, error) {
 		elEng.Close()
 		cm.Close()
 		return nil, err
+	}
+
+	// Set up download queue if max-concurrent is specified
+	if maxConcurrent > 0 {
+		// onStartDownload is called by the queue when a slot becomes available
+		// for a waiting download. It auto-resumes the queued download.
+		onStartDownload := func(hash string) {
+			item, err := m.ResumeDownload(client, hash, nil)
+			if err != nil {
+				log.Error("Queue auto-start failed for %s: %v", hash, err)
+				return
+			}
+			// Start the download in background
+			go func() {
+				if err := item.Resume(); err != nil {
+					log.Error("Queue auto-resume failed for %s: %v", hash, err)
+				}
+			}()
+			log.Info("Queue auto-started download: %s", hash)
+		}
+		m.SetMaxConcurrentDownloads(maxConcurrent, onStartDownload)
+		log.Info("Download queue enabled: max %d concurrent", maxConcurrent)
 	}
 
 	// Create API

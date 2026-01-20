@@ -73,6 +73,14 @@ func GetApp(bArgs BuildArgs) *cli.App {
 			Name:   "daemon",
 			Action: getDaemonAction(),
 			Usage:  "start the warpdl daemon",
+			Flags: []cli.Flag{
+				cli.IntFlag{
+					Name:   "max-concurrent",
+					Usage:  "maximum number of concurrent downloads (0 = unlimited)",
+					Value:  3,
+					EnvVar: "WARPDL_MAX_CONCURRENT",
+				},
+			},
 		},
 		{
 			Name:   "stop-daemon",
@@ -146,6 +154,7 @@ func GetApp(bArgs BuildArgs) *cli.App {
 			UseShortOptionHandling: true,
 			Flags:                  append(flsFlags, globalFlags...),
 		},
+		queueCmd,
 		{
 			Name:    "help",
 			Aliases: []string{"h"},

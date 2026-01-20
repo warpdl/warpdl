@@ -78,4 +78,10 @@ var (
 
 	// ErrDirectoryNotWritable is returned when the download directory is not writable.
 	ErrDirectoryNotWritable = errors.New("download directory is not writable")
+
+	// ErrQueueHashNotFound is returned when attempting to move a download that is not in the waiting queue.
+	ErrQueueHashNotFound = errors.New("download not found in waiting queue")
+
+	// ErrCannotMoveActive is returned when attempting to move an active download in the queue.
+	ErrCannotMoveActive = errors.New("cannot move active download, only waiting downloads can be moved")
 )

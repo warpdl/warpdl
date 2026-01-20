@@ -15,6 +15,13 @@ import (
 // Default download data directory
 var __USERDATA_FILE_NAME string
 
+// ManagerData is the persistent state of the Manager.
+// It wraps items and optional queue state for GOB encoding.
+type ManagerData struct {
+	Items      ItemsMap
+	QueueState *QueueState
+}
+
 // Manager is a struct that manages the download items
 // and their respective downloaders.
 type Manager struct {
@@ -22,6 +29,10 @@ type Manager struct {
 	items ItemsMap
 	f     *os.File
 	mu    *sync.RWMutex
+	// queue manages concurrent download limits (nil if disabled)
+	queue *QueueManager
+	// queueState stores persisted queue state until queue is initialized
+	queueState *QueueState
 }
 
 // InitManager creates a new manager instance.
@@ -39,15 +50,32 @@ func InitManager() (m *Manager, err error) {
 		m = nil
 		return
 	}
-	// Attempt to decode existing data. If file is empty or corrupt,
-	// start fresh with empty items map.
-	if decErr := gob.NewDecoder(m.f).Decode(&m.items); decErr != nil {
+	// Attempt to decode existing data. Try new format first, fall back to legacy.
+	var data ManagerData
+	if decErr := gob.NewDecoder(m.f).Decode(&data); decErr != nil {
 		if decErr != io.EOF {
-			// Log warning for non-empty but corrupt file
-			log.Printf("warplib: warning: failed to decode userdata, starting fresh: %v", decErr)
+			// Try legacy format (ItemsMap only)
+			if _, seekErr := m.f.Seek(0, 0); seekErr != nil {
+				log.Printf("warplib: warning: failed to seek for legacy decode: %v", seekErr)
+			} else if legacyErr := gob.NewDecoder(m.f).Decode(&m.items); legacyErr != nil {
+				if legacyErr != io.EOF {
+					// Log warning for non-empty but corrupt file
+					log.Printf("warplib: warning: failed to decode userdata, starting fresh: %v", legacyErr)
+				}
+				// Reset to empty map (already initialized, but be explicit)
+				m.items = make(ItemsMap)
+			}
+		} else {
+			// Empty file - start fresh
+			m.items = make(ItemsMap)
 		}
-		// Reset to empty map (already initialized, but be explicit)
-		m.items = make(ItemsMap)
+	} else {
+		// New format decoded successfully
+		m.items = data.Items
+		if m.items == nil {
+			m.items = make(ItemsMap)
+		}
+		m.queueState = data.QueueState
 	}
 	m.populateMemPart()
 	return
@@ -64,15 +92,53 @@ func (m *Manager) populateMemPart() {
 	}
 }
 
+// SetMaxConcurrentDownloads enables the download queue with a concurrency limit.
+// When a slot becomes available for a queued download, onStartDownload is called
+// with the hash. The callback should start the download (e.g., via ResumeDownload
+// or by getting the item's downloader and calling Start).
+// If maxConcurrent is 0 or negative, the queue is disabled.
+// If queue state was persisted, it will be restored (waiting items preserved).
+func (m *Manager) SetMaxConcurrentDownloads(maxConcurrent int, onStartDownload func(hash string)) {
+	if maxConcurrent <= 0 {
+		m.queue = nil
+		return
+	}
+	m.queue = NewQueueManager(maxConcurrent, onStartDownload)
+
+	// Restore persisted queue state if available
+	if m.queueState != nil {
+		// Override maxConcurrent with persisted value if it was set
+		// (but keep the new onStartDownload callback)
+		m.queue.LoadState(*m.queueState)
+		// Override with the new maxConcurrent if different from persisted
+		// (user may have changed the flag)
+		if maxConcurrent != m.queueState.MaxConcurrent {
+			m.queue.mu.Lock()
+			m.queue.maxConcurrent = maxConcurrent
+			m.queue.mu.Unlock()
+		}
+		m.queueState = nil // Clear after restoring
+	}
+}
+
+// GetQueue returns the QueueManager if enabled, or nil if disabled.
+func (m *Manager) GetQueue() *QueueManager {
+	return m.queue
+}
+
 // AddDownloadOpts contains optional parameters for AddDownload.
 type AddDownloadOpts struct {
 	IsHidden         bool
 	IsChildren       bool
 	ChildHash        string
 	AbsoluteLocation string
+	Priority         Priority
 }
 
 // AddDownload adds a new download item entry.
+// If the queue is enabled, the download is registered with the queue.
+// The queue's onStart callback will be invoked when a slot is available
+// (immediately if under capacity, or when another download completes).
 func (m *Manager) AddDownload(d *Downloader, opts *AddDownloadOpts) (err error) {
 	if opts == nil {
 		opts = &AddDownloadOpts{}
@@ -99,6 +165,11 @@ func (m *Manager) AddDownload(d *Downloader, opts *AddDownloadOpts) (err error) 
 	item.setDAlloc(d)
 	m.UpdateItem(item)
 	m.patchHandlers(d, item)
+
+	// Register with queue if enabled
+	if m.queue != nil {
+		m.queue.Add(d.hash, opts.Priority)
+	}
 	return
 }
 
@@ -149,6 +220,12 @@ func (m *Manager) patchHandlers(d *Downloader, item *Item) {
 		item.Downloaded = item.TotalSize
 		item.mu.Unlock()
 		m.UpdateItem(item)
+
+		// Notify queue that download is complete (use item.Hash, not part hash)
+		if m.queue != nil {
+			m.queue.OnComplete(item.Hash)
+		}
+
 		oDCH(hash, tread)
 	}
 }
@@ -158,8 +235,17 @@ func (m *Manager) patchHandlers(d *Downloader, item *Item) {
 // which must hold m.mu write lock.
 // Does NOT call Sync() - caller decides if durability is needed.
 func (m *Manager) persistItems() error {
+	data := ManagerData{
+		Items: m.items,
+	}
+	// Include queue state if queue is enabled
+	if m.queue != nil {
+		state := m.queue.GetState()
+		data.QueueState = &state
+	}
+
 	var buf bytes.Buffer
-	if err := gob.NewEncoder(&buf).Encode(m.items); err != nil {
+	if err := gob.NewEncoder(&buf).Encode(data); err != nil {
 		return fmt.Errorf("encode items: %w", err)
 	}
 	if err := m.f.Truncate(0); err != nil {

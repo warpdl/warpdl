@@ -28,7 +28,7 @@ func TestDaemonStartStub(t *testing.T) {
 	var cm *credman.CookieManager
 	oldInit := initDaemonComponents
 	oldStart := startServerFunc
-	initDaemonComponents = func(log logger.Logger) (*DaemonComponents, error) {
+	initDaemonComponents = func(log logger.Logger, maxConcurrent int) (*DaemonComponents, error) {
 		key := bytes.Repeat([]byte{0x11}, 32)
 		m, err := credman.NewCookieManager(filepath.Join(base, "cookies.warp"), key)
 		if err != nil {
@@ -65,7 +65,7 @@ func TestDaemonInitComponentsError(t *testing.T) {
 	}
 
 	oldInit := initDaemonComponents
-	initDaemonComponents = func(log logger.Logger) (*DaemonComponents, error) {
+	initDaemonComponents = func(log logger.Logger, maxConcurrent int) (*DaemonComponents, error) {
 		return nil, errors.New("init components error")
 	}
 	defer func() {
@@ -110,7 +110,7 @@ func TestDaemonExtEngineError(t *testing.T) {
 
 	var cm *credman.CookieManager
 	oldInit := initDaemonComponents
-	initDaemonComponents = func(log logger.Logger) (*DaemonComponents, error) {
+	initDaemonComponents = func(log logger.Logger, maxConcurrent int) (*DaemonComponents, error) {
 		key := bytes.Repeat([]byte{0x11}, 32)
 		m, err := credman.NewCookieManager(filepath.Join(base, "cookies.warp"), key)
 		if err != nil {
@@ -172,7 +172,7 @@ func TestDaemonInitManagerError(t *testing.T) {
 	var cm *credman.CookieManager
 	oldInit := initDaemonComponents
 	oldStart := startServerFunc
-	initDaemonComponents = func(log logger.Logger) (*DaemonComponents, error) {
+	initDaemonComponents = func(log logger.Logger, maxConcurrent int) (*DaemonComponents, error) {
 		key := bytes.Repeat([]byte{0x11}, 32)
 		m, err := credman.NewCookieManager(filepath.Join(base, "cookies.warp"), key)
 		if err != nil {

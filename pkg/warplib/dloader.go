@@ -764,13 +764,19 @@ func (d *Downloader) resumePartDownload(hash string, ioff, foff, espeed int64) {
 func (d *Downloader) newPartDownload(ioff, foff, espeed int64) {
 	// d.numConn++
 	atomic.AddInt32(&d.numConn, 1)
+	defer func() {
+		atomic.AddInt32(&d.numConn, -1)
+		d.wg.Done()
+	}()
 	part, err := d.spawnPart(ioff, foff)
 	if err != nil {
-		d.Log("failed to spawn new part: %w", err)
+		d.Log("failed to spawn new part: %v", err)
+		d.handlers.ErrorHandler("new-part", err)
+		atomic.StoreInt32(&d.stopped, 1)
+		d.cancel()
 		return
 	}
 	hash := part.hash
-	defer func() { atomic.AddInt32(&d.numConn, -1); d.wg.Done() }()
 	defer part.close()
 	// CHANGE IMPL
 	err = d.runPart(part, ioff, foff, espeed, false, nil)
