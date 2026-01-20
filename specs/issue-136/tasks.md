@@ -40,7 +40,7 @@ Focus: End-to-end batch download working. Skip tests initially, hardcode accepta
   - _Requirements: FR-1, FR-2, FR-3_
   - _Design: Component A_
 
-- [ ] 1.3 Write failing test for -i flag registration
+- [x] 1.3 Write failing test for -i flag registration
   - **Do**: Add test in `cmd/cmd_test.go` verifying `-i` flag exists on download command
   - **Files**: `/Users/divkix/GitHub/warpdl/cmd/cmd_test.go`
   - **Test**: Check `download` command has `input-file` flag

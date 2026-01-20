@@ -1186,3 +1186,25 @@ func TestListErrorResponse(t *testing.T) {
 		t.Fatalf("list: %v", err)
 	}
 }
+
+// TestDownloadInputFileFlag verifies that the download command has the -i/--input-file flag.
+// This flag enables batch downloading from a file containing URLs.
+func TestDownloadInputFileFlag(t *testing.T) {
+	// Check dlFlags for the input-file flag
+	found := false
+	for _, f := range dlFlags {
+		sf, ok := f.(cli.StringFlag)
+		if !ok {
+			continue
+		}
+		// Check if the flag name contains "input-file" or "i"
+		if strings.Contains(sf.Name, "input-file") {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Fatal("download command missing required -i/--input-file flag in dlFlags")
+	}
+}
