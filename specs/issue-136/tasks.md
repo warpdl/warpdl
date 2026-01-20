@@ -85,7 +85,7 @@ Focus: End-to-end batch download working. Skip tests initially, hardcode accepta
   - _Requirements: FR-4, FR-5, FR-6_
   - _Design: Component B_
 
-- [ ] 1.7 Integrate batch logic into download command
+- [x] 1.7 Integrate batch logic into download command
   - **Do**: Modify `download()` function to check `-i` flag and route to batch logic
   - **Files**: `/Users/divkix/GitHub/warpdl/cmd/download.go`
   - **Done when**: `warpdl download -i urls.txt` downloads all URLs
