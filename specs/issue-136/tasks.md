@@ -157,7 +157,7 @@ After POC validated, clean up code.
   - **Commit**: `cli: test: add batch download integration tests`
   - _Requirements: NFR-4_
 
-- [ ] 3.3 Verify test coverage
+- [x] 3.3 Verify test coverage
   - **Do**: Run coverage report, ensure 80%+ for new files
   - **Files**: N/A
   - **Done when**: Coverage >= 80% for `input_file.go`
