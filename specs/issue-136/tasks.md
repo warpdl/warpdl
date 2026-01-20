@@ -144,7 +144,7 @@ After POC validated, clean up code.
   - **Commit**: `cli: test: add edge case tests for input file parser`
   - _Requirements: NFR-4_
 
-- [ ] 3.2 Add integration tests for batch download
+- [x] 3.2 Add integration tests for batch download
   - **Do**: Add tests using mock client to verify batch flow
   - **Files**: `/Users/divkix/GitHub/warpdl/cmd/download_batch_test.go`
   - **Test scenarios**:

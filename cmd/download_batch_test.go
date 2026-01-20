@@ -507,6 +507,336 @@ magnet:?xt=urn:btih:abc123`
 	}
 }
 
+// ============================================================================
+// Integration Tests (Task 3.2)
+// ============================================================================
+
+func TestDownloadBatch_AllFail(t *testing.T) {
+	// Create input file with 3 URLs
+	content := `https://example.com/fail1.zip
+https://example.com/fail2.zip
+https://example.com/fail3.zip`
+	tmpFile := createTempInputFile(t, content)
+	defer os.Remove(tmpFile)
+
+	// Mock client that fails every download
+	mock := &MockClient{
+		DownloadFunc: func(url, fileName, dir string, opts *warpcli.DownloadOpts) (*common.DownloadResponse, error) {
+			return nil, errors.New("server unavailable")
+		},
+	}
+
+	result, err := DownloadBatch(mock, tmpFile, nil, &BatchDownloadOpts{
+		DownloadDir: "/tmp/downloads",
+	})
+
+	// Batch should complete without error (individual failures are tracked)
+	if err != nil {
+		t.Fatalf("batch should complete even with all failures, got error: %v", err)
+	}
+
+	// All 3 URLs should have been attempted
+	if len(mock.Calls) != 3 {
+		t.Errorf("expected 3 download attempts, got %d", len(mock.Calls))
+	}
+
+	// Verify result tracking
+	if result.Total != 3 {
+		t.Errorf("expected total 3, got %d", result.Total)
+	}
+	if result.Succeeded != 0 {
+		t.Errorf("expected 0 succeeded, got %d", result.Succeeded)
+	}
+	if result.Failed != 3 {
+		t.Errorf("expected 3 failed, got %d", result.Failed)
+	}
+
+	// All errors should be tracked
+	if len(result.Errors) != 3 {
+		t.Errorf("expected 3 errors tracked, got %d", len(result.Errors))
+	}
+
+	// Verify IsSuccess returns false
+	if result.IsSuccess() {
+		t.Error("expected IsSuccess() to be false when all downloads fail")
+	}
+
+	// Verify HasErrors returns true
+	if !result.HasErrors() {
+		t.Error("expected HasErrors() to be true when all downloads fail")
+	}
+}
+
+func TestDownloadBatch_AllSucceed_LargeFile(t *testing.T) {
+	// Create input file with many URLs
+	var urls []string
+	for i := 0; i < 10; i++ {
+		urls = append(urls, "https://example.com/file"+string(rune('0'+i))+".zip")
+	}
+	content := "https://example.com/file0.zip\nhttps://example.com/file1.zip\nhttps://example.com/file2.zip\nhttps://example.com/file3.zip\nhttps://example.com/file4.zip\nhttps://example.com/file5.zip\nhttps://example.com/file6.zip\nhttps://example.com/file7.zip\nhttps://example.com/file8.zip\nhttps://example.com/file9.zip"
+	tmpFile := createTempInputFile(t, content)
+	defer os.Remove(tmpFile)
+
+	mock := &MockClient{}
+
+	result, err := DownloadBatch(mock, tmpFile, nil, &BatchDownloadOpts{
+		DownloadDir: "/tmp/downloads",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// All 10 URLs should be processed
+	if len(mock.Calls) != 10 {
+		t.Errorf("expected 10 download calls, got %d", len(mock.Calls))
+	}
+
+	if result.Total != 10 {
+		t.Errorf("expected total 10, got %d", result.Total)
+	}
+	if result.Succeeded != 10 {
+		t.Errorf("expected 10 succeeded, got %d", result.Succeeded)
+	}
+	if result.Failed != 0 {
+		t.Errorf("expected 0 failed, got %d", result.Failed)
+	}
+
+	// Verify IsSuccess returns true
+	if !result.IsSuccess() {
+		t.Error("expected IsSuccess() to be true when all downloads succeed")
+	}
+}
+
+func TestDownloadBatch_MixedFailures_FileAndDirect(t *testing.T) {
+	// Create input file with 2 URLs (one will fail)
+	content := `https://example.com/file-ok.zip
+https://example.com/file-fail.zip`
+	tmpFile := createTempInputFile(t, content)
+	defer os.Remove(tmpFile)
+
+	// Direct URLs: one ok, one fail
+	directURLs := []string{
+		"https://example.com/direct-ok.zip",
+		"https://example.com/direct-fail.zip",
+	}
+
+	// Mock client that fails specific URLs
+	mock := &MockClient{
+		DownloadFunc: func(url, fileName, dir string, opts *warpcli.DownloadOpts) (*common.DownloadResponse, error) {
+			if contains(url, "fail") {
+				return nil, errors.New("download failed: " + url)
+			}
+			return &common.DownloadResponse{
+				DownloadId: "mock-id",
+				FileName:   "file.zip",
+			}, nil
+		},
+	}
+
+	result, err := DownloadBatch(mock, tmpFile, directURLs, &BatchDownloadOpts{
+		DownloadDir: "/tmp/downloads",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// All 4 URLs should be attempted
+	if len(mock.Calls) != 4 {
+		t.Errorf("expected 4 download attempts, got %d", len(mock.Calls))
+	}
+
+	// 2 should succeed (from file and direct), 2 should fail
+	if result.Total != 4 {
+		t.Errorf("expected total 4, got %d", result.Total)
+	}
+	if result.Succeeded != 2 {
+		t.Errorf("expected 2 succeeded, got %d", result.Succeeded)
+	}
+	if result.Failed != 2 {
+		t.Errorf("expected 2 failed, got %d", result.Failed)
+	}
+
+	// Verify error details contain correct URLs
+	failedURLs := make(map[string]bool)
+	for _, e := range result.Errors {
+		failedURLs[e.URL] = true
+	}
+	if !failedURLs["https://example.com/file-fail.zip"] {
+		t.Error("expected file-fail.zip in failed URLs")
+	}
+	if !failedURLs["https://example.com/direct-fail.zip"] {
+		t.Error("expected direct-fail.zip in failed URLs")
+	}
+}
+
+func TestDownloadBatch_DownloadOptsPassedThrough(t *testing.T) {
+	content := `https://example.com/file.zip`
+	tmpFile := createTempInputFile(t, content)
+	defer os.Remove(tmpFile)
+
+	// Create download options with custom settings
+	downloadOpts := &warpcli.DownloadOpts{
+		MaxConnections: 16,
+		ForceParts:     true,
+		Proxy:          "http://proxy.example.com:8080",
+	}
+
+	mock := &MockClient{}
+
+	_, err := DownloadBatch(mock, tmpFile, nil, &BatchDownloadOpts{
+		DownloadDir:  "/custom/dir",
+		DownloadOpts: downloadOpts,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(mock.Calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(mock.Calls))
+	}
+
+	call := mock.Calls[0]
+
+	// Verify directory was passed
+	if call.Dir != "/custom/dir" {
+		t.Errorf("expected dir '/custom/dir', got %q", call.Dir)
+	}
+
+	// Verify options were passed through
+	if call.Opts == nil {
+		t.Fatal("expected Opts to be passed through")
+	}
+	if call.Opts.MaxConnections != 16 {
+		t.Errorf("expected MaxConnections 16, got %d", call.Opts.MaxConnections)
+	}
+	if !call.Opts.ForceParts {
+		t.Error("expected ForceParts to be true")
+	}
+	if call.Opts.Proxy != "http://proxy.example.com:8080" {
+		t.Errorf("expected Proxy 'http://proxy.example.com:8080', got %q", call.Opts.Proxy)
+	}
+}
+
+func TestDownloadBatch_NoInputFileOrURLs(t *testing.T) {
+	mock := &MockClient{}
+
+	// No input file, no direct URLs
+	result, err := DownloadBatch(mock, "", nil, &BatchDownloadOpts{
+		DownloadDir: "/tmp/downloads",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should return empty result, not error
+	if result.Total != 0 {
+		t.Errorf("expected total 0, got %d", result.Total)
+	}
+	if len(mock.Calls) != 0 {
+		t.Errorf("expected 0 download calls, got %d", len(mock.Calls))
+	}
+}
+
+func TestDownloadBatch_OnlyDirectURLs_AllFail(t *testing.T) {
+	// No input file, only direct URLs that all fail
+	directURLs := []string{
+		"https://example.com/direct1.zip",
+		"https://example.com/direct2.zip",
+	}
+
+	mock := &MockClient{
+		DownloadFunc: func(url, fileName, dir string, opts *warpcli.DownloadOpts) (*common.DownloadResponse, error) {
+			return nil, errors.New("network error")
+		},
+	}
+
+	result, err := DownloadBatch(mock, "", directURLs, &BatchDownloadOpts{
+		DownloadDir: "/tmp/downloads",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result.Total != 2 {
+		t.Errorf("expected total 2, got %d", result.Total)
+	}
+	if result.Succeeded != 0 {
+		t.Errorf("expected 0 succeeded, got %d", result.Succeeded)
+	}
+	if result.Failed != 2 {
+		t.Errorf("expected 2 failed, got %d", result.Failed)
+	}
+}
+
+func TestDownloadBatch_MultipleErrorTypes(t *testing.T) {
+	content := `https://example.com/timeout.zip
+https://example.com/notfound.zip
+https://example.com/forbidden.zip
+https://example.com/success.zip`
+	tmpFile := createTempInputFile(t, content)
+	defer os.Remove(tmpFile)
+
+	// Mock different error types for different URLs
+	mock := &MockClient{
+		DownloadFunc: func(url, fileName, dir string, opts *warpcli.DownloadOpts) (*common.DownloadResponse, error) {
+			switch {
+			case contains(url, "timeout"):
+				return nil, errors.New("connection timeout")
+			case contains(url, "notfound"):
+				return nil, errors.New("404 Not Found")
+			case contains(url, "forbidden"):
+				return nil, errors.New("403 Forbidden")
+			default:
+				return &common.DownloadResponse{
+					DownloadId: "mock-id",
+					FileName:   "file.zip",
+				}, nil
+			}
+		},
+	}
+
+	result, err := DownloadBatch(mock, tmpFile, nil, &BatchDownloadOpts{
+		DownloadDir: "/tmp/downloads",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result.Succeeded != 1 {
+		t.Errorf("expected 1 succeeded, got %d", result.Succeeded)
+	}
+	if result.Failed != 3 {
+		t.Errorf("expected 3 failed, got %d", result.Failed)
+	}
+
+	// Verify different error reasons are captured
+	reasons := make(map[string]bool)
+	for _, e := range result.Errors {
+		reasons[e.Reason] = true
+	}
+	if !reasons["connection timeout"] {
+		t.Error("expected 'connection timeout' in error reasons")
+	}
+	if !reasons["404 Not Found"] {
+		t.Error("expected '404 Not Found' in error reasons")
+	}
+	if !reasons["403 Forbidden"] {
+		t.Error("expected '403 Forbidden' in error reasons")
+	}
+
+	// Verify string output includes all error details
+	output := result.String()
+	if !contains(output, "connection timeout") {
+		t.Error("expected 'connection timeout' in output")
+	}
+	if !contains(output, "404 Not Found") {
+		t.Error("expected '404 Not Found' in output")
+	}
+	if !contains(output, "403 Forbidden") {
+		t.Error("expected '403 Forbidden' in output")
+	}
+}
+
 // Helper function for string contains check
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
