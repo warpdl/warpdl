@@ -12,7 +12,7 @@ generated: auto
 
 Focus: End-to-end batch download working. Skip tests initially, hardcode acceptable.
 
-- [ ] 1.1 Write failing test for input file parser
+- [x] 1.1 Write failing test for input file parser
   - **Do**: Create `cmd/input_file_test.go` with test for `ParseInputFile()`
   - **Files**: `/Users/divkix/GitHub/warpdl/cmd/input_file_test.go`
   - **Test cases**:
