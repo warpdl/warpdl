@@ -273,7 +273,7 @@ func downloadBatchFromFile(ctx *cli.Context, client *warpcli.Client, inputFile s
 		},
 	}
 
-	// Collect direct URLs from arguments (skip first if it's "download" command name)
+	// Collect direct URLs from positional arguments
 	directURLs := ctx.Args()
 
 	fmt.Printf("Input file: %s\n", inputFile)

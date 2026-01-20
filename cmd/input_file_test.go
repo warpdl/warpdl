@@ -772,7 +772,9 @@ func TestParseInputFile_UTF8BOM(t *testing.T) {
 }
 
 func TestParseInputFile_InlineComments(t *testing.T) {
-	// Verify inline comments are NOT supported (whole line is treated as URL)
+	// Verify inline comments are NOT supported (intentional design decision).
+	// The '#' character is valid in URLs (fragment identifier), so we cannot
+	// strip content after '#'. URLs with spaces will fail at download time.
 	content := `https://example.com/file1.zip # inline comment
 https://example.com/file2.zip`
 
@@ -784,13 +786,12 @@ https://example.com/file2.zip`
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// First line includes the inline comment as part of the URL (invalid behavior but consistent)
-	// The URL with inline comment should be parsed as-is
+	// Line is preserved as-is; invalid URLs will fail validation at download time
 	if len(result.URLs) != 2 {
 		t.Errorf("expected 2 URLs, got %d: %v", len(result.URLs), result.URLs)
 	}
 
-	// First URL should include the inline comment (no stripping)
+	// First URL includes the inline comment (no stripping - intentional)
 	expectedFirst := "https://example.com/file1.zip # inline comment"
 	if result.URLs[0] != expectedFirst {
 		t.Errorf("expected first URL %q, got %q", expectedFirst, result.URLs[0])
