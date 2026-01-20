@@ -26,7 +26,7 @@ Focus: End-to-end batch download working. Skip tests initially, hardcode accepta
   - _Requirements: FR-1, FR-2, FR-3_
   - _Design: Component A_
 
-- [ ] 1.2 Implement input file parser to pass tests
+- [x] 1.2 Implement input file parser to pass tests
   - **Do**: Create `cmd/input_file.go` with `ParseInputFile()` function
   - **Files**: `/Users/divkix/GitHub/warpdl/cmd/input_file.go`
   - **Implementation**:
