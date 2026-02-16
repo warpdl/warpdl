@@ -5,7 +5,7 @@ go 1.24.9
 require (
 	github.com/Microsoft/go-winio v0.6.2
 	github.com/dop251/goja v0.0.0-20260106131823-651366fbe6e3
-	github.com/dop251/goja_nodejs v0.0.0-20251015164255-5e94316bedaf
+	github.com/dop251/goja_nodejs v0.0.0-20260212111938-1f56ff5bcf14
 	github.com/urfave/cli v1.22.17
 	github.com/vbauerster/mpb/v8 v8.11.3
 	golang.org/x/net v0.50.0
