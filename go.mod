@@ -12,7 +12,7 @@ require (
 	github.com/urfave/cli v1.22.17
 	github.com/vbauerster/mpb/v8 v8.11.3
 	golang.org/x/net v0.49.0
-	golang.org/x/sys v0.40.0
+	golang.org/x/sys v0.41.0
 )
 
 require (
@@ -35,5 +35,5 @@ require (
 	github.com/mattn/go-runewidth v0.0.19 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/zalando/go-keyring v0.2.6
-	golang.org/x/text v0.33.0 // indirect
+	golang.org/x/text v0.34.0 // indirect
 )
