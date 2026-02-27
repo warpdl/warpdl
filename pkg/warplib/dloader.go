@@ -211,6 +211,12 @@ func NewDownloader(client *http.Client, url string, opts *DownloaderOpts, optFun
 		retryConfig = &defaultConfig
 	}
 
+	// Set redirect policy if not already configured.
+	// This enforces max redirect hops and rejects cross-protocol redirects.
+	if client.CheckRedirect == nil {
+		client.CheckRedirect = RedirectPolicy(DefaultMaxRedirects)
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	d = &Downloader{
 		ctx:                ctx,
@@ -1208,6 +1214,9 @@ func (d *Downloader) checkContentType(h *http.Header) (err error) {
 
 // fetchInfo fetches the information about the file to be downloaded.
 // It sets the content length, file name, and prepares the downloader.
+// After the initial request, if the URL was redirected, d.url is updated
+// to the final resolved URL so all subsequent parallel segment requests
+// use the final URL instead of re-triggering the redirect chain.
 func (d *Downloader) fetchInfo() (err error) {
 	resp, er := d.makeRequest(http.MethodGet)
 	if er != nil {
@@ -1215,6 +1224,15 @@ func (d *Downloader) fetchInfo() (err error) {
 		return
 	}
 	defer resp.Body.Close()
+
+	// Update URL to final resolved URL after any redirect chain.
+	// This ensures all subsequent Range requests (parallel segments)
+	// hit the final URL directly, avoiding redundant redirect chains
+	// and failures with CDNs using ephemeral/signed redirect targets.
+	if finalURL := resp.Request.URL.String(); finalURL != d.url {
+		d.url = finalURL
+	}
+
 	h := resp.Header
 	err = d.checkContentType(&h)
 	if err != nil {
