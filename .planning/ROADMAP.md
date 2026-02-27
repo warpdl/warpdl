@@ -13,7 +13,7 @@ This milestone adds four capabilities to WarpDL in dependency order: HTTP redire
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: HTTP Redirect** - WarpDL transparently follows redirect chains for all HTTP/HTTPS downloads
-- [ ] **Phase 2: Protocol Interface** - Download engine supports pluggable protocol backends via a common interface
+- [x] **Phase 2: Protocol Interface** - Download engine supports pluggable protocol backends via a common interface (in progress — 1/2 plans done)
 - [ ] **Phase 3: FTP/FTPS** - Users can download from ftp:// and ftps:// URLs with auth and resume
 - [ ] **Phase 4: SFTP** - Users can download from sftp:// URLs with password/key auth and resume
 - [ ] **Phase 5: JSON-RPC 2.0** - Daemon exposes JSON-RPC 2.0 API for programmatic control over HTTP/WebSocket
@@ -46,7 +46,7 @@ Plans:
 **Plans**: TBD
 
 Plans:
-- [ ] 02-01: Extract DownloaderI interface, add URL-scheme router, update Manager dispatch
+- [x] 02-01: Extract DownloaderI interface, add URL-scheme router, update Manager dispatch
 - [ ] 02-02: Add PROTO-03 GOB compatibility test with fixture (must pass before any item.go merge)
 
 ### Phase 3: FTP/FTPS
@@ -110,7 +110,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. HTTP Redirect | 2/2 | Complete | 2026-02-27 |
-| 2. Protocol Interface | 0/2 | Not started | - |
+| 2. Protocol Interface | 1/2 | In Progress | - |
 | 3. FTP/FTPS | 0/3 | Not started | - |
 | 4. SFTP | 0/3 | Not started | - |
 | 5. JSON-RPC 2.0 | 0/4 | Not started | - |

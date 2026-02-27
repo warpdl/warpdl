@@ -9,15 +9,15 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### HTTP Redirect
 
-- [ ] **REDIR-01**: User can download files behind HTTP 301/302/303/307/308 redirects transparently
-- [ ] **REDIR-02**: Downloader tracks and uses final URL after redirect chain for all segment requests
-- [ ] **REDIR-03**: Redirect chain is limited to configurable max hops (default 10) with clear error on loop
-- [ ] **REDIR-04**: Authorization headers are not leaked across cross-origin redirects (CVE-2024-45336 regression guard)
+- [x] **REDIR-01**: User can download files behind HTTP 301/302/303/307/308 redirects transparently
+- [x] **REDIR-02**: Downloader tracks and uses final URL after redirect chain for all segment requests
+- [x] **REDIR-03**: Redirect chain is limited to configurable max hops (default 10) with clear error on loop
+- [x] **REDIR-04**: Authorization headers are not leaked across cross-origin redirects (CVE-2024-45336 regression guard)
 
 ### Protocol Abstraction
 
-- [ ] **PROTO-01**: Download engine supports a protocol-agnostic downloader interface so FTP/SFTP can plug in alongside HTTP
-- [ ] **PROTO-02**: Manager dispatches to correct downloader based on URL scheme (http/https/ftp/ftps/sftp)
+- [x] **PROTO-01**: Download engine supports a protocol-agnostic downloader interface so FTP/SFTP can plug in alongside HTTP
+- [x] **PROTO-02**: Manager dispatches to correct downloader based on URL scheme (http/https/ftp/ftps/sftp)
 - [ ] **PROTO-03**: Item persistence (GOB) supports protocol field with backward-compatible zero value defaulting to HTTP
 
 ### FTP
