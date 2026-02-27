@@ -111,8 +111,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | REDIR-02 | Phase 1 | Pending |
 | REDIR-03 | Phase 1 | Pending |
 | REDIR-04 | Phase 1 | Pending |
-| PROTO-01 | Phase 2 | Pending |
-| PROTO-02 | Phase 2 | Pending |
+| PROTO-01 | Phase 2 | Complete |
+| PROTO-02 | Phase 2 | Complete |
 | PROTO-03 | Phase 2 | Complete |
 | FTP-01 | Phase 3 | Pending |
 | FTP-02 | Phase 3 | Pending |

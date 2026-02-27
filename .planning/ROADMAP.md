@@ -40,14 +40,14 @@ Plans:
 **Depends on**: Phase 1
 **Requirements**: PROTO-01, PROTO-02, PROTO-03
 **Success Criteria** (what must be TRUE):
-  1. A new download initiated with an `ftp://` or `sftp://` URL does not panic or return "unsupported scheme" — the manager routes it to the correct downloader
+  1. The manager has a scheme router with a `Register()` method — FTP/SFTP downloaders (Phases 3/4) can plug in without modifying the manager or API layers
   2. Existing HTTP/HTTPS downloads behave identically to before this phase (zero regression)
   3. GOB-persisted downloads from before this phase load correctly after — backward-compatible zero value for the protocol field defaults to HTTP
 **Plans**: TBD
 
 Plans:
 - [x] 02-01: Extract DownloaderI interface, add URL-scheme router, update Manager dispatch
-- [ ] 02-02: Add PROTO-03 GOB compatibility test with fixture (must pass before any item.go merge)
+- [x] 02-02: Add PROTO-03 GOB compatibility test with fixture (must pass before any item.go merge)
 
 ### Phase 3: FTP/FTPS
 **Goal**: Users can download files from FTP and FTPS servers with credential auth, passive mode, and resume support
@@ -110,7 +110,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. HTTP Redirect | 2/2 | Complete | 2026-02-27 |
-| 2. Protocol Interface | 2/2 | Complete   | 2026-02-27 |
+| 2. Protocol Interface | 2/2 | Complete    | 2026-02-27 |
 | 3. FTP/FTPS | 0/3 | Not started | - |
 | 4. SFTP | 0/3 | Not started | - |
 | 5. JSON-RPC 2.0 | 0/4 | Not started | - |
