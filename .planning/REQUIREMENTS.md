@@ -22,41 +22,41 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### FTP
 
-- [ ] **FTP-01**: User can download files from `ftp://` URLs
-- [ ] **FTP-02**: Anonymous FTP login is used by default when no credentials in URL
-- [ ] **FTP-03**: User can authenticate with username/password via URL (`ftp://user:pass@host/path`)
-- [ ] **FTP-04**: FTP uses passive mode (EPSV/PASV) by default
-- [ ] **FTP-05**: FTP downloads are single-stream (no parallel segments)
-- [ ] **FTP-06**: User can resume interrupted FTP downloads via REST/RetrFrom offset
-- [ ] **FTP-07**: User can download from FTPS servers with explicit TLS
-- [ ] **FTP-08**: File size is reported before download starts for progress tracking
+- [x] **FTP-01**: User can download files from `ftp://` URLs
+- [x] **FTP-02**: Anonymous FTP login is used by default when no credentials in URL
+- [x] **FTP-03**: User can authenticate with username/password via URL (`ftp://user:pass@host/path`)
+- [x] **FTP-04**: FTP uses passive mode (EPSV/PASV) by default
+- [x] **FTP-05**: FTP downloads are single-stream (no parallel segments)
+- [x] **FTP-06**: User can resume interrupted FTP downloads via REST/RetrFrom offset
+- [x] **FTP-07**: User can download from FTPS servers with explicit TLS
+- [x] **FTP-08**: File size is reported before download starts for progress tracking
 
 ### SFTP
 
-- [ ] **SFTP-01**: User can download files from `sftp://` URLs
-- [ ] **SFTP-02**: User can authenticate with password via URL (`sftp://user:pass@host/path`)
-- [ ] **SFTP-03**: User can authenticate with SSH private key file (default keys `~/.ssh/id_rsa`, `~/.ssh/id_ed25519`)
+- [x] **SFTP-01**: User can download files from `sftp://` URLs
+- [x] **SFTP-02**: User can authenticate with password via URL (`sftp://user:pass@host/path`)
+- [x] **SFTP-03**: User can authenticate with SSH private key file (default keys `~/.ssh/id_rsa`, `~/.ssh/id_ed25519`)
 - [x] **SFTP-04**: User can specify custom SSH key path via `--ssh-key` flag
-- [ ] **SFTP-05**: SFTP downloads are single-stream (no parallel segments)
+- [x] **SFTP-05**: SFTP downloads are single-stream (no parallel segments)
 - [x] **SFTP-06**: User can resume interrupted SFTP downloads via Seek offset
-- [ ] **SFTP-07**: Host key verification uses TOFU policy (accept first use, reject on change) with `~/.config/warpdl/known_hosts`
-- [ ] **SFTP-08**: Custom port support via URL (`sftp://user@host:2222/path`)
-- [ ] **SFTP-09**: File size is reported before download starts for progress tracking
+- [x] **SFTP-07**: Host key verification uses TOFU policy (accept first use, reject on change) with `~/.config/warpdl/known_hosts`
+- [x] **SFTP-08**: Custom port support via URL (`sftp://user@host:2222/path`)
+- [x] **SFTP-09**: File size is reported before download starts for progress tracking
 
 ### JSON-RPC
 
-- [ ] **RPC-01**: Daemon exposes JSON-RPC 2.0 endpoint over HTTP at `/jsonrpc` on existing web server port
-- [ ] **RPC-02**: Daemon exposes WebSocket endpoint at `/jsonrpc/ws` for real-time communication
-- [ ] **RPC-03**: Auth token required for all RPC requests (`--rpc-secret` flag, `WARPDL_RPC_SECRET` env var)
-- [ ] **RPC-04**: RPC binds to localhost only by default, `--rpc-listen-all` for explicit opt-in to all interfaces
-- [ ] **RPC-05**: `download.add` method accepts URL and options, starts download
+- [x] **RPC-01**: Daemon exposes JSON-RPC 2.0 endpoint over HTTP at `/jsonrpc` on existing web server port
+- [x] **RPC-02**: Daemon exposes WebSocket endpoint at `/jsonrpc/ws` for real-time communication
+- [x] **RPC-03**: Auth token required for all RPC requests (`--rpc-secret` flag, `WARPDL_RPC_SECRET` env var)
+- [x] **RPC-04**: RPC binds to localhost only by default, `--rpc-listen-all` for explicit opt-in to all interfaces
+- [x] **RPC-05**: `download.add` method accepts URL and options, starts download
 - [x] **RPC-06**: `download.pause` and `download.resume` methods control active downloads
-- [ ] **RPC-07**: `download.remove` method removes download from queue
-- [ ] **RPC-08**: `download.status` method returns download state (status, totalLength, completedLength, speed)
-- [ ] **RPC-09**: `download.list` method returns downloads filtered by state (active/waiting/stopped)
-- [ ] **RPC-10**: `system.getVersion` method returns daemon version info
+- [x] **RPC-07**: `download.remove` method removes download from queue
+- [x] **RPC-08**: `download.status` method returns download state (status, totalLength, completedLength, speed)
+- [x] **RPC-09**: `download.list` method returns downloads filtered by state (active/waiting/stopped)
+- [x] **RPC-10**: `system.getVersion` method returns daemon version info
 - [x] **RPC-11**: WebSocket pushes real-time notifications (download.started, download.progress, download.complete, download.error)
-- [ ] **RPC-12**: Standard JSON-RPC 2.0 error codes for parse errors, invalid requests, method not found
+- [x] **RPC-12**: Standard JSON-RPC 2.0 error codes for parse errors, invalid requests, method not found
 
 ## v2 Requirements
 
@@ -107,48 +107,48 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| REDIR-01 | Phase 1 | Pending |
-| REDIR-02 | Phase 1 | Pending |
-| REDIR-03 | Phase 1 | Pending |
+| REDIR-01 | Phase 1 | Complete |
+| REDIR-02 | Phase 1 | Complete |
+| REDIR-03 | Phase 1 | Complete |
 | REDIR-04 | Phase 6 | Complete |
 | PROTO-01 | Phase 2 | Complete |
 | PROTO-02 | Phase 2 | Complete |
 | PROTO-03 | Phase 2 | Complete |
-| FTP-01 | Phase 3 | Pending |
-| FTP-02 | Phase 3 | Pending |
-| FTP-03 | Phase 3 | Pending |
-| FTP-04 | Phase 3 | Pending |
-| FTP-05 | Phase 3 | Pending |
-| FTP-06 | Phase 3 | Pending |
-| FTP-07 | Phase 3 | Pending |
-| FTP-08 | Phase 3 | Pending |
-| SFTP-01 | Phase 4 | Pending |
-| SFTP-02 | Phase 4 | Pending |
-| SFTP-03 | Phase 4 | Pending |
+| FTP-01 | Phase 3 | Complete |
+| FTP-02 | Phase 3 | Complete |
+| FTP-03 | Phase 3 | Complete |
+| FTP-04 | Phase 3 | Complete |
+| FTP-05 | Phase 3 | Complete |
+| FTP-06 | Phase 3 | Complete |
+| FTP-07 | Phase 3 | Complete |
+| FTP-08 | Phase 3 | Complete |
+| SFTP-01 | Phase 4 | Complete |
+| SFTP-02 | Phase 4 | Complete |
+| SFTP-03 | Phase 4 | Complete |
 | SFTP-04 | Phase 6 | Complete |
-| SFTP-05 | Phase 4 | Pending |
+| SFTP-05 | Phase 4 | Complete |
 | SFTP-06 | Phase 6 | Complete |
-| SFTP-07 | Phase 4 | Pending |
-| SFTP-08 | Phase 4 | Pending |
-| SFTP-09 | Phase 4 | Pending |
-| RPC-01 | Phase 5 | Pending |
-| RPC-02 | Phase 5 | Pending |
-| RPC-03 | Phase 5 | Pending |
-| RPC-04 | Phase 5 | Pending |
-| RPC-05 | Phase 5 | Pending |
+| SFTP-07 | Phase 4 | Complete |
+| SFTP-08 | Phase 4 | Complete |
+| SFTP-09 | Phase 4 | Complete |
+| RPC-01 | Phase 5 | Complete |
+| RPC-02 | Phase 5 | Complete |
+| RPC-03 | Phase 5 | Complete |
+| RPC-04 | Phase 5 | Complete |
+| RPC-05 | Phase 5 | Complete |
 | RPC-06 | Phase 6 | Complete |
-| RPC-07 | Phase 5 | Pending |
-| RPC-08 | Phase 5 | Pending |
-| RPC-09 | Phase 5 | Pending |
-| RPC-10 | Phase 5 | Pending |
+| RPC-07 | Phase 5 | Complete |
+| RPC-08 | Phase 5 | Complete |
+| RPC-09 | Phase 5 | Complete |
+| RPC-10 | Phase 5 | Complete |
 | RPC-11 | Phase 6 | Complete |
-| RPC-12 | Phase 5 | Pending |
+| RPC-12 | Phase 5 | Complete |
 
 **Coverage:**
 - v1 requirements: 36 total
-- Mapped to phases: 36
+- Complete: 36/36
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-02-26*
-*Last updated: 2026-02-27 after gap closure — 5 defect reqs remapped to Phase 6, 31 remain on original phases (Phase 7 verifies in-place)*
+*Last updated: 2026-02-27 — Phase 7 verification closure: all 36 requirements verified complete across 6 phases*

@@ -1,9 +1,10 @@
 ---
 phase: 02-protocol-interface
 verified: 2026-02-27T08:30:00Z
-status: gaps_found
-score: 9/10 must-haves verified
-re_verification: false
+result: PASS
+score: 10/10 must-haves verified
+re_verification: true
+re_verified: 2026-02-27
 gaps:
   - truth: "ROADMAP SC1: ftp:// or sftp:// URL does not panic or return 'unsupported scheme' — manager routes it to the correct downloader"
     status: failed
@@ -27,8 +28,8 @@ gaps:
 
 **Phase Goal:** The download engine has a protocol-agnostic interface so FTP and SFTP downloaders can plug in alongside the existing HTTP downloader without modifying the manager or API layers
 **Verified:** 2026-02-27T08:30:00Z
-**Status:** gaps_found
-**Re-verification:** No — initial verification
+**Status:** PASS
+**Re-verification:** Yes — re-verified 2026-02-27 after Phase 3/4/7 closure
 
 ## Goal Achievement
 
@@ -46,11 +47,11 @@ gaps:
 | 8 | Item.dAlloc is ProtocolDownloader; all Item methods (GetMaxConnections, GetMaxParts, Resume, StopDownload, CloseDownloader, IsDownloading, IsStopped) compile and work | VERIFIED | `item.go` line 58: `dAlloc ProtocolDownloader`; all Item methods delegate via interface; full test suite passes |
 | 9 | Manager.AddDownload and Manager.ResumeDownload wrap *Downloader in adapter before setDAlloc; existing HTTP flow unchanged (zero regression) | VERIFIED | `manager.go` lines 183-188, 448-453: both methods create httpProtocolDownloader adapter; go test ./... passes all 19 packages |
 | 10 | Protocol uint8 enum (ProtoHTTP=0, ProtoFTP=1, ProtoFTPS=2, ProtoSFTP=3) in protocol.go; Item.Protocol field; GOB backward compat golden fixture; InitManager validates Protocol after decode | VERIFIED | `protocol.go` lines 15-27; `item.go` line 51; `testdata/pre_phase2_userdata.warp` (1004 bytes); TestGOBBackwardCompatProtocol passes; InitManager lines 81-88 validate protocol |
-| 11 (SC1) | ROADMAP: ftp:// or sftp:// URL does not panic or return "unsupported scheme" — manager routes to correct downloader | FAILED | SchemeRouter returns `unsupported scheme "ftp" — supported: http, https`. FTP/SFTP factories not registered. Phase 2 scopes interface only (CONTEXT.md: "structural abstraction only — no new protocol implementations"). This SC belongs to the completed Phase 3/4. |
+| 11 (SC1) | ROADMAP: ftp:// or sftp:// URL does not panic or return "unsupported scheme" — manager routes to correct downloader | VERIFIED | Post-Phase-3/4: ftp/ftps/sftp factories registered in SchemeRouter via NewSchemeRouter(). All 5 schemes dispatch correctly. Re-verified 2026-02-27. |
 | 12 (SC2) | ROADMAP: Existing HTTP/HTTPS downloads behave identically (zero regression) | VERIFIED | All 19 packages pass: `go test ./...` clean |
 | 13 (SC3) | ROADMAP: GOB-persisted downloads load correctly; backward-compatible zero value for protocol defaults to HTTP | VERIFIED | TestGOBBackwardCompatProtocol passes with 1004-byte fixture; Protocol zero-value = ProtoHTTP |
 
-**Score:** 9/10 plan must-haves verified (ROADMAP SC1 fails — scope misalignment)
+**Score:** 10/10 plan must-haves verified
 
 ### Required Artifacts
 
@@ -83,7 +84,7 @@ gaps:
 | Requirement | Source Plan | Description | Status | Evidence |
 |-------------|------------|-------------|--------|----------|
 | PROTO-01 | 02-01-PLAN.md | Download engine supports protocol-agnostic downloader interface so FTP/SFTP can plug in alongside HTTP | SATISFIED | ProtocolDownloader interface in protocol.go; httpProtocolDownloader adapter; Item.dAlloc as ProtocolDownloader; SchemeRouter.Register() allows FTP/SFTP plug-in |
-| PROTO-02 | 02-01-PLAN.md | Manager dispatches to correct downloader based on URL scheme (http/https/ftp/ftps/sftp) | PARTIAL | SchemeRouter dispatches http/https correctly. ftp/ftps/sftp return ErrUnsupportedDownloadScheme. Dispatch infrastructure exists (Register method ready) but FTP/SFTP factories not registered (Phase 3/4 scope). REQUIREMENTS.md description says "ftp/ftps/sftp" but CONTEXT.md scopes that to later phases. |
+| PROTO-02 | 02-01-PLAN.md | Manager dispatches to correct downloader based on URL scheme (http/https/ftp/ftps/sftp) | SATISFIED | SchemeRouter dispatches all 5 schemes correctly. Updated 2026-02-27: ftp/ftps/sftp factories now registered after Phase 3/4 shipped. All 5 URL schemes route to correct downloader. |
 | PROTO-03 | 02-02-PLAN.md | Item persistence (GOB) supports protocol field with backward-compatible zero value defaulting to HTTP | SATISFIED | Protocol uint8 enum; Item.Protocol field; golden fixture test; round-trip tests; InitManager validates; 1004-byte pre-Phase-2 fixture decodes with Protocol==ProtoHTTP |
 
 **Orphaned requirements:** None found. All three PROTO-01, PROTO-02, PROTO-03 are claimed and addressed.
@@ -109,7 +110,9 @@ None for the automated-verifiable scope. The following is noted for awareness:
 
 ### Gaps Summary
 
-Two gaps identified — both are documentation/scope issues, not implementation bugs:
+**Updated 2026-02-27:** Both gaps from initial verification are now resolved. Gap 1 (ROADMAP SC1 scope) resolved by Phase 3/4 shipping ftp/ftps/sftp factories. Gap 2 (REQUIREMENTS.md tracking) resolved by Phase 7 traceability update.
+
+Two gaps were identified in initial verification — both were documentation/scope issues, not implementation bugs:
 
 **Gap 1 — ROADMAP SC1 scope misalignment:** The ROADMAP Success Criterion 1 for Phase 2 states that `ftp://` URLs are "routed to the correct downloader." This is not achievable in Phase 2 by design — CONTEXT.md explicitly states "This phase delivers the structural abstraction only — no new protocol implementations (those are Phases 3 and 4)." The implementation correctly returns a descriptive error for unsupported schemes. The ROADMAP SC1 describes the full milestone goal (after Phase 3+4), not Phase 2 alone. No code change is needed; the ROADMAP SC1 wording should be clarified to reflect Phase 2's boundary.
 
