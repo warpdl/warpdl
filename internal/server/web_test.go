@@ -63,7 +63,7 @@ func TestWebServerProcessDownload(t *testing.T) {
 	defer srv.Close()
 
 	pool := NewPool(log.New(io.Discard, "", 0))
-	ws := NewWebServer(log.New(io.Discard, "", 0), m, pool, 0, nil)
+	ws := NewWebServer(log.New(io.Discard, "", 0), m, pool, 0, nil, nil, nil)
 	if err := ws.processDownload(&capturedDownload{Url: srv.URL + "/file.bin"}); err != nil {
 		t.Fatalf("processDownload: %v", err)
 	}
@@ -119,7 +119,7 @@ func TestWebServerHandleConnection(t *testing.T) {
 	defer srv.Close()
 
 	pool := NewPool(log.New(io.Discard, "", 0))
-	ws := NewWebServer(log.New(io.Discard, "", 0), m, pool, 0, nil)
+	ws := NewWebServer(log.New(io.Discard, "", 0), m, pool, 0, nil, nil, nil)
 	wsSrv := httptest.NewServer(websocket.Handler(ws.handleConnection))
 	defer wsSrv.Close()
 
@@ -146,7 +146,7 @@ func TestWebServerHandleConnection(t *testing.T) {
 
 func TestWebServerHandler(t *testing.T) {
 	pool := NewPool(log.New(io.Discard, "", 0))
-	ws := NewWebServer(log.New(io.Discard, "", 0), nil, pool, 8080, nil)
+	ws := NewWebServer(log.New(io.Discard, "", 0), nil, pool, 8080, nil, nil, nil)
 	h := ws.handler()
 	if h == nil {
 		t.Fatalf("expected non-nil handler")
@@ -155,7 +155,7 @@ func TestWebServerHandler(t *testing.T) {
 
 func TestWebServerAddr(t *testing.T) {
 	pool := NewPool(log.New(io.Discard, "", 0))
-	ws := NewWebServer(log.New(io.Discard, "", 0), nil, pool, 9999, nil)
+	ws := NewWebServer(log.New(io.Discard, "", 0), nil, pool, 9999, nil, nil, nil)
 	addr := ws.addr()
 	if addr != "127.0.0.1:9999" {
 		t.Fatalf("expected 127.0.0.1:9999, got %s", addr)
@@ -165,7 +165,7 @@ func TestWebServerAddr(t *testing.T) {
 func TestWebServerAddr_ListenAll(t *testing.T) {
 	pool := NewPool(log.New(io.Discard, "", 0))
 	rpcCfg := &RPCConfig{Secret: "test", ListenAll: true}
-	ws := NewWebServer(log.New(io.Discard, "", 0), nil, pool, 9999, rpcCfg)
+	ws := NewWebServer(log.New(io.Discard, "", 0), nil, pool, 9999, nil, nil, rpcCfg)
 	addr := ws.addr()
 	if addr != ":9999" {
 		t.Fatalf("expected :9999 with listenAll, got %s", addr)
@@ -178,7 +178,7 @@ func TestWebServerHandler_WithRPC(t *testing.T) {
 		Secret:  "test-secret",
 		Version: "1.0.0",
 	}
-	ws := NewWebServer(log.New(io.Discard, "", 0), nil, pool, 8080, rpcCfg)
+	ws := NewWebServer(log.New(io.Discard, "", 0), nil, pool, 8080, nil, nil, rpcCfg)
 	defer func() {
 		if ws.rpc != nil {
 			ws.rpc.Close()
@@ -207,7 +207,7 @@ func TestWebServerHandler_WithRPC(t *testing.T) {
 
 func TestWebServerHandler_WithoutRPC(t *testing.T) {
 	pool := NewPool(log.New(io.Discard, "", 0))
-	ws := NewWebServer(log.New(io.Discard, "", 0), nil, pool, 8080, nil)
+	ws := NewWebServer(log.New(io.Discard, "", 0), nil, pool, 8080, nil, nil, nil)
 
 	srv := httptest.NewServer(ws.handler())
 	defer srv.Close()
@@ -238,7 +238,7 @@ func TestWebServerHandler_WithoutRPC(t *testing.T) {
 
 func TestWebServerHandleConnectionInvalidJSON(t *testing.T) {
 	pool := NewPool(log.New(io.Discard, "", 0))
-	ws := NewWebServer(log.New(io.Discard, "", 0), nil, pool, 0, nil)
+	ws := NewWebServer(log.New(io.Discard, "", 0), nil, pool, 0, nil, nil, nil)
 	wsSrv := httptest.NewServer(websocket.Handler(ws.handleConnection))
 	defer wsSrv.Close()
 
@@ -266,7 +266,7 @@ func TestWebServerHandleConnectionInvalidURL(t *testing.T) {
 	defer m.Close()
 
 	pool := NewPool(log.New(io.Discard, "", 0))
-	ws := NewWebServer(log.New(io.Discard, "", 0), m, pool, 0, nil)
+	ws := NewWebServer(log.New(io.Discard, "", 0), m, pool, 0, nil, nil, nil)
 	wsSrv := httptest.NewServer(websocket.Handler(ws.handleConnection))
 	defer wsSrv.Close()
 
@@ -296,7 +296,7 @@ func TestWebServerProcessDownloadInvalidURL(t *testing.T) {
 	defer m.Close()
 
 	pool := NewPool(log.New(io.Discard, "", 0))
-	ws := NewWebServer(log.New(io.Discard, "", 0), m, pool, 0, nil)
+	ws := NewWebServer(log.New(io.Discard, "", 0), m, pool, 0, nil, nil, nil)
 	// Test with malformed URL
 	err = ws.processDownload(&capturedDownload{Url: "://invalid"})
 	if err == nil {
@@ -307,7 +307,7 @@ func TestWebServerProcessDownloadInvalidURL(t *testing.T) {
 func TestWebServerStart(t *testing.T) {
 	pool := NewPool(log.New(io.Discard, "", 0))
 	// Use port 0 to get a random available port
-	ws := NewWebServer(log.New(io.Discard, "", 0), nil, pool, 0, nil)
+	ws := NewWebServer(log.New(io.Discard, "", 0), nil, pool, 0, nil, nil, nil)
 
 	// Start in background
 	errCh := make(chan error, 1)
@@ -338,7 +338,7 @@ func TestWebServerStart(t *testing.T) {
 
 func TestWebServerShutdown_NilServer(t *testing.T) {
 	pool := NewPool(log.New(io.Discard, "", 0))
-	ws := NewWebServer(log.New(io.Discard, "", 0), nil, pool, 0, nil)
+	ws := NewWebServer(log.New(io.Discard, "", 0), nil, pool, 0, nil, nil, nil)
 
 	// Shutdown without starting should be safe
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
@@ -350,7 +350,7 @@ func TestWebServerShutdown_NilServer(t *testing.T) {
 
 func TestWebServerShutdown_MultipleShutdowns(t *testing.T) {
 	pool := NewPool(log.New(io.Discard, "", 0))
-	ws := NewWebServer(log.New(io.Discard, "", 0), nil, pool, 0, nil)
+	ws := NewWebServer(log.New(io.Discard, "", 0), nil, pool, 0, nil, nil, nil)
 
 	go func() {
 		_ = ws.Start()
@@ -374,7 +374,7 @@ func TestWebServerShutdown_MultipleShutdowns(t *testing.T) {
 
 func TestNewWebServer(t *testing.T) {
 	pool := NewPool(log.New(io.Discard, "", 0))
-	ws := NewWebServer(log.New(io.Discard, "", 0), nil, pool, 8080, nil)
+	ws := NewWebServer(log.New(io.Discard, "", 0), nil, pool, 8080, nil, nil, nil)
 	if ws == nil {
 		t.Fatal("expected non-nil WebServer")
 	}

@@ -33,10 +33,10 @@ type capturedDownload struct {
 	Cookies []*http.Cookie  `json:"cookies"`
 }
 
-func NewWebServer(l *log.Logger, m *warplib.Manager, pool *Pool, port int, rpcCfg *RPCConfig) *WebServer {
+func NewWebServer(l *log.Logger, m *warplib.Manager, pool *Pool, port int, client *http.Client, router *warplib.SchemeRouter, rpcCfg *RPCConfig) *WebServer {
 	ws := &WebServer{port: port, l: l, m: m, pool: pool}
 	if rpcCfg != nil && rpcCfg.Secret != "" {
-		ws.rpc = NewRPCServer(rpcCfg)
+		ws.rpc = NewRPCServer(rpcCfg, m, client, pool, router)
 		ws.listenAll = rpcCfg.ListenAll
 	}
 	return ws

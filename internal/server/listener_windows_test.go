@@ -25,7 +25,7 @@ func TestCreatePipeListener_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InitManager failed: %v", err)
 	}
-	server := NewServer(logger, manager, common.DefaultTCPPort, nil)
+	server := NewServer(logger, manager, common.DefaultTCPPort, nil, nil, nil)
 
 	// Ensure we're not forcing TCP
 	t.Setenv(common.ForceTCPEnv, "")
@@ -61,7 +61,7 @@ func TestCreatePipeListener_CustomPipeName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InitManager failed: %v", err)
 	}
-	server := NewServer(logger, manager, common.DefaultTCPPort, nil)
+	server := NewServer(logger, manager, common.DefaultTCPPort, nil, nil, nil)
 
 	listener, err := server.createListener()
 	if err != nil {
@@ -88,7 +88,7 @@ func TestCreatePipeListener_ForceTCPMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InitManager failed: %v", err)
 	}
-	server := NewServer(logger, manager, common.DefaultTCPPort, nil)
+	server := NewServer(logger, manager, common.DefaultTCPPort, nil, nil, nil)
 
 	listener, err := server.createListener()
 	if err != nil {
@@ -120,7 +120,7 @@ func TestCreatePipeListener_AcceptsConnections(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InitManager failed: %v", err)
 	}
-	server := NewServer(logger, manager, common.DefaultTCPPort, nil)
+	server := NewServer(logger, manager, common.DefaultTCPPort, nil, nil, nil)
 
 	listener, err := server.createListener()
 	if err != nil {
@@ -176,7 +176,7 @@ func TestPipeListener_RoundtripMessage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InitManager failed: %v", err)
 	}
-	server := NewServer(logger, manager, common.DefaultTCPPort, nil)
+	server := NewServer(logger, manager, common.DefaultTCPPort, nil, nil, nil)
 
 	listener, err := server.createListener()
 	if err != nil {
@@ -273,7 +273,7 @@ func TestPipeListener_JSONRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InitManager failed: %v", err)
 	}
-	server := NewServer(logger, manager, common.DefaultTCPPort, nil)
+	server := NewServer(logger, manager, common.DefaultTCPPort, nil, nil, nil)
 
 	listener, err := server.createListener()
 	if err != nil {
@@ -379,7 +379,7 @@ func TestPipeListener_MultipleConnections(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InitManager failed: %v", err)
 	}
-	server := NewServer(logger, manager, common.DefaultTCPPort, nil)
+	server := NewServer(logger, manager, common.DefaultTCPPort, nil, nil, nil)
 
 	listener, err := server.createListener()
 	if err != nil {

@@ -158,7 +158,7 @@ var initDaemonComponents = func(log logger.Logger, maxConcurrent int, rpcCfg *se
 	}
 
 	// Create server
-	serv := server.NewServer(stdLog, m, DEF_PORT, rpcCfg)
+	serv := server.NewServer(stdLog, m, DEF_PORT, client, router, rpcCfg)
 	s.RegisterHandlers(serv)
 
 	return &DaemonComponents{

@@ -540,7 +540,7 @@ func TestRegisterHandlersAndClose(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewApi: %v", err)
 	}
-	srv := server.NewServer(log.New(io.Discard, "", 0), m, 0, nil)
+	srv := server.NewServer(log.New(io.Discard, "", 0), m, 0, nil, nil, nil)
 	api.RegisterHandlers(srv)
 	if err := api.Close(); err != nil {
 		t.Fatalf("Close: %v", err)

@@ -127,7 +127,7 @@ func TestNewServerRegisterHandler(t *testing.T) {
 		t.Fatalf("InitManager: %v", err)
 	}
 	defer m.Close()
-	s := NewServer(log.New(io.Discard, "", 0), m, 0, nil)
+	s := NewServer(log.New(io.Discard, "", 0), m, 0, nil, nil, nil)
 	called := false
 	s.RegisterHandler(common.UPDATE_LIST, func(*SyncConn, *Pool, json.RawMessage) (common.UpdateType, any, error) {
 		called = true
@@ -206,7 +206,7 @@ func TestServerStartShutdown(t *testing.T) {
 	sockPath := getTestSocketPath(t)
 	setupTestListener(t, sockPath)
 
-	s := NewServer(log.New(io.Discard, "", 0), m, 0, nil)
+	s := NewServer(log.New(io.Discard, "", 0), m, 0, nil, nil, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -258,7 +258,7 @@ func TestServerShutdown_Multiple(t *testing.T) {
 	sockPath := getTestSocketPath(t)
 	setupTestListener(t, sockPath)
 
-	s := NewServer(log.New(io.Discard, "", 0), m, 0, nil)
+	s := NewServer(log.New(io.Discard, "", 0), m, 0, nil, nil, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 

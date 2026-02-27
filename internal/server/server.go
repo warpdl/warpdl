@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"net/http"
 	"sync"
 
 	"github.com/warpdl/warpdl/common"
@@ -31,14 +32,14 @@ type Server struct {
 // NewServer creates a new Server instance with the given logger, download manager,
 // and port number. The server uses platform-specific IPC as the primary transport,
 // falling back to TCP on the specified port if the primary transport fails.
-func NewServer(l *log.Logger, m *warplib.Manager, port int, rpcCfg *RPCConfig) *Server {
+func NewServer(l *log.Logger, m *warplib.Manager, port int, client *http.Client, router *warplib.SchemeRouter, rpcCfg *RPCConfig) *Server {
 	pool := NewPool(l)
 	return &Server{
 		log:     l,
 		pool:    pool,
 		handler: make(map[common.UpdateType]HandlerFunc),
 		port:    port,
-		ws:      NewWebServer(l, m, pool, port+1, rpcCfg),
+		ws:      NewWebServer(l, m, pool, port+1, client, router, rpcCfg),
 	}
 }
 
