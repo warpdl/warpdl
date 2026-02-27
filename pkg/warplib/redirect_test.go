@@ -418,6 +418,150 @@ func TestStripUnsafeHeaders(t *testing.T) {
 	})
 }
 
+func TestCVE2024_45336_AuthorizationHeaderLeak(t *testing.T) {
+	// CVE-2024-45336 regression test: Authorization header must NOT be sent
+	// to a different origin after redirect. Go 1.24+ handles this natively,
+	// and our RedirectPolicy adds additional custom header stripping.
+	t.Run("Authorization header not forwarded on cross-origin redirect", func(t *testing.T) {
+		var capturedAuthHeader string
+
+		// Final server (different origin) captures headers
+		finalSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			capturedAuthHeader = r.Header.Get("Authorization")
+			w.Header().Set("Content-Length", "5")
+			w.Header().Set("Content-Disposition", `attachment; filename="test.bin"`)
+			w.Header().Set("Accept-Ranges", "bytes")
+			w.Write([]byte("hello"))
+		}))
+		defer finalSrv.Close()
+
+		// Redirect server (origin) redirects to different host
+		redirectSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, finalSrv.URL+"/file.bin", http.StatusFound)
+		}))
+		defer redirectSrv.Close()
+
+		client := &http.Client{}
+		_, err := NewDownloader(client, redirectSrv.URL+"/download", &DownloaderOpts{
+			SkipSetup: true,
+			Headers: Headers{
+				{Key: "Authorization", Value: "Bearer secret-token"},
+			},
+		})
+		if err != nil {
+			t.Fatalf("NewDownloader failed: %v", err)
+		}
+
+		// Authorization header should NOT have been forwarded to the different origin
+		if capturedAuthHeader != "" {
+			t.Errorf("Authorization header leaked to cross-origin server: got %q, want empty", capturedAuthHeader)
+		}
+	})
+
+	t.Run("custom headers not forwarded on cross-origin redirect", func(t *testing.T) {
+		var capturedCustomHeader string
+		var capturedUserAgent string
+
+		finalSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			capturedCustomHeader = r.Header.Get("X-Custom-Token")
+			capturedUserAgent = r.Header.Get("User-Agent")
+			w.Header().Set("Content-Length", "5")
+			w.Header().Set("Content-Disposition", `attachment; filename="test.bin"`)
+			w.Header().Set("Accept-Ranges", "bytes")
+			w.Write([]byte("hello"))
+		}))
+		defer finalSrv.Close()
+
+		redirectSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, finalSrv.URL+"/file.bin", http.StatusFound)
+		}))
+		defer redirectSrv.Close()
+
+		client := &http.Client{}
+		_, err := NewDownloader(client, redirectSrv.URL+"/download", &DownloaderOpts{
+			SkipSetup: true,
+			Headers: Headers{
+				{Key: "X-Custom-Token", Value: "secret-api-key"},
+			},
+		})
+		if err != nil {
+			t.Fatalf("NewDownloader failed: %v", err)
+		}
+
+		if capturedCustomHeader != "" {
+			t.Errorf("X-Custom-Token header leaked to cross-origin server: got %q, want empty", capturedCustomHeader)
+		}
+		// User-Agent should still be present (safe header)
+		if capturedUserAgent == "" {
+			t.Error("User-Agent should be preserved on cross-origin redirect")
+		}
+	})
+
+	t.Run("headers preserved on same-origin redirect", func(t *testing.T) {
+		var capturedCustomHeader string
+
+		// Both handlers on the same server (same origin)
+		mux := http.NewServeMux()
+		mux.HandleFunc("/redirect", func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, "/file.bin", http.StatusFound)
+		})
+		mux.HandleFunc("/file.bin", func(w http.ResponseWriter, r *http.Request) {
+			capturedCustomHeader = r.Header.Get("X-Custom-Token")
+			w.Header().Set("Content-Length", "5")
+			w.Header().Set("Content-Disposition", `attachment; filename="test.bin"`)
+			w.Header().Set("Accept-Ranges", "bytes")
+			w.Write([]byte("hello"))
+		})
+		srv := httptest.NewServer(mux)
+		defer srv.Close()
+
+		client := &http.Client{}
+		_, err := NewDownloader(client, srv.URL+"/redirect", &DownloaderOpts{
+			SkipSetup: true,
+			Headers: Headers{
+				{Key: "X-Custom-Token", Value: "my-token"},
+			},
+		})
+		if err != nil {
+			t.Fatalf("NewDownloader failed: %v", err)
+		}
+
+		if capturedCustomHeader != "my-token" {
+			t.Errorf("X-Custom-Token should be preserved on same-origin redirect, got %q", capturedCustomHeader)
+		}
+	})
+}
+
+func TestNewHTTPClientWithProxy_HasRedirectPolicy(t *testing.T) {
+	client, err := NewHTTPClientWithProxy("")
+	if err != nil {
+		t.Fatalf("NewHTTPClientWithProxy failed: %v", err)
+	}
+	if client.CheckRedirect == nil {
+		t.Error("NewHTTPClientWithProxy should set CheckRedirect policy")
+	}
+}
+
+func TestNewHTTPClientFromEnvironment_HasRedirectPolicy(t *testing.T) {
+	client, err := NewHTTPClientFromEnvironment()
+	if err != nil {
+		t.Fatalf("NewHTTPClientFromEnvironment failed: %v", err)
+	}
+	if client.CheckRedirect == nil {
+		t.Error("NewHTTPClientFromEnvironment should set CheckRedirect policy")
+	}
+}
+
+func TestNewHTTPClientWithProxyAndTimeout_HasRedirectPolicy(t *testing.T) {
+	client, err := NewHTTPClientWithProxyAndTimeout("", 5000)
+	if err != nil {
+		t.Fatalf("NewHTTPClientWithProxyAndTimeout failed: %v", err)
+	}
+	if client.CheckRedirect == nil {
+		t.Error("NewHTTPClientWithProxyAndTimeout should set CheckRedirect policy")
+	}
+}
+
 func TestRedirectPolicy_CrossOriginHeaderStripping(t *testing.T) {
 	t.Run("strips custom headers on cross-origin redirect", func(t *testing.T) {
 		policy := RedirectPolicy(10)
