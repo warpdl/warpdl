@@ -54,7 +54,8 @@ func (s *WebServer) processDownload(cd *capturedDownload) error {
 		return err
 	}
 	client := &http.Client{
-		Jar: jar,
+		Jar:           jar,
+		CheckRedirect: warplib.RedirectPolicy(warplib.DefaultMaxRedirects),
 	}
 	client.Jar.SetCookies(parsedURL, cd.Cookies)
 	var d *warplib.Downloader

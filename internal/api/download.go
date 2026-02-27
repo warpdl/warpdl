@@ -274,6 +274,7 @@ func (s *Api) downloadProtocolHandler(sconn *server.SyncConn, pool *server.Pool,
 		IsChildren:       m.IsChildren,
 		AbsoluteLocation: pd.GetDownloadDirectory(),
 		Priority:         warplib.Priority(m.Priority),
+		SSHKeyPath:       m.SSHKeyPath,
 	})
 	if err != nil {
 		return common.UPDATE_DOWNLOAD, nil, err

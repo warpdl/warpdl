@@ -241,6 +241,7 @@ func (rs *RPCServer) downloadAdd(_ context.Context, p *AddParams) (*AddResult, e
 		}
 		if err := rs.manager.AddProtocolDownload(pd, probe, cleanURL, proto, nil, &warplib.AddDownloadOpts{
 			AbsoluteLocation: pd.GetDownloadDirectory(),
+			SSHKeyPath:       p.SSHKeyPath,
 		}); err != nil {
 			return nil, &jrpc2.Error{Code: codeInvalidParams, Message: err.Error()}
 		}

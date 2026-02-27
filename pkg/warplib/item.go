@@ -49,6 +49,11 @@ type Item struct {
 	// encoded before Phase 2 added this field — GOB zero-initializes missing fields.
 	// INVARIANT: ProtoHTTP must remain iota=0 or all pre-Phase-2 files will break.
 	Protocol Protocol `json:"protocol"`
+	// SSHKeyPath is the path to the SSH private key used for SFTP downloads.
+	// Persisted so resume uses the same key as the initial download.
+	// Empty means default key paths (~/.ssh/id_ed25519, ~/.ssh/id_rsa) are tried.
+	// GOB backward-compatible: missing field decodes as empty string (zero value).
+	SSHKeyPath string `json:"ssh_key_path,omitempty"`
 	// mu is a mutex for synchronizing access to the item's fields.
 	mu *sync.RWMutex
 	// dAllocMu protects access to dAlloc field (value type, not pointer, for GOB serialization)

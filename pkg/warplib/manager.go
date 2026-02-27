@@ -153,6 +153,9 @@ type AddDownloadOpts struct {
 	ChildHash        string
 	AbsoluteLocation string
 	Priority         Priority
+	// SSHKeyPath is the SSH key path to persist in Item for SFTP resume.
+	// Empty means default key paths are tried on resume.
+	SSHKeyPath string
 }
 
 // AddDownload adds a new download item entry.
@@ -291,6 +294,7 @@ func (m *Manager) AddProtocolDownload(pd ProtocolDownloader, probe ProbeResult, 
 		return err
 	}
 	item.Protocol = proto
+	item.SSHKeyPath = opts.SSHKeyPath
 
 	// Wrap handlers with item-update callbacks
 	m.patchProtocolHandlers(handlers, item)
@@ -593,6 +597,7 @@ func (m *Manager) ResumeDownload(client *http.Client, hash string, opts *ResumeD
 		pd, err = m.schemeRouter.NewDownloader(item.Url, &DownloaderOpts{
 			FileName:          item.Name,
 			DownloadDirectory: item.DownloadLocation,
+			SSHKeyPath:        item.SSHKeyPath,
 		})
 		if err != nil {
 			return
