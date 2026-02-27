@@ -1,12 +1,13 @@
 //go:build ignore
 
-// Package warplib provides this test to generate the pre-Phase-2 GOB fixture.
-// Run ONCE before adding the Protocol field to Item:
+// Package warplib provides this file as documentation of the fixture generation process.
+// The actual generator is pkg/warplib/testdata/gen_fixture.go (also build:ignore).
+// To regenerate (only needed if wiping the repo before Phase 2 Protocol field):
 //
-//	go test -v -run TestGeneratePrePhase2Fixture -tags ignore ./pkg/warplib/ -count=1
+//	go run ./pkg/warplib/testdata/gen_fixture.go
 //
-// Then commit the generated testdata/pre_phase2_userdata.warp file.
-// Do NOT run again after Protocol field is added — the fixture would include Protocol.
+// Then commit testdata/pre_phase2_userdata.warp.
+// Do NOT run again after Protocol field is added to Item — the fixture would include Protocol.
 package warplib
 
 import (
