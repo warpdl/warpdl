@@ -16,7 +16,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: Protocol Interface** - Download engine supports pluggable protocol backends via a common interface (in progress — 1/2 plans done)
 - [x] **Phase 3: FTP/FTPS** - Users can download from ftp:// and ftps:// URLs with auth and resume
 - [x] **Phase 4: SFTP** - Users can download from sftp:// URLs with password/key auth and resume
-- [ ] **Phase 5: JSON-RPC 2.0** - Daemon exposes JSON-RPC 2.0 API for programmatic control over HTTP/WebSocket
+- [x] **Phase 5: JSON-RPC 2.0** - Daemon exposes JSON-RPC 2.0 API for programmatic control over HTTP/WebSocket
 
 ## Phase Details
 
@@ -97,10 +97,10 @@ Plans:
 **Plans**: TBD
 
 Plans:
-- [ ] 05-01: Add JSON-RPC 2.0 HTTP endpoint with auth token and localhost binding to existing port+1 server
-- [ ] 05-02: Implement method suite (download.add/pause/resume/remove/status/list, system.getVersion) as thin adapter over existing Api
-- [ ] 05-03: Add WebSocket endpoint with real-time push notifications (started/progress/complete/error)
-- [ ] 05-04: Add tests covering auth enforcement, error codes, WebSocket notifications, and localhost binding
+- [x] 05-01: Add JSON-RPC 2.0 HTTP endpoint with auth token and localhost binding to existing port+1 server
+- [x] 05-02: Implement method suite (download.add/pause/resume/remove/status/list, system.getVersion) as thin adapter over existing Api
+- [x] 05-03: Add WebSocket endpoint with real-time push notifications (started/progress/complete/error)
+- [x] 05-04: Integration tests and CI gate (race-free, 80%+ coverage, build verification)
 
 ## Progress
 
@@ -113,4 +113,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 2. Protocol Interface | 2/2 | Complete    | 2026-02-27 |
 | 3. FTP/FTPS | 3/3 | Complete | 2026-02-27 |
 | 4. SFTP | 3/3 | Complete | 2026-02-27 |
-| 5. JSON-RPC 2.0 | 0/4 | Not started | - |
+| 5. JSON-RPC 2.0 | 4/4 | Complete | 2026-02-27 |

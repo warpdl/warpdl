@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: unknown
-last_updated: "2026-02-27T14:00:00.000Z"
+status: complete
+last_updated: "2026-02-27T18:00:00.000Z"
 progress:
   total_phases: 5
-  completed_phases: 4
-  total_plans: 11
-  completed_plans: 10
+  completed_phases: 5
+  total_plans: 14
+  completed_plans: 14
 ---
 
 # Project State
@@ -18,23 +18,23 @@ progress:
 See: .planning/PROJECT.md (updated 2026-02-26)
 
 **Core value:** Expand WarpDL's protocol coverage and integration surface so it can download from more sources (FTP, SFTP, redirect chains) and be controlled programmatically by external tools
-**Current focus:** Phase 4 complete. All SFTP plans done. Phase 5 (JSON-RPC 2.0) is next.
+**Current focus:** All 5 phases complete. Milestone v1.0 done.
 
 ## Current Position
 
-Phase: 4 of 5 (SFTP) -- COMPLETE
-Plan: 3 of 3 in current phase (all plans done)
-Status: Phase 4 complete -- all 3 plans done
-Last activity: 2026-02-27 -- Plan 04-03 complete (API layer SFTP integration + --ssh-key CLI flag)
+Phase: 5 of 5 (JSON-RPC 2.0) -- COMPLETE
+Plan: 4 of 4 in current phase (all plans done)
+Status: Phase 5 complete -- all 4 plans done. Milestone complete.
+Last activity: 2026-02-27 -- Plan 05-04 complete (integration tests, race fixes, CI gate verification)
 
-Progress: [████████░░] 80% (4 of 5 phases complete)
+Progress: [██████████] 100% (5 of 5 phases complete)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 10
+- Total plans completed: 14
 - Average duration: ~15 min per plan
-- Total execution time: ~3h
+- Total execution time: ~5h
 
 **By Phase:**
 
@@ -44,10 +44,11 @@ Progress: [████████░░] 80% (4 of 5 phases complete)
 | 2. Protocol Interface | 2/2 | ~14min | ~7min |
 | 3. FTP/FTPS | 3/3 | ~45min | ~15min |
 | 4. SFTP | 3/3 | ~1h 10min | ~23min |
+| 5. JSON-RPC 2.0 | 4/4 | ~2h | ~30min |
 
 **Recent Trend:**
-- Last 10 plans: 01-01, 01-02, 02-01, 02-02, 03-01, 03-02, 03-03, 04-01, 04-02, 04-03 (all complete)
-- Trend: Steady, efficient on protocol implementation tasks
+- All 14 plans complete across 5 phases
+- Trend: Steady execution with thorough testing
 
 ## Accumulated Context
 
@@ -98,5 +99,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-27
-Stopped at: Completed Phase 4 (SFTP) -- all 3 plans: 04-01 (core SFTP downloader + TOFU), 04-02 (Manager.ResumeDownload SFTP dispatch), 04-03 (API layer + --ssh-key CLI flag). All tests pass. Coverage 85.8% warplib, 82.1% api, 81.3% cmd. Binary builds. Ready for Phase 5 (JSON-RPC 2.0).
+Stopped at: Completed Phase 5 (JSON-RPC 2.0) -- all 4 plans: 05-01 (HTTP endpoint + auth + localhost), 05-02 (download.* method suite), 05-03 (WebSocket + push notifications), 05-04 (integration tests + race fixes + CI gate). All tests pass with race detection. Coverage 84.9% server, 85.7% warplib. Binary builds. Milestone v1.0 complete.
 Resume file: None
