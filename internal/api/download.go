@@ -34,8 +34,8 @@ func (s *Api) downloadHandler(sconn *server.SyncConn, pool *server.Pool, body js
 	scheme := strings.ToLower(parsed.Scheme)
 
 	switch scheme {
-	case "ftp", "ftps":
-		return s.downloadFTPHandler(sconn, pool, dlURL, scheme, &m)
+	case "ftp", "ftps", "sftp":
+		return s.downloadProtocolHandler(sconn, pool, dlURL, scheme, &m)
 	default:
 		return s.downloadHTTPHandler(sconn, pool, dlURL, &m)
 	}
@@ -191,16 +191,17 @@ func (s *Api) downloadHTTPHandler(sconn *server.SyncConn, pool *server.Pool, dlU
 	}, nil
 }
 
-// downloadFTPHandler handles FTP and FTPS downloads via SchemeRouter.
-func (s *Api) downloadFTPHandler(sconn *server.SyncConn, pool *server.Pool, rawURL, scheme string, m *common.DownloadParams) (common.UpdateType, any, error) {
+// downloadProtocolHandler handles FTP, FTPS, and SFTP downloads via SchemeRouter.
+func (s *Api) downloadProtocolHandler(sconn *server.SyncConn, pool *server.Pool, rawURL, scheme string, m *common.DownloadParams) (common.UpdateType, any, error) {
 	if s.schemeRouter == nil {
-		return common.UPDATE_DOWNLOAD, nil, fmt.Errorf("FTP downloads not available: scheme router not initialized")
+		return common.UPDATE_DOWNLOAD, nil, fmt.Errorf("%s downloads not available: scheme router not initialized", scheme)
 	}
 
-	// Create FTP downloader via SchemeRouter
+	// Create protocol downloader via SchemeRouter
 	pd, err := s.schemeRouter.NewDownloader(rawURL, &warplib.DownloaderOpts{
 		FileName:          m.FileName,
 		DownloadDirectory: m.DownloadDirectory,
+		SSHKeyPath:        m.SSHKeyPath,
 	})
 	if err != nil {
 		return common.UPDATE_DOWNLOAD, nil, err
@@ -214,12 +215,17 @@ func (s *Api) downloadFTPHandler(sconn *server.SyncConn, pool *server.Pool, rawU
 	}
 
 	// Determine protocol
-	proto := warplib.ProtoFTP
-	if scheme == "ftps" {
+	var proto warplib.Protocol
+	switch scheme {
+	case "ftps":
 		proto = warplib.ProtoFTPS
+	case "sftp":
+		proto = warplib.ProtoSFTP
+	default:
+		proto = warplib.ProtoFTP
 	}
 
-	// Build handlers for FTP download (no compile handlers — FTP is single-stream)
+	// Build handlers for protocol download (no compile handlers — single-stream protocols)
 	handlers := &warplib.Handlers{
 		ErrorHandler: func(_ string, err error) {
 			if errors.Is(err, context.Canceled) && pd.IsStopped() {
@@ -273,7 +279,7 @@ func (s *Api) downloadFTPHandler(sconn *server.SyncConn, pool *server.Pool, rawU
 		return common.UPDATE_DOWNLOAD, nil, err
 	}
 
-	// Start FTP download in background
+	// Start protocol download in background
 	go pd.Download(context.Background(), handlers)
 
 	return common.UPDATE_DOWNLOAD, &common.DownloadResponse{
