@@ -175,6 +175,11 @@ type DownloaderOpts struct {
 	// take over remaining work from slow adjacent parts.
 	// When false (default), work stealing is enabled.
 	DisableWorkStealing bool
+
+	// SSHKeyPath specifies a custom SSH private key file path for SFTP downloads.
+	// If empty, default paths (~/.ssh/id_ed25519, ~/.ssh/id_rsa) are tried.
+	// Not used for HTTP or FTP protocols.
+	SSHKeyPath string
 }
 
 // NewDownloader creates a new downloader with provided arguments.

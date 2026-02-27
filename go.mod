@@ -8,9 +8,11 @@ require (
 	github.com/dop251/goja_nodejs v0.0.0-20251015164255-5e94316bedaf
 	github.com/fclairamb/ftpserverlib v0.30.0
 	github.com/jlaffaye/ftp v0.2.0
+	github.com/pkg/sftp v1.13.10
 	github.com/spf13/afero v1.15.0
 	github.com/urfave/cli v1.22.17
 	github.com/vbauerster/mpb/v8 v8.11.3
+	golang.org/x/crypto v0.47.0
 	golang.org/x/net v0.49.0
 	golang.org/x/sys v0.41.0
 )
@@ -23,6 +25,7 @@ require (
 	github.com/godbus/dbus/v5 v5.2.2 // indirect
 	github.com/hashicorp/errwrap v1.0.0 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
+	github.com/kr/fs v0.1.0 // indirect
 )
 
 require (

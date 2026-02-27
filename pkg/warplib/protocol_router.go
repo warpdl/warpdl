@@ -38,6 +38,12 @@ func NewSchemeRouter(client *http.Client) *SchemeRouter {
 	r.routes["ftp"] = ftpFactory
 	r.routes["ftps"] = ftpFactory
 
+	// Register sftp factory.
+	sftpFactory := func(rawURL string, opts *DownloaderOpts) (ProtocolDownloader, error) {
+		return newSFTPProtocolDownloader(rawURL, opts)
+	}
+	r.routes["sftp"] = sftpFactory
+
 	return r
 }
 
