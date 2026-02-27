@@ -107,48 +107,48 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| REDIR-01 | TBD | Pending |
-| REDIR-02 | TBD | Pending |
-| REDIR-03 | TBD | Pending |
-| REDIR-04 | TBD | Pending |
-| PROTO-01 | TBD | Pending |
-| PROTO-02 | TBD | Pending |
-| PROTO-03 | TBD | Pending |
-| FTP-01 | TBD | Pending |
-| FTP-02 | TBD | Pending |
-| FTP-03 | TBD | Pending |
-| FTP-04 | TBD | Pending |
-| FTP-05 | TBD | Pending |
-| FTP-06 | TBD | Pending |
-| FTP-07 | TBD | Pending |
-| FTP-08 | TBD | Pending |
-| SFTP-01 | TBD | Pending |
-| SFTP-02 | TBD | Pending |
-| SFTP-03 | TBD | Pending |
-| SFTP-04 | TBD | Pending |
-| SFTP-05 | TBD | Pending |
-| SFTP-06 | TBD | Pending |
-| SFTP-07 | TBD | Pending |
-| SFTP-08 | TBD | Pending |
-| SFTP-09 | TBD | Pending |
-| RPC-01 | TBD | Pending |
-| RPC-02 | TBD | Pending |
-| RPC-03 | TBD | Pending |
-| RPC-04 | TBD | Pending |
-| RPC-05 | TBD | Pending |
-| RPC-06 | TBD | Pending |
-| RPC-07 | TBD | Pending |
-| RPC-08 | TBD | Pending |
-| RPC-09 | TBD | Pending |
-| RPC-10 | TBD | Pending |
-| RPC-11 | TBD | Pending |
-| RPC-12 | TBD | Pending |
+| REDIR-01 | Phase 1 | Pending |
+| REDIR-02 | Phase 1 | Pending |
+| REDIR-03 | Phase 1 | Pending |
+| REDIR-04 | Phase 1 | Pending |
+| PROTO-01 | Phase 2 | Pending |
+| PROTO-02 | Phase 2 | Pending |
+| PROTO-03 | Phase 2 | Pending |
+| FTP-01 | Phase 3 | Pending |
+| FTP-02 | Phase 3 | Pending |
+| FTP-03 | Phase 3 | Pending |
+| FTP-04 | Phase 3 | Pending |
+| FTP-05 | Phase 3 | Pending |
+| FTP-06 | Phase 3 | Pending |
+| FTP-07 | Phase 3 | Pending |
+| FTP-08 | Phase 3 | Pending |
+| SFTP-01 | Phase 4 | Pending |
+| SFTP-02 | Phase 4 | Pending |
+| SFTP-03 | Phase 4 | Pending |
+| SFTP-04 | Phase 4 | Pending |
+| SFTP-05 | Phase 4 | Pending |
+| SFTP-06 | Phase 4 | Pending |
+| SFTP-07 | Phase 4 | Pending |
+| SFTP-08 | Phase 4 | Pending |
+| SFTP-09 | Phase 4 | Pending |
+| RPC-01 | Phase 5 | Pending |
+| RPC-02 | Phase 5 | Pending |
+| RPC-03 | Phase 5 | Pending |
+| RPC-04 | Phase 5 | Pending |
+| RPC-05 | Phase 5 | Pending |
+| RPC-06 | Phase 5 | Pending |
+| RPC-07 | Phase 5 | Pending |
+| RPC-08 | Phase 5 | Pending |
+| RPC-09 | Phase 5 | Pending |
+| RPC-10 | Phase 5 | Pending |
+| RPC-11 | Phase 5 | Pending |
+| RPC-12 | Phase 5 | Pending |
 
 **Coverage:**
 - v1 requirements: 36 total
-- Mapped to phases: 0
-- Unmapped: 36
+- Mapped to phases: 36
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-02-26*
-*Last updated: 2026-02-26 after initial definition*
+*Last updated: 2026-02-26 after roadmap creation — all 36 requirements mapped*
