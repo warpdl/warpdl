@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1135,4 +1136,344 @@ func TestSFTPWriterWithMultiWriter(t *testing.T) {
 	if atomic.LoadInt32(&progressTotal) != 200 {
 		t.Errorf("progressTotal = %d, want 200", progressTotal)
 	}
+}
+
+// ============================================================
+// Manager.ResumeDownload SFTP tests (Plan 04-02)
+// ============================================================
+
+func TestResumeDownloadSFTP(t *testing.T) {
+	t.Run("SFTP item dispatches through SchemeRouter", func(t *testing.T) {
+		// Test that ProtoSFTP dispatches through SchemeRouter, not initDownloader.
+		// Uses a non-existent host — the key assertion is that the error is NOT
+		// "resume not supported for protocol" (which would mean ProtoSFTP was rejected).
+		m := newTestManager(t)
+		defer m.Close()
+		router := NewSchemeRouter(nil)
+		m.SetSchemeRouter(router)
+
+		dlDir := t.TempDir()
+
+		item, err := newItem(
+			m.mu,
+			"testfile.bin",
+			"sftp://127.0.0.1:1/path/testfile.bin", // non-existent host, credentials stripped
+			dlDir,
+			"sftp-dispatch-hash",
+			1024,
+			true,
+			&itemOpts{AbsoluteLocation: dlDir},
+		)
+		if err != nil {
+			t.Fatalf("newItem error: %v", err)
+		}
+		item.Protocol = ProtoSFTP
+		item.Parts = map[int64]*ItemPart{
+			0: {Hash: "part0", FinalOffset: 1023, Compiled: false},
+		}
+		m.UpdateItem(item)
+
+		// Resume — will fail to connect (port 1), but should NOT be "protocol not supported"
+		_, err = m.ResumeDownload(nil, "sftp-dispatch-hash", &ResumeDownloadOpts{
+			Handlers: &Handlers{},
+		})
+		if err == nil {
+			t.Fatal("expected error for SFTP to non-existent host")
+		}
+		// The key assertion: it should NOT be a "protocol not supported" error
+		if strings.Contains(err.Error(), "resume not supported for protocol") {
+			t.Errorf("SFTP should dispatch through SchemeRouter, got protocol error: %v", err)
+		}
+	})
+
+	t.Run("SFTP resume with real mock server", func(t *testing.T) {
+		// End-to-end: add SFTP item with credentials, resume from stored URL with creds
+		testContent := bytes.Repeat([]byte{0xAB}, 1024)
+		result := startMockSFTPServer(t,
+			[]testFileEntry{{path: "pub/testfile.bin", content: testContent}},
+			withPasswordAuth("testuser", "testpass"),
+		)
+		defer result.cleanup()
+
+		m := newTestManager(t)
+		defer m.Close()
+		router := NewSchemeRouter(nil)
+		m.SetSchemeRouter(router)
+
+		restore := setupTestKnownHosts(t, result)
+		defer restore()
+
+		dlDir := t.TempDir()
+		sftpURL := result.sftpURL("testuser", "testpass", "pub/testfile.bin")
+
+		// Store the URL WITH credentials for resume (simulates user re-providing creds)
+		// In production, the CLI would prompt for credentials on resume.
+		pd, err := newSFTPProtocolDownloader(sftpURL, &DownloaderOpts{DownloadDirectory: dlDir})
+		if err != nil {
+			t.Fatalf("factory error: %v", err)
+		}
+		probe, err := pd.Probe(context.Background())
+		if err != nil {
+			t.Fatalf("Probe error: %v", err)
+		}
+
+		// Store with credentials in URL (normally stripped, but for this test we keep them)
+		err = m.AddProtocolDownload(pd, probe, sftpURL, ProtoSFTP, &Handlers{}, &AddDownloadOpts{
+			AbsoluteLocation: dlDir,
+		})
+		if err != nil {
+			t.Fatalf("AddProtocolDownload error: %v", err)
+		}
+
+		hash := pd.GetHash()
+
+		// Create partial file
+		partialPath := filepath.Join(dlDir, "testfile.bin")
+		partialData := bytes.Repeat([]byte{0xAB}, 512)
+		if err := os.WriteFile(partialPath, partialData, DefaultFileMode); err != nil {
+			t.Fatalf("failed to write partial file: %v", err)
+		}
+
+		item := m.GetItem(hash)
+		item.Downloaded = 512
+		m.UpdateItem(item)
+
+		// Resume
+		resumedItem, err := m.ResumeDownload(nil, hash, &ResumeDownloadOpts{
+			Handlers: &Handlers{},
+		})
+		if err != nil {
+			t.Fatalf("ResumeDownload error: %v", err)
+		}
+		if resumedItem == nil {
+			t.Fatal("ResumeDownload returned nil item")
+		}
+
+		// Verify item has a dAlloc set (ProtocolDownloader)
+		dAlloc := resumedItem.getDAlloc()
+		if dAlloc == nil {
+			t.Fatal("item.dAlloc is nil after ResumeDownload")
+		}
+		// Verify it's an SFTP downloader (not HTTP adapter)
+		if _, ok := dAlloc.(*sftpProtocolDownloader); !ok {
+			t.Errorf("expected *sftpProtocolDownloader, got %T", dAlloc)
+		}
+	})
+
+	t.Run("HTTP resume path unchanged", func(t *testing.T) {
+		// This is a regression test -- HTTP items must still use initDownloader path
+		m := newTestManager(t)
+		defer m.Close()
+
+		dlDir := t.TempDir()
+
+		// Create HTTP item manually
+		item, err := newItem(
+			m.mu,
+			"httpfile.bin",
+			"http://127.0.0.1:1/httpfile.bin", // non-existent host
+			dlDir,
+			"http-regression-hash",
+			1024,
+			true,
+			&itemOpts{AbsoluteLocation: dlDir},
+		)
+		if err != nil {
+			t.Fatalf("newItem error: %v", err)
+		}
+		item.Protocol = ProtoHTTP
+		m.UpdateItem(item)
+
+		// Create dldata dir for integrity validation
+		if err := os.MkdirAll(filepath.Join(DlDataDir, item.Hash), 0755); err != nil {
+			t.Fatalf("MkdirAll: %v", err)
+		}
+
+		// Resume HTTP -- should go through initDownloader path (will fail to connect, but
+		// the error should NOT be "protocol not supported")
+		_, err = m.ResumeDownload(&http.Client{}, "http-regression-hash", &ResumeDownloadOpts{
+			Handlers: &Handlers{},
+		})
+		// We expect a connection error (not a protocol error)
+		if err != nil && strings.Contains(err.Error(), "resume not supported for protocol") {
+			t.Errorf("HTTP should use initDownloader path, got protocol error: %v", err)
+		}
+	})
+}
+
+func TestResumeDownloadSFTPIntegrityGuard(t *testing.T) {
+	t.Run("SFTP skips validateDownloadIntegrity", func(t *testing.T) {
+		// Verify that SFTP items pass the protocol guard even without a DlDataDir.
+		// Uses a non-existent host — we only test the guard logic, not the actual connection.
+		m := newTestManager(t)
+		defer m.Close()
+		router := NewSchemeRouter(nil)
+		m.SetSchemeRouter(router)
+
+		dlDir := t.TempDir()
+
+		item, err := newItem(
+			m.mu,
+			"testfile.bin",
+			"sftp://127.0.0.1:1/path/testfile.bin",
+			dlDir,
+			"sftp-guard-hash",
+			1024,
+			true,
+			&itemOpts{AbsoluteLocation: dlDir},
+		)
+		if err != nil {
+			t.Fatalf("newItem error: %v", err)
+		}
+		item.Protocol = ProtoSFTP
+		item.Downloaded = 100
+		item.Parts = map[int64]*ItemPart{
+			0: {Hash: "part0", FinalOffset: 1023, Compiled: false},
+		}
+		m.UpdateItem(item)
+
+		// Create partial file so the guard passes
+		partialPath := filepath.Join(dlDir, "testfile.bin")
+		if err := os.WriteFile(partialPath, bytes.Repeat([]byte{0xAB}, 100), DefaultFileMode); err != nil {
+			t.Fatalf("failed to write partial file: %v", err)
+		}
+
+		// Resume — will fail during Probe (auth error), NOT during protocol guard
+		_, err = m.ResumeDownload(nil, "sftp-guard-hash", &ResumeDownloadOpts{
+			Handlers: &Handlers{},
+		})
+		// Error should be an auth/connection error, NOT "resume not supported" or ErrDownloadDataMissing
+		if err != nil {
+			if strings.Contains(err.Error(), "resume not supported") {
+				t.Errorf("SFTP should pass protocol guard, got: %v", err)
+			}
+			if errors.Is(err, ErrDownloadDataMissing) {
+				t.Errorf("SFTP should skip validateDownloadIntegrity, got ErrDownloadDataMissing: %v", err)
+			}
+		}
+	})
+
+	t.Run("SFTP with Downloaded>0 but missing destination returns error", func(t *testing.T) {
+		m := newTestManager(t)
+		defer m.Close()
+		router := NewSchemeRouter(nil)
+		m.SetSchemeRouter(router)
+
+		dlDir := t.TempDir()
+
+		// Manually create an SFTP item that claims progress but has no file
+		item, err := newItem(
+			m.mu,
+			"missing.bin",
+			"sftp://127.0.0.1:1/path/missing.bin",
+			dlDir,
+			"sftp-missing-hash",
+			1024,
+			true,
+			&itemOpts{AbsoluteLocation: dlDir},
+		)
+		if err != nil {
+			t.Fatalf("newItem error: %v", err)
+		}
+		item.Protocol = ProtoSFTP
+		item.Downloaded = 500 // Claims progress
+		item.Parts = map[int64]*ItemPart{
+			0: {Hash: "part0", FinalOffset: 1023, Compiled: false},
+		}
+		m.UpdateItem(item)
+
+		// No destination file exists on disk
+		_, err = m.ResumeDownload(nil, "sftp-missing-hash", &ResumeDownloadOpts{
+			Handlers: &Handlers{},
+		})
+		if err == nil {
+			t.Fatal("expected error for missing destination file with Downloaded>0")
+		}
+		if !strings.Contains(err.Error(), "missing") {
+			t.Errorf("expected 'missing' in error, got: %v", err)
+		}
+	})
+
+	t.Run("SFTP with Downloaded=0 passes guard", func(t *testing.T) {
+		// When Downloaded==0, the protocol guard should pass (no dest file needed).
+		// The dispatch will then try to connect and fail — but the guard passed.
+		m := newTestManager(t)
+		defer m.Close()
+		router := NewSchemeRouter(nil)
+		m.SetSchemeRouter(router)
+
+		dlDir := t.TempDir()
+
+		item, err := newItem(
+			m.mu,
+			"testfile.bin",
+			"sftp://127.0.0.1:1/path/testfile.bin",
+			dlDir,
+			"sftp-d0-hash",
+			1024,
+			true,
+			&itemOpts{AbsoluteLocation: dlDir},
+		)
+		if err != nil {
+			t.Fatalf("newItem error: %v", err)
+		}
+		item.Protocol = ProtoSFTP
+		item.Downloaded = 0 // Never started
+		item.Parts = map[int64]*ItemPart{
+			0: {Hash: "part0", FinalOffset: 1023, Compiled: false},
+		}
+		m.UpdateItem(item)
+
+		// Resume — guard should pass, then fail on connection
+		_, err = m.ResumeDownload(nil, "sftp-d0-hash", &ResumeDownloadOpts{
+			Handlers: &Handlers{},
+		})
+		// Should NOT be a "destination file missing" error — Downloaded=0 skips that check
+		if err != nil && strings.Contains(err.Error(), "destination file missing") {
+			t.Errorf("Downloaded=0 should not require destination file, got: %v", err)
+		}
+		// Should NOT be a "resume not supported" error
+		if err != nil && strings.Contains(err.Error(), "resume not supported") {
+			t.Errorf("SFTP should dispatch through SchemeRouter, got: %v", err)
+		}
+	})
+
+	t.Run("HTTP with missing segment dir still returns ErrDownloadDataMissing", func(t *testing.T) {
+		// Regression: HTTP validation must still work
+		m := newTestManager(t)
+		defer m.Close()
+
+		dlDir := t.TempDir()
+
+		item, err := newItem(
+			m.mu,
+			"httpfile.bin",
+			"http://127.0.0.1:1/httpfile.bin",
+			dlDir,
+			"http-integrity-hash",
+			1024,
+			true,
+			&itemOpts{AbsoluteLocation: dlDir},
+		)
+		if err != nil {
+			t.Fatalf("newItem error: %v", err)
+		}
+		item.Protocol = ProtoHTTP
+		item.Downloaded = 100
+		item.Parts = map[int64]*ItemPart{
+			0: {Hash: "part0", FinalOffset: 1023, Compiled: false},
+		}
+		m.UpdateItem(item)
+
+		// Do NOT create DlDataDir — integrity check should fail
+		_, err = m.ResumeDownload(&http.Client{}, "http-integrity-hash", &ResumeDownloadOpts{
+			Handlers: &Handlers{},
+		})
+		if err == nil {
+			t.Fatal("expected ErrDownloadDataMissing for HTTP with missing data dir")
+		}
+		if !errors.Is(err, ErrDownloadDataMissing) {
+			t.Errorf("expected ErrDownloadDataMissing, got: %v", err)
+		}
+	})
 }
