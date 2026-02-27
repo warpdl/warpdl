@@ -81,7 +81,7 @@ func (c *DaemonComponents) Close() {
 // Returns the initialized components or an error if initialization fails.
 //
 // On error, any partially initialized components are cleaned up before returning.
-var initDaemonComponents = func(log logger.Logger, maxConcurrent int) (*DaemonComponents, error) {
+var initDaemonComponents = func(log logger.Logger, maxConcurrent int, rpcCfg *server.RPCConfig) (*DaemonComponents, error) {
 	stdLog := logger.ToStdLogger(log)
 
 	// Initialize cookie manager
@@ -158,7 +158,7 @@ var initDaemonComponents = func(log logger.Logger, maxConcurrent int) (*DaemonCo
 	}
 
 	// Create server
-	serv := server.NewServer(stdLog, m, DEF_PORT)
+	serv := server.NewServer(stdLog, m, DEF_PORT, rpcCfg)
 	s.RegisterHandlers(serv)
 
 	return &DaemonComponents{

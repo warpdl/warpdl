@@ -31,14 +31,14 @@ type Server struct {
 // NewServer creates a new Server instance with the given logger, download manager,
 // and port number. The server uses platform-specific IPC as the primary transport,
 // falling back to TCP on the specified port if the primary transport fails.
-func NewServer(l *log.Logger, m *warplib.Manager, port int) *Server {
+func NewServer(l *log.Logger, m *warplib.Manager, port int, rpcCfg *RPCConfig) *Server {
 	pool := NewPool(l)
 	return &Server{
 		log:     l,
 		pool:    pool,
 		handler: make(map[common.UpdateType]HandlerFunc),
 		port:    port,
-		ws:      NewWebServer(l, m, pool, port+1),
+		ws:      NewWebServer(l, m, pool, port+1, rpcCfg),
 	}
 }
 

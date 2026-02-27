@@ -80,6 +80,15 @@ func GetApp(bArgs BuildArgs) *cli.App {
 					Value:  3,
 					EnvVar: "WARPDL_MAX_CONCURRENT",
 				},
+				cli.StringFlag{
+					Name:   "rpc-secret",
+					Usage:  "secret token for JSON-RPC API authentication (required to enable RPC)",
+					EnvVar: "WARPDL_RPC_SECRET",
+				},
+				cli.BoolFlag{
+					Name:  "rpc-listen-all",
+					Usage: "bind RPC to all interfaces instead of localhost only",
+				},
 			},
 		},
 		{

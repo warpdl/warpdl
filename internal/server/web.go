@@ -17,12 +17,14 @@ import (
 )
 
 type WebServer struct {
-	port   int
-	l      *log.Logger
-	m      *warplib.Manager
-	pool   *Pool
-	server *http.Server
-	mu     sync.Mutex
+	port      int
+	l         *log.Logger
+	m         *warplib.Manager
+	pool      *Pool
+	server    *http.Server
+	mu        sync.Mutex
+	rpc       *RPCServer
+	listenAll bool
 }
 
 type capturedDownload struct {
@@ -31,8 +33,13 @@ type capturedDownload struct {
 	Cookies []*http.Cookie  `json:"cookies"`
 }
 
-func NewWebServer(l *log.Logger, m *warplib.Manager, pool *Pool, port int) *WebServer {
-	return &WebServer{port: port, l: l, m: m, pool: pool}
+func NewWebServer(l *log.Logger, m *warplib.Manager, pool *Pool, port int, rpcCfg *RPCConfig) *WebServer {
+	ws := &WebServer{port: port, l: l, m: m, pool: pool}
+	if rpcCfg != nil && rpcCfg.Secret != "" {
+		ws.rpc = NewRPCServer(rpcCfg)
+		ws.listenAll = rpcCfg.ListenAll
+	}
+	return ws
 }
 
 func (s *WebServer) processDownload(cd *capturedDownload) error {
@@ -161,11 +168,19 @@ func (s *WebServer) handleConnection(conn *websocket.Conn) {
 }
 
 func (s *WebServer) handler() http.Handler {
-	return websocket.Handler(s.handleConnection)
+	mux := http.NewServeMux()
+	mux.Handle("/", websocket.Handler(s.handleConnection))
+	if s.rpc != nil {
+		mux.Handle("/jsonrpc", requireToken(s.rpc.secret, s.rpc.bridge))
+	}
+	return mux
 }
 
 func (s *WebServer) addr() string {
-	return fmt.Sprintf(":%d", s.port)
+	if s.listenAll {
+		return fmt.Sprintf(":%d", s.port)
+	}
+	return fmt.Sprintf("127.0.0.1:%d", s.port)
 }
 
 func (s *WebServer) Start() error {
@@ -183,11 +198,14 @@ func (s *WebServer) Start() error {
 	return err
 }
 
-// Shutdown gracefully stops the web server.
+// Shutdown gracefully stops the web server and cleans up RPC resources.
 func (s *WebServer) Shutdown(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if s.rpc != nil {
+		s.rpc.Close()
+	}
 	if s.server == nil {
 		return nil
 	}
