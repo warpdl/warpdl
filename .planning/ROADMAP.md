@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: HTTP Redirect** - WarpDL transparently follows redirect chains for all HTTP/HTTPS downloads
 - [x] **Phase 2: Protocol Interface** - Download engine supports pluggable protocol backends via a common interface (in progress — 1/2 plans done)
 - [x] **Phase 3: FTP/FTPS** - Users can download from ftp:// and ftps:// URLs with auth and resume
-- [ ] **Phase 4: SFTP** - Users can download from sftp:// URLs with password/key auth and resume
+- [x] **Phase 4: SFTP** - Users can download from sftp:// URLs with password/key auth and resume
 - [ ] **Phase 5: JSON-RPC 2.0** - Daemon exposes JSON-RPC 2.0 API for programmatic control over HTTP/WebSocket
 
 ## Phase Details
@@ -79,9 +79,9 @@ Plans:
 **Plans**: TBD
 
 Plans:
-- [ ] 04-01: Design SFTP TOFU UX (known_hosts file, first-use accept flow, mismatch error, --sftp-insecure flag)
-- [ ] 04-02: Implement SFTPDownloader with password and private key auth, custom port, TOFU host key policy
-- [ ] 04-03: Add SFTP resume via Seek offset, --ssh-key flag, and tests; add CI gate that rejects InsecureIgnoreHostKey outside test files
+- [x] 04-01: Implement core SFTP downloader with TOFU host key verification, password/key auth, SchemeRouter registration
+- [x] 04-02: Wire Manager.ResumeDownload for SFTP protocol dispatch alongside FTP/FTPS
+- [x] 04-03: Add SFTP resume via Seek offset, --ssh-key flag, and tests; add CI gate that rejects InsecureIgnoreHostKey outside test files
 
 ### Phase 5: JSON-RPC 2.0
 **Goal**: The daemon exposes a JSON-RPC 2.0 API over HTTP and WebSocket so external tools can control downloads programmatically without using the CLI
@@ -112,5 +112,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 1. HTTP Redirect | 2/2 | Complete | 2026-02-27 |
 | 2. Protocol Interface | 2/2 | Complete    | 2026-02-27 |
 | 3. FTP/FTPS | 3/3 | Complete | 2026-02-27 |
-| 4. SFTP | 0/3 | Not started | - |
+| 4. SFTP | 3/3 | Complete | 2026-02-27 |
 | 5. JSON-RPC 2.0 | 0/4 | Not started | - |
