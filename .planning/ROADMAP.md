@@ -17,8 +17,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 3: FTP/FTPS** - Users can download from ftp:// and ftps:// URLs with auth and resume
 - [x] **Phase 4: SFTP** - Users can download from sftp:// URLs with password/key auth and resume
 - [x] **Phase 5: JSON-RPC 2.0** - Daemon exposes JSON-RPC 2.0 API for programmatic control over HTTP/WebSocket
-- [ ] **Phase 6: Fix Integration Defects** - Fix 3 code defects: SFTP resume key loss, RPC resume notifications, web.go CheckRedirect
-- [ ] **Phase 7: Verification & Documentation Closure** - Write missing VERIFICATIONs, SUMMARYs, fix traceability for all 29 stale requirements
+- [x] **Phase 6: Fix Integration Defects** - Fix 3 code defects: SFTP resume key loss, RPC resume notifications, web.go CheckRedirect
+- [x] **Phase 7: Verification & Documentation Closure** - Write missing VERIFICATIONs, SUMMARYs, fix traceability for all 29 stale requirements
 
 ## Phase Details
 
@@ -131,8 +131,8 @@ Plans:
   5. Coverage count in REQUIREMENTS.md reads 36/36
 
 Plans:
-- [ ] 07-01: Create missing SUMMARY files (Phase 3, Phase 5) and fix incomplete SUMMARY frontmatter (Phase 1, Phase 5/05-04)
-- [ ] 07-02: Create missing VERIFICATION.md files (Phases 1, 3, 4, 5), update Phase 2 PROTO-02, update REQUIREMENTS.md traceability
+- [x] 07-01: Create missing SUMMARY files (Phase 3, Phase 5) and fix incomplete SUMMARY frontmatter (Phase 1, Phase 5/05-04)
+- [x] 07-02: Create missing VERIFICATION.md files (Phases 1, 3, 4, 5), update Phase 2 PROTO-02, update REQUIREMENTS.md traceability
 
 ## Progress
 
@@ -147,4 +147,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 4. SFTP | 3/3 | Complete | 2026-02-27 |
 | 5. JSON-RPC 2.0 | 4/4 | Complete | 2026-02-27 |
 | 6. Fix Integration Defects | 2/2 | Complete | 2026-02-27 |
-| 7. Verification & Doc Closure | 0/2 | In Progress | - |
+| 7. Verification & Doc Closure | 2/2 | Complete | 2026-02-27 |
