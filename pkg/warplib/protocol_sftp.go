@@ -38,8 +38,8 @@ type sftpProtocolDownloader struct {
 	dlDir      string // download directory
 	savePath   string // full save path
 	probed     bool
-	stopped    int32    // atomic
-	cleanURL   string   // URL with credentials stripped — safe to persist
+	stopped    int32  // atomic
+	cleanURL   string // URL with credentials stripped — safe to persist
 	ctx        context.Context
 	cancel     context.CancelFunc
 }

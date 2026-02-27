@@ -1504,4 +1504,3 @@ func TestResumeDownloadFTPIntegrityGuard(t *testing.T) {
 		}
 	})
 }
-

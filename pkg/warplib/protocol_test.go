@@ -12,20 +12,20 @@ var _ ProtocolDownloader = (*mockProtocolDownloader)(nil)
 
 // mockProtocolDownloader is a test implementation of ProtocolDownloader
 type mockProtocolDownloader struct {
-	probed          bool
-	stopped         bool
-	maxConn         int32
-	maxParts        int32
-	hash            string
-	fileName        string
-	downloadDir     string
-	savePath        string
-	contentLength   ContentLength
-	capabilities    DownloadCapabilities
-	probeResult     ProbeResult
-	probeErr        error
-	downloadErr     error
-	resumeErr       error
+	probed        bool
+	stopped       bool
+	maxConn       int32
+	maxParts      int32
+	hash          string
+	fileName      string
+	downloadDir   string
+	savePath      string
+	contentLength ContentLength
+	capabilities  DownloadCapabilities
+	probeResult   ProbeResult
+	probeErr      error
+	downloadErr   error
+	resumeErr     error
 }
 
 func (m *mockProtocolDownloader) Probe(_ context.Context) (ProbeResult, error) {
@@ -54,15 +54,15 @@ func (m *mockProtocolDownloader) Capabilities() DownloadCapabilities {
 	return m.capabilities
 }
 
-func (m *mockProtocolDownloader) Close() error              { return nil }
-func (m *mockProtocolDownloader) Stop()                     { m.stopped = true }
-func (m *mockProtocolDownloader) IsStopped() bool           { return m.stopped }
-func (m *mockProtocolDownloader) GetMaxConnections() int32  { return m.maxConn }
-func (m *mockProtocolDownloader) GetMaxParts() int32        { return m.maxParts }
-func (m *mockProtocolDownloader) GetHash() string           { return m.hash }
-func (m *mockProtocolDownloader) GetFileName() string       { return m.fileName }
-func (m *mockProtocolDownloader) GetDownloadDirectory() string { return m.downloadDir }
-func (m *mockProtocolDownloader) GetSavePath() string       { return m.savePath }
+func (m *mockProtocolDownloader) Close() error                    { return nil }
+func (m *mockProtocolDownloader) Stop()                           { m.stopped = true }
+func (m *mockProtocolDownloader) IsStopped() bool                 { return m.stopped }
+func (m *mockProtocolDownloader) GetMaxConnections() int32        { return m.maxConn }
+func (m *mockProtocolDownloader) GetMaxParts() int32              { return m.maxParts }
+func (m *mockProtocolDownloader) GetHash() string                 { return m.hash }
+func (m *mockProtocolDownloader) GetFileName() string             { return m.fileName }
+func (m *mockProtocolDownloader) GetDownloadDirectory() string    { return m.downloadDir }
+func (m *mockProtocolDownloader) GetSavePath() string             { return m.savePath }
 func (m *mockProtocolDownloader) GetContentLength() ContentLength { return m.contentLength }
 
 // Test 1: ProtocolDownloader interface exists; mock satisfies it
