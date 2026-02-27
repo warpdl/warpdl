@@ -20,8 +20,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 6: Fix Integration Defects** - Fix 3 code defects: SFTP resume key loss, RPC resume notifications, web.go CheckRedirect
 - [x] **Phase 7: Verification & Documentation Closure** - Write missing VERIFICATIONs, SUMMARYs, fix traceability for all 29 stale requirements
 - [x] **Phase 8: Fix RPC FTP/SFTP Download Add Handlers** - Wire missing notifier handlers in RPC download.add FTP/SFTP path
-- [ ] **Phase 9: Fix RPC FTP/SFTP Resume Handler Pass-Through** - Fix Item.Resume() nil handler pass to ProtocolDownloader.Resume() for FTP/SFTP
-- [ ] **Phase 10: SUMMARY Frontmatter Backfill** - Add missing requirements-completed frontmatter to 6 SUMMARY files
+- [x] **Phase 9: Fix RPC FTP/SFTP Resume Handler Pass-Through** - Fix Item.Resume() nil handler pass to ProtocolDownloader.Resume() for FTP/SFTP
+- [x] **Phase 10: SUMMARY Frontmatter Backfill** - Add missing requirements-completed frontmatter to 6 SUMMARY files (completed 2026-02-27)
 
 ## Phase Details
 
@@ -160,7 +160,7 @@ Plans:
   3. Existing HTTP resume path remains unaffected (no regression)
 
 Plans:
-- [ ] 09-01: TBD
+- [x] 09-01: Wire FTP/SFTP resume handlers through Item to ProtocolDownloader
 
 ### Phase 10: SUMMARY Frontmatter Backfill
 **Goal**: Add missing `requirements-completed` frontmatter to 6 SUMMARY files so all requirements have 3-source cross-reference coverage
@@ -173,7 +173,7 @@ Plans:
   3. Audit 3-source cross-reference shows 0 "missing" entries
 
 Plans:
-- [ ] 10-01: TBD
+- [x] 10-01: Edit 4 SUMMARY frontmatter arrays to close 3-source coverage gaps, audit all 6 target files
 
 ## Progress
 
@@ -190,5 +190,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 6. Fix Integration Defects | 2/2 | Complete | 2026-02-27 |
 | 7. Verification & Doc Closure | 2/2 | Complete | 2026-02-27 |
 | 8. Fix RPC FTP/SFTP Handlers | 1/1 | Complete | 2026-02-27 |
-| 9. Fix RPC FTP/SFTP Resume Handler | 0/1 | Pending | - |
-| 10. SUMMARY Frontmatter Backfill | 0/1 | Pending | - |
+| 9. Fix RPC FTP/SFTP Resume Handler | 1/1 | Complete | 2026-02-27 |
+| 10. SUMMARY Frontmatter Backfill | 1/1 | Complete   | 2026-02-27 |
