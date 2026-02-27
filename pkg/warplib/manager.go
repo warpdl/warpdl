@@ -2,6 +2,7 @@ package warplib
 
 import (
 	"bytes"
+	"context"
 	"encoding/gob"
 	"fmt"
 	"io"
@@ -531,6 +532,9 @@ type ResumeDownloadOpts struct {
 }
 
 // ResumeDownload resumes a download item.
+// For HTTP items, it validates segment-file integrity and creates an HTTP downloader.
+// For FTP/FTPS items, it skips segment-file checks (FTP uses single-stream to dest file)
+// and dispatches through SchemeRouter to create an FTP downloader.
 func (m *Manager) ResumeDownload(client *http.Client, hash string, opts *ResumeDownloadOpts) (item *Item, err error) {
 	if opts == nil {
 		opts = &ResumeDownloadOpts{}
@@ -544,43 +548,93 @@ func (m *Manager) ResumeDownload(client *http.Client, hash string, opts *ResumeD
 		err = ErrDownloadNotResumable
 		return
 	}
-	// Validate integrity before attempting resume
-	if err = validateDownloadIntegrity(item); err != nil {
-		return
-	}
-	if item.Headers == nil {
-		item.Headers = make(Headers, 0)
-	}
-	if opts.Headers != nil {
-		for _, newHeader := range opts.Headers {
-			item.Headers.Update(newHeader.Key, newHeader.Value)
+
+	// Protocol guard: validate integrity differently per protocol.
+	// HTTP uses segment directories + part files; FTP writes directly to dest file.
+	switch item.Protocol {
+	case ProtoHTTP:
+		// HTTP: validate segment directory + part files (existing behavior)
+		if err = validateDownloadIntegrity(item); err != nil {
+			return
 		}
-	}
-	d, er := initDownloader(client, hash, item.Url, item.TotalSize, &DownloaderOpts{
-		ForceParts:        opts.ForceParts,
-		MaxConnections:    opts.MaxConnections,
-		MaxSegments:       opts.MaxSegments,
-		Handlers:          opts.Handlers,
-		FileName:          item.Name,
-		DownloadDirectory: item.DownloadLocation,
-		Headers:           item.Headers,
-		RetryConfig:       opts.RetryConfig,
-		RequestTimeout:    opts.RequestTimeout,
-		SpeedLimit:        opts.SpeedLimit,
-	})
-	if er != nil {
-		err = er
+	case ProtoFTP, ProtoFTPS:
+		// FTP: no segment files exist. Only verify destination file if download started.
+		if item.Downloaded > 0 {
+			mainFile := item.GetAbsolutePath()
+			if !fileExists(mainFile) {
+				err = fmt.Errorf("%w: destination file missing for FTP resume: %s", ErrDownloadDataMissing, mainFile)
+				return
+			}
+		}
+	default:
+		err = fmt.Errorf("resume not supported for protocol %s", item.Protocol)
 		return
 	}
-	m.patchHandlers(d, item)
-	// Wrap the concrete *Downloader in an httpProtocolDownloader adapter.
-	adapter := &httpProtocolDownloader{
-		inner:  d,
-		rawURL: item.Url,
-		probed: true, // initDownloader already has the state
+
+	// Dispatch based on protocol
+	switch item.Protocol {
+	case ProtoFTP, ProtoFTPS:
+		// FTP/FTPS resume via SchemeRouter
+		if m.schemeRouter == nil {
+			err = fmt.Errorf("scheme router not initialized for FTP resume")
+			return
+		}
+		var pd ProtocolDownloader
+		pd, err = m.schemeRouter.NewDownloader(item.Url, &DownloaderOpts{
+			FileName:          item.Name,
+			DownloadDirectory: item.DownloadLocation,
+		})
+		if err != nil {
+			return
+		}
+		// Probe to get file metadata (size, etc.)
+		if _, err = pd.Probe(context.Background()); err != nil {
+			return
+		}
+		// Patch handlers for item state updates
+		if opts.Handlers == nil {
+			opts.Handlers = &Handlers{}
+		}
+		m.patchProtocolHandlers(opts.Handlers, item)
+		item.setDAlloc(pd)
+		m.UpdateItem(item)
+
+	default:
+		// HTTP resume path (existing behavior — unchanged)
+		if item.Headers == nil {
+			item.Headers = make(Headers, 0)
+		}
+		if opts.Headers != nil {
+			for _, newHeader := range opts.Headers {
+				item.Headers.Update(newHeader.Key, newHeader.Value)
+			}
+		}
+		var d *Downloader
+		d, err = initDownloader(client, hash, item.Url, item.TotalSize, &DownloaderOpts{
+			ForceParts:        opts.ForceParts,
+			MaxConnections:    opts.MaxConnections,
+			MaxSegments:       opts.MaxSegments,
+			Handlers:          opts.Handlers,
+			FileName:          item.Name,
+			DownloadDirectory: item.DownloadLocation,
+			Headers:           item.Headers,
+			RetryConfig:       opts.RetryConfig,
+			RequestTimeout:    opts.RequestTimeout,
+			SpeedLimit:        opts.SpeedLimit,
+		})
+		if err != nil {
+			return
+		}
+		m.patchHandlers(d, item)
+		// Wrap the concrete *Downloader in an httpProtocolDownloader adapter.
+		adapter := &httpProtocolDownloader{
+			inner:  d,
+			rawURL: item.Url,
+			probed: true, // initDownloader already has the state
+		}
+		item.setDAlloc(adapter)
+		m.UpdateItem(item)
 	}
-	item.setDAlloc(adapter)
-	m.UpdateItem(item)
 	return
 }
 

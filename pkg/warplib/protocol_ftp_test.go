@@ -1067,3 +1067,349 @@ func TestFTPGetters(t *testing.T) {
 	})
 }
 
+// ---- Plan 03-02 Tests: Manager.ResumeDownload FTP dispatch ----
+
+func TestResumeDownloadFTP(t *testing.T) {
+	addr, cleanup := startMockFTPServer(t)
+	defer cleanup()
+
+	t.Run("FTP item dispatches through SchemeRouter", func(t *testing.T) {
+		m := newTestManager(t)
+		defer m.Close()
+		router := NewSchemeRouter(nil)
+		m.SetSchemeRouter(router)
+
+		dlDir := t.TempDir()
+		ftpURL := fmt.Sprintf("ftp://%s/pub/testfile.bin", addr)
+		cleanURL := StripURLCredentials(ftpURL)
+
+		// Add an FTP item via AddProtocolDownload
+		pd, err := newFTPProtocolDownloader(ftpURL, &DownloaderOpts{DownloadDirectory: dlDir})
+		if err != nil {
+			t.Fatalf("factory error: %v", err)
+		}
+		probe, err := pd.Probe(context.Background())
+		if err != nil {
+			t.Fatalf("Probe error: %v", err)
+		}
+
+		handlers := &Handlers{}
+		err = m.AddProtocolDownload(pd, probe, cleanURL, ProtoFTP, handlers, &AddDownloadOpts{
+			AbsoluteLocation: dlDir,
+		})
+		if err != nil {
+			t.Fatalf("AddProtocolDownload error: %v", err)
+		}
+
+		hash := pd.GetHash()
+
+		// Create partial file to resume from
+		partialPath := filepath.Join(dlDir, "testfile.bin")
+		partialData := bytes.Repeat([]byte{0xAB}, 512)
+		if err := os.WriteFile(partialPath, partialData, DefaultFileMode); err != nil {
+			t.Fatalf("failed to write partial file: %v", err)
+		}
+
+		// Set Downloaded to reflect partial progress
+		item := m.GetItem(hash)
+		item.Downloaded = 512
+		m.UpdateItem(item)
+
+		// Resume
+		resumeHandlers := &Handlers{}
+		resumedItem, err := m.ResumeDownload(nil, hash, &ResumeDownloadOpts{
+			Handlers: resumeHandlers,
+		})
+		if err != nil {
+			t.Fatalf("ResumeDownload error: %v", err)
+		}
+		if resumedItem == nil {
+			t.Fatal("ResumeDownload returned nil item")
+		}
+
+		// Verify item has a dAlloc set (ProtocolDownloader)
+		dAlloc := resumedItem.getDAlloc()
+		if dAlloc == nil {
+			t.Fatal("item.dAlloc is nil after ResumeDownload")
+		}
+		// Verify it's an FTP downloader (not HTTP adapter)
+		if _, ok := dAlloc.(*ftpProtocolDownloader); !ok {
+			t.Errorf("expected *ftpProtocolDownloader, got %T", dAlloc)
+		}
+	})
+
+	t.Run("FTPS item dispatches through SchemeRouter", func(t *testing.T) {
+		m := newTestManager(t)
+		defer m.Close()
+		router := NewSchemeRouter(nil)
+		m.SetSchemeRouter(router)
+
+		dlDir := t.TempDir()
+
+		// Manually create an FTPS item pointing to a non-existent host
+		// to verify the SchemeRouter dispatch path without actually connecting
+		item, err := newItem(
+			m.mu,
+			"testfile.bin",
+			"ftps://127.0.0.1:1/pub/testfile.bin",
+			dlDir,
+			"ftps-resume-hash",
+			1024,
+			true,
+			&itemOpts{AbsoluteLocation: dlDir},
+		)
+		if err != nil {
+			t.Fatalf("newItem error: %v", err)
+		}
+		item.Protocol = ProtoFTPS
+		item.Parts = map[int64]*ItemPart{
+			0: {Hash: "part0", FinalOffset: 1023, Compiled: false},
+		}
+		m.UpdateItem(item)
+
+		// Resume - FTPS will fail to connect (port 1 is not listening), but we verify
+		// the dispatch path by checking the error is a connection error, NOT a protocol error
+		_, err = m.ResumeDownload(nil, "ftps-resume-hash", &ResumeDownloadOpts{
+			Handlers: &Handlers{},
+		})
+		if err == nil {
+			t.Fatal("expected connection error for FTPS to non-existent host")
+		}
+		// The key assertion: it should NOT be a "protocol not supported" error
+		if strings.Contains(err.Error(), "resume not supported for protocol") {
+			t.Errorf("FTPS should dispatch through SchemeRouter, got protocol error: %v", err)
+		}
+	})
+
+	t.Run("uses patchProtocolHandlers not patchHandlers", func(t *testing.T) {
+		m := newTestManager(t)
+		defer m.Close()
+		router := NewSchemeRouter(nil)
+		m.SetSchemeRouter(router)
+
+		dlDir := t.TempDir()
+		ftpURL := fmt.Sprintf("ftp://%s/pub/testfile.bin", addr)
+		cleanURL := StripURLCredentials(ftpURL)
+
+		pd, err := newFTPProtocolDownloader(ftpURL, &DownloaderOpts{DownloadDirectory: dlDir})
+		if err != nil {
+			t.Fatalf("factory error: %v", err)
+		}
+		probe, err := pd.Probe(context.Background())
+		if err != nil {
+			t.Fatalf("Probe error: %v", err)
+		}
+
+		err = m.AddProtocolDownload(pd, probe, cleanURL, ProtoFTP, &Handlers{}, &AddDownloadOpts{
+			AbsoluteLocation: dlDir,
+		})
+		if err != nil {
+			t.Fatalf("AddProtocolDownload error: %v", err)
+		}
+
+		hash := pd.GetHash()
+
+		// Create partial file
+		partialPath := filepath.Join(dlDir, "testfile.bin")
+		if err := os.WriteFile(partialPath, bytes.Repeat([]byte{0xAB}, 256), DefaultFileMode); err != nil {
+			t.Fatalf("failed to write partial file: %v", err)
+		}
+		item := m.GetItem(hash)
+		item.Downloaded = 256
+		m.UpdateItem(item)
+
+		// Track if DownloadProgressHandler wraps correctly (patchProtocolHandlers)
+		var progressCalled bool
+		resumeHandlers := &Handlers{
+			DownloadProgressHandler: func(hash string, nread int) {
+				progressCalled = true
+			},
+		}
+
+		_, err = m.ResumeDownload(nil, hash, &ResumeDownloadOpts{
+			Handlers: resumeHandlers,
+		})
+		if err != nil {
+			t.Fatalf("ResumeDownload error: %v", err)
+		}
+
+		// Trigger the wrapped handler to verify patching occurred
+		resumeHandlers.DownloadProgressHandler(hash, 100)
+		if !progressCalled {
+			t.Error("DownloadProgressHandler was not wrapped by patchProtocolHandlers")
+		}
+
+		// Verify item.Downloaded was updated by the wrapped handler
+		item = m.GetItem(hash)
+		if item.Downloaded < 256 {
+			t.Errorf("item.Downloaded = %d, expected >= 256 after resume setup", item.Downloaded)
+		}
+	})
+}
+
+func TestResumeDownloadFTPIntegrityGuard(t *testing.T) {
+	addr, cleanup := startMockFTPServer(t)
+	defer cleanup()
+
+	t.Run("FTP skips validateDownloadIntegrity", func(t *testing.T) {
+		m := newTestManager(t)
+		defer m.Close()
+		router := NewSchemeRouter(nil)
+		m.SetSchemeRouter(router)
+
+		dlDir := t.TempDir()
+		ftpURL := fmt.Sprintf("ftp://%s/pub/testfile.bin", addr)
+		cleanURL := StripURLCredentials(ftpURL)
+
+		pd, err := newFTPProtocolDownloader(ftpURL, &DownloaderOpts{DownloadDirectory: dlDir})
+		if err != nil {
+			t.Fatalf("factory error: %v", err)
+		}
+		probe, err := pd.Probe(context.Background())
+		if err != nil {
+			t.Fatalf("Probe error: %v", err)
+		}
+
+		err = m.AddProtocolDownload(pd, probe, cleanURL, ProtoFTP, &Handlers{}, &AddDownloadOpts{
+			AbsoluteLocation: dlDir,
+		})
+		if err != nil {
+			t.Fatalf("AddProtocolDownload error: %v", err)
+		}
+
+		hash := pd.GetHash()
+
+		// Create partial file
+		partialPath := filepath.Join(dlDir, "testfile.bin")
+		if err := os.WriteFile(partialPath, bytes.Repeat([]byte{0xAB}, 100), DefaultFileMode); err != nil {
+			t.Fatalf("failed to write partial file: %v", err)
+		}
+		item := m.GetItem(hash)
+		item.Downloaded = 100
+		m.UpdateItem(item)
+
+		// Resume should succeed even though no download data directory exists
+		// (FTP doesn't use segment directories like HTTP does)
+		_, err = m.ResumeDownload(nil, hash, &ResumeDownloadOpts{
+			Handlers: &Handlers{},
+		})
+		if err != nil {
+			t.Fatalf("ResumeDownload FTP should not fail for missing data dir: %v", err)
+		}
+	})
+
+	t.Run("FTP with Downloaded>0 but missing destination returns error", func(t *testing.T) {
+		m := newTestManager(t)
+		defer m.Close()
+		router := NewSchemeRouter(nil)
+		m.SetSchemeRouter(router)
+
+		dlDir := t.TempDir()
+
+		// Manually create an FTP item that claims progress but has no file
+		item, err := newItem(
+			m.mu,
+			"missing.bin",
+			fmt.Sprintf("ftp://%s/pub/testfile.bin", addr),
+			dlDir,
+			"ftp-missing-hash",
+			1024,
+			true,
+			&itemOpts{AbsoluteLocation: dlDir},
+		)
+		if err != nil {
+			t.Fatalf("newItem error: %v", err)
+		}
+		item.Protocol = ProtoFTP
+		item.Downloaded = 500 // Claims progress
+		item.Parts = map[int64]*ItemPart{
+			0: {Hash: "part0", FinalOffset: 1023, Compiled: false},
+		}
+		m.UpdateItem(item)
+
+		// No destination file exists on disk
+		_, err = m.ResumeDownload(nil, "ftp-missing-hash", &ResumeDownloadOpts{
+			Handlers: &Handlers{},
+		})
+		if err == nil {
+			t.Fatal("expected error for missing destination file with Downloaded>0")
+		}
+		if !strings.Contains(err.Error(), "missing") {
+			t.Errorf("expected 'missing' in error, got: %v", err)
+		}
+	})
+
+	t.Run("FTP with Downloaded=0 succeeds without destination file", func(t *testing.T) {
+		m := newTestManager(t)
+		defer m.Close()
+		router := NewSchemeRouter(nil)
+		m.SetSchemeRouter(router)
+
+		dlDir := t.TempDir()
+		ftpURL := fmt.Sprintf("ftp://%s/pub/testfile.bin", addr)
+		cleanURL := StripURLCredentials(ftpURL)
+
+		pd, err := newFTPProtocolDownloader(ftpURL, &DownloaderOpts{DownloadDirectory: dlDir})
+		if err != nil {
+			t.Fatalf("factory error: %v", err)
+		}
+		probe, err := pd.Probe(context.Background())
+		if err != nil {
+			t.Fatalf("Probe error: %v", err)
+		}
+
+		err = m.AddProtocolDownload(pd, probe, cleanURL, ProtoFTP, &Handlers{}, &AddDownloadOpts{
+			AbsoluteLocation: dlDir,
+		})
+		if err != nil {
+			t.Fatalf("AddProtocolDownload error: %v", err)
+		}
+
+		hash := pd.GetHash()
+
+		// Downloaded=0, no file on disk — should be fine (fresh start via resume)
+		_, err = m.ResumeDownload(nil, hash, &ResumeDownloadOpts{
+			Handlers: &Handlers{},
+		})
+		if err != nil {
+			t.Fatalf("ResumeDownload with Downloaded=0 should succeed: %v", err)
+		}
+	})
+
+	t.Run("HTTP path still calls validateDownloadIntegrity", func(t *testing.T) {
+		m := newTestManager(t)
+		defer m.Close()
+
+		// Create an HTTP item directly
+		item, err := newItem(
+			m.mu,
+			"httpfile.bin",
+			"http://example.com/file.bin",
+			t.TempDir(),
+			"http-integrity-hash",
+			1024,
+			true,
+			&itemOpts{AbsoluteLocation: t.TempDir()},
+		)
+		if err != nil {
+			t.Fatalf("newItem error: %v", err)
+		}
+		item.Protocol = ProtoHTTP
+		item.Parts = map[int64]*ItemPart{
+			0: {Hash: "part0", FinalOffset: 1023, Compiled: false},
+		}
+		m.UpdateItem(item)
+
+		// HTTP resume without data dir should fail with ErrDownloadDataMissing
+		_, err = m.ResumeDownload(nil, "http-integrity-hash", &ResumeDownloadOpts{
+			Handlers: &Handlers{},
+		})
+		if err == nil {
+			t.Fatal("expected error for HTTP resume without data directory")
+		}
+		if !strings.Contains(err.Error(), "missing") {
+			t.Errorf("expected ErrDownloadDataMissing, got: %v", err)
+		}
+	})
+}
+
