@@ -1,3 +1,41 @@
+---
+phase: 05-json-rpc-20
+plan: 04
+subsystem: daemon
+tags: [go, jsonrpc, integration-tests, race-detection, coverage]
+requires:
+  - phase: 05-json-rpc-20
+    plan: 01
+    provides: "JSON-RPC HTTP endpoint"
+  - phase: 05-json-rpc-20
+    plan: 02
+    provides: "RPC method suite"
+  - phase: 05-json-rpc-20
+    plan: 03
+    provides: "WebSocket + push notifications"
+provides:
+  - "14 end-to-end integration tests covering all 12 RPC requirements"
+  - "Race condition fixes for thread-safe item field access"
+tech-stack:
+  added: []
+  patterns: [integration testing, race detection, thread-safe getters]
+key-files:
+  created:
+    - internal/server/rpc_integration_test.go
+  modified:
+    - internal/server/rpc_methods.go
+    - internal/server/rpc_methods_test.go
+    - internal/server/web_test.go
+    - pkg/warplib/item.go
+    - pkg/warplib/manager.go
+key-decisions:
+  - "GetDownloaded() and GetTotalSize() thread-safe getters added to Item"
+  - "part.Compiled mutation moved under item lock to prevent GOB encoder race"
+requirements-completed: [RPC-01, RPC-02, RPC-03, RPC-04, RPC-05, RPC-07, RPC-08, RPC-09, RPC-10, RPC-12]
+duration: 30min
+completed: 2026-02-27
+---
+
 # Plan 05-04 Summary: Integration Tests and CI Gate
 
 ## Status: COMPLETE

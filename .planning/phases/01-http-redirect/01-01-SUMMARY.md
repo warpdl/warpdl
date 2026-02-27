@@ -4,6 +4,7 @@ plan: 01
 status: complete
 started: 2026-02-27
 completed: 2026-02-27
+requirements-completed: [REDIR-01, REDIR-02, REDIR-03]
 ---
 
 ## Summary
