@@ -142,8 +142,12 @@ var initDaemonComponents = func(log logger.Logger, maxConcurrent int) (*DaemonCo
 		log.Info("Download queue enabled: max %d concurrent", maxConcurrent)
 	}
 
+	// Create SchemeRouter for protocol dispatch (http, https, ftp, ftps)
+	router := warplib.NewSchemeRouter(client)
+	m.SetSchemeRouter(router)
+
 	// Create API
-	s, err := api.NewApi(stdLog, m, client, elEng,
+	s, err := api.NewApi(stdLog, m, client, elEng, router,
 		currentBuildArgs.Version, currentBuildArgs.Commit, currentBuildArgs.BuildType)
 	if err != nil {
 		log.Error("API initialization failed: %v", err)

@@ -117,7 +117,7 @@ func newTestApi(t *testing.T) (*Api, *server.Pool, func()) {
 	if err != nil {
 		t.Fatalf("NewEngine: %v", err)
 	}
-	api, err := NewApi(log.New(io.Discard, "", 0), m, &http.Client{}, eng, "test", "abc123", "test")
+	api, err := NewApi(log.New(io.Discard, "", 0), m, &http.Client{}, eng, nil, "test", "abc123", "test")
 	if err != nil {
 		t.Fatalf("NewApi: %v", err)
 	}
@@ -536,7 +536,7 @@ func TestRegisterHandlersAndClose(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewEngine: %v", err)
 	}
-	api, err := NewApi(log.New(io.Discard, "", 0), m, &http.Client{}, eng, "test", "abc123", "test")
+	api, err := NewApi(log.New(io.Discard, "", 0), m, &http.Client{}, eng, nil, "test", "abc123", "test")
 	if err != nil {
 		t.Fatalf("NewApi: %v", err)
 	}

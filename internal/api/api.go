@@ -14,32 +14,36 @@ import (
 )
 
 // Api coordinates request handling between the server and download manager.
-// It encapsulates the download manager, extension engine, and HTTP client
-// required to process download and extension management requests.
+// It encapsulates the download manager, extension engine, HTTP client,
+// and scheme router required to process download and extension management requests.
 type Api struct {
-	log       *log.Logger
-	manager   *warplib.Manager
-	elEngine  *extl.Engine
-	client    *http.Client
-	version   string
-	commit    string
-	buildType string
+	log          *log.Logger
+	manager      *warplib.Manager
+	elEngine     *extl.Engine
+	client       *http.Client
+	schemeRouter *warplib.SchemeRouter
+	version      string
+	commit       string
+	buildType    string
 }
 
 // NewApi creates a new Api instance with the provided dependencies.
 // It returns an initialized Api ready to handle download and extension requests.
 // The logger is used for diagnostic output, the manager handles download state,
-// the client performs HTTP requests, and the elEngine manages JavaScript extensions.
+// the client performs HTTP requests, the elEngine manages JavaScript extensions,
+// and the router dispatches FTP/FTPS URLs to the correct protocol downloader.
+// The router may be nil if FTP support is not needed.
 // Version info (version, commit, buildType) is stored for responding to version queries.
-func NewApi(l *log.Logger, m *warplib.Manager, client *http.Client, elEngine *extl.Engine, version, commit, buildType string) (*Api, error) {
+func NewApi(l *log.Logger, m *warplib.Manager, client *http.Client, elEngine *extl.Engine, router *warplib.SchemeRouter, version, commit, buildType string) (*Api, error) {
 	return &Api{
-		log:       l,
-		manager:   m,
-		client:    client,
-		elEngine:  elEngine,
-		version:   version,
-		commit:    commit,
-		buildType: buildType,
+		log:          l,
+		manager:      m,
+		client:       client,
+		elEngine:     elEngine,
+		schemeRouter: router,
+		version:      version,
+		commit:       commit,
+		buildType:    buildType,
 	}, nil
 }
 

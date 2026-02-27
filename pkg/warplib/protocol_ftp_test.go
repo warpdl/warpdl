@@ -964,6 +964,25 @@ func TestFTPSExplicitTLS(t *testing.T) {
 	})
 }
 
+func TestSchemeRouterFTPRegistration(t *testing.T) {
+	router := NewSchemeRouter(nil)
+	schemes := SupportedSchemes(router)
+
+	expected := []string{"ftp", "ftps", "http", "https"}
+	for _, s := range expected {
+		found := false
+		for _, registered := range schemes {
+			if registered == s {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("scheme %q not registered in NewSchemeRouter, got: %v", s, schemes)
+		}
+	}
+}
+
 func TestFTPStopAndClose(t *testing.T) {
 	pd, err := newFTPProtocolDownloader("ftp://host/file.bin", nil)
 	if err != nil {
@@ -1243,6 +1262,79 @@ func TestResumeDownloadFTP(t *testing.T) {
 		item = m.GetItem(hash)
 		if item.Downloaded < 256 {
 			t.Errorf("item.Downloaded = %d, expected >= 256 after resume setup", item.Downloaded)
+		}
+	})
+}
+
+// Credential security: GOB round-trip verifies credentials are NEVER persisted
+func TestFTPCredentialSecurityGOBRoundTrip(t *testing.T) {
+	addr, cleanup := startMockFTPServer(t)
+	defer cleanup()
+
+	m := newTestManager(t)
+	defer m.Close()
+
+	dlDir := t.TempDir()
+	rawURL := fmt.Sprintf("ftp://testuser:testpass@%s/pub/testfile.bin", addr)
+	cleanURL := StripURLCredentials(rawURL)
+
+	pd, err := newFTPProtocolDownloader(rawURL, &DownloaderOpts{DownloadDirectory: dlDir})
+	if err != nil {
+		t.Fatalf("factory error: %v", err)
+	}
+	probe, err := pd.Probe(context.Background())
+	if err != nil {
+		t.Fatalf("Probe error: %v", err)
+	}
+
+	err = m.AddProtocolDownload(pd, probe, cleanURL, ProtoFTP, &Handlers{}, &AddDownloadOpts{
+		AbsoluteLocation: dlDir,
+	})
+	if err != nil {
+		t.Fatalf("AddProtocolDownload error: %v", err)
+	}
+
+	hash := pd.GetHash()
+
+	t.Run("item URL has no credentials after AddProtocolDownload", func(t *testing.T) {
+		item := m.GetItem(hash)
+		if strings.Contains(item.Url, "testuser") {
+			t.Errorf("item.Url contains username: %q", item.Url)
+		}
+		if strings.Contains(item.Url, "testpass") {
+			t.Errorf("item.Url contains password: %q", item.Url)
+		}
+		if strings.Contains(item.Url, "@") {
+			t.Errorf("item.Url contains @: %q", item.Url)
+		}
+	})
+
+	t.Run("GOB encode-decode preserves no-credential URL", func(t *testing.T) {
+		// Force persist (encode GOB)
+		m.UpdateItem(m.GetItem(hash))
+
+		// Re-init manager from the same file to simulate GOB decode
+		m2, err := InitManager()
+		if err != nil {
+			t.Fatalf("InitManager for GOB round-trip: %v", err)
+		}
+		defer m2.Close()
+
+		item2 := m2.GetItem(hash)
+		if item2 == nil {
+			t.Fatal("item not found after GOB round-trip")
+		}
+		if strings.Contains(item2.Url, "testuser") {
+			t.Errorf("GOB round-trip: item.Url contains username: %q", item2.Url)
+		}
+		if strings.Contains(item2.Url, "testpass") {
+			t.Errorf("GOB round-trip: item.Url contains password: %q", item2.Url)
+		}
+		if strings.Contains(item2.Url, "@") {
+			t.Errorf("GOB round-trip: item.Url contains @: %q", item2.Url)
+		}
+		if item2.Protocol != ProtoFTP {
+			t.Errorf("GOB round-trip: item.Protocol = %d, want ProtoFTP (%d)", item2.Protocol, ProtoFTP)
 		}
 	})
 }
