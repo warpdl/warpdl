@@ -50,12 +50,12 @@ Requirements for this milestone. Each maps to roadmap phases.
 - [ ] **RPC-03**: Auth token required for all RPC requests (`--rpc-secret` flag, `WARPDL_RPC_SECRET` env var)
 - [ ] **RPC-04**: RPC binds to localhost only by default, `--rpc-listen-all` for explicit opt-in to all interfaces
 - [ ] **RPC-05**: `download.add` method accepts URL and options, starts download
-- [ ] **RPC-06**: `download.pause` and `download.resume` methods control active downloads
+- [x] **RPC-06**: `download.pause` and `download.resume` methods control active downloads
 - [ ] **RPC-07**: `download.remove` method removes download from queue
 - [ ] **RPC-08**: `download.status` method returns download state (status, totalLength, completedLength, speed)
 - [ ] **RPC-09**: `download.list` method returns downloads filtered by state (active/waiting/stopped)
 - [ ] **RPC-10**: `system.getVersion` method returns daemon version info
-- [ ] **RPC-11**: WebSocket pushes real-time notifications (download.started, download.progress, download.complete, download.error)
+- [x] **RPC-11**: WebSocket pushes real-time notifications (download.started, download.progress, download.complete, download.error)
 - [ ] **RPC-12**: Standard JSON-RPC 2.0 error codes for parse errors, invalid requests, method not found
 
 ## v2 Requirements
@@ -136,12 +136,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 | RPC-03 | Phase 5 | Pending |
 | RPC-04 | Phase 5 | Pending |
 | RPC-05 | Phase 5 | Pending |
-| RPC-06 | Phase 6 | Pending |
+| RPC-06 | Phase 6 | Complete |
 | RPC-07 | Phase 5 | Pending |
 | RPC-08 | Phase 5 | Pending |
 | RPC-09 | Phase 5 | Pending |
 | RPC-10 | Phase 5 | Pending |
-| RPC-11 | Phase 6 | Pending |
+| RPC-11 | Phase 6 | Complete |
 | RPC-12 | Phase 5 | Pending |
 
 **Coverage:**
