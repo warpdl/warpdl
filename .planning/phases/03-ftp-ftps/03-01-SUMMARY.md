@@ -27,7 +27,7 @@ key-decisions:
   - "StripURLCredentials exported from warplib for cross-package use in API layer"
   - "classifyFTPError uses standard errors.As (not generic wrapper) — 4xx transient, 5xx permanent, net.Error transient"
   - "Commit e053d93 consolidated Resume() and FTPS TLS into this plan (originally scoped for 03-02)"
-requirements-completed: [FTP-01, FTP-02, FTP-03, FTP-04, FTP-05, FTP-06, FTP-07, FTP-08]
+requirements-completed: [PROTO-01, PROTO-03, FTP-01, FTP-02, FTP-03, FTP-04, FTP-05, FTP-06, FTP-07, FTP-08]
 duration: 15min
 completed: 2026-02-27
 ---

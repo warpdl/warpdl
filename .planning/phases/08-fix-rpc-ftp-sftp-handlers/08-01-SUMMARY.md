@@ -37,7 +37,7 @@ patterns-established:
   - "mockProtocolDownloader: reusable mock for testing ProtocolDownloader handler wiring"
   - "newTestRPCHandlerWithRouter: RPC test helper with custom SchemeRouter injection"
 
-requirements-completed: [RPC-05, RPC-11]
+requirements-completed: [RPC-05, RPC-06, RPC-11]
 
 duration: 2min
 completed: 2026-02-27

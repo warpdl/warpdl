@@ -53,7 +53,7 @@ key-decisions:
   - "SkipSetup=true in test adapter creation prevents network calls during unit tests"
   - "Existing tests updated to use httpProtocolDownloader{inner: d} instead of bare *Downloader"
 
-requirements-completed: [PROTO-01, PROTO-02]
+requirements-completed: [PROTO-01, PROTO-02, PROTO-03]
 
 duration: 7min
 completed: 2026-02-27

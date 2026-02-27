@@ -54,7 +54,7 @@ patterns-established:
   - "Fixture generation: use gen_fixture.go (go run) not test runner to avoid stdlib build conflicts"
   - "Protocol validation: validate after decode, not silently degrade"
 
-requirements-completed: [PROTO-03]
+requirements-completed: [PROTO-01, PROTO-03]
 
 # Metrics
 duration: 7min
