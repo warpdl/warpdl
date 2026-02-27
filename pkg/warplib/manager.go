@@ -533,8 +533,8 @@ type ResumeDownloadOpts struct {
 
 // ResumeDownload resumes a download item.
 // For HTTP items, it validates segment-file integrity and creates an HTTP downloader.
-// For FTP/FTPS items, it skips segment-file checks (FTP uses single-stream to dest file)
-// and dispatches through SchemeRouter to create an FTP downloader.
+// For FTP/FTPS/SFTP items, it skips segment-file checks (single-stream to dest file)
+// and dispatches through SchemeRouter to create a protocol-specific downloader.
 func (m *Manager) ResumeDownload(client *http.Client, hash string, opts *ResumeDownloadOpts) (item *Item, err error) {
 	if opts == nil {
 		opts = &ResumeDownloadOpts{}
@@ -557,12 +557,12 @@ func (m *Manager) ResumeDownload(client *http.Client, hash string, opts *ResumeD
 		if err = validateDownloadIntegrity(item); err != nil {
 			return
 		}
-	case ProtoFTP, ProtoFTPS:
-		// FTP: no segment files exist. Only verify destination file if download started.
+	case ProtoFTP, ProtoFTPS, ProtoSFTP:
+		// FTP/SFTP: no segment files exist. Only verify destination file if download started.
 		if item.Downloaded > 0 {
 			mainFile := item.GetAbsolutePath()
 			if !fileExists(mainFile) {
-				err = fmt.Errorf("%w: destination file missing for FTP resume: %s", ErrDownloadDataMissing, mainFile)
+				err = fmt.Errorf("%w: destination file missing for %s resume: %s", ErrDownloadDataMissing, item.Protocol, mainFile)
 				return
 			}
 		}
@@ -573,10 +573,10 @@ func (m *Manager) ResumeDownload(client *http.Client, hash string, opts *ResumeD
 
 	// Dispatch based on protocol
 	switch item.Protocol {
-	case ProtoFTP, ProtoFTPS:
-		// FTP/FTPS resume via SchemeRouter
+	case ProtoFTP, ProtoFTPS, ProtoSFTP:
+		// FTP/FTPS/SFTP resume via SchemeRouter
 		if m.schemeRouter == nil {
-			err = fmt.Errorf("scheme router not initialized for FTP resume")
+			err = fmt.Errorf("scheme router not initialized for %s resume", item.Protocol)
 			return
 		}
 		var pd ProtocolDownloader
