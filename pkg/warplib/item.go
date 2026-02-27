@@ -5,6 +5,7 @@
 package warplib
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"sync"
@@ -43,14 +44,30 @@ type Item struct {
 	Parts map[int64]*ItemPart `json:"parts"`
 	// Resumable is a flag indicating whether the download can be resumed.
 	Resumable bool `json:"resumable"`
+	// Protocol identifies which download protocol to use when resuming this item.
+	// Zero value is ProtoHTTP (0), ensuring backward compatibility with GOB files
+	// encoded before Phase 2 added this field — GOB zero-initializes missing fields.
+	// INVARIANT: ProtoHTTP must remain iota=0 or all pre-Phase-2 files will break.
+	Protocol Protocol `json:"protocol"`
+	// SSHKeyPath is the path to the SSH private key used for SFTP downloads.
+	// Persisted so resume uses the same key as the initial download.
+	// Empty means default key paths (~/.ssh/id_ed25519, ~/.ssh/id_rsa) are tried.
+	// GOB backward-compatible: missing field decodes as empty string (zero value).
+	SSHKeyPath string `json:"ssh_key_path,omitempty"`
 	// mu is a mutex for synchronizing access to the item's fields.
 	mu *sync.RWMutex
 	// dAllocMu protects access to dAlloc field (value type, not pointer, for GOB serialization)
 	dAllocMu sync.RWMutex
-	// dAlloc is a reference to the Downloader managing this item.
-	dAlloc *Downloader
+	// dAlloc is the ProtocolDownloader managing this item.
+	// Type is ProtocolDownloader to allow HTTP, FTP, SFTP backends.
+	dAlloc ProtocolDownloader
 	// memPart is an internal map for managing memory allocation of parts.
 	memPart map[string]int64
+	// resumeHandlers holds patched handler callbacks for the protocol resume path.
+	// Set by Manager.ResumeDownload for FTP/FTPS/SFTP after patchProtocolHandlers.
+	// Unexported to prevent GOB serialization (func values cannot be GOB-encoded).
+	// nil for HTTP items — HTTP uses patchHandlers on *Downloader struct field.
+	resumeHandlers *Handlers
 }
 
 // ItemPart represents a part of a download item.
@@ -160,17 +177,25 @@ func (i *Item) getPartWithError(hash string) (offset int64, part *ItemPart, err 
 }
 
 // getDAlloc returns the current downloader with proper synchronization.
-func (i *Item) getDAlloc() *Downloader {
+func (i *Item) getDAlloc() ProtocolDownloader {
 	i.dAllocMu.RLock()
 	defer i.dAllocMu.RUnlock()
 	return i.dAlloc
 }
 
 // setDAlloc sets the downloader with proper synchronization.
-func (i *Item) setDAlloc(d *Downloader) {
+func (i *Item) setDAlloc(d ProtocolDownloader) {
 	i.dAllocMu.Lock()
 	defer i.dAllocMu.Unlock()
 	i.dAlloc = d
+}
+
+// setResumeHandlers stores patched handlers for use during Item.Resume().
+// Called by Manager.ResumeDownload after patchProtocolHandlers for FTP/FTPS/SFTP items.
+func (i *Item) setResumeHandlers(h *Handlers) {
+	i.dAllocMu.Lock()
+	defer i.dAllocMu.Unlock()
+	i.resumeHandlers = h
 }
 
 // clearDAlloc clears the downloader with proper synchronization.
@@ -180,8 +205,37 @@ func (i *Item) clearDAlloc() {
 	i.dAlloc = nil
 }
 
+// GetDownloaded returns the downloaded byte count with proper synchronization.
+// Safe to call from any goroutine. Returns the raw field value when mu is nil
+// (e.g., items constructed in tests without a Manager).
+func (i *Item) GetDownloaded() ContentLength {
+	if i.mu != nil {
+		i.mu.RLock()
+		defer i.mu.RUnlock()
+	}
+	return i.Downloaded
+}
+
+// GetTotalSize returns the total size with proper synchronization.
+// Safe to call from any goroutine. Returns the raw field value when mu is nil.
+func (i *Item) GetTotalSize() ContentLength {
+	if i.mu != nil {
+		i.mu.RLock()
+		defer i.mu.RUnlock()
+	}
+	return i.TotalSize
+}
+
 // GetPercentage returns the download progress as a percentage.
+// Uses mu for thread-safe access to Downloaded and TotalSize.
 func (i *Item) GetPercentage() int64 {
+	if i.mu != nil {
+		i.mu.RLock()
+		defer i.mu.RUnlock()
+	}
+	if i.TotalSize <= 0 {
+		return 0
+	}
 	p := (i.Downloaded * 100) / i.TotalSize
 	return p.v()
 }
@@ -220,6 +274,8 @@ func (i *Item) GetMaxParts() (int32, error) {
 
 // Resume resumes the download of the item.
 // Fixed Race 2: Takes snapshot of Parts under Item lock before calling Resume.
+// For FTP/SFTP: passes stored resumeHandlers to ProtocolDownloader.Resume().
+// For HTTP: resumeHandlers is nil, preserving patchHandlers-installed struct field handlers.
 func (i *Item) Resume() error {
 	// Take snapshot of Parts under Item lock first
 	i.mu.RLock()
@@ -229,15 +285,19 @@ func (i *Item) Resume() error {
 	}
 	i.mu.RUnlock()
 
-	// Then get downloader under dAllocMu lock
+	// Then get downloader and resume handlers under dAllocMu lock
 	i.dAllocMu.RLock()
 	d := i.dAlloc
+	h := i.resumeHandlers
 	i.dAllocMu.RUnlock()
 
 	if d == nil {
 		return ErrItemDownloaderNotFound
 	}
-	return d.Resume(partsCopy)
+	// h is non-nil for FTP/SFTP (set by Manager.ResumeDownload), nil for HTTP.
+	// FTP/SFTP Resume uses h parameter directly for callbacks.
+	// HTTP Resume: nil preserves patchHandlers-installed struct field (non-nil would replace it).
+	return d.Resume(context.Background(), partsCopy, h)
 }
 
 // StopDownload pauses the download of the item.

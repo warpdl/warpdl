@@ -81,7 +81,7 @@ func (c *DaemonComponents) Close() {
 // Returns the initialized components or an error if initialization fails.
 //
 // On error, any partially initialized components are cleaned up before returning.
-var initDaemonComponents = func(log logger.Logger, maxConcurrent int) (*DaemonComponents, error) {
+var initDaemonComponents = func(log logger.Logger, maxConcurrent int, rpcCfg *server.RPCConfig) (*DaemonComponents, error) {
 	stdLog := logger.ToStdLogger(log)
 
 	// Initialize cookie manager
@@ -106,7 +106,10 @@ var initDaemonComponents = func(log logger.Logger, maxConcurrent int) (*DaemonCo
 		cm.Close()
 		return nil, err
 	}
-	client := &http.Client{Jar: jar}
+	client := &http.Client{
+		Jar:           jar,
+		CheckRedirect: warplib.RedirectPolicy(warplib.DefaultMaxRedirects),
+	}
 
 	// Initialize warplib manager
 	m, err := warplib.InitManager()
@@ -139,8 +142,12 @@ var initDaemonComponents = func(log logger.Logger, maxConcurrent int) (*DaemonCo
 		log.Info("Download queue enabled: max %d concurrent", maxConcurrent)
 	}
 
+	// Create SchemeRouter for protocol dispatch (http, https, ftp, ftps)
+	router := warplib.NewSchemeRouter(client)
+	m.SetSchemeRouter(router)
+
 	// Create API
-	s, err := api.NewApi(stdLog, m, client, elEng,
+	s, err := api.NewApi(stdLog, m, client, elEng, router,
 		currentBuildArgs.Version, currentBuildArgs.Commit, currentBuildArgs.BuildType)
 	if err != nil {
 		log.Error("API initialization failed: %v", err)
@@ -151,7 +158,7 @@ var initDaemonComponents = func(log logger.Logger, maxConcurrent int) (*DaemonCo
 	}
 
 	// Create server
-	serv := server.NewServer(stdLog, m, DEF_PORT)
+	serv := server.NewServer(stdLog, m, DEF_PORT, client, router, rpcCfg)
 	s.RegisterHandlers(serv)
 
 	return &DaemonComponents{

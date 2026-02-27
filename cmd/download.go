@@ -56,6 +56,10 @@ var (
 			Name:  "input-file, i",
 			Usage: "read URLs from input file (one URL per line, # for comments)",
 		},
+		cli.StringFlag{
+			Name:  "ssh-key",
+			Usage: "path to SSH private key file for SFTP downloads (default: ~/.ssh/id_ed25519 or ~/.ssh/id_rsa)",
+		},
 	}
 )
 
@@ -184,6 +188,7 @@ func download(ctx *cli.Context) (err error) {
 		SpeedLimit:          ctx.String("speed-limit"),
 		DisableWorkStealing: ctx.Bool("no-work-steal"),
 		Priority:            parsePriority(ctx.String("priority")),
+		SSHKeyPath:          ctx.String("ssh-key"),
 	})
 	if err != nil {
 		cmdcommon.PrintRuntimeErr(ctx, "info", "download", err)
@@ -270,6 +275,7 @@ func downloadBatchFromFile(ctx *cli.Context, client *warpcli.Client, inputFile s
 			SpeedLimit:          ctx.String("speed-limit"),
 			DisableWorkStealing: ctx.Bool("no-work-steal"),
 			Priority:            parsePriority(ctx.String("priority")),
+			SSHKeyPath:          ctx.String("ssh-key"),
 		},
 	}
 

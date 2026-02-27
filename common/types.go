@@ -53,6 +53,9 @@ type DownloadParams struct {
 	// Priority specifies the queue priority (0=low, 1=normal, 2=high).
 	// Defaults to normal (1) if not specified.
 	Priority int `json:"priority,omitempty"`
+	// SSHKeyPath specifies a custom SSH private key file path for SFTP downloads.
+	// If empty, default SSH key paths (~/.ssh/id_ed25519, ~/.ssh/id_rsa) are tried.
+	SSHKeyPath string `json:"ssh_key_path,omitempty"`
 }
 
 // DownloadResponse contains the server response after initiating a download.

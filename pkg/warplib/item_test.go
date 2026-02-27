@@ -47,7 +47,7 @@ func TestItemBasics(t *testing.T) {
 	}
 
 	_, cancel := context.WithCancel(context.Background())
-	item.dAlloc = &Downloader{cancel: cancel, maxConn: 2, maxParts: 3}
+	item.dAlloc = &httpProtocolDownloader{inner: &Downloader{cancel: cancel, maxConn: 2, maxParts: 3}, probed: true}
 	if _, err := item.GetMaxConnections(); err != nil {
 		t.Fatalf("GetMaxConnections: %v", err)
 	}
@@ -64,7 +64,7 @@ func TestItemIsDownloading(t *testing.T) {
 	if item.IsDownloading() {
 		t.Fatalf("expected IsDownloading to be false")
 	}
-	item.dAlloc = &Downloader{}
+	item.dAlloc = &httpProtocolDownloader{inner: &Downloader{}}
 	if !item.IsDownloading() {
 		t.Fatalf("expected IsDownloading to be true")
 	}
@@ -84,7 +84,7 @@ func TestItemDAllocConcurrentAccess(t *testing.T) {
 		defer wg.Done()
 		for i := 0; i < 500; i++ {
 			ctx, cancel := context.WithCancel(context.Background())
-			item.setDAlloc(&Downloader{ctx: ctx, cancel: cancel, wg: &sync.WaitGroup{}})
+			item.setDAlloc(&httpProtocolDownloader{inner: &Downloader{ctx: ctx, cancel: cancel, wg: &sync.WaitGroup{}}, probed: true})
 			time.Sleep(time.Microsecond)
 			item.clearDAlloc()
 			cancel()

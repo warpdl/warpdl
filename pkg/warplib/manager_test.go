@@ -770,7 +770,7 @@ func TestManagerFlushConcurrentProgress(t *testing.T) {
 			Parts: make(map[int64]*ItemPart), mu: m.mu, memPart: make(map[string]int64),
 		}
 		ctx, cancel := context.WithCancel(context.Background())
-		item.setDAlloc(&Downloader{ctx: ctx, cancel: cancel})
+		item.setDAlloc(&httpProtocolDownloader{inner: &Downloader{ctx: ctx, cancel: cancel}, probed: true})
 		m.UpdateItem(item)
 		defer cancel()
 	}

@@ -2,6 +2,7 @@ package warplib
 
 import (
 	"bytes"
+	"context"
 	"encoding/gob"
 	"fmt"
 	"io"
@@ -33,6 +34,14 @@ type Manager struct {
 	queue *QueueManager
 	// queueState stores persisted queue state until queue is initialized
 	queueState *QueueState
+	// schemeRouter dispatches URL schemes to protocol factories during resume.
+	schemeRouter *SchemeRouter
+}
+
+// SetSchemeRouter sets the scheme router for protocol dispatch during resume.
+// Used by daemon startup to provide the router to the Manager.
+func (m *Manager) SetSchemeRouter(r *SchemeRouter) {
+	m.schemeRouter = r
 }
 
 // InitManager creates a new manager instance.
@@ -76,6 +85,17 @@ func InitManager() (m *Manager, err error) {
 			m.items = make(ItemsMap)
 		}
 		m.queueState = data.QueueState
+		// Validate protocol values for all decoded items.
+		// Unknown values indicate the file was created by a newer warpdl version.
+		for hash, item := range m.items {
+			if item == nil {
+				continue
+			}
+			if err := ValidateProtocol(item.Protocol); err != nil {
+				m.f.Close()
+				return nil, fmt.Errorf("item %s: %w", hash, err)
+			}
+		}
 	}
 	m.populateMemPart()
 	return
@@ -133,12 +153,17 @@ type AddDownloadOpts struct {
 	ChildHash        string
 	AbsoluteLocation string
 	Priority         Priority
+	// SSHKeyPath is the SSH key path to persist in Item for SFTP resume.
+	// Empty means default key paths are tried on resume.
+	SSHKeyPath string
 }
 
 // AddDownload adds a new download item entry.
 // If the queue is enabled, the download is registered with the queue.
 // The queue's onStart callback will be invoked when a slot is available
 // (immediately if under capacity, or when another download completes).
+// The *Downloader is wrapped in an httpProtocolDownloader adapter and stored
+// in item.dAlloc as a ProtocolDownloader.
 func (m *Manager) AddDownload(d *Downloader, opts *AddDownloadOpts) (err error) {
 	if opts == nil {
 		opts = &AddDownloadOpts{}
@@ -162,9 +187,18 @@ func (m *Manager) AddDownload(d *Downloader, opts *AddDownloadOpts) (err error) 
 	if err != nil {
 		return err
 	}
-	item.setDAlloc(d)
-	m.UpdateItem(item)
+	// Wrap the concrete *Downloader in an httpProtocolDownloader adapter.
+	// patchHandlers operates on the concrete *Downloader directly, so we
+	// patch first, then wrap.
 	m.patchHandlers(d, item)
+
+	adapter := &httpProtocolDownloader{
+		inner:  d,
+		rawURL: d.url,
+		probed: true, // fetchInfo was already called by NewDownloader
+	}
+	item.setDAlloc(adapter)
+	m.UpdateItem(item)
 
 	// Register with queue if enabled
 	if m.queue != nil {
@@ -206,7 +240,11 @@ func (m *Manager) patchHandlers(d *Downloader, item *Item) {
 			d.handlers.ErrorHandler(hash, fmt.Errorf("compile complete: part not found for hash %q", hash))
 			return
 		}
+		// Set Compiled under the item lock to avoid a race with the GOB
+		// encoder in persistItems which reads Part fields under the same lock.
+		item.mu.Lock()
 		part.Compiled = true
+		item.mu.Unlock()
 		item.savePart(off, part)
 		oCCH(hash, tread)
 	}
@@ -227,6 +265,132 @@ func (m *Manager) patchHandlers(d *Downloader, item *Item) {
 		}
 
 		oDCH(hash, tread)
+	}
+}
+
+// AddProtocolDownload adds a new download item for a non-HTTP protocol downloader.
+// cleanURL is the URL with credentials stripped — safe for GOB persistence.
+// proto identifies the protocol (ProtoFTP, ProtoFTPS, ProtoSFTP).
+func (m *Manager) AddProtocolDownload(pd ProtocolDownloader, probe ProbeResult, cleanURL string, proto Protocol, handlers *Handlers, opts *AddDownloadOpts) error {
+	if opts == nil {
+		opts = &AddDownloadOpts{}
+	}
+	item, err := newItem(
+		m.mu,
+		pd.GetFileName(),
+		cleanURL, // credential-stripped URL — safe to persist
+		pd.GetDownloadDirectory(),
+		pd.GetHash(),
+		ContentLength(probe.ContentLength),
+		probe.Resumable,
+		&itemOpts{
+			AbsoluteLocation: opts.AbsoluteLocation,
+			Child:            opts.IsChildren,
+			Hide:             opts.IsHidden,
+			ChildHash:        opts.ChildHash,
+		},
+	)
+	if err != nil {
+		return err
+	}
+	item.Protocol = proto
+	item.SSHKeyPath = opts.SSHKeyPath
+
+	// Wrap handlers with item-update callbacks
+	m.patchProtocolHandlers(handlers, item)
+
+	item.setDAlloc(pd)
+	m.UpdateItem(item)
+
+	if m.queue != nil {
+		m.queue.Add(pd.GetHash(), opts.Priority)
+	}
+	return nil
+}
+
+// patchProtocolHandlers wraps handler callbacks to update Item state.
+// This is the protocol-agnostic equivalent of patchHandlers for non-HTTP downloaders.
+// The wrapped handlers are mutated in-place (same as patchHandlers pattern).
+//
+// FTP-relevant wrappers:
+//   - SpawnPartHandler: FTP calls this once with [0, fileSize-1]
+//   - DownloadProgressHandler: FTP calls this on every Write
+//   - DownloadCompleteHandler: FTP calls this with MAIN_HASH on success
+//
+// HTTP-only wrappers (included for future protocol support, never called by FTP):
+//   - RespawnPartHandler: HTTP work-stealing only (FTP has single stream)
+//   - CompileCompleteHandler: HTTP part compilation only (FTP has no parts to compile)
+func (m *Manager) patchProtocolHandlers(h *Handlers, item *Item) {
+	if h == nil {
+		return
+	}
+	oSPH := h.SpawnPartHandler
+	h.SpawnPartHandler = func(hash string, ioff, foff int64) {
+		item.addPart(hash, ioff, foff)
+		m.UpdateItem(item)
+		if oSPH != nil {
+			oSPH(hash, ioff, foff)
+		}
+	}
+	oRPH := h.RespawnPartHandler
+	h.RespawnPartHandler = func(hash string, partIoff, ioffNew, foffNew int64) {
+		item.addPart(hash, partIoff, foffNew)
+		m.UpdateItem(item)
+		if oRPH != nil {
+			oRPH(hash, partIoff, ioffNew, foffNew)
+		}
+	}
+	oPH := h.DownloadProgressHandler
+	h.DownloadProgressHandler = func(hash string, nread int) {
+		item.mu.Lock()
+		item.Downloaded += ContentLength(nread)
+		item.mu.Unlock()
+		m.UpdateItem(item)
+		if oPH != nil {
+			oPH(hash, nread)
+		}
+	}
+	oCCH := h.CompileCompleteHandler
+	h.CompileCompleteHandler = func(hash string, tread int64) {
+		off, part, err := item.getPartWithError(hash)
+		if err != nil {
+			if h.ErrorHandler != nil {
+				h.ErrorHandler(hash, fmt.Errorf("compile complete: %w", err))
+			}
+			return
+		}
+		if part == nil {
+			if h.ErrorHandler != nil {
+				h.ErrorHandler(hash, fmt.Errorf("compile complete: part not found for hash %q", hash))
+			}
+			return
+		}
+		// Set Compiled under the item lock to avoid a race with the GOB
+		// encoder in persistItems which reads Part fields under the same lock.
+		item.mu.Lock()
+		part.Compiled = true
+		item.mu.Unlock()
+		item.savePart(off, part)
+		if oCCH != nil {
+			oCCH(hash, tread)
+		}
+	}
+	oDCH := h.DownloadCompleteHandler
+	h.DownloadCompleteHandler = func(hash string, tread int64) {
+		if hash != MAIN_HASH {
+			return
+		}
+		item.mu.Lock()
+		item.Parts = nil
+		item.Downloaded = item.TotalSize
+		item.mu.Unlock()
+		m.UpdateItem(item)
+		if m.queue != nil {
+			m.queue.OnComplete(item.Hash)
+		}
+		if oDCH != nil {
+			oDCH(hash, tread)
+		}
 	}
 }
 
@@ -316,10 +480,11 @@ func (m *Manager) GetPublicItems() []*Item {
 }
 
 // GetIncompleteItems returns all the incomplete items in the manager.
+// Uses thread-safe getters for Downloaded/TotalSize to avoid data races.
 func (m *Manager) GetIncompleteItems() []*Item {
 	var items = []*Item{}
 	for _, item := range m.GetItems() {
-		if item.TotalSize == item.Downloaded {
+		if item.GetTotalSize() == item.GetDownloaded() {
 			continue
 		}
 		items = append(items, item)
@@ -328,10 +493,11 @@ func (m *Manager) GetIncompleteItems() []*Item {
 }
 
 // GetCompletedItems returns all the completed items in the manager.
+// Uses thread-safe getters for Downloaded/TotalSize to avoid data races.
 func (m *Manager) GetCompletedItems() []*Item {
 	var items = []*Item{}
 	for _, item := range m.GetItems() {
-		if item.TotalSize != item.Downloaded {
+		if item.GetTotalSize() != item.GetDownloaded() {
 			continue
 		}
 		items = append(items, item)
@@ -380,6 +546,9 @@ type ResumeDownloadOpts struct {
 }
 
 // ResumeDownload resumes a download item.
+// For HTTP items, it validates segment-file integrity and creates an HTTP downloader.
+// For FTP/FTPS/SFTP items, it skips segment-file checks (single-stream to dest file)
+// and dispatches through SchemeRouter to create a protocol-specific downloader.
 func (m *Manager) ResumeDownload(client *http.Client, hash string, opts *ResumeDownloadOpts) (item *Item, err error) {
 	if opts == nil {
 		opts = &ResumeDownloadOpts{}
@@ -393,37 +562,95 @@ func (m *Manager) ResumeDownload(client *http.Client, hash string, opts *ResumeD
 		err = ErrDownloadNotResumable
 		return
 	}
-	// Validate integrity before attempting resume
-	if err = validateDownloadIntegrity(item); err != nil {
-		return
-	}
-	if item.Headers == nil {
-		item.Headers = make(Headers, 0)
-	}
-	if opts.Headers != nil {
-		for _, newHeader := range opts.Headers {
-			item.Headers.Update(newHeader.Key, newHeader.Value)
+
+	// Protocol guard: validate integrity differently per protocol.
+	// HTTP uses segment directories + part files; FTP writes directly to dest file.
+	switch item.Protocol {
+	case ProtoHTTP:
+		// HTTP: validate segment directory + part files (existing behavior)
+		if err = validateDownloadIntegrity(item); err != nil {
+			return
 		}
-	}
-	d, er := initDownloader(client, hash, item.Url, item.TotalSize, &DownloaderOpts{
-		ForceParts:        opts.ForceParts,
-		MaxConnections:    opts.MaxConnections,
-		MaxSegments:       opts.MaxSegments,
-		Handlers:          opts.Handlers,
-		FileName:          item.Name,
-		DownloadDirectory: item.DownloadLocation,
-		Headers:           item.Headers,
-		RetryConfig:       opts.RetryConfig,
-		RequestTimeout:    opts.RequestTimeout,
-		SpeedLimit:        opts.SpeedLimit,
-	})
-	if er != nil {
-		err = er
+	case ProtoFTP, ProtoFTPS, ProtoSFTP:
+		// FTP/SFTP: no segment files exist. Only verify destination file if download started.
+		if item.Downloaded > 0 {
+			mainFile := item.GetAbsolutePath()
+			if !fileExists(mainFile) {
+				err = fmt.Errorf("%w: destination file missing for %s resume: %s", ErrDownloadDataMissing, item.Protocol, mainFile)
+				return
+			}
+		}
+	default:
+		err = fmt.Errorf("resume not supported for protocol %s", item.Protocol)
 		return
 	}
-	m.patchHandlers(d, item)
-	item.setDAlloc(d)
-	m.UpdateItem(item)
+
+	// Dispatch based on protocol
+	switch item.Protocol {
+	case ProtoFTP, ProtoFTPS, ProtoSFTP:
+		// FTP/FTPS/SFTP resume via SchemeRouter
+		if m.schemeRouter == nil {
+			err = fmt.Errorf("scheme router not initialized for %s resume", item.Protocol)
+			return
+		}
+		var pd ProtocolDownloader
+		pd, err = m.schemeRouter.NewDownloader(item.Url, &DownloaderOpts{
+			FileName:          item.Name,
+			DownloadDirectory: item.DownloadLocation,
+			SSHKeyPath:        item.SSHKeyPath,
+		})
+		if err != nil {
+			return
+		}
+		// Probe to get file metadata (size, etc.)
+		if _, err = pd.Probe(context.Background()); err != nil {
+			return
+		}
+		// Patch handlers for item state updates
+		if opts.Handlers == nil {
+			opts.Handlers = &Handlers{}
+		}
+		m.patchProtocolHandlers(opts.Handlers, item)
+		item.setResumeHandlers(opts.Handlers)
+		item.setDAlloc(pd)
+		m.UpdateItem(item)
+
+	default:
+		// HTTP resume path (existing behavior — unchanged)
+		if item.Headers == nil {
+			item.Headers = make(Headers, 0)
+		}
+		if opts.Headers != nil {
+			for _, newHeader := range opts.Headers {
+				item.Headers.Update(newHeader.Key, newHeader.Value)
+			}
+		}
+		var d *Downloader
+		d, err = initDownloader(client, hash, item.Url, item.TotalSize, &DownloaderOpts{
+			ForceParts:        opts.ForceParts,
+			MaxConnections:    opts.MaxConnections,
+			MaxSegments:       opts.MaxSegments,
+			Handlers:          opts.Handlers,
+			FileName:          item.Name,
+			DownloadDirectory: item.DownloadLocation,
+			Headers:           item.Headers,
+			RetryConfig:       opts.RetryConfig,
+			RequestTimeout:    opts.RequestTimeout,
+			SpeedLimit:        opts.SpeedLimit,
+		})
+		if err != nil {
+			return
+		}
+		m.patchHandlers(d, item)
+		// Wrap the concrete *Downloader in an httpProtocolDownloader adapter.
+		adapter := &httpProtocolDownloader{
+			inner:  d,
+			rawURL: item.Url,
+			probed: true, // initDownloader already has the state
+		}
+		item.setDAlloc(adapter)
+		m.UpdateItem(item)
+	}
 	return
 }
 

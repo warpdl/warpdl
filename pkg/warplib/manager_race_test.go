@@ -56,7 +56,7 @@ func TestFlushOneConcurrentDownload(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			ctx, cancel := context.WithCancel(context.Background())
-			item.setDAlloc(&Downloader{ctx: ctx, cancel: cancel})
+			item.setDAlloc(&httpProtocolDownloader{inner: &Downloader{ctx: ctx, cancel: cancel}, probed: true})
 			time.Sleep(time.Microsecond)
 			item.clearDAlloc()
 			cancel()
@@ -108,7 +108,7 @@ func TestFlushOneActiveDownload(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	item.setDAlloc(&Downloader{ctx: ctx, cancel: cancel})
+	item.setDAlloc(&httpProtocolDownloader{inner: &Downloader{ctx: ctx, cancel: cancel}, probed: true})
 
 	m.mu.Lock()
 	m.items[item.Hash] = item

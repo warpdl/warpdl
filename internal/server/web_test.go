@@ -49,6 +49,7 @@ func newRangeServer(content []byte) *httptest.Server {
 
 func TestWebServerProcessDownload(t *testing.T) {
 	base := t.TempDir()
+	t.Chdir(base) // Ensure downloads go to temp dir, not source tree
 	if err := warplib.SetConfigDir(base); err != nil {
 		t.Fatalf("SetConfigDir: %v", err)
 	}
@@ -63,7 +64,7 @@ func TestWebServerProcessDownload(t *testing.T) {
 	defer srv.Close()
 
 	pool := NewPool(log.New(io.Discard, "", 0))
-	ws := NewWebServer(log.New(io.Discard, "", 0), m, pool, 0)
+	ws := NewWebServer(log.New(io.Discard, "", 0), m, pool, 0, nil, nil, nil)
 	if err := ws.processDownload(&capturedDownload{Url: srv.URL + "/file.bin"}); err != nil {
 		t.Fatalf("processDownload: %v", err)
 	}
@@ -105,6 +106,7 @@ func TestWebServerProcessDownload(t *testing.T) {
 
 func TestWebServerHandleConnection(t *testing.T) {
 	base := t.TempDir()
+	t.Chdir(base) // Ensure downloads go to temp dir, not source tree
 	if err := warplib.SetConfigDir(base); err != nil {
 		t.Fatalf("SetConfigDir: %v", err)
 	}
@@ -119,7 +121,7 @@ func TestWebServerHandleConnection(t *testing.T) {
 	defer srv.Close()
 
 	pool := NewPool(log.New(io.Discard, "", 0))
-	ws := NewWebServer(log.New(io.Discard, "", 0), m, pool, 0)
+	ws := NewWebServer(log.New(io.Discard, "", 0), m, pool, 0, nil, nil, nil)
 	wsSrv := httptest.NewServer(websocket.Handler(ws.handleConnection))
 	defer wsSrv.Close()
 
@@ -146,7 +148,7 @@ func TestWebServerHandleConnection(t *testing.T) {
 
 func TestWebServerHandler(t *testing.T) {
 	pool := NewPool(log.New(io.Discard, "", 0))
-	ws := NewWebServer(log.New(io.Discard, "", 0), nil, pool, 8080)
+	ws := NewWebServer(log.New(io.Discard, "", 0), nil, pool, 8080, nil, nil, nil)
 	h := ws.handler()
 	if h == nil {
 		t.Fatalf("expected non-nil handler")
@@ -155,16 +157,90 @@ func TestWebServerHandler(t *testing.T) {
 
 func TestWebServerAddr(t *testing.T) {
 	pool := NewPool(log.New(io.Discard, "", 0))
-	ws := NewWebServer(log.New(io.Discard, "", 0), nil, pool, 9999)
+	ws := NewWebServer(log.New(io.Discard, "", 0), nil, pool, 9999, nil, nil, nil)
+	addr := ws.addr()
+	if addr != "127.0.0.1:9999" {
+		t.Fatalf("expected 127.0.0.1:9999, got %s", addr)
+	}
+}
+
+func TestWebServerAddr_ListenAll(t *testing.T) {
+	pool := NewPool(log.New(io.Discard, "", 0))
+	rpcCfg := &RPCConfig{Secret: "test", ListenAll: true}
+	ws := NewWebServer(log.New(io.Discard, "", 0), nil, pool, 9999, nil, nil, rpcCfg)
 	addr := ws.addr()
 	if addr != ":9999" {
-		t.Fatalf("expected :9999, got %s", addr)
+		t.Fatalf("expected :9999 with listenAll, got %s", addr)
+	}
+}
+
+func TestWebServerHandler_WithRPC(t *testing.T) {
+	pool := NewPool(log.New(io.Discard, "", 0))
+	rpcCfg := &RPCConfig{
+		Secret:  "test-secret",
+		Version: "1.0.0",
+	}
+	ws := NewWebServer(log.New(io.Discard, "", 0), nil, pool, 8080, nil, nil, rpcCfg)
+	defer func() {
+		if ws.rpc != nil {
+			ws.rpc.Close()
+		}
+	}()
+
+	// Verify /jsonrpc route exists by making a request
+	srv := httptest.NewServer(ws.handler())
+	defer srv.Close()
+
+	// Request with auth should reach the RPC endpoint
+	body := []byte(`{"jsonrpc":"2.0","method":"system.getVersion","id":1}`)
+	req, _ := http.NewRequest("POST", srv.URL+"/jsonrpc", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer test-secret")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+}
+
+func TestWebServerHandler_WithoutRPC(t *testing.T) {
+	pool := NewPool(log.New(io.Discard, "", 0))
+	ws := NewWebServer(log.New(io.Discard, "", 0), nil, pool, 8080, nil, nil, nil)
+
+	srv := httptest.NewServer(ws.handler())
+	defer srv.Close()
+
+	// /jsonrpc should not exist (404 or handled by "/" fallback)
+	body := []byte(`{"jsonrpc":"2.0","method":"system.getVersion","id":1}`)
+	req, _ := http.NewRequest("POST", srv.URL+"/jsonrpc", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Without RPC, /jsonrpc falls through to "/" handler (websocket handler)
+	// which won't handle a plain POST properly -- should not return 200 with RPC response
+	if resp.StatusCode == http.StatusOK {
+		// Read body to check it's not a valid JSON-RPC response
+		respBody, _ := io.ReadAll(resp.Body)
+		var rpcResp map[string]any
+		if err := json.Unmarshal(respBody, &rpcResp); err == nil {
+			if _, hasResult := rpcResp["result"]; hasResult {
+				t.Fatal("expected no RPC response when RPC is not configured")
+			}
+		}
 	}
 }
 
 func TestWebServerHandleConnectionInvalidJSON(t *testing.T) {
 	pool := NewPool(log.New(io.Discard, "", 0))
-	ws := NewWebServer(log.New(io.Discard, "", 0), nil, pool, 0)
+	ws := NewWebServer(log.New(io.Discard, "", 0), nil, pool, 0, nil, nil, nil)
 	wsSrv := httptest.NewServer(websocket.Handler(ws.handleConnection))
 	defer wsSrv.Close()
 
@@ -182,6 +258,7 @@ func TestWebServerHandleConnectionInvalidJSON(t *testing.T) {
 
 func TestWebServerHandleConnectionInvalidURL(t *testing.T) {
 	base := t.TempDir()
+	t.Chdir(base) // Ensure downloads go to temp dir, not source tree
 	if err := warplib.SetConfigDir(base); err != nil {
 		t.Fatalf("SetConfigDir: %v", err)
 	}
@@ -192,7 +269,7 @@ func TestWebServerHandleConnectionInvalidURL(t *testing.T) {
 	defer m.Close()
 
 	pool := NewPool(log.New(io.Discard, "", 0))
-	ws := NewWebServer(log.New(io.Discard, "", 0), m, pool, 0)
+	ws := NewWebServer(log.New(io.Discard, "", 0), m, pool, 0, nil, nil, nil)
 	wsSrv := httptest.NewServer(websocket.Handler(ws.handleConnection))
 	defer wsSrv.Close()
 
@@ -212,6 +289,7 @@ func TestWebServerHandleConnectionInvalidURL(t *testing.T) {
 
 func TestWebServerProcessDownloadInvalidURL(t *testing.T) {
 	base := t.TempDir()
+	t.Chdir(base) // Ensure downloads go to temp dir, not source tree
 	if err := warplib.SetConfigDir(base); err != nil {
 		t.Fatalf("SetConfigDir: %v", err)
 	}
@@ -222,7 +300,7 @@ func TestWebServerProcessDownloadInvalidURL(t *testing.T) {
 	defer m.Close()
 
 	pool := NewPool(log.New(io.Discard, "", 0))
-	ws := NewWebServer(log.New(io.Discard, "", 0), m, pool, 0)
+	ws := NewWebServer(log.New(io.Discard, "", 0), m, pool, 0, nil, nil, nil)
 	// Test with malformed URL
 	err = ws.processDownload(&capturedDownload{Url: "://invalid"})
 	if err == nil {
@@ -233,7 +311,7 @@ func TestWebServerProcessDownloadInvalidURL(t *testing.T) {
 func TestWebServerStart(t *testing.T) {
 	pool := NewPool(log.New(io.Discard, "", 0))
 	// Use port 0 to get a random available port
-	ws := NewWebServer(log.New(io.Discard, "", 0), nil, pool, 0)
+	ws := NewWebServer(log.New(io.Discard, "", 0), nil, pool, 0, nil, nil, nil)
 
 	// Start in background
 	errCh := make(chan error, 1)
@@ -264,7 +342,7 @@ func TestWebServerStart(t *testing.T) {
 
 func TestWebServerShutdown_NilServer(t *testing.T) {
 	pool := NewPool(log.New(io.Discard, "", 0))
-	ws := NewWebServer(log.New(io.Discard, "", 0), nil, pool, 0)
+	ws := NewWebServer(log.New(io.Discard, "", 0), nil, pool, 0, nil, nil, nil)
 
 	// Shutdown without starting should be safe
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
@@ -276,7 +354,7 @@ func TestWebServerShutdown_NilServer(t *testing.T) {
 
 func TestWebServerShutdown_MultipleShutdowns(t *testing.T) {
 	pool := NewPool(log.New(io.Discard, "", 0))
-	ws := NewWebServer(log.New(io.Discard, "", 0), nil, pool, 0)
+	ws := NewWebServer(log.New(io.Discard, "", 0), nil, pool, 0, nil, nil, nil)
 
 	go func() {
 		_ = ws.Start()
@@ -300,7 +378,7 @@ func TestWebServerShutdown_MultipleShutdowns(t *testing.T) {
 
 func TestNewWebServer(t *testing.T) {
 	pool := NewPool(log.New(io.Discard, "", 0))
-	ws := NewWebServer(log.New(io.Discard, "", 0), nil, pool, 8080)
+	ws := NewWebServer(log.New(io.Discard, "", 0), nil, pool, 8080, nil, nil, nil)
 	if ws == nil {
 		t.Fatal("expected non-nil WebServer")
 	}

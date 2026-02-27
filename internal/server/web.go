@@ -11,18 +11,22 @@ import (
 	"net/url"
 	"sync"
 
+	cws "github.com/coder/websocket"
+	"github.com/creachadair/jrpc2"
 	"github.com/warpdl/warpdl/common"
 	"github.com/warpdl/warpdl/pkg/warplib"
 	"golang.org/x/net/websocket"
 )
 
 type WebServer struct {
-	port   int
-	l      *log.Logger
-	m      *warplib.Manager
-	pool   *Pool
-	server *http.Server
-	mu     sync.Mutex
+	port      int
+	l         *log.Logger
+	m         *warplib.Manager
+	pool      *Pool
+	server    *http.Server
+	mu        sync.Mutex
+	rpc       *RPCServer
+	listenAll bool
 }
 
 type capturedDownload struct {
@@ -31,8 +35,13 @@ type capturedDownload struct {
 	Cookies []*http.Cookie  `json:"cookies"`
 }
 
-func NewWebServer(l *log.Logger, m *warplib.Manager, pool *Pool, port int) *WebServer {
-	return &WebServer{port: port, l: l, m: m, pool: pool}
+func NewWebServer(l *log.Logger, m *warplib.Manager, pool *Pool, port int, client *http.Client, router *warplib.SchemeRouter, rpcCfg *RPCConfig) *WebServer {
+	ws := &WebServer{port: port, l: l, m: m, pool: pool}
+	if rpcCfg != nil && rpcCfg.Secret != "" {
+		ws.rpc = NewRPCServer(rpcCfg, m, client, pool, router, l)
+		ws.listenAll = rpcCfg.ListenAll
+	}
+	return ws
 }
 
 func (s *WebServer) processDownload(cd *capturedDownload) error {
@@ -45,7 +54,8 @@ func (s *WebServer) processDownload(cd *capturedDownload) error {
 		return err
 	}
 	client := &http.Client{
-		Jar: jar,
+		Jar:           jar,
+		CheckRedirect: warplib.RedirectPolicy(warplib.DefaultMaxRedirects),
 	}
 	client.Jar.SetCookies(parsedURL, cd.Cookies)
 	var d *warplib.Downloader
@@ -161,11 +171,54 @@ func (s *WebServer) handleConnection(conn *websocket.Conn) {
 }
 
 func (s *WebServer) handler() http.Handler {
-	return websocket.Handler(s.handleConnection)
+	mux := http.NewServeMux()
+	mux.Handle("/", websocket.Handler(s.handleConnection))
+	if s.rpc != nil {
+		mux.Handle("/jsonrpc", requireToken(s.rpc.secret, s.rpc.bridge))
+		mux.HandleFunc("/jsonrpc/ws", s.handleJSONRPCWebSocket)
+	}
+	return mux
+}
+
+// handleJSONRPCWebSocket handles WebSocket upgrade at /jsonrpc/ws.
+// Each connection gets its own jrpc2.Server with AllowPush for notifications.
+func (s *WebServer) handleJSONRPCWebSocket(w http.ResponseWriter, r *http.Request) {
+	// Auth check before WebSocket upgrade
+	if !validToken(s.rpc.secret, r.Header.Get("Authorization")) {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	conn, err := cws.Accept(w, r, nil)
+	if err != nil {
+		s.l.Printf("WebSocket accept error: %v", err)
+		return
+	}
+
+	ctx := r.Context()
+	ch := &wsChannel{conn: conn, ctx: ctx}
+
+	// Create jrpc2 server for this connection with push support
+	srv := jrpc2.NewServer(s.rpc.methods(), &jrpc2.ServerOptions{
+		AllowPush: true,
+	})
+
+	// Register for notifications
+	if s.rpc.notifier != nil {
+		s.rpc.notifier.Register(srv)
+		defer s.rpc.notifier.Unregister(srv)
+	}
+
+	// Serve blocks until connection closes
+	srv.Start(ch)
+	_ = srv.Wait()
 }
 
 func (s *WebServer) addr() string {
-	return fmt.Sprintf(":%d", s.port)
+	if s.listenAll {
+		return fmt.Sprintf(":%d", s.port)
+	}
+	return fmt.Sprintf("127.0.0.1:%d", s.port)
 }
 
 func (s *WebServer) Start() error {
@@ -183,11 +236,14 @@ func (s *WebServer) Start() error {
 	return err
 }
 
-// Shutdown gracefully stops the web server.
+// Shutdown gracefully stops the web server and cleans up RPC resources.
 func (s *WebServer) Shutdown(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if s.rpc != nil {
+		s.rpc.Close()
+	}
 	if s.server == nil {
 		return nil
 	}

@@ -11,6 +11,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -174,6 +175,11 @@ type DownloaderOpts struct {
 	// take over remaining work from slow adjacent parts.
 	// When false (default), work stealing is enabled.
 	DisableWorkStealing bool
+
+	// SSHKeyPath specifies a custom SSH private key file path for SFTP downloads.
+	// If empty, default paths (~/.ssh/id_ed25519, ~/.ssh/id_rsa) are tried.
+	// Not used for HTTP or FTP protocols.
+	SSHKeyPath string
 }
 
 // NewDownloader creates a new downloader with provided arguments.
@@ -209,6 +215,12 @@ func NewDownloader(client *http.Client, url string, opts *DownloaderOpts, optFun
 	if retryConfig == nil {
 		defaultConfig := DefaultRetryConfig()
 		retryConfig = &defaultConfig
+	}
+
+	// Set redirect policy if not already configured.
+	// This enforces max redirect hops and rejects cross-protocol redirects.
+	if client.CheckRedirect == nil {
+		client.CheckRedirect = RedirectPolicy(DefaultMaxRedirects)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1208,6 +1220,9 @@ func (d *Downloader) checkContentType(h *http.Header) (err error) {
 
 // fetchInfo fetches the information about the file to be downloaded.
 // It sets the content length, file name, and prepares the downloader.
+// After the initial request, if the URL was redirected, d.url is updated
+// to the final resolved URL so all subsequent parallel segment requests
+// use the final URL instead of re-triggering the redirect chain.
 func (d *Downloader) fetchInfo() (err error) {
 	resp, er := d.makeRequest(http.MethodGet)
 	if er != nil {
@@ -1215,6 +1230,24 @@ func (d *Downloader) fetchInfo() (err error) {
 		return
 	}
 	defer resp.Body.Close()
+
+	// Update URL to final resolved URL after any redirect chain.
+	// This ensures all subsequent Range requests (parallel segments)
+	// hit the final URL directly, avoiding redundant redirect chains
+	// and failures with CDNs using ephemeral/signed redirect targets.
+	if finalURL := resp.Request.URL.String(); finalURL != d.url {
+		// Check if the redirect crossed to a different origin.
+		// If so, strip unsafe headers (Authorization, custom tokens, etc.)
+		// from d.headers to prevent credential leakage on all subsequent
+		// requests (prepareDownloader, segment downloads) to the new origin.
+		origURL, parseErr := url.Parse(d.url)
+		finalParsed, parseErr2 := url.Parse(finalURL)
+		if parseErr == nil && parseErr2 == nil && isCrossOrigin(origURL, finalParsed) {
+			d.headers = StripUnsafeFromHeaders(d.headers)
+		}
+		d.url = finalURL
+	}
+
 	h := resp.Header
 	err = d.checkContentType(&h)
 	if err != nil {

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/warpdl/warpdl/common"
@@ -18,6 +20,30 @@ func (s *Api) downloadHandler(sconn *server.SyncConn, pool *server.Pool, body js
 		return common.UPDATE_DOWNLOAD, nil, err
 	}
 
+	dlURL, err := s.elEngine.Extract(m.Url)
+	if err != nil {
+		s.log.Printf("failed to extract URL from extension: %s\n", err.Error())
+		dlURL = m.Url
+	}
+
+	// Detect scheme to choose code path
+	parsed, parseErr := url.Parse(dlURL)
+	if parseErr != nil {
+		return common.UPDATE_DOWNLOAD, nil, fmt.Errorf("invalid URL: %w", parseErr)
+	}
+	scheme := strings.ToLower(parsed.Scheme)
+
+	switch scheme {
+	case "ftp", "ftps", "sftp":
+		return s.downloadProtocolHandler(sconn, pool, dlURL, scheme, &m)
+	default:
+		return s.downloadHTTPHandler(sconn, pool, dlURL, &m)
+	}
+}
+
+// downloadHTTPHandler handles HTTP and HTTPS downloads.
+// This is the existing HTTP download logic extracted from downloadHandler — zero logic changes.
+func (s *Api) downloadHTTPHandler(sconn *server.SyncConn, pool *server.Pool, dlURL string, m *common.DownloadParams) (common.UpdateType, any, error) {
 	// Determine which client to use based on proxy setting
 	dlClient := s.client
 	if m.Proxy != "" {
@@ -32,14 +58,7 @@ func (s *Api) downloadHandler(sconn *server.SyncConn, pool *server.Pool, body js
 		}
 	}
 
-	var (
-		d *warplib.Downloader
-	)
-	url, err := s.elEngine.Extract(m.Url)
-	if err != nil {
-		s.log.Printf("failed to extract URL from extension: %s\n", err.Error())
-		url = m.Url
-	}
+	var d *warplib.Downloader
 
 	// Build retry config from params
 	var retryConfig *warplib.RetryConfig
@@ -62,6 +81,7 @@ func (s *Api) downloadHandler(sconn *server.SyncConn, pool *server.Pool, body js
 
 	// Parse speed limit
 	var speedLimit int64
+	var err error
 	if m.SpeedLimit != "" {
 		speedLimit, err = warplib.ParseSpeedLimit(m.SpeedLimit)
 		if err != nil {
@@ -69,7 +89,7 @@ func (s *Api) downloadHandler(sconn *server.SyncConn, pool *server.Pool, body js
 		}
 	}
 
-	d, err = warplib.NewDownloader(dlClient, url, &warplib.DownloaderOpts{
+	d, err = warplib.NewDownloader(dlClient, dlURL, &warplib.DownloaderOpts{
 		Headers:           m.Headers,
 		ForceParts:        m.ForceParts,
 		FileName:          m.FileName,
@@ -168,5 +188,108 @@ func (s *Api) downloadHandler(sconn *server.SyncConn, pool *server.Pool, body js
 		DownloadDirectory: d.GetDownloadDirectory(),
 		MaxConnections:    d.GetMaxConnections(),
 		MaxSegments:       d.GetMaxParts(),
+	}, nil
+}
+
+// downloadProtocolHandler handles FTP, FTPS, and SFTP downloads via SchemeRouter.
+func (s *Api) downloadProtocolHandler(sconn *server.SyncConn, pool *server.Pool, rawURL, scheme string, m *common.DownloadParams) (common.UpdateType, any, error) {
+	if s.schemeRouter == nil {
+		return common.UPDATE_DOWNLOAD, nil, fmt.Errorf("%s downloads not available: scheme router not initialized", scheme)
+	}
+
+	// Create protocol downloader via SchemeRouter
+	pd, err := s.schemeRouter.NewDownloader(rawURL, &warplib.DownloaderOpts{
+		FileName:          m.FileName,
+		DownloadDirectory: m.DownloadDirectory,
+		SSHKeyPath:        m.SSHKeyPath,
+	})
+	if err != nil {
+		return common.UPDATE_DOWNLOAD, nil, err
+	}
+
+	// Probe to get file metadata
+	probe, err := pd.Probe(context.Background())
+	if err != nil {
+		pd.Close()
+		return common.UPDATE_DOWNLOAD, nil, err
+	}
+
+	// Determine protocol
+	var proto warplib.Protocol
+	switch scheme {
+	case "ftps":
+		proto = warplib.ProtoFTPS
+	case "sftp":
+		proto = warplib.ProtoSFTP
+	default:
+		proto = warplib.ProtoFTP
+	}
+
+	// Build handlers for protocol download (no compile handlers — single-stream protocols)
+	handlers := &warplib.Handlers{
+		ErrorHandler: func(_ string, err error) {
+			if errors.Is(err, context.Canceled) && pd.IsStopped() {
+				return
+			}
+			uid := pd.GetHash()
+			pool.Broadcast(uid, server.InitError(err))
+			pool.WriteError(uid, server.ErrorTypeCritical, err.Error())
+			pool.StopDownload(uid)
+			s.manager.GetItem(uid).StopDownload()
+		},
+		DownloadProgressHandler: func(hash string, nread int) {
+			uid := pd.GetHash()
+			pool.Broadcast(uid, server.MakeResult(common.UPDATE_DOWNLOADING, &common.DownloadingResponse{
+				DownloadId: uid,
+				Action:     common.DownloadProgress,
+				Value:      int64(nread),
+				Hash:       hash,
+			}))
+		},
+		DownloadCompleteHandler: func(hash string, tread int64) {
+			uid := pd.GetHash()
+			pool.Broadcast(uid, server.MakeResult(common.UPDATE_DOWNLOADING, &common.DownloadingResponse{
+				DownloadId: uid,
+				Action:     common.DownloadComplete,
+				Value:      tread,
+				Hash:       hash,
+			}))
+		},
+		DownloadStoppedHandler: func() {
+			uid := pd.GetHash()
+			pool.Broadcast(uid, server.MakeResult(common.UPDATE_DOWNLOADING, &common.DownloadingResponse{
+				DownloadId: uid,
+				Action:     common.DownloadStopped,
+			}))
+		},
+	}
+
+	// Get credential-stripped URL for safe persistence
+	cleanURL := warplib.StripURLCredentials(rawURL)
+
+	pool.AddDownload(pd.GetHash(), sconn)
+	err = s.manager.AddProtocolDownload(pd, probe, cleanURL, proto, handlers, &warplib.AddDownloadOpts{
+		ChildHash:        m.ChildHash,
+		IsHidden:         m.IsHidden,
+		IsChildren:       m.IsChildren,
+		AbsoluteLocation: pd.GetDownloadDirectory(),
+		Priority:         warplib.Priority(m.Priority),
+		SSHKeyPath:       m.SSHKeyPath,
+	})
+	if err != nil {
+		return common.UPDATE_DOWNLOAD, nil, err
+	}
+
+	// Start protocol download in background
+	go pd.Download(context.Background(), handlers)
+
+	return common.UPDATE_DOWNLOAD, &common.DownloadResponse{
+		ContentLength:     pd.GetContentLength(),
+		DownloadId:        pd.GetHash(),
+		FileName:          pd.GetFileName(),
+		SavePath:          pd.GetSavePath(),
+		DownloadDirectory: pd.GetDownloadDirectory(),
+		MaxConnections:    pd.GetMaxConnections(),
+		MaxSegments:       pd.GetMaxParts(),
 	}, nil
 }

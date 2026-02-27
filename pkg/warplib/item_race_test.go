@@ -38,11 +38,14 @@ func TestStopResumeConcurrent(t *testing.T) {
 		// Reset downloader for each iteration with minimal initialization
 		ctx, cancel := context.WithCancel(context.Background())
 		item.dAllocMu.Lock()
-		item.dAlloc = &Downloader{
-			ctx:    ctx,
-			cancel: cancel,
-			lw:     nopWriteCloser{}, // Prevent nil pointer dereference
-			wg:     &sync.WaitGroup{},
+		item.dAlloc = &httpProtocolDownloader{
+			inner: &Downloader{
+				ctx:    ctx,
+				cancel: cancel,
+				lw:     nopWriteCloser{}, // Prevent nil pointer dereference
+				wg:     &sync.WaitGroup{},
+			},
+			probed: true,
 		}
 		item.dAllocMu.Unlock()
 
@@ -91,11 +94,14 @@ func TestResumePartsSnapshot(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mockDownloader := &Downloader{
-		ctx:    ctx,
-		cancel: cancel,
-		lw:     nopWriteCloser{},
-		wg:     &sync.WaitGroup{},
+	mockDownloader := &httpProtocolDownloader{
+		inner: &Downloader{
+			ctx:    ctx,
+			cancel: cancel,
+			lw:     nopWriteCloser{},
+			wg:     &sync.WaitGroup{},
+		},
+		probed: true,
 	}
 
 	item.setDAlloc(mockDownloader)
@@ -140,7 +146,7 @@ func TestStopDownloadConcurrent(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	item.setDAlloc(&Downloader{ctx: ctx, cancel: cancel})
+	item.setDAlloc(&httpProtocolDownloader{inner: &Downloader{ctx: ctx, cancel: cancel}, probed: true})
 
 	var wg sync.WaitGroup
 	for i := 0; i < goroutines; i++ {
@@ -240,7 +246,7 @@ func TestIsDownloadingRace(t *testing.T) {
 		// Set downloader
 		go func() {
 			defer wg.Done()
-			item.setDAlloc(&Downloader{ctx: ctx, cancel: cancel})
+			item.setDAlloc(&httpProtocolDownloader{inner: &Downloader{ctx: ctx, cancel: cancel}, probed: true})
 		}()
 
 		// Clear downloader

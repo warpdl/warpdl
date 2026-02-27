@@ -75,13 +75,35 @@ func getMaxConcurrentFromEnv() int {
 	return 3 // default
 }
 
+// getRPCConfigFromEnv reads RPC config from environment variables (used in Windows service mode).
+func getRPCConfigFromEnv() *server.RPCConfig {
+	secret := os.Getenv("WARPDL_RPC_SECRET")
+	if secret == "" {
+		return nil
+	}
+	listenAll := false
+	if val := os.Getenv("WARPDL_RPC_LISTEN_ALL"); val == "1" || val == "true" {
+		listenAll = true
+	}
+	return &server.RPCConfig{
+		Secret:    secret,
+		ListenAll: listenAll,
+		Version:   currentBuildArgs.Version,
+		Commit:    currentBuildArgs.Commit,
+		BuildType: currentBuildArgs.BuildType,
+	}
+}
+
 // runServiceWithLogger runs the Windows service handler with full daemon functionality.
 func runServiceWithLogger(log logger.Logger) error {
 	// Read max concurrent from env var (no CLI context in service mode)
 	maxConcurrent := getMaxConcurrentFromEnv()
 
+	// Build RPC config from env vars (no CLI context in service mode)
+	rpcCfg := getRPCConfigFromEnv()
+
 	// Initialize all daemon components using shared initialization
-	components, err := initDaemonComponents(log, maxConcurrent)
+	components, err := initDaemonComponents(log, maxConcurrent, rpcCfg)
 	if err != nil {
 		log.Error("Failed to initialize daemon components: %v", err)
 		return err

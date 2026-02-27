@@ -28,7 +28,7 @@ func TestInitDaemonComponents_WithCookieKey(t *testing.T) {
 	}
 	defer func() { currentBuildArgs = oldBuildArgs }()
 
-	components, err := initDaemonComponents(logger.NewNopLogger(), 0)
+	components, err := initDaemonComponents(logger.NewNopLogger(), 0, nil)
 	if err != nil {
 		t.Fatalf("initDaemonComponents: %v", err)
 	}
