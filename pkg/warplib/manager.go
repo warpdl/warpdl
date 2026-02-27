@@ -237,7 +237,11 @@ func (m *Manager) patchHandlers(d *Downloader, item *Item) {
 			d.handlers.ErrorHandler(hash, fmt.Errorf("compile complete: part not found for hash %q", hash))
 			return
 		}
+		// Set Compiled under the item lock to avoid a race with the GOB
+		// encoder in persistItems which reads Part fields under the same lock.
+		item.mu.Lock()
 		part.Compiled = true
+		item.mu.Unlock()
 		item.savePart(off, part)
 		oCCH(hash, tread)
 	}
@@ -357,7 +361,11 @@ func (m *Manager) patchProtocolHandlers(h *Handlers, item *Item) {
 			}
 			return
 		}
+		// Set Compiled under the item lock to avoid a race with the GOB
+		// encoder in persistItems which reads Part fields under the same lock.
+		item.mu.Lock()
 		part.Compiled = true
+		item.mu.Unlock()
 		item.savePart(off, part)
 		if oCCH != nil {
 			oCCH(hash, tread)
@@ -468,10 +476,11 @@ func (m *Manager) GetPublicItems() []*Item {
 }
 
 // GetIncompleteItems returns all the incomplete items in the manager.
+// Uses thread-safe getters for Downloaded/TotalSize to avoid data races.
 func (m *Manager) GetIncompleteItems() []*Item {
 	var items = []*Item{}
 	for _, item := range m.GetItems() {
-		if item.TotalSize == item.Downloaded {
+		if item.GetTotalSize() == item.GetDownloaded() {
 			continue
 		}
 		items = append(items, item)
@@ -480,10 +489,11 @@ func (m *Manager) GetIncompleteItems() []*Item {
 }
 
 // GetCompletedItems returns all the completed items in the manager.
+// Uses thread-safe getters for Downloaded/TotalSize to avoid data races.
 func (m *Manager) GetCompletedItems() []*Item {
 	var items = []*Item{}
 	for _, item := range m.GetItems() {
-		if item.TotalSize != item.Downloaded {
+		if item.GetTotalSize() != item.GetDownloaded() {
 			continue
 		}
 		items = append(items, item)

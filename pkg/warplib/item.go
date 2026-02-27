@@ -187,8 +187,37 @@ func (i *Item) clearDAlloc() {
 	i.dAlloc = nil
 }
 
+// GetDownloaded returns the downloaded byte count with proper synchronization.
+// Safe to call from any goroutine. Returns the raw field value when mu is nil
+// (e.g., items constructed in tests without a Manager).
+func (i *Item) GetDownloaded() ContentLength {
+	if i.mu != nil {
+		i.mu.RLock()
+		defer i.mu.RUnlock()
+	}
+	return i.Downloaded
+}
+
+// GetTotalSize returns the total size with proper synchronization.
+// Safe to call from any goroutine. Returns the raw field value when mu is nil.
+func (i *Item) GetTotalSize() ContentLength {
+	if i.mu != nil {
+		i.mu.RLock()
+		defer i.mu.RUnlock()
+	}
+	return i.TotalSize
+}
+
 // GetPercentage returns the download progress as a percentage.
+// Uses mu for thread-safe access to Downloaded and TotalSize.
 func (i *Item) GetPercentage() int64 {
+	if i.mu != nil {
+		i.mu.RLock()
+		defer i.mu.RUnlock()
+	}
+	if i.TotalSize <= 0 {
+		return 0
+	}
 	p := (i.Downloaded * 100) / i.TotalSize
 	return p.v()
 }

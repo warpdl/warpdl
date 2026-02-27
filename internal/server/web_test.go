@@ -49,6 +49,7 @@ func newRangeServer(content []byte) *httptest.Server {
 
 func TestWebServerProcessDownload(t *testing.T) {
 	base := t.TempDir()
+	t.Chdir(base) // Ensure downloads go to temp dir, not source tree
 	if err := warplib.SetConfigDir(base); err != nil {
 		t.Fatalf("SetConfigDir: %v", err)
 	}
@@ -105,6 +106,7 @@ func TestWebServerProcessDownload(t *testing.T) {
 
 func TestWebServerHandleConnection(t *testing.T) {
 	base := t.TempDir()
+	t.Chdir(base) // Ensure downloads go to temp dir, not source tree
 	if err := warplib.SetConfigDir(base); err != nil {
 		t.Fatalf("SetConfigDir: %v", err)
 	}
@@ -256,6 +258,7 @@ func TestWebServerHandleConnectionInvalidJSON(t *testing.T) {
 
 func TestWebServerHandleConnectionInvalidURL(t *testing.T) {
 	base := t.TempDir()
+	t.Chdir(base) // Ensure downloads go to temp dir, not source tree
 	if err := warplib.SetConfigDir(base); err != nil {
 		t.Fatalf("SetConfigDir: %v", err)
 	}
@@ -286,6 +289,7 @@ func TestWebServerHandleConnectionInvalidURL(t *testing.T) {
 
 func TestWebServerProcessDownloadInvalidURL(t *testing.T) {
 	base := t.TempDir()
+	t.Chdir(base) // Ensure downloads go to temp dir, not source tree
 	if err := warplib.SetConfigDir(base); err != nil {
 		t.Fatalf("SetConfigDir: %v", err)
 	}

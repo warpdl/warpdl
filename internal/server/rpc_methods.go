@@ -310,8 +310,8 @@ func (rs *RPCServer) downloadStatus(_ context.Context, p *GIDParam) (*StatusResu
 	return &StatusResult{
 		GID:             item.Hash,
 		Status:          itemStatus(item),
-		TotalLength:     int64(item.TotalSize),
-		CompletedLength: int64(item.Downloaded),
+		TotalLength:     int64(item.GetTotalSize()),
+		CompletedLength: int64(item.GetDownloaded()),
 		Percentage:      item.GetPercentage(),
 		FileName:        item.Name,
 	}, nil
@@ -352,8 +352,8 @@ func (rs *RPCServer) downloadList(_ context.Context, p *ListParams) (*ListResult
 		downloads = append(downloads, &ListItem{
 			GID:             item.Hash,
 			Status:          itemStatus(item),
-			TotalLength:     int64(item.TotalSize),
-			CompletedLength: int64(item.Downloaded),
+			TotalLength:     int64(item.GetTotalSize()),
+			CompletedLength: int64(item.GetDownloaded()),
 			FileName:        item.Name,
 		})
 	}
@@ -362,12 +362,17 @@ func (rs *RPCServer) downloadList(_ context.Context, p *ListParams) (*ListResult
 }
 
 // itemStatus returns the status string for a download item.
+// Checks completion first because IsDownloading() returns true even
+// after a download finishes (dAlloc is only cleared by StopDownload).
+// Uses thread-safe getters for Downloaded/TotalSize to avoid data races.
 func itemStatus(item *warplib.Item) string {
+	downloaded := item.GetDownloaded()
+	totalSize := item.GetTotalSize()
+	if downloaded >= totalSize && totalSize > 0 {
+		return "complete"
+	}
 	if item.IsDownloading() {
 		return "active"
-	}
-	if item.Downloaded >= item.TotalSize && item.TotalSize > 0 {
-		return "complete"
 	}
 	return "waiting"
 }

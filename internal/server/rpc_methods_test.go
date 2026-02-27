@@ -7,6 +7,8 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -205,8 +207,10 @@ func TestRPCWrongToken(t *testing.T) {
 }
 
 // newTestRPCHandlerWithManager creates an RPC handler backed by a real Manager.
-// Returns the handler, auth secret, a cleanup function, and the manager.
-func newTestRPCHandlerWithManager(t *testing.T) (http.Handler, string, func(), *warplib.Manager) {
+// Returns the handler, auth secret, a cleanup function, manager, and download
+// directory. The download directory is a temp dir that callers should use as
+// the "dir" parameter in download.add calls to avoid writing to the source tree.
+func newTestRPCHandlerWithManager(t *testing.T) (http.Handler, string, func(), *warplib.Manager, string) {
 	t.Helper()
 	base := t.TempDir()
 	if err := warplib.SetConfigDir(base); err != nil {
@@ -216,9 +220,17 @@ func newTestRPCHandlerWithManager(t *testing.T) (http.Handler, string, func(), *
 	if err != nil {
 		t.Fatalf("InitManager: %v", err)
 	}
+	dlDir := filepath.Join(base, "downloads")
+	if err := os.MkdirAll(dlDir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
 	secret := "test-rpc-secret"
 	pool := NewPool(log.New(io.Discard, "", 0))
-	client := &http.Client{}
+	// Pre-set CheckRedirect to avoid a race in NewDownloader which mutates
+	// the shared client when concurrent download.add calls are made.
+	client := &http.Client{
+		CheckRedirect: warplib.RedirectPolicy(warplib.DefaultMaxRedirects),
+	}
 	cfg := &RPCConfig{
 		Secret:    secret,
 		Version:   "1.0.0",
@@ -231,7 +243,7 @@ func newTestRPCHandlerWithManager(t *testing.T) (http.Handler, string, func(), *
 		rs.Close()
 		m.Close()
 	}
-	return handler, secret, cleanup, m
+	return handler, secret, cleanup, m, dlDir
 }
 
 // rpcResult extracts the "result" object from an RPC response, failing if absent.
@@ -257,7 +269,7 @@ func rpcError(t *testing.T, resp map[string]any) map[string]any {
 // --- download.add tests ---
 
 func TestRPCDownloadAdd_Success(t *testing.T) {
-	handler, secret, cleanup, m := newTestRPCHandlerWithManager(t)
+	handler, secret, cleanup, m, dlDir := newTestRPCHandlerWithManager(t)
 	defer cleanup()
 
 	content := bytes.Repeat([]byte("a"), 1024)
@@ -266,6 +278,7 @@ func TestRPCDownloadAdd_Success(t *testing.T) {
 
 	code, resp := rpcCall(t, handler, "download.add", map[string]any{
 		"url": srv.URL + "/file.bin",
+		"dir": dlDir,
 	}, secret)
 	if code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", code)
@@ -288,7 +301,7 @@ func TestRPCDownloadAdd_Success(t *testing.T) {
 }
 
 func TestRPCDownloadAdd_MissingURL(t *testing.T) {
-	handler, secret, cleanup, _ := newTestRPCHandlerWithManager(t)
+	handler, secret, cleanup, _, _ := newTestRPCHandlerWithManager(t)
 	defer cleanup()
 
 	code, resp := rpcCall(t, handler, "download.add", map[string]any{}, secret)
@@ -303,7 +316,7 @@ func TestRPCDownloadAdd_MissingURL(t *testing.T) {
 }
 
 func TestRPCDownloadAdd_InvalidURL(t *testing.T) {
-	handler, secret, cleanup, _ := newTestRPCHandlerWithManager(t)
+	handler, secret, cleanup, _, _ := newTestRPCHandlerWithManager(t)
 	defer cleanup()
 
 	code, resp := rpcCall(t, handler, "download.add", map[string]any{
@@ -320,7 +333,7 @@ func TestRPCDownloadAdd_InvalidURL(t *testing.T) {
 }
 
 func TestRPCDownloadAdd_UnsupportedScheme(t *testing.T) {
-	handler, secret, cleanup, _ := newTestRPCHandlerWithManager(t)
+	handler, secret, cleanup, _, _ := newTestRPCHandlerWithManager(t)
 	defer cleanup()
 
 	// RPC server has no schemeRouter (nil), so ftp:// should fail
@@ -342,7 +355,7 @@ func TestRPCDownloadAdd_UnsupportedScheme(t *testing.T) {
 }
 
 func TestRPCDownloadAdd_DefaultConnections(t *testing.T) {
-	handler, secret, cleanup, m := newTestRPCHandlerWithManager(t)
+	handler, secret, cleanup, m, dlDir := newTestRPCHandlerWithManager(t)
 	defer cleanup()
 
 	content := bytes.Repeat([]byte("b"), 512)
@@ -353,6 +366,7 @@ func TestRPCDownloadAdd_DefaultConnections(t *testing.T) {
 	code, resp := rpcCall(t, handler, "download.add", map[string]any{
 		"url":         srv.URL + "/test.bin",
 		"connections": 0,
+		"dir":         dlDir,
 	}, secret)
 	if code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", code)
@@ -377,7 +391,7 @@ func TestRPCDownloadAdd_DefaultConnections(t *testing.T) {
 // --- download.status tests ---
 
 func TestRPCDownloadStatus_Success(t *testing.T) {
-	handler, secret, cleanup, m := newTestRPCHandlerWithManager(t)
+	handler, secret, cleanup, m, dlDir := newTestRPCHandlerWithManager(t)
 	defer cleanup()
 
 	// Create a download via RPC so there's an item in the manager
@@ -387,6 +401,7 @@ func TestRPCDownloadStatus_Success(t *testing.T) {
 
 	_, addResp := rpcCall(t, handler, "download.add", map[string]any{
 		"url": srv.URL + "/status-test.bin",
+		"dir": dlDir,
 	}, secret)
 	addResult := rpcResult(t, addResp)
 	gid := addResult["gid"].(string)
@@ -427,7 +442,7 @@ func TestRPCDownloadStatus_Success(t *testing.T) {
 }
 
 func TestRPCDownloadStatus_NotFound(t *testing.T) {
-	handler, secret, cleanup, _ := newTestRPCHandlerWithManager(t)
+	handler, secret, cleanup, _, _ := newTestRPCHandlerWithManager(t)
 	defer cleanup()
 
 	code, resp := rpcCall(t, handler, "download.status", map[string]any{
@@ -446,7 +461,7 @@ func TestRPCDownloadStatus_NotFound(t *testing.T) {
 // --- download.list tests ---
 
 func TestRPCDownloadList_Empty(t *testing.T) {
-	handler, secret, cleanup, _ := newTestRPCHandlerWithManager(t)
+	handler, secret, cleanup, _, _ := newTestRPCHandlerWithManager(t)
 	defer cleanup()
 
 	code, resp := rpcCall(t, handler, "download.list", map[string]any{}, secret)
@@ -464,7 +479,7 @@ func TestRPCDownloadList_Empty(t *testing.T) {
 }
 
 func TestRPCDownloadList_WithItems(t *testing.T) {
-	handler, secret, cleanup, m := newTestRPCHandlerWithManager(t)
+	handler, secret, cleanup, m, dlDir := newTestRPCHandlerWithManager(t)
 	defer cleanup()
 
 	content := bytes.Repeat([]byte("z"), 512)
@@ -474,6 +489,7 @@ func TestRPCDownloadList_WithItems(t *testing.T) {
 	// Add a download
 	_, addResp := rpcCall(t, handler, "download.add", map[string]any{
 		"url": srv.URL + "/list-test.bin",
+		"dir": dlDir,
 	}, secret)
 	addResult := rpcResult(t, addResp)
 	gid := addResult["gid"].(string)
@@ -514,7 +530,7 @@ func TestRPCDownloadList_WithItems(t *testing.T) {
 }
 
 func TestRPCDownloadList_FilterActive(t *testing.T) {
-	handler, secret, cleanup, _ := newTestRPCHandlerWithManager(t)
+	handler, secret, cleanup, _, _ := newTestRPCHandlerWithManager(t)
 	defer cleanup()
 
 	// With no active downloads, "active" filter should return empty
@@ -532,7 +548,7 @@ func TestRPCDownloadList_FilterActive(t *testing.T) {
 }
 
 func TestRPCDownloadList_FilterComplete(t *testing.T) {
-	handler, secret, cleanup, _ := newTestRPCHandlerWithManager(t)
+	handler, secret, cleanup, _, _ := newTestRPCHandlerWithManager(t)
 	defer cleanup()
 
 	code, resp := rpcCall(t, handler, "download.list", map[string]any{
@@ -549,7 +565,7 @@ func TestRPCDownloadList_FilterComplete(t *testing.T) {
 }
 
 func TestRPCDownloadList_FilterWaiting(t *testing.T) {
-	handler, secret, cleanup, _ := newTestRPCHandlerWithManager(t)
+	handler, secret, cleanup, _, _ := newTestRPCHandlerWithManager(t)
 	defer cleanup()
 
 	code, resp := rpcCall(t, handler, "download.list", map[string]any{
@@ -567,7 +583,7 @@ func TestRPCDownloadList_FilterWaiting(t *testing.T) {
 }
 
 func TestRPCDownloadList_DefaultStatus(t *testing.T) {
-	handler, secret, cleanup, _ := newTestRPCHandlerWithManager(t)
+	handler, secret, cleanup, _, _ := newTestRPCHandlerWithManager(t)
 	defer cleanup()
 
 	// Omit status -- should default to "all"
@@ -582,7 +598,7 @@ func TestRPCDownloadList_DefaultStatus(t *testing.T) {
 }
 
 func TestRPCDownloadList_UnknownStatusDefaultsToAll(t *testing.T) {
-	handler, secret, cleanup, _ := newTestRPCHandlerWithManager(t)
+	handler, secret, cleanup, _, _ := newTestRPCHandlerWithManager(t)
 	defer cleanup()
 
 	// Unknown status should fall through to default (all)
@@ -601,7 +617,7 @@ func TestRPCDownloadList_UnknownStatusDefaultsToAll(t *testing.T) {
 // --- download.remove tests ---
 
 func TestRPCDownloadRemove_Success(t *testing.T) {
-	handler, secret, cleanup, m := newTestRPCHandlerWithManager(t)
+	handler, secret, cleanup, m, dlDir := newTestRPCHandlerWithManager(t)
 	defer cleanup()
 
 	content := bytes.Repeat([]byte("r"), 1024)
@@ -611,6 +627,7 @@ func TestRPCDownloadRemove_Success(t *testing.T) {
 	// Add a download
 	_, addResp := rpcCall(t, handler, "download.add", map[string]any{
 		"url": srv.URL + "/remove-test.bin",
+		"dir": dlDir,
 	}, secret)
 	addResult := rpcResult(t, addResp)
 	gid := addResult["gid"].(string)
@@ -627,6 +644,16 @@ func TestRPCDownloadRemove_Success(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("download item was not added to manager")
+	}
+
+	// Wait for download to complete so FlushOne won't reject with ErrFlushItemDownloading
+	deadline = time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		item := m.GetItem(gid)
+		if item != nil && item.GetDownloaded() >= item.GetTotalSize() && item.GetTotalSize() > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 
 	// Stop the download and clear dAlloc so FlushOne accepts removal
@@ -652,7 +679,7 @@ func TestRPCDownloadRemove_Success(t *testing.T) {
 }
 
 func TestRPCDownloadRemove_NotFound(t *testing.T) {
-	handler, secret, cleanup, _ := newTestRPCHandlerWithManager(t)
+	handler, secret, cleanup, _, _ := newTestRPCHandlerWithManager(t)
 	defer cleanup()
 
 	code, resp := rpcCall(t, handler, "download.remove", map[string]any{
@@ -671,7 +698,7 @@ func TestRPCDownloadRemove_NotFound(t *testing.T) {
 // --- download.pause tests ---
 
 func TestRPCDownloadPause_NotFound(t *testing.T) {
-	handler, secret, cleanup, _ := newTestRPCHandlerWithManager(t)
+	handler, secret, cleanup, _, _ := newTestRPCHandlerWithManager(t)
 	defer cleanup()
 
 	code, resp := rpcCall(t, handler, "download.pause", map[string]any{
@@ -700,6 +727,11 @@ func TestRPCDownloadPause_NotActive_NoPool(t *testing.T) {
 	}
 	defer m.Close()
 
+	dlDir := filepath.Join(base, "downloads")
+	if err := os.MkdirAll(dlDir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
 	secret := "test-secret"
 	// Create pool but don't add the download to it
 	pool := NewPool(log.New(io.Discard, "", 0))
@@ -709,7 +741,9 @@ func TestRPCDownloadPause_NotActive_NoPool(t *testing.T) {
 	defer srv.Close()
 
 	// First add a download to the manager directly via RPC
-	client := &http.Client{}
+	client := &http.Client{
+		CheckRedirect: warplib.RedirectPolicy(warplib.DefaultMaxRedirects),
+	}
 	cfg := &RPCConfig{Secret: secret, Version: "1.0.0"}
 	rs := NewRPCServer(cfg, m, client, pool, nil, nil)
 	defer rs.Close()
@@ -717,6 +751,7 @@ func TestRPCDownloadPause_NotActive_NoPool(t *testing.T) {
 
 	_, addResp := rpcCall(t, h, "download.add", map[string]any{
 		"url": srv.URL + "/pause-test.bin",
+		"dir": dlDir,
 	}, secret)
 	addResult := rpcResult(t, addResp)
 	gid := addResult["gid"].(string)
@@ -750,7 +785,7 @@ func TestRPCDownloadPause_NotActive_NoPool(t *testing.T) {
 // --- download.resume tests ---
 
 func TestRPCDownloadResume_NotFound(t *testing.T) {
-	handler, secret, cleanup, _ := newTestRPCHandlerWithManager(t)
+	handler, secret, cleanup, _, _ := newTestRPCHandlerWithManager(t)
 	defer cleanup()
 
 	code, resp := rpcCall(t, handler, "download.resume", map[string]any{
