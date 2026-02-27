@@ -89,3 +89,18 @@ func stripUnsafeHeaders(req *http.Request) {
 		}
 	}
 }
+
+// StripUnsafeFromHeaders removes non-safe headers from a Headers slice.
+// This is called when a cross-origin redirect is detected and d.headers
+// needs to be cleaned so that subsequent requests (prepareDownloader,
+// segment downloads) to the new origin don't leak credentials.
+// Returns a new Headers slice containing only safe headers.
+func StripUnsafeFromHeaders(hdrs Headers) Headers {
+	safe := make(Headers, 0, len(hdrs))
+	for _, h := range hdrs {
+		if safeHeaders[http.CanonicalHeaderKey(h.Key)] {
+			safe = append(safe, h)
+		}
+	}
+	return safe
+}

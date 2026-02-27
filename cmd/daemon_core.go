@@ -106,7 +106,10 @@ var initDaemonComponents = func(log logger.Logger, maxConcurrent int) (*DaemonCo
 		cm.Close()
 		return nil, err
 	}
-	client := &http.Client{Jar: jar}
+	client := &http.Client{
+		Jar:           jar,
+		CheckRedirect: warplib.RedirectPolicy(warplib.DefaultMaxRedirects),
+	}
 
 	// Initialize warplib manager
 	m, err := warplib.InitManager()

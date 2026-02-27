@@ -11,6 +11,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -1230,6 +1231,15 @@ func (d *Downloader) fetchInfo() (err error) {
 	// hit the final URL directly, avoiding redundant redirect chains
 	// and failures with CDNs using ephemeral/signed redirect targets.
 	if finalURL := resp.Request.URL.String(); finalURL != d.url {
+		// Check if the redirect crossed to a different origin.
+		// If so, strip unsafe headers (Authorization, custom tokens, etc.)
+		// from d.headers to prevent credential leakage on all subsequent
+		// requests (prepareDownloader, segment downloads) to the new origin.
+		origURL, parseErr := url.Parse(d.url)
+		finalParsed, parseErr2 := url.Parse(finalURL)
+		if parseErr == nil && parseErr2 == nil && isCrossOrigin(origURL, finalParsed) {
+			d.headers = StripUnsafeFromHeaders(d.headers)
+		}
 		d.url = finalURL
 	}
 

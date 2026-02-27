@@ -82,9 +82,12 @@ func ParseProxyURL(proxyURL string) (*ProxyConfig, error) {
 
 // NewHTTPClientWithProxy creates an HTTP client configured to use the specified proxy.
 // If proxyURL is empty, returns a default HTTP client without proxy.
+// The returned client always has CheckRedirect set to enforce redirect policy.
 func NewHTTPClientWithProxy(proxyURL string) (*http.Client, error) {
 	if proxyURL == "" {
-		return &http.Client{}, nil
+		return &http.Client{
+			CheckRedirect: RedirectPolicy(DefaultMaxRedirects),
+		}, nil
 	}
 
 	parsed, err := url.Parse(proxyURL)
@@ -120,7 +123,10 @@ func NewHTTPClientWithProxy(proxyURL string) (*http.Client, error) {
 		transport.Proxy = http.ProxyURL(parsed)
 	}
 
-	return &http.Client{Transport: transport}, nil
+	return &http.Client{
+		Transport:     transport,
+		CheckRedirect: RedirectPolicy(DefaultMaxRedirects),
+	}, nil
 }
 
 // NewHTTPClientFromEnvironment creates an HTTP client using proxy settings from environment variables.
@@ -149,7 +155,10 @@ func NewHTTPClientFromEnvironment() (*http.Client, error) {
 		Proxy: http.ProxyFromEnvironment,
 	}
 
-	return &http.Client{Transport: transport}, nil
+	return &http.Client{
+		Transport:     transport,
+		CheckRedirect: RedirectPolicy(DefaultMaxRedirects),
+	}, nil
 }
 
 // NewHTTPClientWithProxyAndTimeout creates an HTTP client with proxy and custom timeout.
