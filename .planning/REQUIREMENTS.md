@@ -18,7 +18,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 - [x] **PROTO-01**: Download engine supports a protocol-agnostic downloader interface so FTP/SFTP can plug in alongside HTTP
 - [x] **PROTO-02**: Manager dispatches to correct downloader based on URL scheme (http/https/ftp/ftps/sftp)
-- [ ] **PROTO-03**: Item persistence (GOB) supports protocol field with backward-compatible zero value defaulting to HTTP
+- [x] **PROTO-03**: Item persistence (GOB) supports protocol field with backward-compatible zero value defaulting to HTTP
 
 ### FTP
 
@@ -113,7 +113,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | REDIR-04 | Phase 1 | Pending |
 | PROTO-01 | Phase 2 | Pending |
 | PROTO-02 | Phase 2 | Pending |
-| PROTO-03 | Phase 2 | Pending |
+| PROTO-03 | Phase 2 | Complete |
 | FTP-01 | Phase 3 | Pending |
 | FTP-02 | Phase 3 | Pending |
 | FTP-03 | Phase 3 | Pending |
