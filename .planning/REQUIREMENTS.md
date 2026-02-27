@@ -12,7 +12,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 - [x] **REDIR-01**: User can download files behind HTTP 301/302/303/307/308 redirects transparently
 - [x] **REDIR-02**: Downloader tracks and uses final URL after redirect chain for all segment requests
 - [x] **REDIR-03**: Redirect chain is limited to configurable max hops (default 10) with clear error on loop
-- [x] **REDIR-04**: Authorization headers are not leaked across cross-origin redirects (CVE-2024-45336 regression guard)
+- [ ] **REDIR-04**: Authorization headers are not leaked across cross-origin redirects (CVE-2024-45336 regression guard)
 
 ### Protocol Abstraction
 
@@ -110,7 +110,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | REDIR-01 | Phase 1 | Pending |
 | REDIR-02 | Phase 1 | Pending |
 | REDIR-03 | Phase 1 | Pending |
-| REDIR-04 | Phase 1 | Pending |
+| REDIR-04 | Phase 6 | Pending |
 | PROTO-01 | Phase 2 | Complete |
 | PROTO-02 | Phase 2 | Complete |
 | PROTO-03 | Phase 2 | Complete |
@@ -125,9 +125,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SFTP-01 | Phase 4 | Pending |
 | SFTP-02 | Phase 4 | Pending |
 | SFTP-03 | Phase 4 | Pending |
-| SFTP-04 | Phase 4 | Pending |
+| SFTP-04 | Phase 6 | Pending |
 | SFTP-05 | Phase 4 | Pending |
-| SFTP-06 | Phase 4 | Pending |
+| SFTP-06 | Phase 6 | Pending |
 | SFTP-07 | Phase 4 | Pending |
 | SFTP-08 | Phase 4 | Pending |
 | SFTP-09 | Phase 4 | Pending |
@@ -136,12 +136,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 | RPC-03 | Phase 5 | Pending |
 | RPC-04 | Phase 5 | Pending |
 | RPC-05 | Phase 5 | Pending |
-| RPC-06 | Phase 5 | Pending |
+| RPC-06 | Phase 6 | Pending |
 | RPC-07 | Phase 5 | Pending |
 | RPC-08 | Phase 5 | Pending |
 | RPC-09 | Phase 5 | Pending |
 | RPC-10 | Phase 5 | Pending |
-| RPC-11 | Phase 5 | Pending |
+| RPC-11 | Phase 6 | Pending |
 | RPC-12 | Phase 5 | Pending |
 
 **Coverage:**
@@ -151,4 +151,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-02-26*
-*Last updated: 2026-02-26 after roadmap creation — all 36 requirements mapped*
+*Last updated: 2026-02-27 after gap closure — 5 defect reqs remapped to Phase 6, 31 remain on original phases (Phase 7 verifies in-place)*

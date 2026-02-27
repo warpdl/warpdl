@@ -17,6 +17,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 3: FTP/FTPS** - Users can download from ftp:// and ftps:// URLs with auth and resume
 - [x] **Phase 4: SFTP** - Users can download from sftp:// URLs with password/key auth and resume
 - [x] **Phase 5: JSON-RPC 2.0** - Daemon exposes JSON-RPC 2.0 API for programmatic control over HTTP/WebSocket
+- [ ] **Phase 6: Fix Integration Defects** - Fix 3 code defects: SFTP resume key loss, RPC resume notifications, web.go CheckRedirect
+- [ ] **Phase 7: Verification & Documentation Closure** - Write missing VERIFICATIONs, SUMMARYs, fix traceability for all 29 stale requirements
 
 ## Phase Details
 
@@ -102,6 +104,32 @@ Plans:
 - [x] 05-03: Add WebSocket endpoint with real-time push notifications (started/progress/complete/error)
 - [x] 05-04: Integration tests and CI gate (race-free, 80%+ coverage, build verification)
 
+### Phase 6: Fix Integration Defects
+**Goal**: Fix 3 integration defects identified by milestone audit that break user-facing flows (SFTP resume with custom key, RPC resume push notifications, web.go redirect policy)
+**Depends on**: Phase 4, Phase 5
+**Requirements**: SFTP-04, SFTP-06, RPC-06, RPC-11, REDIR-04
+**Gap Closure:** Closes defects from v1.0 audit
+**Success Criteria** (what must be TRUE):
+  1. SFTP download started with `--ssh-key /custom/key` can be resumed and still uses the custom key (not default)
+  2. RPC `download.resume` delivers push notifications (progress/complete/error) to connected WebSocket clients
+  3. `web.go processDownload` creates `http.Client` with explicit `CheckRedirect` matching Phase 1 redirect policy
+
+Plans: TBD
+
+### Phase 7: Verification & Documentation Closure
+**Goal**: Close all documentation and verification gaps so every phase has a VERIFICATION.md, all SUMMARY files exist with correct frontmatter, and REQUIREMENTS.md traceability is accurate
+**Depends on**: Phase 6
+**Requirements**: REDIR-01, REDIR-02, REDIR-03, PROTO-02, FTP-01, FTP-02, FTP-03, FTP-04, FTP-05, FTP-06, FTP-07, FTP-08, SFTP-01, SFTP-02, SFTP-03, SFTP-05, SFTP-07, SFTP-08, SFTP-09, RPC-01, RPC-02, RPC-03, RPC-04, RPC-05, RPC-07, RPC-08, RPC-09, RPC-10, RPC-12
+**Gap Closure:** Closes verification/documentation gaps from v1.0 audit
+**Success Criteria** (what must be TRUE):
+  1. Every phase (1-6) has a VERIFICATION.md with pass/fail per requirement
+  2. All SUMMARY files exist with correct `requirements-completed` frontmatter
+  3. REQUIREMENTS.md traceability table shows Complete + [x] for all 36 requirements
+  4. Phase 2 PROTO-02 updated from partial → passed (functionally complete after Phase 3/4)
+  5. Coverage count in REQUIREMENTS.md reads 36/36
+
+Plans: TBD
+
 ## Progress
 
 **Execution Order:**
@@ -114,3 +142,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 3. FTP/FTPS | 3/3 | Complete | 2026-02-27 |
 | 4. SFTP | 3/3 | Complete | 2026-02-27 |
 | 5. JSON-RPC 2.0 | 4/4 | Complete | 2026-02-27 |
+| 6. Fix Integration Defects | 0/0 | Not Started | - |
+| 7. Verification & Doc Closure | 0/0 | Not Started | - |
