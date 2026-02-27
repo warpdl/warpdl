@@ -611,6 +611,7 @@ func (m *Manager) ResumeDownload(client *http.Client, hash string, opts *ResumeD
 			opts.Handlers = &Handlers{}
 		}
 		m.patchProtocolHandlers(opts.Handlers, item)
+		item.setResumeHandlers(opts.Handlers)
 		item.setDAlloc(pd)
 		m.UpdateItem(item)
 

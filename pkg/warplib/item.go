@@ -63,6 +63,11 @@ type Item struct {
 	dAlloc ProtocolDownloader
 	// memPart is an internal map for managing memory allocation of parts.
 	memPart map[string]int64
+	// resumeHandlers holds patched handler callbacks for the protocol resume path.
+	// Set by Manager.ResumeDownload for FTP/FTPS/SFTP after patchProtocolHandlers.
+	// Unexported to prevent GOB serialization (func values cannot be GOB-encoded).
+	// nil for HTTP items — HTTP uses patchHandlers on *Downloader struct field.
+	resumeHandlers *Handlers
 }
 
 // ItemPart represents a part of a download item.
@@ -185,6 +190,14 @@ func (i *Item) setDAlloc(d ProtocolDownloader) {
 	i.dAlloc = d
 }
 
+// setResumeHandlers stores patched handlers for use during Item.Resume().
+// Called by Manager.ResumeDownload after patchProtocolHandlers for FTP/FTPS/SFTP items.
+func (i *Item) setResumeHandlers(h *Handlers) {
+	i.dAllocMu.Lock()
+	defer i.dAllocMu.Unlock()
+	i.resumeHandlers = h
+}
+
 // clearDAlloc clears the downloader with proper synchronization.
 func (i *Item) clearDAlloc() {
 	i.dAllocMu.Lock()
@@ -261,7 +274,8 @@ func (i *Item) GetMaxParts() (int32, error) {
 
 // Resume resumes the download of the item.
 // Fixed Race 2: Takes snapshot of Parts under Item lock before calling Resume.
-// Handlers are not passed here because they were already installed by Manager.patchHandlers.
+// For FTP/SFTP: passes stored resumeHandlers to ProtocolDownloader.Resume().
+// For HTTP: resumeHandlers is nil, preserving patchHandlers-installed struct field handlers.
 func (i *Item) Resume() error {
 	// Take snapshot of Parts under Item lock first
 	i.mu.RLock()
@@ -271,16 +285,19 @@ func (i *Item) Resume() error {
 	}
 	i.mu.RUnlock()
 
-	// Then get downloader under dAllocMu lock
+	// Then get downloader and resume handlers under dAllocMu lock
 	i.dAllocMu.RLock()
 	d := i.dAlloc
+	h := i.resumeHandlers
 	i.dAllocMu.RUnlock()
 
 	if d == nil {
 		return ErrItemDownloaderNotFound
 	}
-	// Pass nil handlers — Manager.patchHandlers already installed them on the inner downloader.
-	return d.Resume(context.Background(), partsCopy, nil)
+	// h is non-nil for FTP/SFTP (set by Manager.ResumeDownload), nil for HTTP.
+	// FTP/SFTP Resume uses h parameter directly for callbacks.
+	// HTTP Resume: nil preserves patchHandlers-installed struct field (non-nil would replace it).
+	return d.Resume(context.Background(), partsCopy, h)
 }
 
 // StopDownload pauses the download of the item.
