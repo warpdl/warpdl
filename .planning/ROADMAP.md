@@ -114,7 +114,9 @@ Plans:
   2. RPC `download.resume` delivers push notifications (progress/complete/error) to connected WebSocket clients
   3. `web.go processDownload` creates `http.Client` with explicit `CheckRedirect` matching Phase 1 redirect policy
 
-Plans: TBD
+Plans:
+- [ ] 06-01: Fix SFTP resume SSH key persistence (Item.SSHKeyPath field, threading through AddProtocolDownload/ResumeDownload) and web.go redirect policy enforcement
+- [ ] 06-02: Fix RPC download.resume push notification wiring and gate verification
 
 ### Phase 7: Verification & Documentation Closure
 **Goal**: Close all documentation and verification gaps so every phase has a VERIFICATION.md, all SUMMARY files exist with correct frontmatter, and REQUIREMENTS.md traceability is accurate
@@ -142,5 +144,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 3. FTP/FTPS | 3/3 | Complete | 2026-02-27 |
 | 4. SFTP | 3/3 | Complete | 2026-02-27 |
 | 5. JSON-RPC 2.0 | 4/4 | Complete | 2026-02-27 |
-| 6. Fix Integration Defects | 0/0 | Not Started | - |
+| 6. Fix Integration Defects | 0/2 | Not Started | - |
 | 7. Verification & Doc Closure | 0/0 | Not Started | - |

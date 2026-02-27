@@ -12,7 +12,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 - [x] **REDIR-01**: User can download files behind HTTP 301/302/303/307/308 redirects transparently
 - [x] **REDIR-02**: Downloader tracks and uses final URL after redirect chain for all segment requests
 - [x] **REDIR-03**: Redirect chain is limited to configurable max hops (default 10) with clear error on loop
-- [ ] **REDIR-04**: Authorization headers are not leaked across cross-origin redirects (CVE-2024-45336 regression guard)
+- [x] **REDIR-04**: Authorization headers are not leaked across cross-origin redirects (CVE-2024-45336 regression guard)
 
 ### Protocol Abstraction
 
@@ -36,9 +36,9 @@ Requirements for this milestone. Each maps to roadmap phases.
 - [ ] **SFTP-01**: User can download files from `sftp://` URLs
 - [ ] **SFTP-02**: User can authenticate with password via URL (`sftp://user:pass@host/path`)
 - [ ] **SFTP-03**: User can authenticate with SSH private key file (default keys `~/.ssh/id_rsa`, `~/.ssh/id_ed25519`)
-- [ ] **SFTP-04**: User can specify custom SSH key path via `--ssh-key` flag
+- [x] **SFTP-04**: User can specify custom SSH key path via `--ssh-key` flag
 - [ ] **SFTP-05**: SFTP downloads are single-stream (no parallel segments)
-- [ ] **SFTP-06**: User can resume interrupted SFTP downloads via Seek offset
+- [x] **SFTP-06**: User can resume interrupted SFTP downloads via Seek offset
 - [ ] **SFTP-07**: Host key verification uses TOFU policy (accept first use, reject on change) with `~/.config/warpdl/known_hosts`
 - [ ] **SFTP-08**: Custom port support via URL (`sftp://user@host:2222/path`)
 - [ ] **SFTP-09**: File size is reported before download starts for progress tracking
@@ -110,7 +110,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | REDIR-01 | Phase 1 | Pending |
 | REDIR-02 | Phase 1 | Pending |
 | REDIR-03 | Phase 1 | Pending |
-| REDIR-04 | Phase 6 | Pending |
+| REDIR-04 | Phase 6 | Complete |
 | PROTO-01 | Phase 2 | Complete |
 | PROTO-02 | Phase 2 | Complete |
 | PROTO-03 | Phase 2 | Complete |
@@ -125,9 +125,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SFTP-01 | Phase 4 | Pending |
 | SFTP-02 | Phase 4 | Pending |
 | SFTP-03 | Phase 4 | Pending |
-| SFTP-04 | Phase 6 | Pending |
+| SFTP-04 | Phase 6 | Complete |
 | SFTP-05 | Phase 4 | Pending |
-| SFTP-06 | Phase 6 | Pending |
+| SFTP-06 | Phase 6 | Complete |
 | SFTP-07 | Phase 4 | Pending |
 | SFTP-08 | Phase 4 | Pending |
 | SFTP-09 | Phase 4 | Pending |

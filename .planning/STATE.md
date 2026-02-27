@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: complete
-last_updated: "2026-02-27T18:00:00.000Z"
+status: in_progress
+last_updated: "2026-02-27T20:24:23.000Z"
 progress:
-  total_phases: 5
+  total_phases: 7
   completed_phases: 5
-  total_plans: 14
-  completed_plans: 14
+  total_plans: 16
+  completed_plans: 15
 ---
 
 # Project State
@@ -18,16 +18,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-02-26)
 
 **Core value:** Expand WarpDL's protocol coverage and integration surface so it can download from more sources (FTP, SFTP, redirect chains) and be controlled programmatically by external tools
-**Current focus:** All 5 phases complete. Milestone v1.0 done.
+**Current focus:** Phase 6 -- Fix Integration Defects (1/2 plans done)
 
 ## Current Position
 
-Phase: 5 of 5 (JSON-RPC 2.0) -- COMPLETE
-Plan: 4 of 4 in current phase (all plans done)
-Status: Phase 5 complete -- all 4 plans done. Milestone complete.
-Last activity: 2026-02-27 -- Plan 05-04 complete (integration tests, race fixes, CI gate verification)
+Phase: 6 of 7 (Fix Integration Defects)
+Plan: 1 of 2 in current phase
+Status: Plan 06-01 complete (SFTP key persistence + web.go redirect). Plan 06-02 next.
+Last activity: 2026-02-27 -- Plan 06-01 complete (SFTP SSHKeyPath persistence, web.go CheckRedirect)
 
-Progress: [██████████] 100% (5 of 5 phases complete)
+Progress: [█████████░] 93% (5 of 7 phases complete, 15/16 plans done)
 
 ## Performance Metrics
 
@@ -45,9 +45,10 @@ Progress: [██████████] 100% (5 of 5 phases complete)
 | 3. FTP/FTPS | 3/3 | ~45min | ~15min |
 | 4. SFTP | 3/3 | ~1h 10min | ~23min |
 | 5. JSON-RPC 2.0 | 4/4 | ~2h | ~30min |
+| 6. Fix Defects | 1/2 | ~4min | ~4min |
 
 **Recent Trend:**
-- All 14 plans complete across 5 phases
+- 15 of 16 plans complete across 6 phases
 - Trend: Steady execution with thorough testing
 
 ## Accumulated Context
@@ -83,6 +84,8 @@ Recent decisions affecting current work:
 - [Phase 04-02]: Manager.ResumeDownload ProtoSFTP wired alongside ProtoFTP/ProtoFTPS in both guard and dispatch switches
 - [Phase 04-03]: downloadFTPHandler generalized to downloadProtocolHandler for FTP/FTPS/SFTP (zero code duplication)
 - [Phase 04-03]: SSHKeyPath threaded end-to-end: CLI --ssh-key -> warpcli -> DownloadParams -> API -> DownloaderOpts -> SFTP factory
+- [Phase 06-01]: Item.SSHKeyPath persists SSH key path for SFTP resume across pause/resume cycles
+- [Phase 06-01]: web.go processDownload now explicitly sets CheckRedirect (defense-in-depth, NewDownloader also patches nil)
 
 ### Pending Todos
 
@@ -99,5 +102,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-27
-Stopped at: Completed Phase 5 (JSON-RPC 2.0) -- all 4 plans: 05-01 (HTTP endpoint + auth + localhost), 05-02 (download.* method suite), 05-03 (WebSocket + push notifications), 05-04 (integration tests + race fixes + CI gate). All tests pass with race detection. Coverage 84.9% server, 85.7% warplib. Binary builds. Milestone v1.0 complete.
+Stopped at: Completed Plan 06-01 (SFTP SSH key persistence + web.go redirect). Plan 06-02 next (RPC resume notifications).
 Resume file: None
