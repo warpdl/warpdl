@@ -275,18 +275,57 @@ func (rs *RPCServer) downloadPause(_ context.Context, p *GIDParam) (*EmptyResult
 }
 
 // downloadResume resumes a paused download.
+// Mirrors downloadAdd's notification pattern: wires handlers for progress/error/complete
+// notifications and broadcasts download.started after successful resume.
 func (rs *RPCServer) downloadResume(_ context.Context, p *GIDParam) (*EmptyResult, error) {
 	item := rs.manager.GetItem(p.GID)
 	if item == nil {
 		return nil, &jrpc2.Error{Code: codeDownloadNotFound, Message: "download not found"}
 	}
-	resumedItem, err := rs.manager.ResumeDownload(rs.client, p.GID, nil)
+
+	var resumeOpts *warplib.ResumeDownloadOpts
+	if rs.notifier != nil {
+		resumeOpts = &warplib.ResumeDownloadOpts{
+			Handlers: &warplib.Handlers{
+				ErrorHandler: func(hash string, err error) {
+					rs.notifier.Broadcast("download.error", &DownloadErrorNotification{
+						GID:   hash,
+						Error: err.Error(),
+					})
+				},
+				DownloadProgressHandler: func(hash string, nread int) {
+					rs.notifier.Broadcast("download.progress", &DownloadProgressNotification{
+						GID:             hash,
+						CompletedLength: int64(nread),
+					})
+				},
+				DownloadCompleteHandler: func(hash string, tread int64) {
+					rs.notifier.Broadcast("download.complete", &DownloadCompleteNotification{
+						GID:         hash,
+						TotalLength: tread,
+					})
+				},
+			},
+		}
+	}
+
+	resumedItem, err := rs.manager.ResumeDownload(rs.client, p.GID, resumeOpts)
 	if err != nil {
 		return nil, &jrpc2.Error{Code: codeDownloadNotActive, Message: err.Error()}
 	}
 	if rs.pool != nil {
 		rs.pool.AddDownload(p.GID, nil)
 	}
+
+	// Broadcast download.started AFTER successful resume (not before, to avoid phantom events)
+	if rs.notifier != nil {
+		rs.notifier.Broadcast("download.started", &DownloadStartedNotification{
+			GID:         resumedItem.Hash,
+			FileName:    resumedItem.Name,
+			TotalLength: int64(resumedItem.GetTotalSize()),
+		})
+	}
+
 	go resumedItem.Resume()
 	return &EmptyResult{}, nil
 }
