@@ -33,6 +33,14 @@ type Manager struct {
 	queue *QueueManager
 	// queueState stores persisted queue state until queue is initialized
 	queueState *QueueState
+	// schemeRouter dispatches URL schemes to protocol factories during resume.
+	schemeRouter *SchemeRouter
+}
+
+// SetSchemeRouter sets the scheme router for protocol dispatch during resume.
+// Used by daemon startup to provide the router to the Manager.
+func (m *Manager) SetSchemeRouter(r *SchemeRouter) {
+	m.schemeRouter = r
 }
 
 // InitManager creates a new manager instance.
@@ -249,6 +257,127 @@ func (m *Manager) patchHandlers(d *Downloader, item *Item) {
 		}
 
 		oDCH(hash, tread)
+	}
+}
+
+// AddProtocolDownload adds a new download item for a non-HTTP protocol downloader.
+// cleanURL is the URL with credentials stripped — safe for GOB persistence.
+// proto identifies the protocol (ProtoFTP, ProtoFTPS, ProtoSFTP).
+func (m *Manager) AddProtocolDownload(pd ProtocolDownloader, probe ProbeResult, cleanURL string, proto Protocol, handlers *Handlers, opts *AddDownloadOpts) error {
+	if opts == nil {
+		opts = &AddDownloadOpts{}
+	}
+	item, err := newItem(
+		m.mu,
+		pd.GetFileName(),
+		cleanURL, // credential-stripped URL — safe to persist
+		pd.GetDownloadDirectory(),
+		pd.GetHash(),
+		ContentLength(probe.ContentLength),
+		probe.Resumable,
+		&itemOpts{
+			AbsoluteLocation: opts.AbsoluteLocation,
+			Child:            opts.IsChildren,
+			Hide:             opts.IsHidden,
+			ChildHash:        opts.ChildHash,
+		},
+	)
+	if err != nil {
+		return err
+	}
+	item.Protocol = proto
+
+	// Wrap handlers with item-update callbacks
+	m.patchProtocolHandlers(handlers, item)
+
+	item.setDAlloc(pd)
+	m.UpdateItem(item)
+
+	if m.queue != nil {
+		m.queue.Add(pd.GetHash(), opts.Priority)
+	}
+	return nil
+}
+
+// patchProtocolHandlers wraps handler callbacks to update Item state.
+// This is the protocol-agnostic equivalent of patchHandlers for non-HTTP downloaders.
+// The wrapped handlers are mutated in-place (same as patchHandlers pattern).
+//
+// FTP-relevant wrappers:
+//   - SpawnPartHandler: FTP calls this once with [0, fileSize-1]
+//   - DownloadProgressHandler: FTP calls this on every Write
+//   - DownloadCompleteHandler: FTP calls this with MAIN_HASH on success
+//
+// HTTP-only wrappers (included for future protocol support, never called by FTP):
+//   - RespawnPartHandler: HTTP work-stealing only (FTP has single stream)
+//   - CompileCompleteHandler: HTTP part compilation only (FTP has no parts to compile)
+func (m *Manager) patchProtocolHandlers(h *Handlers, item *Item) {
+	if h == nil {
+		return
+	}
+	oSPH := h.SpawnPartHandler
+	h.SpawnPartHandler = func(hash string, ioff, foff int64) {
+		item.addPart(hash, ioff, foff)
+		m.UpdateItem(item)
+		if oSPH != nil {
+			oSPH(hash, ioff, foff)
+		}
+	}
+	oRPH := h.RespawnPartHandler
+	h.RespawnPartHandler = func(hash string, partIoff, ioffNew, foffNew int64) {
+		item.addPart(hash, partIoff, foffNew)
+		m.UpdateItem(item)
+		if oRPH != nil {
+			oRPH(hash, partIoff, ioffNew, foffNew)
+		}
+	}
+	oPH := h.DownloadProgressHandler
+	h.DownloadProgressHandler = func(hash string, nread int) {
+		item.mu.Lock()
+		item.Downloaded += ContentLength(nread)
+		item.mu.Unlock()
+		m.UpdateItem(item)
+		if oPH != nil {
+			oPH(hash, nread)
+		}
+	}
+	oCCH := h.CompileCompleteHandler
+	h.CompileCompleteHandler = func(hash string, tread int64) {
+		off, part, err := item.getPartWithError(hash)
+		if err != nil {
+			if h.ErrorHandler != nil {
+				h.ErrorHandler(hash, fmt.Errorf("compile complete: %w", err))
+			}
+			return
+		}
+		if part == nil {
+			if h.ErrorHandler != nil {
+				h.ErrorHandler(hash, fmt.Errorf("compile complete: part not found for hash %q", hash))
+			}
+			return
+		}
+		part.Compiled = true
+		item.savePart(off, part)
+		if oCCH != nil {
+			oCCH(hash, tread)
+		}
+	}
+	oDCH := h.DownloadCompleteHandler
+	h.DownloadCompleteHandler = func(hash string, tread int64) {
+		if hash != MAIN_HASH {
+			return
+		}
+		item.mu.Lock()
+		item.Parts = nil
+		item.Downloaded = item.TotalSize
+		item.mu.Unlock()
+		m.UpdateItem(item)
+		if m.queue != nil {
+			m.queue.OnComplete(item.Hash)
+		}
+		if oDCH != nil {
+			oDCH(hash, tread)
+		}
 	}
 }
 

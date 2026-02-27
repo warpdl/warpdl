@@ -6,6 +6,9 @@ require (
 	github.com/Microsoft/go-winio v0.6.2
 	github.com/dop251/goja v0.0.0-20260106131823-651366fbe6e3
 	github.com/dop251/goja_nodejs v0.0.0-20251015164255-5e94316bedaf
+	github.com/fclairamb/ftpserverlib v0.30.0
+	github.com/jlaffaye/ftp v0.2.0
+	github.com/spf13/afero v1.15.0
 	github.com/urfave/cli v1.22.17
 	github.com/vbauerster/mpb/v8 v8.11.3
 	golang.org/x/net v0.49.0
@@ -18,6 +21,8 @@ require (
 	github.com/clipperhouse/uax29/v2 v2.3.0 // indirect
 	github.com/danieljoos/wincred v1.2.3 // indirect
 	github.com/godbus/dbus/v5 v5.2.2 // indirect
+	github.com/hashicorp/errwrap v1.0.0 // indirect
+	github.com/hashicorp/go-multierror v1.1.1 // indirect
 )
 
 require (
