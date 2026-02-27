@@ -58,7 +58,28 @@ func (m *mockProtocolDownloader) Download(_ context.Context, h *warplib.Handlers
 	return nil
 }
 
-func (m *mockProtocolDownloader) Resume(_ context.Context, _ map[int64]*warplib.ItemPart, _ *warplib.Handlers) error {
+func (m *mockProtocolDownloader) Resume(_ context.Context, _ map[int64]*warplib.ItemPart, h *warplib.Handlers) error {
+	if !m.probed {
+		return warplib.ErrProbeRequired
+	}
+	if h != nil {
+		if h.DownloadProgressHandler != nil {
+			atomic.AddInt32(&m.progressCalled, 1)
+			h.DownloadProgressHandler(m.hash, 512)
+		}
+		if h.DownloadCompleteHandler != nil {
+			atomic.AddInt32(&m.completeCalled, 1)
+			h.DownloadCompleteHandler(warplib.MAIN_HASH, m.contentLength)
+		}
+	}
+	if m.doneCh != nil {
+		select {
+		case <-m.doneCh:
+			// Already closed
+		default:
+			close(m.doneCh)
+		}
+	}
 	return nil
 }
 
@@ -92,6 +113,8 @@ func newTestRPCHandlerWithRouter(t *testing.T, router *warplib.SchemeRouter) (ht
 	if err != nil {
 		t.Fatalf("InitManager: %v", err)
 	}
+	// Set scheme router on Manager so ResumeDownload can dispatch protocol resumes.
+	m.SetSchemeRouter(router)
 	dlDir := filepath.Join(base, "downloads")
 	if err := os.MkdirAll(dlDir, 0755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
