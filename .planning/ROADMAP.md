@@ -130,12 +130,14 @@ Plans:
   4. Phase 2 PROTO-02 updated from partial → passed (functionally complete after Phase 3/4)
   5. Coverage count in REQUIREMENTS.md reads 36/36
 
-Plans: TBD
+Plans:
+- [ ] 07-01: Create missing SUMMARY files (Phase 3, Phase 5) and fix incomplete SUMMARY frontmatter (Phase 1, Phase 5/05-04)
+- [ ] 07-02: Create missing VERIFICATION.md files (Phases 1, 3, 4, 5), update Phase 2 PROTO-02, update REQUIREMENTS.md traceability
 
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -145,4 +147,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 4. SFTP | 3/3 | Complete | 2026-02-27 |
 | 5. JSON-RPC 2.0 | 4/4 | Complete | 2026-02-27 |
 | 6. Fix Integration Defects | 2/2 | Complete | 2026-02-27 |
-| 7. Verification & Doc Closure | 0/0 | Not Started | - |
+| 7. Verification & Doc Closure | 0/2 | In Progress | - |
