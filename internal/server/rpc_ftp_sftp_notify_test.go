@@ -66,16 +66,18 @@ func (m *mockProtocolDownloader) Capabilities() warplib.DownloadCapabilities {
 	return warplib.DownloadCapabilities{SupportsParallel: false, SupportsResume: true}
 }
 
-func (m *mockProtocolDownloader) Close() error                            { return nil }
-func (m *mockProtocolDownloader) Stop()                                   { m.stopped = true }
-func (m *mockProtocolDownloader) IsStopped() bool                         { return m.stopped }
-func (m *mockProtocolDownloader) GetMaxConnections() int32                { return 1 }
-func (m *mockProtocolDownloader) GetMaxParts() int32                      { return 1 }
-func (m *mockProtocolDownloader) GetHash() string                         { return m.hash }
-func (m *mockProtocolDownloader) GetFileName() string                     { return m.fileName }
-func (m *mockProtocolDownloader) GetDownloadDirectory() string            { return m.downloadDir }
-func (m *mockProtocolDownloader) GetSavePath() string                     { return m.downloadDir + "/" + m.fileName }
-func (m *mockProtocolDownloader) GetContentLength() warplib.ContentLength { return warplib.ContentLength(m.contentLength) }
+func (m *mockProtocolDownloader) Close() error                 { return nil }
+func (m *mockProtocolDownloader) Stop()                        { m.stopped = true }
+func (m *mockProtocolDownloader) IsStopped() bool              { return m.stopped }
+func (m *mockProtocolDownloader) GetMaxConnections() int32     { return 1 }
+func (m *mockProtocolDownloader) GetMaxParts() int32           { return 1 }
+func (m *mockProtocolDownloader) GetHash() string              { return m.hash }
+func (m *mockProtocolDownloader) GetFileName() string          { return m.fileName }
+func (m *mockProtocolDownloader) GetDownloadDirectory() string { return m.downloadDir }
+func (m *mockProtocolDownloader) GetSavePath() string          { return m.downloadDir + "/" + m.fileName }
+func (m *mockProtocolDownloader) GetContentLength() warplib.ContentLength {
+	return warplib.ContentLength(m.contentLength)
+}
 
 // newTestRPCHandlerWithRouter creates an RPC handler backed by a real Manager
 // and a custom SchemeRouter. Returns the handler, auth secret, cleanup func,
