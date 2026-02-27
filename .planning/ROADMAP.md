@@ -19,7 +19,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 5: JSON-RPC 2.0** - Daemon exposes JSON-RPC 2.0 API for programmatic control over HTTP/WebSocket
 - [x] **Phase 6: Fix Integration Defects** - Fix 3 code defects: SFTP resume key loss, RPC resume notifications, web.go CheckRedirect
 - [x] **Phase 7: Verification & Documentation Closure** - Write missing VERIFICATIONs, SUMMARYs, fix traceability for all 29 stale requirements
-- [ ] **Phase 8: Fix RPC FTP/SFTP Download Add Handlers** - Wire missing notifier handlers in RPC download.add FTP/SFTP path
+- [x] **Phase 8: Fix RPC FTP/SFTP Download Add Handlers** - Wire missing notifier handlers in RPC download.add FTP/SFTP path
 
 ## Phase Details
 
@@ -145,7 +145,7 @@ Plans:
   2. `item.Downloaded` is updated during FTP/SFTP downloads started via RPC (not just at completion)
 
 Plans:
-- [ ] 08-01: Fix nil handler pass in rpc_methods.go downloadAdd FTP/SFTP branch, add integration test
+- [x] 08-01: Fix nil handler pass in rpc_methods.go downloadAdd FTP/SFTP branch, add integration test
 
 ## Progress
 
@@ -161,4 +161,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | 5. JSON-RPC 2.0 | 4/4 | Complete | 2026-02-27 |
 | 6. Fix Integration Defects | 2/2 | Complete | 2026-02-27 |
 | 7. Verification & Doc Closure | 2/2 | Complete | 2026-02-27 |
-| 8. Fix RPC FTP/SFTP Handlers | 0/1 | Planned | — |
+| 8. Fix RPC FTP/SFTP Handlers | 1/1 | Complete | 2026-02-27 |
