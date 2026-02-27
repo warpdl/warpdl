@@ -135,13 +135,13 @@ Which phases cover which requirements. Updated during roadmap creation.
 | RPC-02 | Phase 5 | Complete |
 | RPC-03 | Phase 5 | Complete |
 | RPC-04 | Phase 5 | Complete |
-| RPC-05 | Phase 5 | Complete |
+| RPC-05 | Phase 5, Phase 8 | Complete |
 | RPC-06 | Phase 6 | Complete |
 | RPC-07 | Phase 5 | Complete |
 | RPC-08 | Phase 5 | Complete |
 | RPC-09 | Phase 5 | Complete |
 | RPC-10 | Phase 5 | Complete |
-| RPC-11 | Phase 6 | Complete |
+| RPC-11 | Phase 6, Phase 8 | Complete |
 | RPC-12 | Phase 5 | Complete |
 
 **Coverage:**
@@ -151,4 +151,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-02-26*
-*Last updated: 2026-02-27 — Phase 7 verification closure: all 36 requirements verified complete across 6 phases*
+*Last updated: 2026-02-27 — Phase 8 added for RPC FTP/SFTP handler wiring tech debt (INT-01)*

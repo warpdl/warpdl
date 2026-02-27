@@ -19,6 +19,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 5: JSON-RPC 2.0** - Daemon exposes JSON-RPC 2.0 API for programmatic control over HTTP/WebSocket
 - [x] **Phase 6: Fix Integration Defects** - Fix 3 code defects: SFTP resume key loss, RPC resume notifications, web.go CheckRedirect
 - [x] **Phase 7: Verification & Documentation Closure** - Write missing VERIFICATIONs, SUMMARYs, fix traceability for all 29 stale requirements
+- [ ] **Phase 8: Fix RPC FTP/SFTP Download Add Handlers** - Wire missing notifier handlers in RPC download.add FTP/SFTP path
 
 ## Phase Details
 
@@ -134,10 +135,22 @@ Plans:
 - [x] 07-01: Create missing SUMMARY files (Phase 3, Phase 5) and fix incomplete SUMMARY frontmatter (Phase 1, Phase 5/05-04)
 - [x] 07-02: Create missing VERIFICATION.md files (Phases 1, 3, 4, 5), update Phase 2 PROTO-02, update REQUIREMENTS.md traceability
 
+### Phase 8: Fix RPC FTP/SFTP Download Add Handlers
+**Goal**: Wire missing notifier handlers in RPC `download.add` FTP/SFTP code path so WebSocket push notifications are delivered and item progress is persisted during FTP/SFTP downloads started via JSON-RPC
+**Depends on**: Phase 5
+**Requirements**: RPC-05, RPC-11
+**Gap Closure:** Closes INT-01 tech debt from v1.0 audit
+**Success Criteria** (what must be TRUE):
+  1. FTP/SFTP downloads started via JSON-RPC `download.add` emit WebSocket push notifications (started/progress/complete/error)
+  2. `item.Downloaded` is updated during FTP/SFTP downloads started via RPC (not just at completion)
+
+Plans:
+- [ ] 08-01: Fix nil handler pass in rpc_methods.go downloadAdd FTP/SFTP branch, add integration test
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -148,3 +161,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 5. JSON-RPC 2.0 | 4/4 | Complete | 2026-02-27 |
 | 6. Fix Integration Defects | 2/2 | Complete | 2026-02-27 |
 | 7. Verification & Doc Closure | 2/2 | Complete | 2026-02-27 |
+| 8. Fix RPC FTP/SFTP Handlers | 0/1 | Planned | — |
