@@ -20,6 +20,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 6: Fix Integration Defects** - Fix 3 code defects: SFTP resume key loss, RPC resume notifications, web.go CheckRedirect
 - [x] **Phase 7: Verification & Documentation Closure** - Write missing VERIFICATIONs, SUMMARYs, fix traceability for all 29 stale requirements
 - [x] **Phase 8: Fix RPC FTP/SFTP Download Add Handlers** - Wire missing notifier handlers in RPC download.add FTP/SFTP path
+- [ ] **Phase 9: Fix RPC FTP/SFTP Resume Handler Pass-Through** - Fix Item.Resume() nil handler pass to ProtocolDownloader.Resume() for FTP/SFTP
+- [ ] **Phase 10: SUMMARY Frontmatter Backfill** - Add missing requirements-completed frontmatter to 6 SUMMARY files
 
 ## Phase Details
 
@@ -147,10 +149,36 @@ Plans:
 Plans:
 - [x] 08-01: Fix nil handler pass in rpc_methods.go downloadAdd FTP/SFTP branch, add integration test
 
+### Phase 9: Fix RPC FTP/SFTP Resume Handler Pass-Through
+**Goal**: Fix `Item.Resume()` to pass handlers through to `ProtocolDownloader.Resume()` so FTP/SFTP downloads resumed via JSON-RPC deliver WebSocket push notifications
+**Depends on**: Phase 8
+**Requirements**: RPC-06, RPC-11
+**Gap Closure:** Closes INT-02 from v1.0 audit
+**Success Criteria** (what must be TRUE):
+  1. FTP/SFTP downloads resumed via JSON-RPC `download.resume` emit WebSocket push notifications (progress/complete/error)
+  2. `Item.Resume()` passes patched handlers to `ProtocolDownloader.Resume()` instead of `nil`
+  3. Existing HTTP resume path remains unaffected (no regression)
+
+Plans:
+- [ ] 09-01: TBD
+
+### Phase 10: SUMMARY Frontmatter Backfill
+**Goal**: Add missing `requirements-completed` frontmatter to 6 SUMMARY files so all requirements have 3-source cross-reference coverage
+**Depends on**: Phase 9
+**Requirements**: PROTO-01, PROTO-03, SFTP-04, SFTP-06, RPC-06, RPC-11
+**Gap Closure:** Closes documentation tech debt from v1.0 audit
+**Success Criteria** (what must be TRUE):
+  1. SUMMARY files 02-01, 02-02, 04-01, 04-02, 04-03, 06-01 all have `requirements-completed` in YAML frontmatter
+  2. Every v1 requirement appears in at least one SUMMARY frontmatter
+  3. Audit 3-source cross-reference shows 0 "missing" entries
+
+Plans:
+- [ ] 10-01: TBD
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -162,3 +190,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | 6. Fix Integration Defects | 2/2 | Complete | 2026-02-27 |
 | 7. Verification & Doc Closure | 2/2 | Complete | 2026-02-27 |
 | 8. Fix RPC FTP/SFTP Handlers | 1/1 | Complete | 2026-02-27 |
+| 9. Fix RPC FTP/SFTP Resume Handler | 0/1 | Pending | - |
+| 10. SUMMARY Frontmatter Backfill | 0/1 | Pending | - |
