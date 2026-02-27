@@ -76,6 +76,17 @@ func InitManager() (m *Manager, err error) {
 			m.items = make(ItemsMap)
 		}
 		m.queueState = data.QueueState
+		// Validate protocol values for all decoded items.
+		// Unknown values indicate the file was created by a newer warpdl version.
+		for hash, item := range m.items {
+			if item == nil {
+				continue
+			}
+			if err := ValidateProtocol(item.Protocol); err != nil {
+				m.f.Close()
+				return nil, fmt.Errorf("item %s: %w", hash, err)
+			}
+		}
 	}
 	m.populateMemPart()
 	return

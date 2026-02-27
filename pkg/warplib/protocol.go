@@ -5,6 +5,56 @@ import (
 	"fmt"
 )
 
+// Protocol identifies the download protocol for an Item.
+// It is stored as uint8 in GOB-encoded userdata.warp files.
+// The zero value (ProtoHTTP = 0) is the default and ensures backward
+// compatibility with all pre-Phase-2 GOB files that lack this field.
+//
+// IMPORTANT: Do NOT reorder these constants. The iota values are
+// persisted in GOB-encoded files and must remain stable forever.
+type Protocol uint8
+
+const (
+	// ProtoHTTP is the default HTTP/HTTPS protocol.
+	// MUST be 0 (iota start) for GOB backward compatibility.
+	ProtoHTTP Protocol = iota // 0 — default, matches zero value in old GOB files
+	// ProtoFTP is the FTP protocol (plain text).
+	ProtoFTP // 1
+	// ProtoFTPS is the FTP-over-TLS protocol.
+	ProtoFTPS // 2
+	// ProtoSFTP is the SSH File Transfer Protocol.
+	ProtoSFTP // 3
+)
+
+// String returns the human-readable name of the protocol.
+// Unknown values return "unknown(N)" where N is the numeric value.
+func (p Protocol) String() string {
+	switch p {
+	case ProtoHTTP:
+		return "http"
+	case ProtoFTP:
+		return "ftp"
+	case ProtoFTPS:
+		return "ftps"
+	case ProtoSFTP:
+		return "sftp"
+	default:
+		return fmt.Sprintf("unknown(%d)", uint8(p))
+	}
+}
+
+// ValidateProtocol returns an error if p is not a known Protocol value.
+// Manager.InitManager calls this after decoding ManagerData to detect
+// files from a newer warpdl version with protocol values not yet supported.
+func ValidateProtocol(p Protocol) error {
+	switch p {
+	case ProtoHTTP, ProtoFTP, ProtoFTPS, ProtoSFTP:
+		return nil
+	default:
+		return fmt.Errorf("unknown protocol type %d — upgrade warpdl", uint8(p))
+	}
+}
+
 // DownloadCapabilities describes what optional features a protocol downloader supports.
 // Zero value is safe: no capabilities assumed for unknown protocols.
 type DownloadCapabilities struct {

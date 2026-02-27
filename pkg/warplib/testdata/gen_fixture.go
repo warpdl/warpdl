@@ -4,6 +4,12 @@
 // Run ONCE before adding Protocol field to Item:
 //
 //	go run ./pkg/warplib/testdata/gen_fixture.go
+//
+// Then commit the generated testdata/pre_phase2_userdata.warp file.
+// Do NOT run again after Protocol field is added — the fixture would include Protocol.
+//
+// IMPORTANT: This file must use types that exactly match the warplib package's
+// exported GOB-encoded types. Mismatches cause "type mismatch in decoder" errors.
 package main
 
 import (
@@ -11,12 +17,12 @@ import (
 	"encoding/gob"
 	"fmt"
 	"os"
-	"sync"
 	"time"
 )
 
 // Minimal copies of warplib types needed for fixture generation.
-// These match the Item struct BEFORE Phase 2 adds the Protocol field.
+// These MUST match the exported fields of the actual warplib structs exactly.
+// GOB field matching is by name; type compatibility must also match.
 
 type ContentLength int64
 
@@ -35,10 +41,21 @@ type ItemPart struct {
 
 type ItemsMap map[string]*Item
 
+// Priority mirrors warplib.Priority for QueuedItemState compatibility.
+type Priority int
+
+// QueuedItemState mirrors warplib.QueuedItemState exactly.
+// QueueState.Waiting is []QueuedItemState (NOT []string).
+type QueuedItemState struct {
+	Hash     string
+	Priority Priority
+}
+
+// QueueState mirrors warplib.QueueState exactly.
 type QueueState struct {
 	MaxConcurrent int
-	Waiting       []string
-	Active        []string
+	Waiting       []QueuedItemState
+	Paused        bool
 }
 
 type ManagerData struct {
@@ -48,31 +65,27 @@ type ManagerData struct {
 
 // Item mirrors warplib.Item WITHOUT the Protocol field (pre-Phase-2 state).
 // All exported fields must match exactly for GOB to work correctly.
+// Unexported fields (mu, dAllocMu, dAlloc, memPart) are NOT GOB-encoded.
 type Item struct {
-	Hash             string     `json:"hash"`
-	Name             string     `json:"name"`
-	Url              string     `json:"url"`
-	Headers          Headers    `json:"headers"`
-	DateAdded        time.Time  `json:"date_added"`
-	TotalSize        ContentLength `json:"total_size"`
-	Downloaded       ContentLength `json:"downloaded"`
-	DownloadLocation string     `json:"download_location"`
-	AbsoluteLocation string     `json:"absolute_location"`
-	ChildHash        string     `json:"child_hash"`
-	Hidden           bool       `json:"hidden"`
-	Children         bool       `json:"children"`
+	Hash             string            `json:"hash"`
+	Name             string            `json:"name"`
+	Url              string            `json:"url"`
+	Headers          Headers           `json:"headers"`
+	DateAdded        time.Time         `json:"date_added"`
+	TotalSize        ContentLength     `json:"total_size"`
+	Downloaded       ContentLength     `json:"downloaded"`
+	DownloadLocation string            `json:"download_location"`
+	AbsoluteLocation string            `json:"absolute_location"`
+	ChildHash        string            `json:"child_hash"`
+	Hidden           bool              `json:"hidden"`
+	Children         bool              `json:"children"`
 	Parts            map[int64]*ItemPart `json:"parts"`
-	Resumable        bool       `json:"resumable"`
-	// NOTE: NO Protocol field — this is the pre-Phase-2 schema
-	// Unexported fields are not GOB-encoded, so we skip them
+	Resumable        bool              `json:"resumable"`
+	// NOTE: NO Protocol field — this is the pre-Phase-2 schema.
+	// After adding Protocol to Item, this generator should NOT be re-run.
 }
 
 func main() {
-	// We need a mutex for Item but since it's unexported it won't be GOB-encoded.
-	// We include it as a workaround for the gob registration — but since it's unexported
-	// we use minimal struct here without unexported fields.
-	_ = sync.RWMutex{}
-
 	// Item 1: a resumable partial HTTP download with 2 parts
 	item1 := &Item{
 		Hash:             "hash_item1_abc123",
@@ -140,6 +153,6 @@ func main() {
 		os.Exit(1)
 	}
 	fmt.Printf("Generated %s (%d bytes)\n", outPath, buf.Len())
-	fmt.Println("This fixture encodes ManagerData WITHOUT a Protocol field.")
+	fmt.Println("Fixture encodes ManagerData WITHOUT Protocol field (pre-Phase-2 schema).")
 	fmt.Println("After Phase 2 adds Protocol to Item, decoding this fixture must yield Protocol==0 (ProtoHTTP).")
 }

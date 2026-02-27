@@ -44,6 +44,11 @@ type Item struct {
 	Parts map[int64]*ItemPart `json:"parts"`
 	// Resumable is a flag indicating whether the download can be resumed.
 	Resumable bool `json:"resumable"`
+	// Protocol identifies which download protocol to use when resuming this item.
+	// Zero value is ProtoHTTP (0), ensuring backward compatibility with GOB files
+	// encoded before Phase 2 added this field — GOB zero-initializes missing fields.
+	// INVARIANT: ProtoHTTP must remain iota=0 or all pre-Phase-2 files will break.
+	Protocol Protocol `json:"protocol"`
 	// mu is a mutex for synchronizing access to the item's fields.
 	mu *sync.RWMutex
 	// dAllocMu protects access to dAlloc field (value type, not pointer, for GOB serialization)
