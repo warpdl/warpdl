@@ -1145,3 +1145,80 @@ func TestResumeHandlerInvalidSpeedLimit(t *testing.T) {
 		t.Fatalf("expected 'invalid speed limit' error, got: %v", err)
 	}
 }
+
+func TestDownloadFTPHandlerNilRouter(t *testing.T) {
+	api, pool, cleanup := newTestApi(t)
+	defer cleanup()
+
+	// schemeRouter is nil by default in test — should error
+	params := common.DownloadParams{
+		Url:               "ftp://ftp.example.com/file.iso",
+		DownloadDirectory: warplib.ConfigDir,
+	}
+	body, _ := json.Marshal(params)
+	_, _, err := api.downloadHandler(nil, pool, body)
+	if err == nil {
+		t.Fatalf("expected error for FTP download with nil router")
+	}
+	if !strings.Contains(err.Error(), "scheme router not initialized") {
+		t.Fatalf("expected 'scheme router not initialized' error, got: %v", err)
+	}
+}
+
+func TestDownloadFTPHandlerNilRouterFTPS(t *testing.T) {
+	api, pool, cleanup := newTestApi(t)
+	defer cleanup()
+
+	params := common.DownloadParams{
+		Url:               "ftps://ftp.example.com/file.iso",
+		DownloadDirectory: warplib.ConfigDir,
+	}
+	body, _ := json.Marshal(params)
+	_, _, err := api.downloadHandler(nil, pool, body)
+	if err == nil {
+		t.Fatalf("expected error for FTPS download with nil router")
+	}
+	if !strings.Contains(err.Error(), "scheme router not initialized") {
+		t.Fatalf("expected 'scheme router not initialized' error, got: %v", err)
+	}
+}
+
+func TestDownloadFTPHandlerWithRouter(t *testing.T) {
+	api, pool, cleanup := newTestApi(t)
+	defer cleanup()
+
+	// Set up a scheme router — FTP factory will fail on connection (no server)
+	// but this covers the dispatch path through downloadFTPHandler past the nil check
+	router := warplib.NewSchemeRouter(&http.Client{})
+	api.schemeRouter = router
+
+	params := common.DownloadParams{
+		Url:               "ftp://ftp.example.com/file.iso",
+		DownloadDirectory: warplib.ConfigDir,
+	}
+	body, _ := json.Marshal(params)
+	_, _, err := api.downloadHandler(nil, pool, body)
+	// Should fail at Probe (connection refused) but exercises the full dispatch path
+	if err == nil {
+		t.Fatalf("expected error for FTP download to unreachable server")
+	}
+}
+
+func TestDownloadFTPHandlerInvalidFTPURL(t *testing.T) {
+	api, pool, cleanup := newTestApi(t)
+	defer cleanup()
+
+	router := warplib.NewSchemeRouter(&http.Client{})
+	api.schemeRouter = router
+
+	// FTP URL with no file path — factory should reject
+	params := common.DownloadParams{
+		Url:               "ftp://ftp.example.com/",
+		DownloadDirectory: warplib.ConfigDir,
+	}
+	body, _ := json.Marshal(params)
+	_, _, err := api.downloadHandler(nil, pool, body)
+	if err == nil {
+		t.Fatalf("expected error for FTP URL with root path")
+	}
+}
