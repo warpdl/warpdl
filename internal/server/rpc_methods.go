@@ -239,7 +239,7 @@ func (rs *RPCServer) downloadAdd(_ context.Context, p *AddParams) (*AddResult, e
 		default:
 			proto = warplib.ProtoFTP
 		}
-		if err := rs.manager.AddProtocolDownload(pd, probe, cleanURL, proto, nil, &warplib.AddDownloadOpts{
+		if err := rs.manager.AddProtocolDownload(pd, probe, cleanURL, proto, opts.Handlers, &warplib.AddDownloadOpts{
 			AbsoluteLocation: pd.GetDownloadDirectory(),
 			SSHKeyPath:       p.SSHKeyPath,
 		}); err != nil {
@@ -256,7 +256,7 @@ func (rs *RPCServer) downloadAdd(_ context.Context, p *AddParams) (*AddResult, e
 				TotalLength: probe.ContentLength,
 			})
 		}
-		go pd.Download(context.Background(), nil)
+		go pd.Download(context.Background(), opts.Handlers)
 		return &AddResult{GID: hash}, nil
 	}
 }
