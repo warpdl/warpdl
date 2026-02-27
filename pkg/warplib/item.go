@@ -5,6 +5,7 @@
 package warplib
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"sync"
@@ -47,8 +48,9 @@ type Item struct {
 	mu *sync.RWMutex
 	// dAllocMu protects access to dAlloc field (value type, not pointer, for GOB serialization)
 	dAllocMu sync.RWMutex
-	// dAlloc is a reference to the Downloader managing this item.
-	dAlloc *Downloader
+	// dAlloc is the ProtocolDownloader managing this item.
+	// Type is ProtocolDownloader to allow HTTP, FTP, SFTP backends.
+	dAlloc ProtocolDownloader
 	// memPart is an internal map for managing memory allocation of parts.
 	memPart map[string]int64
 }
@@ -160,14 +162,14 @@ func (i *Item) getPartWithError(hash string) (offset int64, part *ItemPart, err 
 }
 
 // getDAlloc returns the current downloader with proper synchronization.
-func (i *Item) getDAlloc() *Downloader {
+func (i *Item) getDAlloc() ProtocolDownloader {
 	i.dAllocMu.RLock()
 	defer i.dAllocMu.RUnlock()
 	return i.dAlloc
 }
 
 // setDAlloc sets the downloader with proper synchronization.
-func (i *Item) setDAlloc(d *Downloader) {
+func (i *Item) setDAlloc(d ProtocolDownloader) {
 	i.dAllocMu.Lock()
 	defer i.dAllocMu.Unlock()
 	i.dAlloc = d
@@ -220,6 +222,7 @@ func (i *Item) GetMaxParts() (int32, error) {
 
 // Resume resumes the download of the item.
 // Fixed Race 2: Takes snapshot of Parts under Item lock before calling Resume.
+// Handlers are not passed here because they were already installed by Manager.patchHandlers.
 func (i *Item) Resume() error {
 	// Take snapshot of Parts under Item lock first
 	i.mu.RLock()
@@ -237,7 +240,8 @@ func (i *Item) Resume() error {
 	if d == nil {
 		return ErrItemDownloaderNotFound
 	}
-	return d.Resume(partsCopy)
+	// Pass nil handlers — Manager.patchHandlers already installed them on the inner downloader.
+	return d.Resume(context.Background(), partsCopy, nil)
 }
 
 // StopDownload pauses the download of the item.

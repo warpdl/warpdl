@@ -139,6 +139,8 @@ type AddDownloadOpts struct {
 // If the queue is enabled, the download is registered with the queue.
 // The queue's onStart callback will be invoked when a slot is available
 // (immediately if under capacity, or when another download completes).
+// The *Downloader is wrapped in an httpProtocolDownloader adapter and stored
+// in item.dAlloc as a ProtocolDownloader.
 func (m *Manager) AddDownload(d *Downloader, opts *AddDownloadOpts) (err error) {
 	if opts == nil {
 		opts = &AddDownloadOpts{}
@@ -162,9 +164,18 @@ func (m *Manager) AddDownload(d *Downloader, opts *AddDownloadOpts) (err error) 
 	if err != nil {
 		return err
 	}
-	item.setDAlloc(d)
-	m.UpdateItem(item)
+	// Wrap the concrete *Downloader in an httpProtocolDownloader adapter.
+	// patchHandlers operates on the concrete *Downloader directly, so we
+	// patch first, then wrap.
 	m.patchHandlers(d, item)
+
+	adapter := &httpProtocolDownloader{
+		inner:  d,
+		rawURL: d.url,
+		probed: true, // fetchInfo was already called by NewDownloader
+	}
+	item.setDAlloc(adapter)
+	m.UpdateItem(item)
 
 	// Register with queue if enabled
 	if m.queue != nil {
@@ -422,7 +433,13 @@ func (m *Manager) ResumeDownload(client *http.Client, hash string, opts *ResumeD
 		return
 	}
 	m.patchHandlers(d, item)
-	item.setDAlloc(d)
+	// Wrap the concrete *Downloader in an httpProtocolDownloader adapter.
+	adapter := &httpProtocolDownloader{
+		inner:  d,
+		rawURL: item.Url,
+		probed: true, // initDownloader already has the state
+	}
+	item.setDAlloc(adapter)
 	m.UpdateItem(item)
 	return
 }
