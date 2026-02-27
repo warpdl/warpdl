@@ -11,6 +11,8 @@ import (
 	"net/url"
 	"sync"
 
+	cws "github.com/coder/websocket"
+	"github.com/creachadair/jrpc2"
 	"github.com/warpdl/warpdl/common"
 	"github.com/warpdl/warpdl/pkg/warplib"
 	"golang.org/x/net/websocket"
@@ -36,7 +38,7 @@ type capturedDownload struct {
 func NewWebServer(l *log.Logger, m *warplib.Manager, pool *Pool, port int, client *http.Client, router *warplib.SchemeRouter, rpcCfg *RPCConfig) *WebServer {
 	ws := &WebServer{port: port, l: l, m: m, pool: pool}
 	if rpcCfg != nil && rpcCfg.Secret != "" {
-		ws.rpc = NewRPCServer(rpcCfg, m, client, pool, router)
+		ws.rpc = NewRPCServer(rpcCfg, m, client, pool, router, l)
 		ws.listenAll = rpcCfg.ListenAll
 	}
 	return ws
@@ -172,8 +174,43 @@ func (s *WebServer) handler() http.Handler {
 	mux.Handle("/", websocket.Handler(s.handleConnection))
 	if s.rpc != nil {
 		mux.Handle("/jsonrpc", requireToken(s.rpc.secret, s.rpc.bridge))
+		mux.HandleFunc("/jsonrpc/ws", s.handleJSONRPCWebSocket)
 	}
 	return mux
+}
+
+// handleJSONRPCWebSocket handles WebSocket upgrade at /jsonrpc/ws.
+// Each connection gets its own jrpc2.Server with AllowPush for notifications.
+func (s *WebServer) handleJSONRPCWebSocket(w http.ResponseWriter, r *http.Request) {
+	// Auth check before WebSocket upgrade
+	if !validToken(s.rpc.secret, r.Header.Get("Authorization")) {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	conn, err := cws.Accept(w, r, nil)
+	if err != nil {
+		s.l.Printf("WebSocket accept error: %v", err)
+		return
+	}
+
+	ctx := r.Context()
+	ch := &wsChannel{conn: conn, ctx: ctx}
+
+	// Create jrpc2 server for this connection with push support
+	srv := jrpc2.NewServer(s.rpc.methods(), &jrpc2.ServerOptions{
+		AllowPush: true,
+	})
+
+	// Register for notifications
+	if s.rpc.notifier != nil {
+		s.rpc.notifier.Register(srv)
+		defer s.rpc.notifier.Unregister(srv)
+	}
+
+	// Serve blocks until connection closes
+	srv.Start(ch)
+	_ = srv.Wait()
 }
 
 func (s *WebServer) addr() string {

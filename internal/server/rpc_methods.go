@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -39,6 +40,7 @@ type RPCServer struct {
 	client       *http.Client
 	pool         *Pool
 	schemeRouter *warplib.SchemeRouter
+	notifier     *RPCNotifier
 }
 
 // VersionResult is the response for system.getVersion.
@@ -101,7 +103,7 @@ type ListResult struct {
 type EmptyResult struct{}
 
 // NewRPCServer creates a new RPCServer with method handlers and HTTP bridge.
-func NewRPCServer(cfg *RPCConfig, m *warplib.Manager, client *http.Client, pool *Pool, router *warplib.SchemeRouter) *RPCServer {
+func NewRPCServer(cfg *RPCConfig, m *warplib.Manager, client *http.Client, pool *Pool, router *warplib.SchemeRouter, l *log.Logger) *RPCServer {
 	rs := &RPCServer{
 		secret:       cfg.Secret,
 		version:      cfg.Version,
@@ -111,20 +113,24 @@ func NewRPCServer(cfg *RPCConfig, m *warplib.Manager, client *http.Client, pool 
 		client:       client,
 		pool:         pool,
 		schemeRouter: router,
+		notifier:     NewRPCNotifier(l),
 	}
 
-	methods := handler.Map{
-		"system.getVersion": handler.New(rs.systemGetVersion),
-		"download.add":     handler.New(rs.downloadAdd),
-		"download.pause":   handler.New(rs.downloadPause),
-		"download.resume":  handler.New(rs.downloadResume),
-		"download.remove":  handler.New(rs.downloadRemove),
-		"download.status":  handler.New(rs.downloadStatus),
-		"download.list":    handler.New(rs.downloadList),
-	}
-
-	rs.bridge = jhttp.NewBridge(methods, nil)
+	rs.bridge = jhttp.NewBridge(rs.methods(), nil)
 	return rs
+}
+
+// methods returns the handler.Map used by both the HTTP bridge and WebSocket servers.
+func (rs *RPCServer) methods() handler.Map {
+	return handler.Map{
+		"system.getVersion": handler.New(rs.systemGetVersion),
+		"download.add":      handler.New(rs.downloadAdd),
+		"download.pause":    handler.New(rs.downloadPause),
+		"download.resume":   handler.New(rs.downloadResume),
+		"download.remove":   handler.New(rs.downloadRemove),
+		"download.status":   handler.New(rs.downloadStatus),
+		"download.list":     handler.New(rs.downloadList),
+	}
 }
 
 func (rs *RPCServer) systemGetVersion(_ context.Context) (*VersionResult, error) {
@@ -160,6 +166,30 @@ func (rs *RPCServer) downloadAdd(_ context.Context, p *AddParams) (*AddResult, e
 		SSHKeyPath:        p.SSHKeyPath,
 	}
 
+	// Wire notifier into download event handlers if available.
+	if rs.notifier != nil {
+		opts.Handlers = &warplib.Handlers{
+			ErrorHandler: func(hash string, err error) {
+				rs.notifier.Broadcast("download.error", &DownloadErrorNotification{
+					GID:   hash,
+					Error: err.Error(),
+				})
+			},
+			DownloadProgressHandler: func(hash string, nread int) {
+				rs.notifier.Broadcast("download.progress", &DownloadProgressNotification{
+					GID:             hash,
+					CompletedLength: int64(nread),
+				})
+			},
+			DownloadCompleteHandler: func(hash string, tread int64) {
+				rs.notifier.Broadcast("download.complete", &DownloadCompleteNotification{
+					GID:         hash,
+					TotalLength: tread,
+				})
+			},
+		}
+	}
+
 	switch scheme {
 	case "http", "https":
 		d, err := warplib.NewDownloader(rs.client, p.URL, opts)
@@ -174,6 +204,13 @@ func (rs *RPCServer) downloadAdd(_ context.Context, p *AddParams) (*AddResult, e
 		hash := d.GetHash()
 		if rs.pool != nil {
 			rs.pool.AddDownload(hash, nil)
+		}
+		if rs.notifier != nil {
+			rs.notifier.Broadcast("download.started", &DownloadStartedNotification{
+				GID:         hash,
+				FileName:    d.GetFileName(),
+				TotalLength: d.GetContentLengthAsInt(),
+			})
 		}
 		go d.Start()
 		return &AddResult{GID: hash}, nil
@@ -210,6 +247,13 @@ func (rs *RPCServer) downloadAdd(_ context.Context, p *AddParams) (*AddResult, e
 		hash := pd.GetHash()
 		if rs.pool != nil {
 			rs.pool.AddDownload(hash, nil)
+		}
+		if rs.notifier != nil {
+			rs.notifier.Broadcast("download.started", &DownloadStartedNotification{
+				GID:         hash,
+				FileName:    probe.FileName,
+				TotalLength: probe.ContentLength,
+			})
 		}
 		go pd.Download(context.Background(), nil)
 		return &AddResult{GID: hash}, nil

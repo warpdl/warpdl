@@ -81,7 +81,7 @@ func newTestRPCHandler(t *testing.T) (http.Handler, string, func()) {
 		Commit:    "abc123",
 		BuildType: "release",
 	}
-	rs := NewRPCServer(cfg, nil, nil, nil, nil)
+	rs := NewRPCServer(cfg, nil, nil, nil, nil, nil)
 	handler := requireToken(secret, rs.bridge)
 	return handler, secret, func() { rs.Close() }
 }
@@ -169,7 +169,7 @@ func TestRPCBridgeLifecycle(t *testing.T) {
 		Secret:  "test",
 		Version: "1.0.0",
 	}
-	rs := NewRPCServer(cfg, nil, nil, nil, nil)
+	rs := NewRPCServer(cfg, nil, nil, nil, nil, nil)
 	// Close should not panic
 	rs.Close()
 	// Double close should not panic
@@ -225,7 +225,7 @@ func newTestRPCHandlerWithManager(t *testing.T) (http.Handler, string, func(), *
 		Commit:    "abc123",
 		BuildType: "release",
 	}
-	rs := NewRPCServer(cfg, m, client, pool, nil)
+	rs := NewRPCServer(cfg, m, client, pool, nil, nil)
 	handler := requireToken(secret, rs.bridge)
 	cleanup := func() {
 		rs.Close()
@@ -711,7 +711,7 @@ func TestRPCDownloadPause_NotActive_NoPool(t *testing.T) {
 	// First add a download to the manager directly via RPC
 	client := &http.Client{}
 	cfg := &RPCConfig{Secret: secret, Version: "1.0.0"}
-	rs := NewRPCServer(cfg, m, client, pool, nil)
+	rs := NewRPCServer(cfg, m, client, pool, nil, nil)
 	defer rs.Close()
 	h := requireToken(secret, rs.bridge)
 

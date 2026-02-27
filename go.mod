@@ -4,6 +4,7 @@ go 1.25
 
 require (
 	github.com/Microsoft/go-winio v0.6.2
+	github.com/coder/websocket v1.8.14
 	github.com/creachadair/jrpc2 v1.3.4
 	github.com/dop251/goja v0.0.0-20260106131823-651366fbe6e3
 	github.com/dop251/goja_nodejs v0.0.0-20251015164255-5e94316bedaf
