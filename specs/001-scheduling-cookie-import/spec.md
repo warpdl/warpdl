@@ -96,7 +96,7 @@ A user doesn't know where their browser stores cookies. They just want WarpDL to
 **Acceptance Scenarios**:
 
 1. **Given** Firefox is installed with a default profile, **When** `--cookies-from auto` is used, **Then** WarpDL finds and uses the Firefox cookie store.
-2. **Given** multiple browsers are installed, **When** `--cookies-from auto` is used, **Then** WarpDL uses the first detected browser in the documented priority order (Firefox, LibreWolf, Chrome, Chromium, Edge, Brave — unencrypted stores preferred) and informs the user which browser's cookies were selected.
+2. **Given** multiple browsers are installed, **When** `--cookies-from auto` is used, **Then** WarpDL uses the first detected browser in the documented priority order (see research.md §4; unencrypted stores preferred) and informs the user which browser's cookies were selected.
 3. **Given** no supported browser cookie store is found, **When** `--cookies-from auto` is used, **Then** WarpDL displays a clear error listing supported browsers (Firefox, LibreWolf, Chrome, Chromium, Edge, Brave) and expected paths.
 
 ---
@@ -141,7 +141,7 @@ A user wants downloads to run at full speed overnight but throttled during work 
 - What happens when the cookie file is corrupted or uses an unexpected schema version? System must report the error clearly, not crash.
 - What happens when `--cookies-from auto` finds a browser but the cookie store is empty for the target domain? System must warn "No cookies found for domain X" and proceed without cookies.
 - What happens when a scheduled download's URL becomes unavailable by the scheduled time? System must report the failure just like a normal download failure — retry logic applies.
-- What happens when the system clock changes (NTP sync, manual change, DST) while a download is scheduled? System must use monotonic time for relative schedules and wall-clock time for absolute schedules, handling the difference gracefully.
+- What happens when the system clock changes (NTP sync, manual change, DST) while a download is scheduled? All schedules are stored as absolute wall-clock times (relative durations are resolved at submission). The scheduler re-evaluates `time.Until(target)` each wake cycle (max 60s sleep), so clock adjustments are absorbed naturally. Ambiguous times during DST fall-back resolve to the first occurrence.
 - What happens when multiple downloads are scheduled for the exact same time? System must respect the existing queue/concurrency limits and queue overflow downloads.
 - What happens when the daemon runs out of disk space before a scheduled download starts? System must check available space before starting and report the issue.
 - What happens when a Netscape cookie file has malformed lines? System must skip invalid lines, warn the user, and continue with valid cookies.
@@ -181,7 +181,7 @@ A user wants downloads to run at full speed overnight but throttled during work 
 - **FR-021**: System MUST handle locked cookie databases gracefully (e.g., copy to temp file before reading, or clear error message).
 - **FR-022**: System MUST support platform-specific browser cookie paths (macOS `~/Library/Application Support/`, Linux `~/.config/`, `~/.mozilla/`).
 - **FR-023**: System MUST NOT persist imported cookie values to disk. Cookies are held in-memory only and re-imported from the source path on download resume, retry, or recurring schedule trigger.
-- **FR-024**: System MUST persist the cookie source path (`--cookies-from` value) with the download item so that cookies can be re-imported on resume or recurring trigger.
+- **FR-024**: System MUST persist the cookie source path (`--cookies-from` value) with the download item so that cookies can be re-imported on resume or recurring trigger. When the value is `auto`, the system MUST resolve it to the actual detected file path before persisting, ensuring deterministic re-import from the same browser on resume and retry.
 
 ### Key Entities
 

@@ -83,7 +83,7 @@
 - [ ] T019 [US1] Add `OnTrigger` callback to scheduler — when event fires, call provided function with `ItemHash` to enqueue download via existing flow
 - [ ] T020 [US1] Add schedule-aware query method `GetScheduledItems() []*Item` to `Manager` in `pkg/warplib/manager.go` — returns items where `ScheduleState == "scheduled"`
 - [ ] T021 [US1] Instantiate scheduler in daemon startup in `internal/daemon/runner.go` — pass context for lifecycle, register trigger callback that starts download through existing API path
-- [ ] T022 [US1] On daemon startup, scan all items via `Manager.GetItems()`: if `ScheduleState == "scheduled"` and `ScheduledAt` is in the future, add to scheduler heap in `internal/daemon/runner.go`
+- [ ] T022 [US1] On daemon startup, scan all items via `Manager.GetItems()`: if `ScheduleState == "scheduled"` and `ScheduledAt` is in the future, add to scheduler heap in `internal/daemon/runner.go`. **Note**: This implements the minimal US1 startup scan. T049/T050 (Phase 6, US4) introduce `LoadSchedules()` which supersedes this with missed-schedule detection. Implement T022 as a simple future-only scan; T050 will replace the call site with `LoadSchedules()`.
 - [ ] T023 [US1] Extend `warpdl list` output to show `Scheduled` column — display `ScheduledAt` time for one-shot scheduled items, `—` for unscheduled items in `cmd/list.go`
 - [ ] T024 [US1] Extend `warpdl stop <id>` to handle scheduled (not-yet-started) items: set `ScheduleState = "cancelled"`, remove from scheduler heap, print cancellation confirmation in `cmd/stop.go` (or relevant handler)
 
@@ -228,6 +228,7 @@
 
 - [ ] T074 [P] Write E2E test for scheduling + cookie import in `tests/e2e/schedule_cookie_test.go` (`//go:build e2e`) — schedule a download with `--start-at` near-future, verify it starts. Import cookies from Netscape fixture, verify download uses cookies.
 - [ ] T075 [P] Write cookie import benchmark test in `internal/cookies/import_test.go` — generate 10k-row SQLite fixture, assert `ImportCookies` completes in < 2 seconds (SC-005)
+- [ ] T075b [P] Write queue concurrency cap test for simultaneous schedule triggers in `internal/scheduler/scheduler_test.go` or `pkg/warplib/queue_test.go` — schedule N downloads for the same trigger time (N > queue concurrency limit), verify that at most `maxConcurrent` downloads are active simultaneously and the rest are queued (FR-010)
 - [ ] T076 Run `go vet ./...` and `go fmt ./...` across all new and modified files
 - [ ] T077 Run `scripts/check_coverage.sh` — ensure 80%+ coverage on `pkg/warplib/`, `internal/cookies/`, `internal/scheduler/`, `cmd/`
 - [ ] T078 Run `go test -race -short ./...` — verify no data races in scheduler goroutine, cookie import, or daemon startup paths

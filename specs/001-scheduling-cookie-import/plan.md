@@ -227,12 +227,12 @@ This section maps every item from `checklists/spec-audit.md` to a design decisio
 
 ## Spec Addenda
 
-The following items require minor spec updates before implementation. These are NOT spec gaps — they are precision improvements surfaced by the audit.
+Precision improvements surfaced by the audit. Items 1, 2, and 4 have been applied to spec.md. Item 3 is partially applied (story description updated; acceptance scenarios retain the inline list as concrete test criteria).
 
-1. **FR-007 simplification**: Change "prompt for confirmation or start immediately" → "warn the user and start immediately." No interactive prompt. (CHK017, CHK021)
-2. **FR-009 addendum**: Add "MAY be combined with `--start-at` or `--start-in` to delay the first occurrence." (CHK010)
-3. **User Story 5**: Replace inline browser list with "in a documented priority order" reference. (CHK023)
-4. **FR-002 clarification**: Add "Duration format uses Go's `time.ParseDuration` syntax: `h` (hours), `m` (minutes), `s` (seconds), and compounds (e.g., `1h30m`). Days are not supported — use `24h`." (CHK018)
+1. ~~**FR-007 simplification**: Change "prompt for confirmation or start immediately" → "warn the user and start immediately." No interactive prompt. (CHK017, CHK021)~~ *Applied — spec.md FR-007.*
+2. ~~**FR-009 addendum**: Add "MAY be combined with `--start-at` or `--start-in` to delay the first occurrence." (CHK010)~~ *Applied — spec.md FR-009.*
+3. **User Story 5**: Replace inline browser list with "in a documented priority order" reference. (CHK023) — *Partially applied: story description references research.md §4, acceptance scenarios still list browsers inline as concrete test criteria.*
+4. ~~**FR-002 clarification**: Add "Duration format uses Go's `time.ParseDuration` syntax: `h` (hours), `m` (minutes), `s` (seconds), and compounds (e.g., `1h30m`). Days are not supported — use `24h`." (CHK018)~~ *Applied — spec.md FR-002.*
 
 ## Complexity Tracking
 

@@ -223,7 +223,7 @@ Item.CookieSourcePath ──> CookieSource    [resolved at import time]
 | `--start-at` format must be `YYYY-MM-DD HH:MM` | `time.Parse("2006-01-02 15:04", value)` — reject on error (SC-007) |
 | `--start-in` format must be Go duration (`2h`, `30m`, `1h30m`) | `time.ParseDuration(value)` — reject on error |
 | `--schedule` must be valid 5-field cron | `gronx.IsValid(value)` — reject on error |
-| `--start-at` in the past triggers warning | Warn user, prompt or start immediately (FR-007) |
+| `--start-at` in the past triggers warning | Warn user, start immediately — no interactive prompt (FR-007) |
 | `--schedule` combined with `--start-at` or `--start-in` | Allowed — first occurrence can be delayed |
 
 ### Cookie Import
@@ -239,6 +239,7 @@ Item.CookieSourcePath ──> CookieSource    [resolved at import time]
 | Cookie values are NEVER logged at ANY level | Log `name` and `domain` at DEBUG level only (FR-020, CHK033, CHK039) |
 | Cookie header in Item.Headers is redacted in logs | If header key is `Cookie` or `Set-Cookie`, log `"[REDACTED]"` (CHK034) |
 | Chrome encrypted cookies are skipped | Check `value != ""` — skip rows with only `encrypted_value` (FR-014) |
+| One-time import feedback includes full path | The transient CLI message (`"Imported N cookies for {domain} from {browser} ({path})"`) is explicitly allowed to show the full cookie source path. This is a one-time ephemeral message, not persisted display. `warpdl list` still shows browser name only per CHK038. |
 | Malformed Netscape lines are skipped | Skip with warning, continue processing (edge case spec) |
 | CRLF line endings handled | `bufio.Scanner` with default `ScanLines` handles both `\n` and `\r\n` (CHK060) |
 | Temp file cleanup guaranteed | `defer os.RemoveAll(tempDir)` immediately after creation — runs on all paths (CHK037) |
