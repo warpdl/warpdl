@@ -33,7 +33,7 @@ A user finds a large file to download but wants it to start later — during off
 1. **Given** the daemon is running and a valid URL, **When** the user runs `warpdl download --start-at "2026-03-01 02:00" <url>`, **Then** the download is queued with a "scheduled" status and starts automatically at 02:00 on March 1st.
 2. **Given** a scheduled download exists, **When** the user runs `warpdl list`, **Then** the scheduled download appears with its scheduled start time clearly displayed.
 3. **Given** a download is scheduled for a future time, **When** the scheduled time arrives and the daemon is running, **Then** the download begins automatically without user intervention.
-4. **Given** a download is scheduled for a time that has already passed (e.g., 1 hour ago), **When** the command is executed, **Then** the system warns the user that the time is in the past and prompts for confirmation or starts immediately.
+4. **Given** a download is scheduled for a time that has already passed (e.g., 1 hour ago), **When** the command is executed, **Then** the system warns the user that the time is in the past and starts the download immediately.
 
 ---
 
@@ -89,15 +89,15 @@ A user schedules a download for 3 AM, then the system reboots or the daemon rest
 
 A user doesn't know where their browser stores cookies. They just want WarpDL to find the right cookie file automatically by scanning known browser locations.
 
-**Why this priority**: Reduces friction for non-technical users. The `auto` mode tries known browser paths in order (Firefox, Chrome, Chromium, Edge, LibreWolf) and uses the first one found.
+**Why this priority**: Reduces friction for non-technical users. The `auto` mode tries known browser paths in a documented priority order (see research.md §4) and uses the first valid store found.
 
 **Independent Test**: Can be tested by having a browser installed and running `--cookies-from auto` to verify auto-detection works.
 
 **Acceptance Scenarios**:
 
 1. **Given** Firefox is installed with a default profile, **When** `--cookies-from auto` is used, **Then** WarpDL finds and uses the Firefox cookie store.
-2. **Given** multiple browsers are installed, **When** `--cookies-from auto` is used, **Then** WarpDL uses the first detected browser (in a documented priority order) and informs the user which browser's cookies were selected.
-3. **Given** no supported browser cookie store is found, **When** `--cookies-from auto` is used, **Then** WarpDL displays a clear error message listing supported browsers and expected paths.
+2. **Given** multiple browsers are installed, **When** `--cookies-from auto` is used, **Then** WarpDL uses the first detected browser in the documented priority order (Firefox, LibreWolf, Chrome, Chromium, Edge, Brave — unencrypted stores preferred) and informs the user which browser's cookies were selected.
+3. **Given** no supported browser cookie store is found, **When** `--cookies-from auto` is used, **Then** WarpDL displays a clear error listing supported browsers (Firefox, LibreWolf, Chrome, Chromium, Edge, Brave) and expected paths.
 
 ---
 
@@ -155,14 +155,14 @@ A user wants downloads to run at full speed overnight but throttled during work 
 **Scheduling (Issue #140)**
 
 - **FR-001**: System MUST accept an `--start-at` flag with an absolute datetime in `YYYY-MM-DD HH:MM` format (local timezone only — no timezone suffix or explicit timezone flag supported) to schedule a download for a specific time.
-- **FR-002**: System MUST accept a `--start-in` flag with a relative duration (e.g., `2h`, `30m`, `1h30m`) to schedule a download for a time offset from now.
+- **FR-002**: System MUST accept a `--start-in` flag with a relative duration to schedule a download for a time offset from now. Duration format uses Go's `time.ParseDuration` syntax: `h` (hours), `m` (minutes), `s` (seconds), and compounds (e.g., `1h30m`). Days are not supported — use `24h`. A zero duration (`0s`, `0m`) is valid and equivalent to immediate start.
 - **FR-003**: System MUST reject commands where both `--start-at` and `--start-in` are provided, with a clear error message.
 - **FR-004**: System MUST display scheduled downloads in `warpdl list` output with their scheduled start time and current status ("scheduled", "downloading", "completed", "failed").
 - **FR-005**: System MUST persist all scheduled downloads to disk so they survive daemon restarts.
 - **FR-006**: System MUST automatically start scheduled downloads that were missed during daemon downtime upon daemon restart by enqueuing them at normal priority into the existing queue. The queue concurrency cap naturally throttles simultaneous starts.
-- **FR-007**: System MUST warn the user when `--start-at` specifies a time in the past and either start immediately or prompt for confirmation.
+- **FR-007**: System MUST warn the user when `--start-at` specifies a time in the past and start immediately. No interactive prompt — the warning is informational only. This applies to all contexts (interactive CLI, piped input, scripted invocations).
 - **FR-008**: System MUST support cancelling a scheduled download before it starts via the existing `warpdl stop <id>` command. For recurring downloads, `warpdl stop <id>` permanently cancels the entire recurring schedule (all future executions). A recurring download is a single logical entity — stop means stop everything.
-- **FR-009**: System MUST accept a `--schedule` flag with a cron expression for recurring downloads.
+- **FR-009**: System MUST accept a `--schedule` flag with a cron expression for recurring downloads. MAY be combined with `--start-at` or `--start-in` to delay the first occurrence; subsequent occurrences follow the cron expression.
 - **FR-009a**: System MUST append a timestamp suffix to the output filename for each recurring download trigger (format: `<basename>-<YYYY-MM-DDTHHMMSS>.<ext>`, e.g., `backup-2026-03-01T020000.sql.gz`). This prevents silent data loss from overwriting previous downloads.
 - **FR-010**: System MUST respect existing queue concurrency limits when multiple scheduled downloads trigger simultaneously.
 
