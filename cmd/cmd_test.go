@@ -37,6 +37,7 @@ type fakeServer struct {
 }
 
 var listOverride []*warplib.Item
+var queueStatusOverride *common.QueueStatusResponse
 
 func (s *fakeServer) close() {
 	_ = s.listener.Close()
@@ -168,6 +169,13 @@ func startFakeServer(t *testing.T, socketPath string, fail ...map[common.UpdateT
 						resp := common.ListResponse{Items: items}
 						writeResponse(c, req.Method, resp)
 						return // One-shot command, exit loop
+					case common.UPDATE_QUEUE_STATUS:
+						var qsResp common.QueueStatusResponse
+						if queueStatusOverride != nil {
+							qsResp = *queueStatusOverride
+						}
+						writeResponse(c, req.Method, qsResp)
+						return
 					case common.UPDATE_STOP, common.UPDATE_FLUSH:
 						writeResponse(c, req.Method, nil)
 						return // One-shot command, exit loop

@@ -57,6 +57,16 @@ type DownloadOpts struct {
 	// SSHKeyPath specifies a custom SSH private key file path for SFTP downloads.
 	// If empty, default SSH key paths (~/.ssh/id_ed25519, ~/.ssh/id_rsa) are tried.
 	SSHKeyPath string `json:"ssh_key_path,omitempty"`
+	// StartAt specifies an absolute start time in "YYYY-MM-DD HH:MM" format.
+	// Empty means start immediately.
+	StartAt string `json:"start_at,omitempty"`
+	// CookiesFrom specifies the cookie source: file path, "auto", or "".
+	// Empty means no cookie import. "auto" triggers browser auto-detection.
+	CookiesFrom string `json:"cookies_from,omitempty"`
+	// Schedule specifies a 5-field cron expression for recurring downloads
+	// (e.g., "0 2 * * *" = daily at 2 AM). May be combined with StartAt or
+	// StartIn to delay the first occurrence. Empty means no recurring schedule.
+	Schedule string `json:"schedule,omitempty"`
 }
 
 // Download initiates a new download from the specified URL.
@@ -87,6 +97,9 @@ func (c *Client) Download(url, fileName, downloadDirectory string, opts *Downloa
 		DisableWorkStealing: opts.DisableWorkStealing,
 		Priority:            opts.Priority,
 		SSHKeyPath:          opts.SSHKeyPath,
+		StartAt:             opts.StartAt,
+		CookiesFrom:         opts.CookiesFrom,
+		Schedule:            opts.Schedule,
 	})
 }
 

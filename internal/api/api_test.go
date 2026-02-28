@@ -117,7 +117,7 @@ func newTestApi(t *testing.T) (*Api, *server.Pool, func()) {
 	if err != nil {
 		t.Fatalf("NewEngine: %v", err)
 	}
-	api, err := NewApi(log.New(io.Discard, "", 0), m, &http.Client{}, eng, nil, "test", "abc123", "test")
+	api, err := NewApi(log.New(io.Discard, "", 0), m, &http.Client{}, eng, nil, nil, "test", "abc123", "test")
 	if err != nil {
 		t.Fatalf("NewApi: %v", err)
 	}
@@ -536,7 +536,7 @@ func TestRegisterHandlersAndClose(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewEngine: %v", err)
 	}
-	api, err := NewApi(log.New(io.Discard, "", 0), m, &http.Client{}, eng, nil, "test", "abc123", "test")
+	api, err := NewApi(log.New(io.Discard, "", 0), m, &http.Client{}, eng, nil, nil, "test", "abc123", "test")
 	if err != nil {
 		t.Fatalf("NewApi: %v", err)
 	}
@@ -1345,5 +1345,227 @@ func TestDownloadFTPHandlerInvalidFTPURL(t *testing.T) {
 	_, _, err := api.downloadHandler(nil, pool, body)
 	if err == nil {
 		t.Fatalf("expected error for FTP URL with root path")
+	}
+}
+
+// T067: downloadHTTPHandler with StartAt set (one-shot schedule)
+
+func TestDownloadHandlerWithStartAt_Scheduled(t *testing.T) {
+	api, pool, cleanup := newTestApi(t)
+	defer cleanup()
+
+	content := bytes.Repeat([]byte("s"), 512)
+	srv := newRangeServer(content)
+	defer srv.Close()
+
+	futureTime := time.Now().Add(2 * time.Hour)
+	params := common.DownloadParams{
+		Url:               srv.URL + "/scheduled.bin",
+		DownloadDirectory: warplib.ConfigDir,
+		MaxConnections:    1,
+		MaxSegments:       1,
+		StartAt:           futureTime.Format("2006-01-02 15:04"),
+	}
+	body, _ := json.Marshal(params)
+	_, msg, err := api.downloadHandler(nil, pool, body)
+	if err != nil {
+		t.Fatalf("downloadHandler with StartAt: %v", err)
+	}
+	resp := msg.(*common.DownloadResponse)
+	if resp.DownloadId == "" {
+		t.Fatalf("expected download id")
+	}
+	item := api.manager.GetItem(resp.DownloadId)
+	if item == nil {
+		t.Fatalf("expected item in manager")
+	}
+	if item.ScheduleState != warplib.ScheduleStateScheduled {
+		t.Errorf("expected ScheduleStateScheduled, got %q", item.ScheduleState)
+	}
+	if item.ScheduledAt.IsZero() {
+		t.Error("expected ScheduledAt to be set")
+	}
+}
+
+// T067/T068: downloadHTTPHandler with Schedule (cron) set
+
+func TestDownloadHandlerWithSchedule_Recurring(t *testing.T) {
+	api, pool, cleanup := newTestApi(t)
+	defer cleanup()
+
+	content := bytes.Repeat([]byte("r"), 512)
+	srv := newRangeServer(content)
+	defer srv.Close()
+
+	params := common.DownloadParams{
+		Url:               srv.URL + "/recurring.bin",
+		DownloadDirectory: warplib.ConfigDir,
+		MaxConnections:    1,
+		MaxSegments:       1,
+		Schedule:          "0 2 * * *",
+	}
+	body, _ := json.Marshal(params)
+	_, msg, err := api.downloadHandler(nil, pool, body)
+	if err != nil {
+		t.Fatalf("downloadHandler with Schedule: %v", err)
+	}
+	resp := msg.(*common.DownloadResponse)
+	if resp.DownloadId == "" {
+		t.Fatalf("expected download id")
+	}
+	item := api.manager.GetItem(resp.DownloadId)
+	if item == nil {
+		t.Fatalf("expected item in manager")
+	}
+	if item.CronExpr != "0 2 * * *" {
+		t.Errorf("expected CronExpr '0 2 * * *', got %q", item.CronExpr)
+	}
+	if item.ScheduleState != warplib.ScheduleStateScheduled {
+		t.Errorf("expected ScheduleStateScheduled, got %q", item.ScheduleState)
+	}
+}
+
+// T067: downloadHTTPHandler with both Schedule and StartAt set (StartAt defines first trigger)
+
+func TestDownloadHandlerWithScheduleAndStartAt(t *testing.T) {
+	api, pool, cleanup := newTestApi(t)
+	defer cleanup()
+
+	content := bytes.Repeat([]byte("x"), 512)
+	srv := newRangeServer(content)
+	defer srv.Close()
+
+	firstTrigger := time.Now().Add(1 * time.Hour)
+	params := common.DownloadParams{
+		Url:               srv.URL + "/cron-start.bin",
+		DownloadDirectory: warplib.ConfigDir,
+		MaxConnections:    1,
+		MaxSegments:       1,
+		Schedule:          "0 2 * * *",
+		StartAt:           firstTrigger.Format("2006-01-02 15:04"),
+	}
+	body, _ := json.Marshal(params)
+	_, msg, err := api.downloadHandler(nil, pool, body)
+	if err != nil {
+		t.Fatalf("downloadHandler with Schedule+StartAt: %v", err)
+	}
+	resp := msg.(*common.DownloadResponse)
+	if resp.DownloadId == "" {
+		t.Fatalf("expected download id")
+	}
+	item := api.manager.GetItem(resp.DownloadId)
+	if item == nil {
+		t.Fatalf("expected item in manager")
+	}
+	if item.ScheduleState != warplib.ScheduleStateScheduled {
+		t.Errorf("expected ScheduleStateScheduled, got %q", item.ScheduleState)
+	}
+}
+
+// CookiesFrom: non-existent path → logs warning, continues download normally
+
+func TestDownloadHandlerWithCookiesFrom_Error(t *testing.T) {
+	api, pool, cleanup := newTestApi(t)
+	defer cleanup()
+
+	content := bytes.Repeat([]byte("c"), 512)
+	srv := newRangeServer(content)
+	defer srv.Close()
+
+	params := common.DownloadParams{
+		Url:               srv.URL + "/cookie-test.bin",
+		DownloadDirectory: warplib.ConfigDir,
+		MaxConnections:    1,
+		MaxSegments:       1,
+		CookiesFrom:       "/nonexistent/path/cookies.sqlite",
+	}
+	body, _ := json.Marshal(params)
+	_, msg, err := api.downloadHandler(nil, pool, body)
+	if err != nil {
+		t.Fatalf("downloadHandler with CookiesFrom: %v", err)
+	}
+	resp := msg.(*common.DownloadResponse)
+	if resp.DownloadId == "" {
+		t.Fatalf("expected download id")
+	}
+	// Verify cookie source path stored on item
+	item := api.manager.GetItem(resp.DownloadId)
+	if item == nil {
+		t.Fatalf("expected item in manager")
+	}
+	if item.CookieSourcePath != "/nonexistent/path/cookies.sqlite" {
+		t.Errorf("expected CookieSourcePath set, got %q", item.CookieSourcePath)
+	}
+	// Wait for download to complete
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		info, err := os.Stat(resp.SavePath)
+		if err == nil && info.Size() == int64(resp.ContentLength) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// T070: stopHandler cancels a scheduled (one-shot) item
+
+func TestStopHandlerCancelsScheduledItem(t *testing.T) {
+	api, pool, cleanup := newTestApi(t)
+	defer cleanup()
+
+	item := &warplib.Item{
+		Hash:          "sched-stop-1",
+		Name:          "my-file.bin",
+		Url:           "http://example.com/file",
+		ScheduleState: warplib.ScheduleStateScheduled,
+		ScheduledAt:   time.Now().Add(1 * time.Hour),
+		Parts:         make(map[int64]*warplib.ItemPart),
+	}
+	api.manager.UpdateItem(item)
+
+	body, _ := json.Marshal(common.InputDownloadId{DownloadId: item.Hash})
+	_, msg, err := api.stopHandler(nil, pool, body)
+	if err != nil {
+		t.Fatalf("expected no error for scheduled cancel: %v", err)
+	}
+	got := msg.(string)
+	if !strings.Contains(got, "Cancelled scheduled download") {
+		t.Errorf("expected 'Cancelled scheduled download' message, got %q", got)
+	}
+	updated := api.manager.GetItem(item.Hash)
+	if updated.ScheduleState != warplib.ScheduleStateCancelled {
+		t.Errorf("expected ScheduleStateCancelled, got %q", updated.ScheduleState)
+	}
+}
+
+// T070: stopHandler returns recurring-specific cancel message when CronExpr is set
+
+func TestStopHandlerCancelsRecurringItem(t *testing.T) {
+	api, pool, cleanup := newTestApi(t)
+	defer cleanup()
+
+	item := &warplib.Item{
+		Hash:          "recurring-stop-1",
+		Name:          "daily-backup.bin",
+		Url:           "http://example.com/file",
+		ScheduleState: warplib.ScheduleStateScheduled,
+		ScheduledAt:   time.Now().Add(1 * time.Hour),
+		CronExpr:      "0 2 * * *",
+		Parts:         make(map[int64]*warplib.ItemPart),
+	}
+	api.manager.UpdateItem(item)
+
+	body, _ := json.Marshal(common.InputDownloadId{DownloadId: item.Hash})
+	_, msg, err := api.stopHandler(nil, pool, body)
+	if err != nil {
+		t.Fatalf("expected no error for recurring cancel: %v", err)
+	}
+	got := msg.(string)
+	if !strings.Contains(got, "Cancelled recurring schedule") {
+		t.Errorf("expected 'Cancelled recurring schedule' message, got %q", got)
+	}
+	updated := api.manager.GetItem(item.Hash)
+	if updated.ScheduleState != warplib.ScheduleStateCancelled {
+		t.Errorf("expected ScheduleStateCancelled, got %q", updated.ScheduleState)
 	}
 }

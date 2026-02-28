@@ -1,19 +1,28 @@
 package cmd
 
 import (
+	"context"
 	"encoding/hex"
 	"net/http"
 	"net/http/cookiejar"
+	"net/url"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/warpdl/warpdl/internal/api"
+	"github.com/warpdl/warpdl/internal/cookies"
 	"github.com/warpdl/warpdl/internal/extl"
+	"github.com/warpdl/warpdl/internal/scheduler"
 	"github.com/warpdl/warpdl/internal/server"
 	"github.com/warpdl/warpdl/pkg/credman"
 	"github.com/warpdl/warpdl/pkg/logger"
 	"github.com/warpdl/warpdl/pkg/warplib"
 )
+
+// timeNow is a function variable for getting the current time.
+// It can be overridden in tests for deterministic behavior.
+var timeNow = time.Now
 
 type loggerKeyringAdapter struct {
 	log logger.Logger
@@ -27,13 +36,15 @@ func (l *loggerKeyringAdapter) Warning(format string, args ...interface{}) {
 // This allows for unified initialization and cleanup across
 // console mode and Windows service mode.
 type DaemonComponents struct {
-	CookieManager *credman.CookieManager
-	ExtEngine     *extl.Engine
-	Manager       *warplib.Manager
-	Api           *api.Api
-	Server        *server.Server
-	logger        logger.Logger
-	stdLogger     interface{ Println(v ...interface{}) }
+	CookieManager   *credman.CookieManager
+	ExtEngine       *extl.Engine
+	Manager         *warplib.Manager
+	Api             *api.Api
+	Server          *server.Server
+	Scheduler       *scheduler.Scheduler
+	schedulerCancel context.CancelFunc
+	logger          logger.Logger
+	stdLogger       interface{ Println(v ...interface{}) }
 }
 
 // Close releases all daemon component resources in reverse order of initialization.
@@ -53,6 +64,11 @@ func (c *DaemonComponents) Close() {
 				item.StopDownload()
 			}
 		}
+	}
+
+	// Cancel scheduler context (stops scheduler goroutine)
+	if c.schedulerCancel != nil {
+		c.schedulerCancel()
 	}
 
 	// Close API (closes manager, flushes state)
@@ -146,11 +162,91 @@ var initDaemonComponents = func(log logger.Logger, maxConcurrent int, rpcCfg *se
 	router := warplib.NewSchemeRouter(client)
 	m.SetSchemeRouter(router)
 
+	// Initialize scheduler for --start-at scheduling
+	schedCtx, schedCancel := context.WithCancel(context.Background())
+	triggerFn := func(hash string) {
+		log.Info("Scheduler triggered download: %s", hash)
+		item := m.GetItem(hash)
+		if item == nil {
+			log.Error("Scheduler trigger: item %s not found", hash)
+			return
+		}
+		// Transition state from scheduled to triggered
+		item.ScheduleState = warplib.ScheduleStateTriggered
+		m.UpdateItem(item)
+
+		// T073: For recurring downloads, re-import cookies before starting if CookieSourcePath is set.
+		if item.CookieSourcePath != "" && item.CronExpr != "" {
+			parsedURL, urlErr := url.Parse(item.Url)
+			if urlErr == nil {
+				domain := parsedURL.Hostname()
+				var importedCookies []cookies.Cookie
+				var cookieErr error
+
+				if item.CookieSourcePath == "auto" {
+					importedCookies, _, cookieErr = cookies.DetectBrowserCookies(domain)
+				} else {
+					importedCookies, _, cookieErr = cookies.ImportCookies(item.CookieSourcePath, domain)
+				}
+
+				if cookieErr != nil {
+					log.Error("Scheduler trigger: failed to re-import cookies for %s: %v", hash, cookieErr)
+				} else if len(importedCookies) > 0 {
+					cookieHeader := cookies.BuildCookieHeader(importedCookies)
+					item.Headers.Update("Cookie", cookieHeader)
+					m.UpdateItem(item)
+					log.Info("Scheduler trigger: re-imported %d cookies for %s", len(importedCookies), domain)
+				}
+			}
+		}
+
+		// Resume the download using the existing pattern
+		resumedItem, err := m.ResumeDownload(client, hash, nil)
+		if err != nil {
+			log.Error("Scheduler trigger: ResumeDownload failed for %s: %v", hash, err)
+			return
+		}
+		go func() {
+			if err := resumedItem.Resume(); err != nil {
+				log.Error("Scheduler trigger: Resume failed for %s: %v", hash, err)
+			}
+		}()
+	}
+	sched := scheduler.New(schedCtx, triggerFn)
+
+	// Load schedules: detect missed (daemon was down) and future events.
+	allItems := make(warplib.ItemsMap)
+	for _, item := range m.GetItems() {
+		allItems[item.Hash] = item
+	}
+	missed, future := scheduler.LoadSchedules(allItems, timeNow())
+	// T051: Enqueue missed items immediately and log notification.
+	for _, item := range missed {
+		m.UpdateItem(item) // persist ScheduleState="missed"
+		log.Info("Missed schedule: %s (was %s), starting now", item.Name, item.ScheduledAt.Format("2006-01-02 15:04"))
+		resumedItem, resumeErr := m.ResumeDownload(client, item.Hash, nil)
+		if resumeErr != nil {
+			log.Error("Missed schedule: ResumeDownload failed for %s: %v", item.Hash, resumeErr)
+			continue
+		}
+		go func(ri *warplib.Item) {
+			if err := ri.Resume(); err != nil {
+				log.Error("Missed schedule: Resume failed for %s: %v", ri.Hash, err)
+			}
+		}(resumedItem)
+	}
+	// Add future scheduled events to the scheduler heap.
+	for _, event := range future {
+		sched.Add(event)
+		log.Info("Restored scheduled download: %s at %s", event.ItemHash, event.TriggerAt.Format("2006-01-02 15:04"))
+	}
+
 	// Create API
-	s, err := api.NewApi(stdLog, m, client, elEng, router,
+	s, err := api.NewApi(stdLog, m, client, elEng, router, sched,
 		currentBuildArgs.Version, currentBuildArgs.Commit, currentBuildArgs.BuildType)
 	if err != nil {
 		log.Error("API initialization failed: %v", err)
+		schedCancel()
 		m.Close()
 		elEng.Close()
 		cm.Close()
@@ -162,13 +258,15 @@ var initDaemonComponents = func(log logger.Logger, maxConcurrent int, rpcCfg *se
 	s.RegisterHandlers(serv)
 
 	return &DaemonComponents{
-		CookieManager: cm,
-		ExtEngine:     elEng,
-		Manager:       m,
-		Api:           s,
-		Server:        serv,
-		logger:        log,
-		stdLogger:     stdLog,
+		CookieManager:   cm,
+		ExtEngine:       elEng,
+		Manager:         m,
+		Api:             s,
+		Server:          serv,
+		Scheduler:       sched,
+		schedulerCancel: schedCancel,
+		logger:          log,
+		stdLogger:       stdLog,
 	}, nil
 }
 

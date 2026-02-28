@@ -202,6 +202,12 @@ func TestGetCookieManagerEnvCredmanError(t *testing.T) {
 	}
 }
 
+// TestCliKeyringLoggerWarning tests that Warning writes to stderr without panic.
+func TestCliKeyringLoggerWarning(t *testing.T) {
+	l := &cliKeyringLogger{}
+	l.Warning("test warning: %s %d", "arg", 42) // must not panic
+}
+
 // TestGetCookieManagerKeyringCredmanError tests credman initialization failure
 // when keyring returns a valid key but the cookie file has corrupt GOB data.
 func TestGetCookieManagerKeyringCredmanError(t *testing.T) {

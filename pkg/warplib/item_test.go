@@ -1,7 +1,9 @@
 package warplib
 
 import (
+	"bytes"
 	"context"
+	"encoding/gob"
 	"errors"
 	"sync"
 	"testing"
@@ -151,5 +153,121 @@ func TestGetPartWithError_Found(t *testing.T) {
 	}
 	if offset != 100 || part == nil || part.Hash != "test_hash" {
 		t.Fatal("expected valid part")
+	}
+}
+
+// TestItemSchedulingFieldsGOBRoundTrip verifies that the new scheduling and
+// cookie fields survive a GOB encode/decode round-trip with all 5 ScheduleState
+// values, and that pre-existing GOB data without these fields decodes safely
+// (zero-value backward compatibility).
+func TestItemSchedulingFieldsGOBRoundTrip(t *testing.T) {
+	import_gob := func() interface{} {
+		var buf bytes.Buffer
+		return &buf
+	}
+	_ = import_gob // silence unused
+
+	states := []ScheduleState{
+		ScheduleStateNone,
+		ScheduleStateScheduled,
+		ScheduleStateTriggered,
+		ScheduleStateMissed,
+		ScheduleStateCancelled,
+	}
+
+	for _, state := range states {
+		t.Run(string(state)+"_or_empty", func(t *testing.T) {
+			original := ItemsMap{
+				"hash1": {
+					Hash:             "hash1",
+					Name:             "file.bin",
+					Url:              "http://example.com/file.bin",
+					Headers:          nil,
+					Parts:            make(map[int64]*ItemPart),
+					ScheduledAt:      time.Date(2026, 3, 1, 2, 0, 0, 0, time.UTC),
+					CronExpr:         "0 2 * * *",
+					ScheduleState:    state,
+					CookieSourcePath: "/home/user/.mozilla/firefox/profile/cookies.sqlite",
+				},
+			}
+
+			var buf bytes.Buffer
+			if err := gob.NewEncoder(&buf).Encode(original); err != nil {
+				t.Fatalf("encode: %v", err)
+			}
+
+			var decoded ItemsMap
+			if err := gob.NewDecoder(&buf).Decode(&decoded); err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+
+			item := decoded["hash1"]
+			if item == nil {
+				t.Fatal("decoded item is nil")
+			}
+			if item.ScheduledAt != original["hash1"].ScheduledAt {
+				t.Errorf("ScheduledAt: got %v, want %v", item.ScheduledAt, original["hash1"].ScheduledAt)
+			}
+			if item.CronExpr != "0 2 * * *" {
+				t.Errorf("CronExpr: got %q, want %q", item.CronExpr, "0 2 * * *")
+			}
+			if item.ScheduleState != state {
+				t.Errorf("ScheduleState: got %q, want %q", item.ScheduleState, state)
+			}
+			if item.CookieSourcePath != "/home/user/.mozilla/firefox/profile/cookies.sqlite" {
+				t.Errorf("CookieSourcePath: got %q", item.CookieSourcePath)
+			}
+		})
+	}
+}
+
+// TestItemSchedulingFieldsGOBBackwardCompat verifies that pre-existing GOB data
+// (without scheduling/cookie fields) decodes to safe zero values.
+func TestItemSchedulingFieldsGOBBackwardCompat(t *testing.T) {
+	// Encode an item WITHOUT the new fields (simulate pre-existing GOB data)
+	// by encoding a map with a struct that only has legacy fields.
+	type legacyItem struct {
+		Hash  string
+		Name  string
+		Url   string
+		Parts map[int64]*ItemPart
+	}
+	type legacyItemsMap map[string]*legacyItem
+
+	legacy := legacyItemsMap{
+		"legacyhash": {
+			Hash:  "legacyhash",
+			Name:  "old.bin",
+			Url:   "http://example.com/old.bin",
+			Parts: make(map[int64]*ItemPart),
+		},
+	}
+
+	var buf bytes.Buffer
+	if err := gob.NewEncoder(&buf).Encode(legacy); err != nil {
+		t.Fatalf("encode legacy: %v", err)
+	}
+
+	var decoded ItemsMap
+	if err := gob.NewDecoder(&buf).Decode(&decoded); err != nil {
+		t.Fatalf("decode into ItemsMap: %v", err)
+	}
+
+	item := decoded["legacyhash"]
+	if item == nil {
+		t.Fatal("decoded item is nil")
+	}
+	// New fields must be zero values
+	if !item.ScheduledAt.IsZero() {
+		t.Errorf("ScheduledAt should be zero, got %v", item.ScheduledAt)
+	}
+	if item.CronExpr != "" {
+		t.Errorf("CronExpr should be empty, got %q", item.CronExpr)
+	}
+	if item.ScheduleState != ScheduleStateNone {
+		t.Errorf("ScheduleState should be empty, got %q", item.ScheduleState)
+	}
+	if item.CookieSourcePath != "" {
+		t.Errorf("CookieSourcePath should be empty, got %q", item.CookieSourcePath)
 	}
 }
