@@ -144,3 +144,10 @@ Example: `core,daemon: feat: implemented feature X`
 - `github.com/vbauerster/mpb/v8` - Progress bars
 - `github.com/zalando/go-keyring` - OS credential storage
 - `github.com/Microsoft/go-winio` - Windows named pipe support
+
+## Active Technologies
+- Go 1.24.9+ (CGO_ENABLED=0) + `modernc.org/sqlite` v1.46.1 (pure-Go SQLite, BSD-3-Clause), `adhocore/gronx` (cron parser, MIT) (001-scheduling-cookie-import)
+- GOB-encoded files (`~/.config/warpdl/userdata.warp`) — existing pattern, extended with new Item fields (001-scheduling-cookie-import)
+
+## Recent Changes
+- 001-scheduling-cookie-import: Added Go 1.24.9+ (CGO_ENABLED=0) + `modernc.org/sqlite` v1.46.1 (pure-Go SQLite, BSD-3-Clause), `adhocore/gronx` (cron parser, MIT)
