@@ -585,6 +585,64 @@ func TestResumeHandlerNotResumable(t *testing.T) {
 	}
 }
 
+func TestResumeHandlerCookieAuto(t *testing.T) {
+	api, pool, cleanup := newTestApi(t)
+	defer cleanup()
+
+	item := &warplib.Item{
+		Hash:             "cookie-auto",
+		Name:             "file.bin",
+		Url:              "http://example.com/file.bin",
+		TotalSize:        100,
+		DownloadLocation: warplib.ConfigDir,
+		AbsoluteLocation: warplib.ConfigDir,
+		Resumable:        true,
+		CookieSourcePath: "auto",
+		Parts:            make(map[int64]*warplib.ItemPart),
+	}
+	api.manager.UpdateItem(item)
+	if err := os.MkdirAll(filepath.Join(warplib.DlDataDir, item.Hash), 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	body, _ := json.Marshal(common.ResumeParams{DownloadId: item.Hash})
+	_, msg, err := api.resumeHandler(nil, pool, body)
+	if err != nil {
+		t.Fatalf("resumeHandler: %v", err)
+	}
+	if msg.(*common.ResumeResponse).FileName != item.Name {
+		t.Fatalf("unexpected file name in response")
+	}
+}
+
+func TestResumeHandlerCookieExplicitPath(t *testing.T) {
+	api, pool, cleanup := newTestApi(t)
+	defer cleanup()
+
+	item := &warplib.Item{
+		Hash:             "cookie-explicit",
+		Name:             "file.bin",
+		Url:              "http://example.com/file.bin",
+		TotalSize:        100,
+		DownloadLocation: warplib.ConfigDir,
+		AbsoluteLocation: warplib.ConfigDir,
+		Resumable:        true,
+		CookieSourcePath: "/nonexistent/path/cookies.txt",
+		Parts:            make(map[int64]*warplib.ItemPart),
+	}
+	api.manager.UpdateItem(item)
+	if err := os.MkdirAll(filepath.Join(warplib.DlDataDir, item.Hash), 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	body, _ := json.Marshal(common.ResumeParams{DownloadId: item.Hash})
+	_, msg, err := api.resumeHandler(nil, pool, body)
+	if err != nil {
+		t.Fatalf("resumeHandler: %v", err)
+	}
+	if msg.(*common.ResumeResponse).FileName != item.Name {
+		t.Fatalf("unexpected file name in response")
+	}
+}
+
 func TestDownloadHandlerBadJSON(t *testing.T) {
 	api, pool, cleanup := newTestApi(t)
 	defer cleanup()
