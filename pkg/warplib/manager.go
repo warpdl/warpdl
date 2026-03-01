@@ -453,6 +453,20 @@ func (m *Manager) UpdateItem(item *Item) {
 	m.encode()
 }
 
+// GetScheduledItems returns all items with ScheduleState == "scheduled".
+// Thread-safe: acquires read lock on the manager.
+func (m *Manager) GetScheduledItems() []*Item {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var items []*Item
+	for _, item := range m.items {
+		if item.ScheduleState == ScheduleStateScheduled {
+			items = append(items, item)
+		}
+	}
+	return items
+}
+
 // GetItems returns all the items in the manager.
 func (m *Manager) GetItems() []*Item {
 	m.mu.RLock()

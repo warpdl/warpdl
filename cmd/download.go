@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/urfave/cli"
 	cmdcommon "github.com/warpdl/warpdl/cmd/common"
@@ -60,8 +61,41 @@ var (
 			Name:  "ssh-key",
 			Usage: "path to SSH private key file for SFTP downloads (default: ~/.ssh/id_ed25519 or ~/.ssh/id_rsa)",
 		},
+		cli.StringFlag{
+			Name:  "start-at",
+			Usage: "schedule download to start at a specific time (format: YYYY-MM-DD HH:MM)",
+		},
+		cli.StringFlag{
+			Name:  "start-in",
+			Usage: "schedule download to start after a relative duration (e.g., 2h, 30m, 1h30m); mutually exclusive with --start-at",
+		},
+		cli.StringFlag{
+			Name:  "schedule",
+			Usage: "cron expression for recurring download schedule (e.g., \"0 2 * * *\" = daily 2 AM)",
+		},
+		cli.StringFlag{
+			Name:  "cookies-from",
+			Usage: "import cookies from browser cookie file (Firefox, Chrome, Netscape) or 'auto' for auto-detection",
+		},
 	}
 )
+
+// validateCookiesFrom validates the --cookies-from flag value.
+// Empty string and "auto" are accepted without file checks.
+// Otherwise, the path must exist and not be a directory.
+func validateCookiesFrom(value string) error {
+	if value == "" || value == "auto" {
+		return nil
+	}
+	info, err := os.Stat(value)
+	if err != nil {
+		return fmt.Errorf("error: cookie file not found: %s", value)
+	}
+	if info.IsDir() {
+		return fmt.Errorf("error: %s is a directory, expected a cookie file path or 'auto'", value)
+	}
+	return nil
+}
 
 // parsePriority converts a priority string to the corresponding integer value.
 // Returns 1 (normal) for invalid values.
@@ -175,6 +209,53 @@ func download(ctx *cli.Context) (err error) {
 			return nil
 		}
 	}
+	// Validate --cookies-from flag
+	cookiesFrom := ctx.String("cookies-from")
+	if err := validateCookiesFrom(cookiesFrom); err != nil {
+		cmdcommon.PrintRuntimeErr(ctx, "download", "cookies_from", err)
+		return nil
+	}
+	// Validate mutual exclusion: --start-at and --start-in are mutually exclusive
+	startAtValue := ctx.String("start-at")
+	startInValue := ctx.String("start-in")
+	if err := validateStartAtStartInExclusion(startAtValue, startInValue); err != nil {
+		fmt.Println(err.Error())
+		return nil
+	}
+	// Validate --start-in flag: parse duration and resolve to absolute time
+	if startInValue != "" {
+		resolvedAt, err := parseStartIn(startInValue)
+		if err != nil {
+			fmt.Println(err.Error())
+			return nil
+		}
+		// --start-in resolved to absolute time; set startAtValue
+		startAtValue = resolvedAt.Format(startAtLayout)
+	}
+	// Validate --start-at flag
+	if startAtValue != "" {
+		if _, err := parseStartAt(startAtValue); err != nil {
+			fmt.Println(err.Error())
+			return nil
+		}
+		var warning string
+		startAtValue, warning = validateStartAt(startAtValue)
+		if warning != "" {
+			fmt.Println(warning)
+		}
+	}
+	// Validate --schedule flag (T066)
+	scheduleValue := ctx.String("schedule")
+	if scheduleValue != "" {
+		if err := validateSchedule(scheduleValue); err != nil {
+			fmt.Println(err.Error())
+			return nil
+		}
+		// Warn if no occurrence in next year
+		if !hasOccurrenceWithinYear(scheduleValue, time.Now()) {
+			fmt.Printf("warning: cron expression %q has no occurrence in the next year\n", scheduleValue)
+		}
+	}
 	d, err := client.Download(url, fileName, dlPath, &warpcli.DownloadOpts{
 		ForceParts:          forceParts,
 		MaxConnections:      int32(maxConns),
@@ -189,6 +270,9 @@ func download(ctx *cli.Context) (err error) {
 		DisableWorkStealing: ctx.Bool("no-work-steal"),
 		Priority:            parsePriority(ctx.String("priority")),
 		SSHKeyPath:          ctx.String("ssh-key"),
+		StartAt:             startAtValue,
+		CookiesFrom:         cookiesFrom,
+		Schedule:            scheduleValue,
 	})
 	if err != nil {
 		cmdcommon.PrintRuntimeErr(ctx, "info", "download", err)

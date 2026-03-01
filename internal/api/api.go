@@ -9,6 +9,7 @@ import (
 
 	"github.com/warpdl/warpdl/common"
 	"github.com/warpdl/warpdl/internal/extl"
+	"github.com/warpdl/warpdl/internal/scheduler"
 	"github.com/warpdl/warpdl/internal/server"
 	"github.com/warpdl/warpdl/pkg/warplib"
 )
@@ -22,6 +23,7 @@ type Api struct {
 	elEngine     *extl.Engine
 	client       *http.Client
 	schemeRouter *warplib.SchemeRouter
+	scheduler    *scheduler.Scheduler
 	version      string
 	commit       string
 	buildType    string
@@ -34,13 +36,14 @@ type Api struct {
 // and the router dispatches FTP/FTPS URLs to the correct protocol downloader.
 // The router may be nil if FTP support is not needed.
 // Version info (version, commit, buildType) is stored for responding to version queries.
-func NewApi(l *log.Logger, m *warplib.Manager, client *http.Client, elEngine *extl.Engine, router *warplib.SchemeRouter, version, commit, buildType string) (*Api, error) {
+func NewApi(l *log.Logger, m *warplib.Manager, client *http.Client, elEngine *extl.Engine, router *warplib.SchemeRouter, sched *scheduler.Scheduler, version, commit, buildType string) (*Api, error) {
 	return &Api{
 		log:          l,
 		manager:      m,
 		client:       client,
 		elEngine:     elEngine,
 		schemeRouter: router,
+		scheduler:    sched,
 		version:      version,
 		commit:       commit,
 		buildType:    buildType,

@@ -12,6 +12,26 @@ import (
 	"time"
 )
 
+// ScheduleState represents the lifecycle state of a scheduled download.
+// The zero value ("") means the item is not scheduled (normal download).
+type ScheduleState string
+
+const (
+	// ScheduleStateNone is the zero value — item is not scheduled.
+	ScheduleStateNone ScheduleState = ""
+	// ScheduleStateScheduled means the item is waiting for its trigger time.
+	ScheduleStateScheduled ScheduleState = "scheduled"
+	// ScheduleStateTriggered means the trigger time was reached and the item
+	// has been enqueued for download.
+	ScheduleStateTriggered ScheduleState = "triggered"
+	// ScheduleStateMissed means the trigger time passed while the daemon was down.
+	// Missed items are enqueued immediately on daemon restart.
+	ScheduleStateMissed ScheduleState = "missed"
+	// ScheduleStateCancelled means the user cancelled the schedule before it fired.
+	// This is a terminal state — no transitions out.
+	ScheduleStateCancelled ScheduleState = "cancelled"
+)
+
 // Item represents a download item with its associated metadata and state.
 // It includes information such as the item's unique identifier, name, URL,
 // headers, size, download progress, and storage location.
@@ -54,6 +74,20 @@ type Item struct {
 	// Empty means default key paths (~/.ssh/id_ed25519, ~/.ssh/id_rsa) are tried.
 	// GOB backward-compatible: missing field decodes as empty string (zero value).
 	SSHKeyPath string `json:"ssh_key_path,omitempty"`
+	// ScheduledAt is the absolute trigger time for one-shot scheduled downloads.
+	// Zero value means not scheduled. GOB backward-compatible (zero value safe).
+	ScheduledAt time.Time `json:"scheduled_at,omitempty"`
+	// CronExpr is the cron expression for recurring downloads (e.g., "0 2 * * *").
+	// Empty string means one-shot (not recurring). GOB backward-compatible.
+	CronExpr string `json:"cron_expr,omitempty"`
+	// ScheduleState tracks the lifecycle of a scheduled download.
+	// Zero value (ScheduleStateNone) means not scheduled. GOB backward-compatible.
+	ScheduleState ScheduleState `json:"schedule_state,omitempty"`
+	// CookieSourcePath is the path to the cookie file or "auto" for auto-detection.
+	// Persisted so cookies can be re-imported on resume/retry/recurring (FR-024).
+	// Cookie VALUES are never persisted (FR-023). Empty means no cookies.
+	// GOB backward-compatible: missing field decodes as empty string (zero value).
+	CookieSourcePath string `json:"cookie_source_path,omitempty"`
 	// mu is a mutex for synchronizing access to the item's fields.
 	mu *sync.RWMutex
 	// dAllocMu protects access to dAlloc field (value type, not pointer, for GOB serialization)

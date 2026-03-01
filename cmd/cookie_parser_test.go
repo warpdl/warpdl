@@ -175,6 +175,13 @@ func TestAppendCookieHeader(t *testing.T) {
 	}
 }
 
+func TestAppendCookieHeader_InvalidCookie(t *testing.T) {
+	_, err := AppendCookieHeader(warplib.Headers{}, []string{"invalid-no-equals"})
+	if err == nil {
+		t.Fatal("expected error for invalid cookie in AppendCookieHeader")
+	}
+}
+
 // Helper function
 func containsStr(s, substr string) bool {
 	for i := 0; i <= len(s)-len(substr); i++ {

@@ -1,6 +1,7 @@
 package warplib
 
 import (
+	"fmt"
 	"sync"
 	"testing"
 )
@@ -1069,4 +1070,39 @@ func TestQueueManager_ConcurrentModifications(t *testing.T) {
 
 		wg.Wait()
 	})
+}
+
+// TestQueueManager_SimultaneousScheduleTriggers verifies T075b (FR-010):
+// When N > maxConcurrent schedule triggers fire simultaneously, at most
+// maxConcurrent downloads are active and the rest are queued.
+func TestQueueManager_SimultaneousScheduleTriggers(t *testing.T) {
+	const maxConcurrent = 3
+	const totalTriggers = 7
+
+	qm := NewQueueManager(maxConcurrent, nil)
+
+	// Simulate N simultaneous schedule triggers
+	var wg sync.WaitGroup
+	for i := 0; i < totalTriggers; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			hash := fmt.Sprintf("scheduled-%d", id)
+			qm.Add(hash, PriorityNormal)
+		}(i)
+	}
+	wg.Wait()
+
+	active := qm.ActiveCount()
+	waiting := qm.WaitingCount()
+
+	if active > maxConcurrent {
+		t.Errorf("active count %d exceeds maxConcurrent %d (FR-010)", active, maxConcurrent)
+	}
+	if active+waiting != totalTriggers {
+		t.Errorf("active(%d) + waiting(%d) != totalTriggers(%d)", active, waiting, totalTriggers)
+	}
+	if waiting != totalTriggers-maxConcurrent {
+		t.Errorf("expected %d waiting, got %d", totalTriggers-maxConcurrent, waiting)
+	}
 }

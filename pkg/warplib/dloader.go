@@ -1288,6 +1288,7 @@ func (d *Downloader) fetchInfo() (err error) {
 }
 
 // makeRequest makes a new http request with provided method and headers.
+// Cookie and Set-Cookie header values are redacted in debug logs (CHK034).
 func (d *Downloader) makeRequest(method string, hdrs ...Header) (*http.Response, error) {
 	req, err := http.NewRequest(method, d.url, nil)
 	if err != nil {
@@ -1298,6 +1299,11 @@ func (d *Downloader) makeRequest(method string, hdrs ...Header) (*http.Response,
 		hdr.Set(header)
 	}
 	d.headers.Set(header)
+	if d.l != nil {
+		for _, hdr := range d.headers {
+			d.l.Printf("REQUEST-HEADER: %s: %s", hdr.Key, hdr.RedactedValue())
+		}
+	}
 	return d.client.Do(req)
 }
 

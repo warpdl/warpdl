@@ -6,10 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/adhocore/gronx"
 	"github.com/warpdl/warpdl/common"
+	"github.com/warpdl/warpdl/internal/cookies"
+	"github.com/warpdl/warpdl/internal/scheduler"
 	"github.com/warpdl/warpdl/internal/server"
 	"github.com/warpdl/warpdl/pkg/warplib"
 )
@@ -86,6 +90,34 @@ func (s *Api) downloadHTTPHandler(sconn *server.SyncConn, pool *server.Pool, dlU
 		speedLimit, err = warplib.ParseSpeedLimit(m.SpeedLimit)
 		if err != nil {
 			return common.UPDATE_DOWNLOAD, nil, fmt.Errorf("invalid speed limit: %w", err)
+		}
+	}
+
+	// Import cookies if requested
+	if m.CookiesFrom != "" {
+		parsedURL, urlErr := url.Parse(dlURL)
+		if urlErr == nil {
+			domain := parsedURL.Hostname()
+			var importedCookies []cookies.Cookie
+			var source *cookies.CookieSource
+			var cookieErr error
+
+			if m.CookiesFrom == "auto" {
+				importedCookies, source, cookieErr = cookies.DetectBrowserCookies(domain)
+				if cookieErr == nil {
+					s.log.Printf("Auto-detected %s cookie store\n", source.Browser)
+				}
+			} else {
+				importedCookies, source, cookieErr = cookies.ImportCookies(m.CookiesFrom, domain)
+			}
+
+			if cookieErr != nil {
+				s.log.Printf("warning: failed to import cookies: %s\n", cookieErr.Error())
+			} else if len(importedCookies) > 0 {
+				cookieHeader := cookies.BuildCookieHeader(importedCookies)
+				m.Headers.Update("Cookie", cookieHeader)
+				s.log.Printf("Imported %d cookies for %s from %s\n", len(importedCookies), domain, source.Browser)
+			}
 		}
 	}
 
@@ -178,6 +210,95 @@ func (s *Api) downloadHTTPHandler(sconn *server.SyncConn, pool *server.Pool, dlU
 	if err != nil {
 		return common.UPDATE_DOWNLOAD, nil, err
 	}
+
+	// Store cookie source path on item for re-import on resume
+	if m.CookiesFrom != "" {
+		item := s.manager.GetItem(d.GetHash())
+		if item != nil {
+			item.CookieSourcePath = m.CookiesFrom
+			s.manager.UpdateItem(item)
+		}
+	}
+
+	// T067/T068: Apply scheduling if Schedule (cron) is set.
+	// Schedule takes priority for triggering; StartAt/StartIn can specify the first occurrence.
+	if m.Schedule != "" {
+		item := s.manager.GetItem(d.GetHash())
+		if item != nil {
+			item.CronExpr = m.Schedule
+
+			// Determine first trigger time:
+			// If StartAt is also set, use it; otherwise compute from cron expression.
+			var firstTrigger time.Time
+			if m.StartAt != "" {
+				t, parseErr := time.ParseInLocation("2006-01-02 15:04", m.StartAt, time.Local)
+				if parseErr == nil && t.After(time.Now()) {
+					firstTrigger = t
+				}
+			}
+			if firstTrigger.IsZero() {
+				next, cronErr := gronx.NextTickAfter(m.Schedule, time.Now(), false)
+				if cronErr == nil {
+					firstTrigger = next
+				}
+			}
+
+			if !firstTrigger.IsZero() {
+				item.ScheduledAt = firstTrigger
+				item.ScheduleState = warplib.ScheduleStateScheduled
+				s.manager.UpdateItem(item)
+				// Add to scheduler heap
+				if s.scheduler != nil {
+					s.scheduler.Add(scheduler.ScheduleEvent{
+						ItemHash:  item.Hash,
+						TriggerAt: firstTrigger,
+						CronExpr:  m.Schedule,
+					})
+				}
+				// Do NOT start the download; the scheduler will trigger it.
+				return common.UPDATE_DOWNLOAD, &common.DownloadResponse{
+					ContentLength:     d.GetContentLength(),
+					DownloadId:        d.GetHash(),
+					FileName:          d.GetFileName(),
+					SavePath:          d.GetSavePath(),
+					DownloadDirectory: d.GetDownloadDirectory(),
+					MaxConnections:    d.GetMaxConnections(),
+					MaxSegments:       d.GetMaxParts(),
+				}, nil
+			}
+		}
+	}
+
+	// Apply scheduling if StartAt is set (one-shot schedule)
+	if m.StartAt != "" {
+		scheduledAt, parseErr := time.ParseInLocation("2006-01-02 15:04", m.StartAt, time.Local)
+		if parseErr == nil {
+			item := s.manager.GetItem(d.GetHash())
+			if item != nil {
+				item.ScheduledAt = scheduledAt
+				item.ScheduleState = warplib.ScheduleStateScheduled
+				s.manager.UpdateItem(item)
+				// Add to scheduler if available
+				if s.scheduler != nil {
+					s.scheduler.Add(scheduler.ScheduleEvent{
+						ItemHash:  item.Hash,
+						TriggerAt: scheduledAt,
+					})
+				}
+			}
+			// Do NOT start the download; the scheduler will trigger it.
+			return common.UPDATE_DOWNLOAD, &common.DownloadResponse{
+				ContentLength:     d.GetContentLength(),
+				DownloadId:        d.GetHash(),
+				FileName:          d.GetFileName(),
+				SavePath:          d.GetSavePath(),
+				DownloadDirectory: d.GetDownloadDirectory(),
+				MaxConnections:    d.GetMaxConnections(),
+				MaxSegments:       d.GetMaxParts(),
+			}, nil
+		}
+	}
+
 	// todo: handle download start error
 	go d.Start()
 	return common.UPDATE_DOWNLOAD, &common.DownloadResponse{
@@ -292,4 +413,15 @@ func (s *Api) downloadProtocolHandler(sconn *server.SyncConn, pool *server.Pool,
 		MaxConnections:    pd.GetMaxConnections(),
 		MaxSegments:       pd.GetMaxParts(),
 	}, nil
+}
+
+// applyTimestampSuffix adds a timestamp suffix to a filename before the last extension.
+// Format: <basename>-<YYYY-MM-DDTHHMMSS>.<ext>
+// For files with no extension: <basename>-<timestamp>
+// For files with multiple dots: only the last extension is treated as the extension.
+func applyTimestampSuffix(filename string, t time.Time) string {
+	ts := t.UTC().Format("2006-01-02T150405")
+	ext := filepath.Ext(filename)
+	base := strings.TrimSuffix(filename, ext)
+	return base + "-" + ts + ext
 }

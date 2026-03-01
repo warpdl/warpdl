@@ -56,6 +56,18 @@ type DownloadParams struct {
 	// SSHKeyPath specifies a custom SSH private key file path for SFTP downloads.
 	// If empty, default SSH key paths (~/.ssh/id_ed25519, ~/.ssh/id_rsa) are tried.
 	SSHKeyPath string `json:"ssh_key_path,omitempty"`
+	// StartAt specifies an absolute start time in "YYYY-MM-DD HH:MM" format.
+	// Mutually exclusive with StartIn. Empty means start immediately.
+	StartAt string `json:"start_at,omitempty"`
+	// StartIn specifies a relative delay using Go duration syntax (e.g., "2h", "30m").
+	// Mutually exclusive with StartAt. "0s" or empty means start immediately.
+	StartIn string `json:"start_in,omitempty"`
+	// Schedule specifies a 5-field cron expression for recurring downloads (e.g., "0 2 * * *").
+	// May be combined with StartAt or StartIn to delay the first occurrence.
+	Schedule string `json:"schedule,omitempty"`
+	// CookiesFrom specifies the cookie source: file path, "auto", or "".
+	// Empty means no cookie import. "auto" triggers browser auto-detection.
+	CookiesFrom string `json:"cookies_from,omitempty"`
 }
 
 // DownloadResponse contains the server response after initiating a download.

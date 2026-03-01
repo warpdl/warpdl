@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -18,6 +19,62 @@ func TestQueueStatusCommand(t *testing.T) {
 	ctx := newContext(app, nil, "queue")
 	if err := queueStatusAction(ctx); err != nil {
 		t.Fatalf("queueStatusAction: %v", err)
+	}
+}
+
+func TestQueueStatusActiveWaiting(t *testing.T) {
+	dir, err := os.MkdirTemp("", "wq")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	defer os.RemoveAll(dir)
+	socketPath := filepath.Join(dir, "w.sock")
+	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
+
+	queueStatusOverride = &common.QueueStatusResponse{
+		MaxConcurrent: 4,
+		ActiveCount:   1,
+		WaitingCount:  1,
+		Paused:        false,
+		Active:        []string{"abc123"},
+		Waiting: []common.QueueItemInfo{
+			{Hash: "def456", Position: 0, Priority: 1},
+		},
+	}
+	defer func() { queueStatusOverride = nil }()
+
+	srv := startFakeServer(t, socketPath)
+	defer srv.close()
+
+	app := cli.NewApp()
+	ctx := newContext(app, nil, "queue")
+	if err := queueStatusAction(ctx); err != nil {
+		t.Fatalf("queueStatusAction with active/waiting: %v", err)
+	}
+}
+
+func TestQueueStatusPaused(t *testing.T) {
+	dir, err := os.MkdirTemp("", "wq")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	defer os.RemoveAll(dir)
+	socketPath := filepath.Join(dir, "w.sock")
+	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
+
+	queueStatusOverride = &common.QueueStatusResponse{
+		MaxConcurrent: 2,
+		Paused:        true,
+	}
+	defer func() { queueStatusOverride = nil }()
+
+	srv := startFakeServer(t, socketPath)
+	defer srv.close()
+
+	app := cli.NewApp()
+	ctx := newContext(app, nil, "queue")
+	if err := queueStatusAction(ctx); err != nil {
+		t.Fatalf("queueStatusAction paused: %v", err)
 	}
 }
 

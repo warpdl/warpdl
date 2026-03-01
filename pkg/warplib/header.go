@@ -1,6 +1,9 @@
 package warplib
 
-import "net/http"
+import (
+	"net/http"
+	"strings"
+)
 
 const (
 	// Header keys
@@ -73,4 +76,29 @@ func (h *Header) Set(header http.Header) {
 // Add adds the header to the given http.Header.
 func (h *Header) Add(header http.Header) {
 	header.Add(h.Key, h.Value)
+}
+
+// isSensitiveHeader returns true if the header key is Cookie or Set-Cookie.
+func isSensitiveHeader(key string) bool {
+	lower := strings.ToLower(key)
+	return lower == "cookie" || lower == "set-cookie"
+}
+
+// RedactedValue returns the header value for safe logging.
+// Cookie and Set-Cookie values are replaced with [REDACTED].
+func (h *Header) RedactedValue() string {
+	if isSensitiveHeader(h.Key) {
+		return "[REDACTED]"
+	}
+	return h.Value
+}
+
+// LogSafe returns a slice of "Key: Value" strings with sensitive headers redacted.
+// This is safe for debug logging — Cookie and Set-Cookie values are replaced with [REDACTED].
+func (h Headers) LogSafe() []string {
+	result := make([]string, len(h))
+	for i, hdr := range h {
+		result[i] = hdr.Key + ": " + hdr.RedactedValue()
+	}
+	return result
 }
