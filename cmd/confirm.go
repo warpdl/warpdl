@@ -22,7 +22,10 @@ func confirm(c confirmAction, force ...bool) bool {
 	}
 	fmt.Printf("Are you sure you want to proceed with the %s? (yes/no): ", c.action())
 	var i string
-	_, _ = fmt.Scanf("%s", &i)
+	if _, err := fmt.Scanf("%s", &i); err != nil {
+		fmt.Printf("Cancelled %s operation!\n", c)
+		return false
+	}
 	i = strings.ToLower(i)
 	switch i {
 	case "yes", "y", "true", "1":

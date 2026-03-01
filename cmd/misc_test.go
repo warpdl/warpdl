@@ -45,6 +45,19 @@ func TestConfirmYesNo(t *testing.T) {
 	}
 }
 
+func TestConfirmScanfError(t *testing.T) {
+	var ok bool
+	// Empty stdin (closed pipe) causes fmt.Scanf to return an error
+	withStdin(t, "", func() {
+		_, _ = captureOutput(func() {
+			ok = confirm(command("delete"))
+		})
+	})
+	if ok {
+		t.Fatalf("expected confirm to return false on Scanf error")
+	}
+}
+
 func TestParsePriority(t *testing.T) {
 	tests := []struct {
 		in   string

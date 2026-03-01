@@ -16,14 +16,14 @@ var (
 	ErrItemDownloaderNotFound = errors.New("item downloader not found")
 
 	// ErrDownloadNotFound is returned when the requested download item does not exist in the manager.
-	ErrDownloadNotFound = errors.New("Item you are trying to download is not found")
+	ErrDownloadNotFound = errors.New("item you are trying to download is not found")
 	// ErrDownloadNotResumable is returned when attempting to resume a download that does not support resumption.
-	ErrDownloadNotResumable = errors.New("Item you are trying to download is not resumable")
+	ErrDownloadNotResumable = errors.New("item you are trying to download is not resumable")
 
 	// ErrFlushHashNotFound is returned when attempting to flush a download item that does not exist.
-	ErrFlushHashNotFound = errors.New("Item you are trying to flush is not found")
+	ErrFlushHashNotFound = errors.New("item you are trying to flush is not found")
 	// ErrFlushItemDownloading is returned when attempting to flush a download item that is currently active.
-	ErrFlushItemDownloading = errors.New("Item you are trying to flush is currently downloading")
+	ErrFlushItemDownloading = errors.New("item you are trying to flush is currently downloading")
 
 	// ErrDownloadDataMissing is returned when download data files are missing or corrupted.
 	// User must run 'warpdl flush <hash>' to remove the corrupt entry.
@@ -50,13 +50,13 @@ var (
 	ErrFileTooLarge = errors.New("file size exceeds maximum allowed limit")
 
 	// ErrItemPartNil is returned when an ItemPart in the parts map is nil.
-	ErrItemPartNil = errors.New("ItemPart is nil")
+	ErrItemPartNil = errors.New("item part is nil")
 
 	// ErrItemPartInvalidRange is returned when ItemPart has FinalOffset <= start offset.
-	ErrItemPartInvalidRange = errors.New("ItemPart has invalid offset range")
+	ErrItemPartInvalidRange = errors.New("item part has invalid offset range")
 
 	// ErrPartDesync indicates memPart and Parts maps are out of sync.
-	ErrPartDesync = errors.New("memPart/Parts desync: hash exists but offset not in Parts")
+	ErrPartDesync = errors.New("memPart/Parts desync: hash exists but offset not in parts")
 
 	// ErrChecksumMismatch is returned when the downloaded file's checksum
 	// does not match the expected checksum from the server.
