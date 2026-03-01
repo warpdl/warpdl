@@ -73,6 +73,8 @@ builds:
         goarch: arm
       - goos: freebsd
         goarch: "386"
+      - goos: freebsd
+        goarch: arm
     mod_timestamp: "{{ .CommitTimestamp }}"
     flags:
       - -trimpath
