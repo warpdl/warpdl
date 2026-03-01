@@ -167,18 +167,25 @@ func (s *Api) resumeHandler(sconn *server.SyncConn, pool *server.Pool, body json
 		return common.UPDATE_RESUME, nil, err
 	}
 	// Re-import cookies on resume if CookieSourcePath is set
-	if item.CookieSourcePath != "" && item.CookieSourcePath != "auto" {
+	if item.CookieSourcePath != "" {
 		parsedURL, urlErr := url.Parse(item.Url)
 		if urlErr == nil {
 			domain := parsedURL.Hostname()
-			importedCookies, source, cookieErr := cookies.ImportCookies(item.CookieSourcePath, domain)
+			var importedCookies []cookies.Cookie
+			var source *cookies.CookieSource
+			var cookieErr error
+			if item.CookieSourcePath == "auto" {
+				importedCookies, source, cookieErr = cookies.DetectBrowserCookies(domain)
+			} else {
+				importedCookies, source, cookieErr = cookies.ImportCookies(item.CookieSourcePath, domain)
+			}
 			if cookieErr != nil {
 				s.log.Printf("warning: failed to re-import cookies on resume: %s\n", cookieErr.Error())
 			} else if len(importedCookies) > 0 {
 				cookieHeader := cookies.BuildCookieHeader(importedCookies)
 				item.Headers.Update("Cookie", cookieHeader)
 				s.manager.UpdateItem(item)
-				s.log.Printf("Re-imported %d cookies for %s from %s (%s)\n", len(importedCookies), domain, source.Browser, source.Path)
+				s.log.Printf("Re-imported %d cookies for %s from %s\n", len(importedCookies), domain, source.Browser)
 			}
 		}
 	}

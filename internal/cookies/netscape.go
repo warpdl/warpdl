@@ -46,7 +46,11 @@ func ParseNetscape(filePath string, domain string) ([]Cookie, error) {
 		// Split by tab — expect exactly 7 fields
 		fields := strings.Split(line, "\t")
 		if len(fields) != 7 {
-			log.Printf("warning: skipping malformed Netscape cookie line: %q", line)
+			logDomain := "unknown domain"
+			if len(fields) > 0 {
+				logDomain = fields[0]
+			}
+			log.Printf("warning: skipping malformed Netscape cookie line for %s (%d fields)", logDomain, len(fields))
 			continue
 		}
 

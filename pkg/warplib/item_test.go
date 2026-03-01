@@ -161,12 +161,6 @@ func TestGetPartWithError_Found(t *testing.T) {
 // values, and that pre-existing GOB data without these fields decodes safely
 // (zero-value backward compatibility).
 func TestItemSchedulingFieldsGOBRoundTrip(t *testing.T) {
-	import_gob := func() interface{} {
-		var buf bytes.Buffer
-		return &buf
-	}
-	_ = import_gob // silence unused
-
 	states := []ScheduleState{
 		ScheduleStateNone,
 		ScheduleStateScheduled,

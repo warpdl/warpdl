@@ -105,7 +105,7 @@ func (s *Api) downloadHTTPHandler(sconn *server.SyncConn, pool *server.Pool, dlU
 			if m.CookiesFrom == "auto" {
 				importedCookies, source, cookieErr = cookies.DetectBrowserCookies(domain)
 				if cookieErr == nil {
-					s.log.Printf("Auto-detected %s cookie store at %s\n", source.Browser, source.Path)
+					s.log.Printf("Auto-detected %s cookie store\n", source.Browser)
 				}
 			} else {
 				importedCookies, source, cookieErr = cookies.ImportCookies(m.CookiesFrom, domain)
@@ -116,7 +116,7 @@ func (s *Api) downloadHTTPHandler(sconn *server.SyncConn, pool *server.Pool, dlU
 			} else if len(importedCookies) > 0 {
 				cookieHeader := cookies.BuildCookieHeader(importedCookies)
 				m.Headers.Update("Cookie", cookieHeader)
-				s.log.Printf("Imported %d cookies for %s from %s (%s)\n", len(importedCookies), domain, source.Browser, source.Path)
+				s.log.Printf("Imported %d cookies for %s from %s\n", len(importedCookies), domain, source.Browser)
 			}
 		}
 	}
@@ -231,7 +231,7 @@ func (s *Api) downloadHTTPHandler(sconn *server.SyncConn, pool *server.Pool, dlU
 			// If StartAt is also set, use it; otherwise compute from cron expression.
 			var firstTrigger time.Time
 			if m.StartAt != "" {
-				t, parseErr := time.Parse("2006-01-02 15:04", m.StartAt)
+				t, parseErr := time.ParseInLocation("2006-01-02 15:04", m.StartAt, time.Local)
 				if parseErr == nil && t.After(time.Now()) {
 					firstTrigger = t
 				}
@@ -244,10 +244,6 @@ func (s *Api) downloadHTTPHandler(sconn *server.SyncConn, pool *server.Pool, dlU
 			}
 
 			if !firstTrigger.IsZero() {
-				// T068: Apply timestamp suffix to filename for recurring downloads.
-				if item.Name != "" {
-					item.Name = applyTimestampSuffix(item.Name, time.Now())
-				}
 				item.ScheduledAt = firstTrigger
 				item.ScheduleState = warplib.ScheduleStateScheduled
 				s.manager.UpdateItem(item)
@@ -275,7 +271,7 @@ func (s *Api) downloadHTTPHandler(sconn *server.SyncConn, pool *server.Pool, dlU
 
 	// Apply scheduling if StartAt is set (one-shot schedule)
 	if m.StartAt != "" {
-		scheduledAt, parseErr := time.Parse("2006-01-02 15:04", m.StartAt)
+		scheduledAt, parseErr := time.ParseInLocation("2006-01-02 15:04", m.StartAt, time.Local)
 		if parseErr == nil {
 			item := s.manager.GetItem(d.GetHash())
 			if item != nil {

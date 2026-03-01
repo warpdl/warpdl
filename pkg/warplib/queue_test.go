@@ -1079,15 +1079,7 @@ func TestQueueManager_SimultaneousScheduleTriggers(t *testing.T) {
 	const maxConcurrent = 3
 	const totalTriggers = 7
 
-	var mu sync.Mutex
-	activeDuringPeak := 0
-	maxObservedActive := 0
-
-	// onStart callback counts concurrent active invocations
-	startedCh := make(chan string, totalTriggers)
-	qm := NewQueueManager(maxConcurrent, func(hash string) {
-		startedCh <- hash
-	})
+	qm := NewQueueManager(maxConcurrent, nil)
 
 	// Simulate N simultaneous schedule triggers
 	var wg sync.WaitGroup
@@ -1097,13 +1089,6 @@ func TestQueueManager_SimultaneousScheduleTriggers(t *testing.T) {
 			defer wg.Done()
 			hash := fmt.Sprintf("scheduled-%d", id)
 			qm.Add(hash, PriorityNormal)
-
-			mu.Lock()
-			activeDuringPeak++
-			if activeDuringPeak > maxObservedActive {
-				maxObservedActive = activeDuringPeak
-			}
-			mu.Unlock()
 		}(i)
 	}
 	wg.Wait()

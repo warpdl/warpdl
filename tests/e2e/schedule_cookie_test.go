@@ -42,11 +42,13 @@ func TestScheduledDownload_StartAt(t *testing.T) {
 
 	time.Sleep(daemonStartWait)
 
-	// Schedule download 10 seconds from now
-	startAt := time.Now().Add(10 * time.Second).Format("2006-01-02 15:04")
-	url := "https://ash-speed.hetzner.com/100MB.bin"
+	// Schedule download 2 minutes from now — far enough ahead that the
+	// minute-precision format "2006-01-02 15:04" never falls in the past,
+	// regardless of what second within the current minute we are.
+	startAt := time.Now().Add(2 * time.Minute).Format("2006-01-02 15:04")
+	dlURL := "https://ash-speed.hetzner.com/100MB.bin"
 
-	dlCmd := exec.Command(binaryPath, "download", url,
+	dlCmd := exec.Command(binaryPath, "download", dlURL,
 		"--start-at", startAt,
 		"-l", downloadDir,
 		"-x", "4",
@@ -61,14 +63,14 @@ func TestScheduledDownload_StartAt(t *testing.T) {
 		t.Skipf("Network unavailable: %v", err)
 	}
 
-	// Wait for scheduled download to actually start and run for a bit
-	time.Sleep(15 * time.Second)
-
-	// List downloads to verify scheduled item exists
+	// List downloads immediately — the item must appear as scheduled (not yet triggered).
 	listCmd := exec.Command(binaryPath, "list")
 	listCmd.Env = env
 	listOutput, _ := listCmd.CombinedOutput()
 	t.Logf("List output: %s", listOutput)
+	if !strings.Contains(string(listOutput), "100MB.bin") {
+		t.Errorf("expected scheduled download to appear in list output, got: %s", listOutput)
+	}
 }
 
 // TestCookieImport_NetscapeFixture verifies that --cookies-from works with a

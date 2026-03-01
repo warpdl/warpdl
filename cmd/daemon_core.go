@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/warpdl/warpdl/internal/api"
@@ -200,6 +201,13 @@ var initDaemonComponents = func(log logger.Logger, maxConcurrent int, rpcCfg *se
 			}
 		}
 
+		// T068: For recurring downloads, apply a per-occurrence timestamp suffix
+		// to the filename at trigger time (not at schedule-setup time).
+		if item.CronExpr != "" && item.Name != "" {
+			item.Name = daemonApplyTimestampSuffix(item.Name, time.Now())
+			m.UpdateItem(item)
+		}
+
 		// Resume the download using the existing pattern
 		resumedItem, err := m.ResumeDownload(client, hash, nil)
 		if err != nil {
@@ -305,4 +313,14 @@ func getCookieManagerWithLogger(log logger.Logger) (*credman.CookieManager, erro
 		return nil, err
 	}
 	return cm, nil
+}
+
+// daemonApplyTimestampSuffix adds a per-occurrence timestamp suffix to a filename
+// before the last extension for recurring scheduled downloads.
+// Format: <basename>-<YYYY-MM-DDTHHMMSS>.<ext>
+func daemonApplyTimestampSuffix(filename string, t time.Time) string {
+	ts := t.UTC().Format("2006-01-02T150405")
+	ext := filepath.Ext(filename)
+	base := strings.TrimSuffix(filename, ext)
+	return base + "-" + ts + ext
 }

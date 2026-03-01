@@ -1297,9 +1297,6 @@ func (d *Downloader) makeRequest(method string, hdrs ...Header) (*http.Response,
 	header := req.Header
 	for _, hdr := range hdrs {
 		hdr.Set(header)
-		if d.l != nil {
-			d.l.Printf("REQUEST-HEADER: %s: %s", hdr.Key, hdr.RedactedValue())
-		}
 	}
 	d.headers.Set(header)
 	if d.l != nil {
