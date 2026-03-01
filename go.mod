@@ -4,6 +4,7 @@ go 1.25
 
 require (
 	github.com/Microsoft/go-winio v0.6.2
+	github.com/adhocore/gronx v1.19.6
 	github.com/coder/websocket v1.8.14
 	github.com/creachadair/jrpc2 v1.3.4
 	github.com/dop251/goja v0.0.0-20260106131823-651366fbe6e3
@@ -22,7 +23,6 @@ require (
 
 require (
 	al.essio.dev/pkg/shellescape v1.6.0 // indirect
-	github.com/adhocore/gronx v1.19.6 // indirect
 	github.com/clipperhouse/uax29/v2 v2.6.0 // indirect
 	github.com/creachadair/mds v0.25.13 // indirect
 	github.com/danieljoos/wincred v1.2.3 // indirect

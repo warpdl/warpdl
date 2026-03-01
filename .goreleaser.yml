@@ -53,7 +53,6 @@ builds:
       - darwin
       - freebsd
       - linux
-      - netbsd
       - openbsd
       - windows
     goarch:
@@ -74,6 +73,10 @@ builds:
       - goos: freebsd
         goarch: "386"
       - goos: freebsd
+        goarch: arm
+      - goos: openbsd
+        goarch: "386"
+      - goos: openbsd
         goarch: arm
     mod_timestamp: "{{ .CommitTimestamp }}"
     flags:
