@@ -61,15 +61,18 @@ func NewQueueManager(maxConcurrent int, onStart func(hash string)) *QueueManager
 // Add adds a download to the queue. If under capacity, it becomes active immediately.
 // Otherwise, it's queued based on priority.
 func (qm *QueueManager) Add(hash string, priority Priority) {
+	var startHash string
+
 	qm.mu.Lock()
-	defer qm.mu.Unlock()
 
 	// Check if already active or queued
 	if _, exists := qm.active[hash]; exists {
+		qm.mu.Unlock()
 		return
 	}
 	for _, item := range qm.waiting {
 		if item.hash == hash {
+			qm.mu.Unlock()
 			return
 		}
 	}
@@ -77,8 +80,10 @@ func (qm *QueueManager) Add(hash string, priority Priority) {
 	// If under capacity, activate immediately
 	if len(qm.active) < qm.maxConcurrent {
 		qm.active[hash] = struct{}{}
-		if qm.onStart != nil {
-			qm.onStart(hash)
+		startHash = hash
+		qm.mu.Unlock()
+		if startHash != "" && qm.onStart != nil {
+			qm.onStart(startHash)
 		}
 		return
 	}
@@ -98,6 +103,7 @@ func (qm *QueueManager) Add(hash string, priority Priority) {
 	qm.waiting = append(qm.waiting, queuedItem{}) // Grow slice
 	copy(qm.waiting[insertIdx+1:], qm.waiting[insertIdx:])
 	qm.waiting[insertIdx] = newItem
+	qm.mu.Unlock()
 }
 
 // ActiveCount returns the number of currently active downloads.
@@ -116,14 +122,16 @@ func (qm *QueueManager) WaitingCount() int {
 
 // OnComplete marks a download as complete and starts the next waiting download if available.
 func (qm *QueueManager) OnComplete(hash string) {
+	var startHash string
+
 	qm.mu.Lock()
-	defer qm.mu.Unlock()
 
 	// Remove from active
 	delete(qm.active, hash)
 
 	// If paused, don't auto-start
 	if qm.paused {
+		qm.mu.Unlock()
 		return
 	}
 
@@ -135,11 +143,14 @@ func (qm *QueueManager) OnComplete(hash string) {
 
 		// Add to active
 		qm.active[next.hash] = struct{}{}
+		startHash = next.hash
+	}
 
-		// Call onStart callback
-		if qm.onStart != nil {
-			qm.onStart(next.hash)
-		}
+	qm.mu.Unlock()
+
+	// Call onStart callback outside the lock to avoid deadlock
+	if startHash != "" && qm.onStart != nil {
+		qm.onStart(startHash)
 	}
 }
 
@@ -199,8 +210,9 @@ func (qm *QueueManager) Pause() {
 
 // Resume resumes the queue, enabling auto-start and starting waiting items up to capacity.
 func (qm *QueueManager) Resume() {
+	var startHashes []string
+
 	qm.mu.Lock()
-	defer qm.mu.Unlock()
 
 	qm.paused = false
 
@@ -212,10 +224,15 @@ func (qm *QueueManager) Resume() {
 
 		// Add to active
 		qm.active[next.hash] = struct{}{}
+		startHashes = append(startHashes, next.hash)
+	}
 
-		// Call onStart callback
-		if qm.onStart != nil {
-			qm.onStart(next.hash)
+	qm.mu.Unlock()
+
+	// Call onStart callbacks outside the lock to avoid deadlock
+	if qm.onStart != nil {
+		for _, hash := range startHashes {
+			qm.onStart(hash)
 		}
 	}
 }
