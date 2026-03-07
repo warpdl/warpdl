@@ -17,26 +17,6 @@ import (
 	"time"
 )
 
-// cancelOnClose wraps an io.ReadCloser and calls a cancel function when Close() is called.
-// This ties the context cancellation to the body lifecycle, ensuring the context stays
-// alive as long as the body is being read (even across function boundaries).
-type cancelOnClose struct {
-	io.ReadCloser
-	cancel context.CancelFunc
-	once   sync.Once
-}
-
-// Close closes the underlying ReadCloser and cancels the associated context.
-// It is safe to call multiple times; the cancel function is only called once.
-func (c *cancelOnClose) Close() error {
-	c.once.Do(func() {
-		if c.cancel != nil {
-			c.cancel()
-		}
-	})
-	return c.ReadCloser.Close()
-}
-
 type Part struct {
 	ctx context.Context
 	// URL
@@ -146,12 +126,29 @@ func (p *Part) getRead() int64 {
 func (p *Part) download(headers Headers, ioff, foff int64, force bool, requestTimeout time.Duration) (body io.ReadCloser, slow bool, err error) {
 	ctx := p.ctx
 	var cancel context.CancelFunc
+	var sr *stallReader
+
 	if requestTimeout > 0 {
-		ctx, cancel = context.WithTimeout(p.ctx, requestTimeout)
+		// Use a cancellable context (NOT WithTimeout). The stallReader's
+		// watchdog timer handles timeouts by cancelling this context only
+		// when no data is received for requestTimeout duration. This prevents
+		// killing active transfers that exceed the timeout but are still
+		// making progress.
+		ctx, cancel = context.WithCancel(p.ctx)
+
+		// The stall timer starts immediately and serves dual purpose:
+		// 1. Connection timeout: if client.Do doesn't return within
+		//    requestTimeout, the timer fires and cancels the request.
+		// 2. Transfer stall timeout: once data flows, each Read resets
+		//    the timer. It only fires if the connection truly stalls.
+		sr = newStallReader(nil, cancel, requestTimeout, p.ctx)
 	}
 
 	req, er := http.NewRequestWithContext(ctx, http.MethodGet, p.url, nil)
 	if er != nil {
+		if sr != nil {
+			sr.timer.Stop()
+		}
 		if cancel != nil {
 			cancel()
 		}
@@ -167,6 +164,13 @@ func (p *Part) download(headers Headers, ioff, foff int64, force bool, requestTi
 	}
 	resp, er := p.client.Do(req)
 	if er != nil {
+		if sr != nil {
+			sr.timer.Stop()
+			// If stall timer fired during connection, return retryable error
+			if sr.stalled.Load() && p.ctx.Err() == nil && errors.Is(er, context.Canceled) {
+				er = &stallTimeoutError{timeout: requestTimeout}
+			}
+		}
 		if cancel != nil {
 			cancel()
 		}
@@ -174,17 +178,29 @@ func (p *Part) download(headers Headers, ioff, foff int64, force bool, requestTi
 		return
 	}
 
+	// Connection established — reset stall timer for body transfer phase
+	if sr != nil {
+		sr.timer.Reset(requestTimeout)
+	}
+
 	var reader io.ReadCloser = resp.Body
 	if p.speedLimit > 0 {
 		reader = NewRateLimitedReadCloser(resp.Body, p.speedLimit)
 	}
 
+	// Wrap reader with stall detection
+	if sr != nil {
+		sr.src = reader
+		reader = sr
+	}
+
 	slow, err = p.copyBuffer(reader, foff, force)
 
-	// Wrap body with cancelOnClose so cancel() is called when body is closed.
-	// This ties context lifecycle to body lifecycle, allowing body reuse.
-	if cancel != nil {
-		body = &cancelOnClose{ReadCloser: resp.Body, cancel: cancel}
+	// Return the stallReader as body for potential reuse by the caller.
+	// The stall timer continues to protect against stalls in reuse calls.
+	if sr != nil {
+		sr.resetTimer()
+		body = sr
 	} else {
 		body = resp.Body
 	}
