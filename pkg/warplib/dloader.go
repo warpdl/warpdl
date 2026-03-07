@@ -895,7 +895,11 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 				break
 			}
 
-			// Resume from where we left off
+			// Resume from where we left off — close old body to release
+			// the HTTP connection and stop any stall detection timer.
+			if body != nil {
+				body.Close()
+			}
 			body = nil
 			ioff = part.offset + part.getRead()
 			repeated = false
