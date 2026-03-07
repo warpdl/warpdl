@@ -26,6 +26,7 @@ dltest/
 bin/
 
 warp
+main
 
 warpdl
 !cmd/warpdl
