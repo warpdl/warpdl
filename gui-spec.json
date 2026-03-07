@@ -1,0 +1,781 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "WarpDL GUI Feature Specification",
+  "version": "1.0.0",
+  "description": "Feature specification for the WarpDL desktop GUI, derived from the daemon IPC API. The GUI connects to the daemon via the primary binary protocol (length-prefixed JSON over Unix socket / named pipe / TCP) or the secondary JSON-RPC 2.0 WebSocket API.",
+
+  "transport": {
+    "primary": {
+      "description": "Custom binary length-prefixed protocol over socket/pipe/TCP",
+      "wire_format": "4-byte little-endian uint32 payload length, followed by JSON payload bytes",
+      "max_message_size": 16777216,
+      "max_message_size_human": "16 MiB",
+      "connection_timeout_ms": 2000,
+      "endpoints": {
+        "unix": "/tmp/warpdl.sock",
+        "unix_env_override": "WARPDL_SOCKET_PATH",
+        "windows_pipe": "\\\\.\\pipe\\warpdl",
+        "windows_pipe_env_override": "WARPDL_PIPE_NAME",
+        "tcp_fallback": "localhost:3849",
+        "tcp_force_env": "WARPDL_FORCE_TCP"
+      },
+      "envelope": {
+        "request": {
+          "method": "UpdateType string",
+          "message": "JSON object (request params)"
+        },
+        "response": {
+          "ok": "boolean",
+          "error": "string (only when ok=false)",
+          "update": {
+            "type": "UpdateType string",
+            "message": "JSON object (response payload)"
+          }
+        }
+      }
+    },
+    "secondary": {
+      "description": "JSON-RPC 2.0 over HTTP POST and WebSocket with push notifications",
+      "base_port_offset": 1,
+      "default_port": 3850,
+      "auth": "Bearer token (constant-time comparison, empty secret disables RPC)",
+      "http_endpoint": "/jsonrpc",
+      "ws_endpoint": "/jsonrpc/ws"
+    }
+  },
+
+  "features": {
+    "daemon_connection": {
+      "id": "F-CONN",
+      "title": "Daemon Connection Management",
+      "description": "Connect to, monitor, and manage the WarpDL daemon process",
+      "priority": "critical",
+      "sub_features": [
+        {
+          "id": "F-CONN-01",
+          "title": "Auto-connect on launch",
+          "description": "Attempt connection to daemon via platform-preferred transport (unix socket, named pipe, TCP fallback). Show connection status indicator in the UI.",
+          "ipc_method": null,
+          "notes": "Use same transport selection logic as CLI: unix socket -> TCP fallback on Linux/macOS; named pipe -> TCP fallback on Windows."
+        },
+        {
+          "id": "F-CONN-02",
+          "title": "Auto-start daemon",
+          "description": "If daemon is not running on launch, offer to start it. The daemon binary is the same warpdl executable with 'daemon' subcommand.",
+          "ipc_method": null,
+          "notes": "Spawn 'warpdl daemon' as background process. Wait for socket to become available."
+        },
+        {
+          "id": "F-CONN-03",
+          "title": "Version mismatch detection",
+          "description": "Query daemon version on connect and warn if GUI version differs.",
+          "ipc_method": "version",
+          "request": null,
+          "response": {
+            "version": "string",
+            "commit": "string",
+            "build_type": "string"
+          }
+        },
+        {
+          "id": "F-CONN-04",
+          "title": "Connection status indicator",
+          "description": "Persistent UI element showing daemon connection state: connected, disconnected, reconnecting.",
+          "ipc_method": null
+        }
+      ]
+    },
+
+    "download_management": {
+      "id": "F-DL",
+      "title": "Download Management",
+      "description": "Add, monitor, pause, resume, and remove downloads",
+      "priority": "critical",
+      "sub_features": [
+        {
+          "id": "F-DL-01",
+          "title": "Add new download",
+          "description": "Dialog to add a new download by URL with configurable options. Supports HTTP/HTTPS/FTP/FTPS/SFTP protocols.",
+          "ipc_method": "download",
+          "request": {
+            "url": { "type": "string", "required": true, "description": "Download URL" },
+            "download_directory": { "type": "string", "required": true, "description": "Local save directory" },
+            "file_name": { "type": "string", "required": false, "description": "Override filename (auto-detected if empty)" },
+            "headers": {
+              "type": "array",
+              "required": false,
+              "items": { "key": "string", "value": "string" },
+              "description": "Custom HTTP headers"
+            },
+            "force_parts": { "type": "boolean", "required": false, "default": false, "description": "Force multi-part even without Accept-Ranges" },
+            "max_connections": { "type": "int32", "required": false, "default": 24, "description": "Max parallel connections" },
+            "max_segments": { "type": "int32", "required": false, "default": 200, "description": "Max file segments" },
+            "overwrite": { "type": "boolean", "required": false, "default": false, "description": "Overwrite existing file" },
+            "proxy": { "type": "string", "required": false, "description": "Proxy URL (http, https, socks5)" },
+            "timeout": { "type": "int", "required": false, "default": 30, "unit": "seconds", "description": "Per-request stall timeout (0 = no timeout)" },
+            "max_retries": { "type": "int", "required": false, "default": 5, "description": "Max retry attempts per segment" },
+            "retry_delay": { "type": "int", "required": false, "default": 500, "unit": "milliseconds", "description": "Base retry delay" },
+            "speed_limit": { "type": "string", "required": false, "description": "Speed limit string e.g. '1MB', '512KB'" },
+            "disable_work_stealing": { "type": "boolean", "required": false, "default": false, "description": "Disable dynamic work stealing between segments" },
+            "priority": { "type": "int", "required": false, "default": 1, "enum": [0, 1, 2], "enum_labels": ["Low", "Normal", "High"], "description": "Queue priority" },
+            "ssh_key_path": { "type": "string", "required": false, "description": "SSH private key for SFTP downloads" },
+            "cookies_from": { "type": "string", "required": false, "description": "Cookie source: file path, 'auto' for browser auto-detect, or empty" }
+          },
+          "response": {
+            "download_id": "string",
+            "file_name": "string",
+            "save_path": "string",
+            "download_directory": "string",
+            "content_length": "int64",
+            "downloaded": "int64",
+            "max_connections": "int32",
+            "max_segments": "int32"
+          },
+          "ui_components": [
+            "URL input field with paste/drag-drop support",
+            "Directory picker for save location",
+            "Collapsible 'Advanced Options' section for connections, segments, proxy, headers, speed limit, timeout, retries",
+            "Priority selector (Low / Normal / High)",
+            "Cookie import option (auto-detect / file path)"
+          ]
+        },
+        {
+          "id": "F-DL-02",
+          "title": "Schedule download",
+          "description": "Schedule a download for later execution, either one-shot or recurring via cron.",
+          "ipc_method": "download",
+          "request_extra_fields": {
+            "start_at": { "type": "string", "format": "YYYY-MM-DD HH:MM", "description": "One-shot scheduled start time" },
+            "schedule": { "type": "string", "format": "5-field cron", "description": "Recurring download cron expression" }
+          },
+          "ui_components": [
+            "Date/time picker for one-shot scheduling",
+            "Cron expression builder for recurring downloads",
+            "Visual preview of next trigger time"
+          ]
+        },
+        {
+          "id": "F-DL-03",
+          "title": "Stop/pause download",
+          "description": "Stop an active download or cancel a scheduled download.",
+          "ipc_method": "stop",
+          "request": {
+            "download_id": { "type": "string", "required": true }
+          },
+          "response": "null on active stop; string message on schedule cancellation",
+          "notes": "Cancelling a scheduled download sets its state to 'cancelled'. Stopping an active download preserves partial data for resume."
+        },
+        {
+          "id": "F-DL-04",
+          "title": "Resume download",
+          "description": "Resume a previously paused or interrupted download.",
+          "ipc_method": "resume",
+          "request": {
+            "download_id": { "type": "string", "required": true },
+            "headers": { "type": "array", "required": false },
+            "max_connections": { "type": "int32", "required": false },
+            "max_segments": { "type": "int32", "required": false },
+            "proxy": { "type": "string", "required": false },
+            "timeout": { "type": "int", "required": false },
+            "max_retries": { "type": "int", "required": false },
+            "retry_delay": { "type": "int", "required": false },
+            "speed_limit": { "type": "string", "required": false }
+          },
+          "response": {
+            "child_hash": "string",
+            "file_name": "string",
+            "save_path": "string",
+            "download_directory": "string",
+            "absolute_location": "string",
+            "content_length": "int64",
+            "downloaded": "int64",
+            "max_connections": "int32",
+            "max_segments": "int32"
+          }
+        },
+        {
+          "id": "F-DL-05",
+          "title": "Delete download",
+          "description": "Remove a download from the manager and optionally delete its data.",
+          "ipc_method": "flush",
+          "request": {
+            "download_id": { "type": "string", "required": false, "description": "Specific download hash; empty = flush all completed" }
+          },
+          "response": "null",
+          "ui_components": [
+            "Confirmation dialog",
+            "Option to delete downloaded file from disk",
+            "Bulk flush for all completed downloads"
+          ]
+        },
+        {
+          "id": "F-DL-06",
+          "title": "Attach to active download",
+          "description": "Subscribe to real-time progress updates of an already-running download (e.g. when reopening the GUI while a download is in progress).",
+          "ipc_method": "attach",
+          "request": {
+            "download_id": { "type": "string", "required": true }
+          },
+          "response": {
+            "download_id": "string",
+            "file_name": "string",
+            "save_path": "string",
+            "download_directory": "string",
+            "content_length": "int64",
+            "downloaded": "int64",
+            "max_connections": "int32",
+            "max_segments": "int32"
+          },
+          "notes": "Does NOT start a download. Joins the broadcast group for an active download. Fails if download is not running."
+        }
+      ]
+    },
+
+    "download_list": {
+      "id": "F-LIST",
+      "title": "Download List View",
+      "description": "Main view showing all downloads with status, progress, and actions",
+      "priority": "critical",
+      "sub_features": [
+        {
+          "id": "F-LIST-01",
+          "title": "List downloads",
+          "description": "Fetch and display all downloads with filtering by status.",
+          "ipc_method": "list",
+          "request": {
+            "show_completed": { "type": "boolean", "default": false },
+            "show_pending": { "type": "boolean", "default": true }
+          },
+          "response": {
+            "items": {
+              "type": "array",
+              "items": {
+                "hash": "string (unique ID)",
+                "name": "string (filename)",
+                "url": "string",
+                "headers": "Header[]",
+                "date_added": "ISO 8601 timestamp",
+                "total_size": "int64 (bytes, -1 = unknown)",
+                "downloaded": "int64 (bytes completed)",
+                "download_location": "string (relative path)",
+                "absolute_location": "string (absolute path)",
+                "child_hash": "string",
+                "hidden": "boolean",
+                "children": "boolean",
+                "parts": "map<int64, ItemPart>",
+                "resumable": "boolean",
+                "protocol": "int (0=HTTP, 1=FTP, 2=FTPS, 3=SFTP)",
+                "ssh_key_path": "string",
+                "scheduled_at": "ISO 8601 timestamp (zero = not scheduled)",
+                "cron_expr": "string (empty = not recurring)",
+                "schedule_state": "string enum: '', 'scheduled', 'triggered', 'missed', 'cancelled'",
+                "cookie_source_path": "string"
+              }
+            }
+          },
+          "ui_components": [
+            "Sortable table/list with columns: Name, Size, Progress, Speed, Status, Date Added",
+            "Filter tabs: Active / Pending / Completed / Scheduled / All",
+            "Search/filter by filename",
+            "Context menu per item: Resume, Stop, Delete, Copy URL, Open File, Open Folder",
+            "Bulk selection with multi-action toolbar"
+          ]
+        },
+        {
+          "id": "F-LIST-02",
+          "title": "Item status derivation",
+          "description": "Derive display status from item fields since there is no explicit status field.",
+          "status_logic": {
+            "completed": "downloaded >= total_size AND total_size > 0",
+            "scheduled": "schedule_state == 'scheduled'",
+            "missed": "schedule_state == 'missed'",
+            "cancelled": "schedule_state == 'cancelled'",
+            "downloading": "item is in Pool (active broadcast)",
+            "paused": "downloaded > 0 AND NOT downloading AND NOT completed",
+            "pending": "downloaded == 0 AND NOT downloading AND NOT scheduled"
+          }
+        }
+      ]
+    },
+
+    "realtime_progress": {
+      "id": "F-PROG",
+      "title": "Real-Time Download Progress",
+      "description": "Live progress tracking via async broadcasts from the daemon",
+      "priority": "critical",
+      "sub_features": [
+        {
+          "id": "F-PROG-01",
+          "title": "Download progress tracking",
+          "description": "Process UPDATE_DOWNLOADING broadcasts to update UI in real-time.",
+          "ipc_method": "downloading (broadcast, not request)",
+          "broadcast_payload": {
+            "download_id": "string",
+            "action": "string (DownloadingAction enum)",
+            "hash": "string (segment/part identifier)",
+            "value": "int64 (bytes)"
+          },
+          "actions": {
+            "resume_progress": {
+              "description": "Bytes recovered from existing partial data during resume",
+              "ui_update": "Increment progress bar, show 'Resuming...' status"
+            },
+            "download_progress": {
+              "description": "Bytes downloaded for a segment",
+              "ui_update": "Increment progress bar, update speed calculation, update ETA"
+            },
+            "download_complete": {
+              "description": "Download finished (hash='main' for overall completion)",
+              "ui_update": "Show completion state, play notification sound, show system notification",
+              "notes": "hash == 'main' indicates the entire download is complete, not just a segment"
+            },
+            "download_stopped": {
+              "description": "Download stopped by user",
+              "ui_update": "Show paused state, enable Resume button"
+            },
+            "compile_start": {
+              "description": "A segment is being merged into the output file",
+              "ui_update": "Show 'Compiling...' sub-status"
+            },
+            "compile_progress": {
+              "description": "Bytes written during segment merge",
+              "ui_update": "Update compile progress indicator"
+            },
+            "compile_complete": {
+              "description": "Segment merge finished",
+              "ui_update": "Update segment status"
+            }
+          },
+          "ui_components": [
+            "Per-download progress bar with percentage",
+            "Download speed (bytes/sec) with rolling average",
+            "ETA calculation based on speed and remaining bytes",
+            "Segment visualization showing individual part progress",
+            "Total downloaded / total size display"
+          ]
+        },
+        {
+          "id": "F-PROG-02",
+          "title": "Error handling from broadcasts",
+          "description": "Handle error responses pushed via the broadcast channel.",
+          "broadcast_error_format": {
+            "ok": false,
+            "error": "string (error message)"
+          },
+          "ui_update": "Show error toast/notification, mark download as errored, offer retry option"
+        }
+      ]
+    },
+
+    "queue_management": {
+      "id": "F-QUEUE",
+      "title": "Download Queue Management",
+      "description": "View and control the priority download queue",
+      "priority": "high",
+      "sub_features": [
+        {
+          "id": "F-QUEUE-01",
+          "title": "Queue status view",
+          "description": "Display current queue state including active and waiting downloads.",
+          "ipc_method": "queue_status",
+          "request": null,
+          "response": {
+            "max_concurrent": "int (max simultaneous downloads)",
+            "active_count": "int",
+            "waiting_count": "int",
+            "paused": "boolean",
+            "active": "string[] (array of active download hashes)",
+            "waiting": {
+              "type": "array",
+              "items": {
+                "hash": "string",
+                "priority": "int (0=Low, 1=Normal, 2=High)",
+                "position": "int (0-indexed queue position)"
+              }
+            }
+          },
+          "ui_components": [
+            "Queue overview panel: active count / max concurrent / waiting count",
+            "Pause/Resume queue toggle button",
+            "Waiting list with drag-to-reorder or move buttons",
+            "Priority badge per queued item (Low/Normal/High with color coding)"
+          ]
+        },
+        {
+          "id": "F-QUEUE-02",
+          "title": "Pause/resume queue",
+          "description": "Pause the queue to prevent new downloads from auto-starting, or resume it.",
+          "ipc_methods": {
+            "pause": { "method": "queue_pause", "request": null, "response": null },
+            "resume": { "method": "queue_resume", "request": null, "response": null }
+          }
+        },
+        {
+          "id": "F-QUEUE-03",
+          "title": "Reorder queue",
+          "description": "Move a queued download to a different position in the waiting list.",
+          "ipc_method": "queue_move",
+          "request": {
+            "hash": { "type": "string", "required": true, "description": "Download hash to move" },
+            "position": { "type": "int", "required": true, "description": "Target 0-indexed position" }
+          },
+          "response": null,
+          "ui_components": [
+            "Drag-and-drop reordering in waiting list",
+            "Move to top / Move to bottom buttons"
+          ]
+        }
+      ]
+    },
+
+    "extension_management": {
+      "id": "F-EXT",
+      "title": "Extension Management",
+      "description": "Install, configure, and manage JavaScript URL-transformation extensions",
+      "priority": "medium",
+      "sub_features": [
+        {
+          "id": "F-EXT-01",
+          "title": "List extensions",
+          "ipc_method": "list_extensions",
+          "request": {
+            "all": { "type": "boolean", "default": true, "description": "Include deactivated extensions" }
+          },
+          "response": {
+            "type": "array",
+            "items": {
+              "extension_id": "string",
+              "name": "string",
+              "activated": "boolean"
+            }
+          }
+        },
+        {
+          "id": "F-EXT-02",
+          "title": "View extension details",
+          "ipc_method": "get_extension",
+          "request": {
+            "extension_id": { "type": "string", "required": true }
+          },
+          "response": {
+            "extension_id": "string",
+            "name": "string",
+            "version": "string",
+            "description": "string",
+            "matches": "string[] (URL patterns this extension handles)"
+          }
+        },
+        {
+          "id": "F-EXT-03",
+          "title": "Install extension",
+          "ipc_method": "add_extension",
+          "request": {
+            "path": { "type": "string", "required": true, "description": "Filesystem path to JS extension file" }
+          },
+          "response": {
+            "extension_id": "string",
+            "name": "string",
+            "version": "string",
+            "description": "string",
+            "matches": "string[]"
+          },
+          "ui_components": ["File picker dialog for .js extension files"]
+        },
+        {
+          "id": "F-EXT-04",
+          "title": "Activate/deactivate extension",
+          "ipc_methods": {
+            "activate": {
+              "method": "activate_extension",
+              "request": { "extension_id": "string" },
+              "response": "ExtensionInfo"
+            },
+            "deactivate": {
+              "method": "deactivate_extension",
+              "request": { "extension_id": "string" },
+              "response": { "name": "string" }
+            }
+          },
+          "ui_components": ["Toggle switch per extension in the list"]
+        },
+        {
+          "id": "F-EXT-05",
+          "title": "Delete extension",
+          "ipc_method": "delete_extension",
+          "request": { "extension_id": { "type": "string", "required": true } },
+          "response": { "name": "string" },
+          "ui_components": ["Delete button with confirmation dialog"]
+        }
+      ]
+    },
+
+    "system_notifications": {
+      "id": "F-NOTIF",
+      "title": "System Notifications",
+      "description": "Desktop notifications for download events",
+      "priority": "medium",
+      "sub_features": [
+        {
+          "id": "F-NOTIF-01",
+          "title": "Download complete notification",
+          "trigger": "DownloadingAction == 'download_complete' AND hash == 'main'",
+          "description": "Show OS-level notification when a download finishes. Include filename and save path. Click to open file/folder."
+        },
+        {
+          "id": "F-NOTIF-02",
+          "title": "Download error notification",
+          "trigger": "Error broadcast received",
+          "description": "Show OS-level notification on download failure. Include error message and offer retry action."
+        },
+        {
+          "id": "F-NOTIF-03",
+          "title": "Scheduled download triggered notification",
+          "trigger": "Scheduled download starts (ScheduleState changes from 'scheduled' to 'triggered')",
+          "description": "Notify when a scheduled download begins executing."
+        }
+      ]
+    },
+
+    "settings": {
+      "id": "F-SET",
+      "title": "Settings/Preferences",
+      "description": "GUI-local settings that map to IPC request parameters",
+      "priority": "medium",
+      "sub_features": [
+        {
+          "id": "F-SET-01",
+          "title": "Default download directory",
+          "maps_to": "DownloadParams.download_directory",
+          "type": "directory path"
+        },
+        {
+          "id": "F-SET-02",
+          "title": "Default max connections",
+          "maps_to": "DownloadParams.max_connections",
+          "type": "int32",
+          "default": 24
+        },
+        {
+          "id": "F-SET-03",
+          "title": "Default max segments",
+          "maps_to": "DownloadParams.max_segments",
+          "type": "int32",
+          "default": 200
+        },
+        {
+          "id": "F-SET-04",
+          "title": "Default request timeout",
+          "maps_to": "DownloadParams.timeout",
+          "type": "int",
+          "unit": "seconds",
+          "default": 30
+        },
+        {
+          "id": "F-SET-05",
+          "title": "Default proxy",
+          "maps_to": "DownloadParams.proxy",
+          "type": "string"
+        },
+        {
+          "id": "F-SET-06",
+          "title": "Default speed limit",
+          "maps_to": "DownloadParams.speed_limit",
+          "type": "string"
+        },
+        {
+          "id": "F-SET-07",
+          "title": "Default priority",
+          "maps_to": "DownloadParams.priority",
+          "type": "int",
+          "enum": [0, 1, 2],
+          "enum_labels": ["Low", "Normal", "High"],
+          "default": 1
+        },
+        {
+          "id": "F-SET-08",
+          "title": "Auto-start daemon",
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically start daemon if not running on GUI launch"
+        },
+        {
+          "id": "F-SET-09",
+          "title": "Daemon connection URI",
+          "type": "string",
+          "description": "Override daemon URI (unix:///path, tcp://host:port, pipe://name)"
+        },
+        {
+          "id": "F-SET-10",
+          "title": "Cookie auto-import",
+          "maps_to": "DownloadParams.cookies_from",
+          "type": "string",
+          "options": ["", "auto"],
+          "description": "Default cookie import behavior for new downloads"
+        }
+      ]
+    },
+
+    "batch_download": {
+      "id": "F-BATCH",
+      "title": "Batch Download",
+      "description": "Add multiple downloads at once from a URL list",
+      "priority": "low",
+      "sub_features": [
+        {
+          "id": "F-BATCH-01",
+          "title": "Import URL list",
+          "description": "Parse a text file with one URL per line (# for comments) and create downloads for each.",
+          "ipc_method": "download (called once per URL)",
+          "ui_components": [
+            "File picker for .txt URL list",
+            "Textarea for pasting URLs directly",
+            "Preview list with per-URL options override",
+            "Shared settings (directory, connections, priority) applied to all"
+          ]
+        }
+      ]
+    },
+
+    "jsonrpc_websocket": {
+      "id": "F-RPC",
+      "title": "JSON-RPC 2.0 WebSocket Integration (Alternative Transport)",
+      "description": "Alternative transport for GUI clients that prefer standard JSON-RPC over the custom binary protocol. Provides push notifications for real-time updates.",
+      "priority": "low",
+      "base_url": "ws://localhost:3850/jsonrpc/ws",
+      "auth": "Bearer <secret> in first message or HTTP header",
+      "methods": {
+        "system.getVersion": {
+          "params": null,
+          "result": { "version": "string", "commit": "string", "build_type": "string" }
+        },
+        "download.add": {
+          "params": {
+            "url": "string",
+            "filename": "string",
+            "dir": "string",
+            "headers": "map<string,string>",
+            "connections": "int",
+            "ssh_key_path": "string"
+          },
+          "result": { "gid": "string" }
+        },
+        "download.pause": {
+          "params": { "gid": "string" },
+          "result": {}
+        },
+        "download.resume": {
+          "params": { "gid": "string" },
+          "result": {}
+        },
+        "download.remove": {
+          "params": { "gid": "string" },
+          "result": {}
+        },
+        "download.status": {
+          "params": { "gid": "string" },
+          "result": {
+            "gid": "string",
+            "status": "string",
+            "total_length": "int64",
+            "completed_length": "int64",
+            "percentage": "int64",
+            "file_name": "string"
+          }
+        },
+        "download.list": {
+          "params": { "status": "string" },
+          "result": {
+            "downloads": [
+              {
+                "gid": "string",
+                "status": "string",
+                "total_length": "int64",
+                "completed_length": "int64",
+                "percentage": "int64",
+                "file_name": "string"
+              }
+            ]
+          }
+        }
+      },
+      "push_notifications": {
+        "download.started": {
+          "gid": "string",
+          "file_name": "string",
+          "total_length": "int64"
+        },
+        "download.progress": {
+          "gid": "string",
+          "completed_length": "int64"
+        },
+        "download.complete": {
+          "gid": "string",
+          "total_length": "int64"
+        },
+        "download.error": {
+          "gid": "string",
+          "error": "string"
+        }
+      },
+      "error_codes": {
+        "-32001": "Download not found",
+        "-32002": "Download not active",
+        "-32602": "Invalid params"
+      }
+    }
+  },
+
+  "enums": {
+    "UpdateType": {
+      "download": "Add new download",
+      "downloading": "Async progress broadcast (not a request)",
+      "attach": "Attach to active download",
+      "resume": "Resume paused download",
+      "flush": "Delete download(s)",
+      "stop": "Stop/pause download",
+      "list": "List downloads",
+      "add_extension": "Install extension",
+      "list_extensions": "List extensions",
+      "get_extension": "Get extension details",
+      "delete_extension": "Remove extension",
+      "activate_extension": "Enable extension",
+      "deactivate_extension": "Disable extension",
+      "version": "Get daemon version",
+      "queue_status": "Get queue state",
+      "queue_pause": "Pause queue",
+      "queue_resume": "Resume queue",
+      "queue_move": "Reorder queue item"
+    },
+    "DownloadingAction": {
+      "resume_progress": "Bytes recovered during resume",
+      "download_progress": "Bytes downloaded",
+      "download_complete": "Download finished (hash='main' for overall)",
+      "download_stopped": "User stopped download",
+      "compile_start": "Segment merge started",
+      "compile_progress": "Segment merge progress",
+      "compile_complete": "Segment merge finished"
+    },
+    "Protocol": {
+      "0": "HTTP/HTTPS",
+      "1": "FTP",
+      "2": "FTPS",
+      "3": "SFTP"
+    },
+    "Priority": {
+      "0": "Low",
+      "1": "Normal",
+      "2": "High"
+    },
+    "ScheduleState": {
+      "": "Not scheduled",
+      "scheduled": "Waiting for trigger time",
+      "triggered": "Trigger fired, download enqueued",
+      "missed": "Trigger time passed while daemon was down",
+      "cancelled": "User cancelled before trigger"
+    },
+    "ErrorType": {
+      "0": "Critical (fatal, stops download)",
+      "1": "Warning (non-fatal, download continues)"
+    }
+  }
+}
