@@ -71,7 +71,30 @@ jobs:
       - name: Build
         run: go build -ldflags="-w -s" .
 
-  # E2E download tests - matrix with any-pass logic
+  # E2E tests using local HTTP server (no external network dependency)
+  e2e-local:
+    name: E2E Local (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: stable
+          cache: true
+
+      - name: Run local E2E tests
+        run: go test -v -tags=e2e -run "^(TestDownload_|TestResume_|TestList_|TestFlush_|TestStop_|TestInfo_|TestQueue_|TestVersion_|TestHelp_|TestLifecycle_|TestDaemon_|TestError_|TestExt_|TestNativeHost_|TestDownloadAlias|TestListAlias)" -timeout=10m ./tests/e2e/
+
+  # E2E download tests - matrix with any-pass logic (external network)
   e2e:
     name: E2E (${{ matrix.location }})
     runs-on: ubuntu-latest
