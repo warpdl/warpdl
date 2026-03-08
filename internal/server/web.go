@@ -47,15 +47,21 @@ func NewWebServer(l *log.Logger, m *warplib.Manager, pool *Pool, port int, clien
 func (s *WebServer) processDownload(cd *capturedDownload) error {
 	parsedURL, err := url.Parse(cd.Url)
 	if err != nil {
-		return err
+		return fmt.Errorf("parse URL %q: %w", cd.Url, err)
 	}
 	jar, err := cookiejar.New(nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("create cookie jar: %w", err)
 	}
 	client := &http.Client{
 		Jar:           jar,
 		CheckRedirect: warplib.RedirectPolicy(warplib.DefaultMaxRedirects),
+	}
+	if len(cd.Cookies) > 0 {
+		s.l.Printf("[WS] Setting %d cookies for %s", len(cd.Cookies), parsedURL.Host)
+		for i, c := range cd.Cookies {
+			s.l.Printf("[WS]   cookie[%d]: Name=%q Domain=%q Path=%q", i, c.Name, c.Domain, c.Path)
+		}
 	}
 	client.Jar.SetCookies(parsedURL, cd.Cookies)
 	var d *warplib.Downloader
@@ -144,29 +150,36 @@ func (s *WebServer) processDownload(cd *capturedDownload) error {
 }
 
 func (s *WebServer) handleConnection(conn *websocket.Conn) {
-	defer conn.Close()
+	s.l.Println("[WS] New extension connection from:", conn.Request().RemoteAddr)
+	defer func() {
+		s.l.Println("[WS] Connection closed")
+		conn.Close()
+	}()
 	for {
 		var data []byte
 		err := websocket.Message.Receive(conn, &data)
 		if err != nil {
 			if err == io.EOF {
-				s.l.Println("Connection closed")
+				s.l.Println("[WS] Client disconnected (EOF)")
 				return
 			}
-			s.l.Println("Error receiving message: ", err)
+			s.l.Println("[WS] Error receiving message:", err)
 			return
 		}
+		s.l.Printf("[WS] Received %d bytes: %s", len(data), string(data))
 		var cd capturedDownload
 		err = json.Unmarshal(data, &cd)
 		if err != nil {
-			s.l.Println("Error unmarshalling data: ", err)
+			s.l.Printf("[WS] Error unmarshalling data: %v\n[WS] Raw payload: %s", err, string(data))
 			continue
 		}
+		s.l.Printf("[WS] Parsed download - URL: %s, Headers: %d, Cookies: %d", cd.Url, len(cd.Headers), len(cd.Cookies))
 		err = s.processDownload(&cd)
 		if err != nil {
-			s.l.Println("Error processing download: ", err)
+			s.l.Printf("[WS] Error processing download: %v", err)
 			continue
 		}
+		s.l.Printf("[WS] Download queued successfully: %s", cd.Url)
 	}
 }
 
