@@ -12,10 +12,10 @@
     "check": "../scripts/check-docs-coverage.sh"
   },
   "dependencies": {
-    "@astrojs/sitemap": "^3.7.0",
-    "@astrojs/starlight": "^0.37.5",
-    "astro": "^5.17.1",
+    "@astrojs/sitemap": "^3.7.1",
+    "@astrojs/starlight": "0.38.0",
+    "astro": "6.0.2",
     "sharp": "^0.34.5",
-    "tailwindcss": "^4.1.18"
+    "tailwindcss": "^4.2.1"
   }
 }
