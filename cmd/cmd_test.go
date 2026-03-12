@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"flag"
 	"io"
 	"net"
 	"net/http"
@@ -982,6 +983,136 @@ func TestGetUserAgent_Unknown(t *testing.T) {
 	ua := getUserAgent(custom)
 	if ua != custom {
 		t.Fatalf("expected passthrough for unknown UA, got: %s", ua)
+	}
+}
+
+// newContextWithFlags creates a CLI context with registered string/bool flags.
+// flagArgs are key-value pairs: ["-flag", "value", "-bool-flag", "true", ...]
+func newContextWithFlags(app *cli.App, flagDefs []struct{ name string; val any }, flagArgs []string, args []string, name string) *cli.Context {
+	set := flag.NewFlagSet(name, flag.ContinueOnError)
+	for _, fd := range flagDefs {
+		switch v := fd.val.(type) {
+		case string:
+			set.String(fd.name, v, "")
+		case bool:
+			set.Bool(fd.name, v, "")
+		}
+	}
+	_ = set.Parse(append(flagArgs, args...))
+	ctx := cli.NewContext(app, set, nil)
+	ctx.Command = cli.Command{Name: name}
+	return ctx
+}
+
+// TestDownloadWithStartAt covers the validateStartAt path inside download().
+func TestDownloadWithStartAt(t *testing.T) {
+	socketPath := filepath.Join(t.TempDir(), "warpdl.sock")
+	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
+	srv := startFakeServer(t, socketPath)
+	defer srv.close()
+
+	future := time.Now().Add(2 * time.Hour)
+	startAt := future.Format("2006-01-02 15:04")
+
+	app := cli.NewApp()
+	ctx := newContextWithFlags(app,
+		[]struct{ name string; val any }{
+			{"start-at", ""},
+		},
+		[]string{"-start-at", startAt},
+		[]string{"http://example.com"},
+		"download",
+	)
+
+	oldDlPath, oldFileName := dlPath, fileName
+	dlPath = t.TempDir()
+	fileName = "test.bin"
+	defer func() {
+		dlPath = oldDlPath
+		fileName = oldFileName
+	}()
+
+	if err := download(ctx); err != nil {
+		t.Fatalf("download with start-at: %v", err)
+	}
+}
+
+// TestDownloadWithInvalidSchedule covers the validateSchedule error path inside download().
+func TestDownloadWithInvalidSchedule(t *testing.T) {
+	// Use /tmp directly with a short name to avoid Unix socket path length limit (108 chars).
+	socketPath := filepath.Join(os.TempDir(), "wdl-sched-test.sock")
+	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
+	srv := startFakeServer(t, socketPath)
+	defer srv.close()
+
+	app := cli.NewApp()
+	ctx := newContextWithFlags(app,
+		[]struct{ name string; val any }{
+			{"schedule", ""},
+		},
+		[]string{"-schedule", "bad-cron"},
+		[]string{"http://example.com"},
+		"download",
+	)
+
+	oldDlPath, oldFileName := dlPath, fileName
+	dlPath = t.TempDir()
+	fileName = "test.bin"
+	defer func() {
+		dlPath = oldDlPath
+		fileName = oldFileName
+	}()
+
+	// Invalid schedule causes download() to print error and return nil.
+	if err := download(ctx); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// TestGetClientWithCustomURI covers the daemonURI != "" branch in getClient().
+func TestGetClientWithCustomURI(t *testing.T) {
+	old := daemonURI
+	daemonURI = "://invalid-uri"
+	defer func() { daemonURI = old }()
+
+	_, err := getClient()
+	if err == nil {
+		t.Fatal("expected error for invalid URI")
+	}
+}
+
+// TestWaitForBatchSubmissions_AlreadyComplete covers waitForBatchSubmissions
+// and the early-return path in waitForBatchSubmission when the file is already complete.
+func TestWaitForBatchSubmissions_AlreadyComplete(t *testing.T) {
+	f, err := os.CreateTemp("", "batch-complete-*.bin")
+	if err != nil {
+		t.Fatalf("CreateTemp: %v", err)
+	}
+	defer os.Remove(f.Name())
+	data := []byte("hello")
+	if _, err := f.Write(data); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	f.Close()
+
+	result := NewBatchResult(1)
+	result.AddSuccess()
+	result.Submissions = []BatchSubmission{
+		{
+			URL:           "http://example.com/file.bin",
+			DownloadID:    "test-id",
+			SavePath:      f.Name(),
+			ContentLength: int64(len(data)),
+		},
+	}
+
+	// isBatchSubmissionComplete returns true, so waitForBatchSubmission
+	// returns nil without dialing the daemon.
+	waitForBatchSubmissions(result)
+
+	// Submission should remain a success (no error).
+	if result.Failed != 0 {
+		t.Errorf("expected 0 failures, got %d", result.Failed)
 	}
 }
 

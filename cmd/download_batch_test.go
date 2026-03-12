@@ -837,6 +837,112 @@ https://example.com/success.zip`
 	}
 }
 
+func TestBatchResult_ConvertSuccessToError(t *testing.T) {
+	t.Run("decrements succeeded and adds error", func(t *testing.T) {
+		r := NewBatchResult(2)
+		r.AddSuccess()
+		r.AddSuccess()
+
+		r.ConvertSuccessToError("https://example.com/file.zip", errors.New("timed out"))
+
+		if r.Succeeded != 1 {
+			t.Errorf("expected Succeeded=1, got %d", r.Succeeded)
+		}
+		if r.Failed != 1 {
+			t.Errorf("expected Failed=1, got %d", r.Failed)
+		}
+		if len(r.Errors) != 1 {
+			t.Fatalf("expected 1 error, got %d", len(r.Errors))
+		}
+		if r.Errors[0].URL != "https://example.com/file.zip" {
+			t.Errorf("expected URL 'https://example.com/file.zip', got %q", r.Errors[0].URL)
+		}
+	})
+
+	t.Run("does not go below zero succeeded", func(t *testing.T) {
+		r := NewBatchResult(1)
+		// Succeeded is already 0 — ConvertSuccessToError should not underflow
+		r.ConvertSuccessToError("https://example.com/file.zip", errors.New("failed"))
+
+		if r.Succeeded != 0 {
+			t.Errorf("expected Succeeded=0, got %d", r.Succeeded)
+		}
+		if r.Failed != 1 {
+			t.Errorf("expected Failed=1, got %d", r.Failed)
+		}
+	})
+}
+
+func TestIsBatchSubmissionComplete(t *testing.T) {
+	t.Run("file does not exist", func(t *testing.T) {
+		sub := BatchSubmission{
+			SavePath:      "/nonexistent/path/file.zip",
+			ContentLength: 100,
+		}
+		if isBatchSubmissionComplete(sub) {
+			t.Error("expected false for non-existent file")
+		}
+	})
+
+	t.Run("file exists with matching size", func(t *testing.T) {
+		f, err := os.CreateTemp("", "batch-test-*.bin")
+		if err != nil {
+			t.Fatalf("CreateTemp: %v", err)
+		}
+		defer os.Remove(f.Name())
+		data := []byte("hello world")
+		if _, err := f.Write(data); err != nil {
+			t.Fatalf("Write: %v", err)
+		}
+		f.Close()
+
+		sub := BatchSubmission{
+			SavePath:      f.Name(),
+			ContentLength: int64(len(data)),
+		}
+		if !isBatchSubmissionComplete(sub) {
+			t.Error("expected true when file size matches ContentLength")
+		}
+	})
+
+	t.Run("file exists but size does not match", func(t *testing.T) {
+		f, err := os.CreateTemp("", "batch-test-*.bin")
+		if err != nil {
+			t.Fatalf("CreateTemp: %v", err)
+		}
+		defer os.Remove(f.Name())
+		if _, err := f.Write([]byte("partial")); err != nil {
+			t.Fatalf("Write: %v", err)
+		}
+		f.Close()
+
+		sub := BatchSubmission{
+			SavePath:      f.Name(),
+			ContentLength: 100,
+		}
+		if isBatchSubmissionComplete(sub) {
+			t.Error("expected false when file size does not match ContentLength")
+		}
+	})
+
+	t.Run("zero ContentLength treats any existing file as complete", func(t *testing.T) {
+		f, err := os.CreateTemp("", "batch-test-*.bin")
+		if err != nil {
+			t.Fatalf("CreateTemp: %v", err)
+		}
+		defer os.Remove(f.Name())
+		f.Close()
+
+		sub := BatchSubmission{
+			SavePath:      f.Name(),
+			ContentLength: 0,
+		}
+		if !isBatchSubmissionComplete(sub) {
+			t.Error("expected true when ContentLength is zero and file exists")
+		}
+	})
+}
+
 // Helper function for string contains check
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
