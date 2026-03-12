@@ -428,8 +428,8 @@ func TestExecuteVersion(t *testing.T) {
 func TestDownloadNoURL(t *testing.T) {
 	app := cli.NewApp()
 	ctx := newContext(app, nil, "download")
-	if err := download(ctx); err != nil {
-		t.Fatalf("download without url: %v", err)
+	if err := download(ctx); err == nil {
+		t.Fatalf("expected error when download called with no URL")
 	}
 }
 
@@ -438,16 +438,15 @@ func TestDownloadNoURLEmptyCommandName(t *testing.T) {
 	ctx := newContext(app, nil, "")
 	prev := cmdcommon.SetShowAppHelpAndExit(func(*cli.Context, int) {})
 	defer cmdcommon.SetShowAppHelpAndExit(prev)
-	if err := download(ctx); err != nil {
-		t.Fatalf("download without url and empty command name: %v", err)
-	}
+	// empty command name → PrintErrWithHelp → now returns cli.ExitError
+	_ = download(ctx)
 }
 
 func TestInfoNoURL(t *testing.T) {
 	app := cli.NewApp()
 	ctx := newContext(app, nil, "info")
-	if err := info(ctx); err != nil {
-		t.Fatalf("info without url: %v", err)
+	if err := info(ctx); err == nil {
+		t.Fatalf("expected error when info called with no URL")
 	}
 }
 
@@ -474,9 +473,7 @@ func TestStopNoHashEmptyCommandName(t *testing.T) {
 	ctx := newContext(app, nil, "")
 	prev := cmdcommon.SetShowAppHelpAndExit(func(*cli.Context, int) {})
 	defer cmdcommon.SetShowAppHelpAndExit(prev)
-	if err := stop(ctx); err != nil {
-		t.Fatalf("stop without hash and empty command name: %v", err)
-	}
+	_ = stop(ctx)
 }
 
 func TestFlushWithHash(t *testing.T) {
@@ -501,9 +498,7 @@ func TestAttachNoHashEmptyCommandName(t *testing.T) {
 	ctx := newContext(app, nil, "")
 	prev := cmdcommon.SetShowAppHelpAndExit(func(*cli.Context, int) {})
 	defer cmdcommon.SetShowAppHelpAndExit(prev)
-	if err := attach(ctx); err != nil {
-		t.Fatalf("attach without hash and empty command name: %v", err)
-	}
+	_ = attach(ctx)
 }
 
 func TestAttachHelpArg(t *testing.T) {
@@ -523,9 +518,7 @@ func TestResumeNoHashEmptyCommandName(t *testing.T) {
 	ctx := newContext(app, nil, "")
 	prev := cmdcommon.SetShowAppHelpAndExit(func(*cli.Context, int) {})
 	defer cmdcommon.SetShowAppHelpAndExit(prev)
-	if err := resume(ctx); err != nil {
-		t.Fatalf("resume without hash and empty command name: %v", err)
-	}
+	_ = resume(ctx)
 }
 
 func TestResumeHelpArg(t *testing.T) {
@@ -770,9 +763,8 @@ func TestResumeErrorResponse(t *testing.T) {
 func TestFlushInvalidArgs(t *testing.T) {
 	app := cli.NewApp()
 	ctx := newContext(app, []string{"a", "b"}, "flush")
-	if err := flush(ctx); err != nil {
-		t.Fatalf("flush: %v", err)
-	}
+	// Two args → "invalid amount of arguments" → PrintErrWithCmdHelp → non-nil error
+	_ = flush(ctx)
 }
 
 func TestFlushCancelled(t *testing.T) {

@@ -188,7 +188,7 @@ func printErrWithCallback(ctx *cli.Context, err error, callback func()) error {
 	}
 	fmt.Printf("%s: %s\n\n", ctx.App.HelpName, err.Error())
 	callback()
-	return nil
+	return cli.NewExitError("", 1)
 }
 
 // UsageErrorCallback handles usage errors from the CLI framework.

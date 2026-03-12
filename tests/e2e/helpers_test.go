@@ -54,11 +54,21 @@ func newTestEnv(t *testing.T) *testEnv {
 	t.Helper()
 	configDir := t.TempDir()
 	downloadDir := t.TempDir()
-	socketPath := filepath.Join(configDir, "warpdl.sock")
+
+	// macOS t.TempDir() resolves to /private/var/folders/... (>104 chars) which
+	// exceeds the Unix socket path limit. Use a short path under /tmp/ instead.
+	socketDir, err := os.MkdirTemp("", "wp")
+	if err != nil {
+		t.Fatalf("failed to create socket dir: %v", err)
+	}
+	t.Cleanup(func() { os.RemoveAll(socketDir) })
+	socketPath := filepath.Join(socketDir, "w.sock")
 
 	env := append(os.Environ(),
 		"WARPDL_CONFIG_DIR="+configDir,
 		"WARPDL_SOCKET_PATH="+socketPath,
+		// Prevent NewClient from auto-respawning the daemon in error tests.
+		"WARPDL_TEST_SKIP_DAEMON=1",
 	)
 
 	return &testEnv{
@@ -579,26 +589,32 @@ func (zeroReader) Read(p []byte) (int, error) {
 // Extension test helpers
 // ---------------------------------------------------------------------------
 
-// createTestExtension creates a minimal JavaScript extension file for testing.
+// createTestExtension creates a minimal extension directory for testing.
+// The extension directory is at <dir>/extensions/<name>/ and contains:
+//   - manifest.json  (required by internal/extl/module.go OpenModule)
+//   - main.js        (entry point that exports an extract function)
+//
+// Returns the path to the extension directory so callers can pass its parent
+// to runInDir and its base name as the argument to "ext install".
 func createTestExtension(t *testing.T, dir, name string) string {
 	t.Helper()
-	extDir := filepath.Join(dir, "extensions")
+	extBase := filepath.Join(dir, "extensions")
+	extDir := filepath.Join(extBase, name)
 	if err := os.MkdirAll(extDir, 0755); err != nil {
-		t.Fatalf("failed to create extensions dir: %v", err)
+		t.Fatalf("failed to create extension dir: %v", err)
 	}
 
-	extPath := filepath.Join(extDir, name+".js")
-	content := `// Test extension
-module.exports = {
-    name: "` + name + `",
-    version: "1.0.0",
-    transform: function(url) {
-        return url;
-    }
-};
-`
-	if err := os.WriteFile(extPath, []byte(content), 0644); err != nil {
-		t.Fatalf("failed to create test extension: %v", err)
+	manifest := `{"name":"` + name + `","version":"1.0.0","matches":[],"entrypoint":"main.js"}`
+	if err := os.WriteFile(filepath.Join(extDir, "manifest.json"), []byte(manifest), 0644); err != nil {
+		t.Fatalf("failed to create manifest.json: %v", err)
 	}
-	return extPath
+
+	mainJS := `function extract(url) { return url; }`
+	if err := os.WriteFile(filepath.Join(extDir, "main.js"), []byte(mainJS), 0644); err != nil {
+		t.Fatalf("failed to create main.js: %v", err)
+	}
+
+	// Return the extension directory path.
+	// filepath.Dir(extDir) == extBase  →  "ext install <name>" works when run from extBase.
+	return extDir
 }

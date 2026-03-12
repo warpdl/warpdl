@@ -140,7 +140,8 @@ func TestExt_InstallInvalidPath(t *testing.T) {
 		!strings.Contains(output, "Error") &&
 		!strings.Contains(output, "failed") &&
 		!strings.Contains(output, "not found") &&
-		!strings.Contains(output, "no such file") {
+		!strings.Contains(output, "no such file") &&
+		!strings.Contains(output, "invalid") {
 		t.Fatalf("expected error output for non-existent path, got:\n%s", output)
 	}
 }

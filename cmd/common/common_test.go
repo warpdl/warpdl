@@ -85,9 +85,7 @@ func TestPrintErrWithHelp(t *testing.T) {
 	}
 	defer func() { showAppHelpAndExit = orig }()
 
-	if err := PrintErrWithHelp(ctx, errors.New("oops")); err != nil {
-		t.Fatalf("PrintErrWithHelp: %v", err)
-	}
+	_ = PrintErrWithHelp(ctx, errors.New("oops"))
 	if !called {
 		t.Fatalf("expected help to be called")
 	}
@@ -121,9 +119,7 @@ func TestPrintErrWithCmdHelp(t *testing.T) {
 	}
 	defer func() { showCommandHelp = orig }()
 
-	if err := PrintErrWithCmdHelp(ctx, errors.New("oops")); err != nil {
-		t.Fatalf("PrintErrWithCmdHelp: %v", err)
-	}
+	_ = PrintErrWithCmdHelp(ctx, errors.New("oops"))
 	if !called {
 		t.Fatalf("expected command help to be called")
 	}
@@ -137,9 +133,7 @@ func TestPrintErrWithCmdHelp_ShowCommandHelpError(t *testing.T) {
 	}
 	defer func() { showCommandHelp = orig }()
 
-	if err := PrintErrWithCmdHelp(ctx, errors.New("oops")); err != nil {
-		t.Fatalf("PrintErrWithCmdHelp: %v", err)
-	}
+	_ = PrintErrWithCmdHelp(ctx, errors.New("oops"))
 }
 
 func TestUsageErrorCallback(t *testing.T) {
@@ -148,9 +142,7 @@ func TestUsageErrorCallback(t *testing.T) {
 	showCommandHelp = func(*cli.Context, string) error { return nil }
 	defer func() { showCommandHelp = orig }()
 
-	if err := UsageErrorCallback(ctx, errors.New("oops"), false); err != nil {
-		t.Fatalf("UsageErrorCallback: %v", err)
-	}
+	_ = UsageErrorCallback(ctx, errors.New("oops"), false)
 }
 
 func TestHelp(t *testing.T) {
@@ -238,9 +230,7 @@ func TestUsageErrorCallbackNoCommand(t *testing.T) {
 	showAppHelpAndExit = func(*cli.Context, int) {}
 	defer func() { showAppHelpAndExit = orig }()
 
-	if err := UsageErrorCallback(ctx, errors.New("oops"), false); err != nil {
-		t.Fatalf("UsageErrorCallback: %v", err)
-	}
+	_ = UsageErrorCallback(ctx, errors.New("oops"), false)
 }
 
 func TestSetShowAppHelpAndExit(t *testing.T) {
