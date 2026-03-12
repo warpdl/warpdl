@@ -56,6 +56,11 @@ jobs:
           fi
           echo "✅ Generated documentation validated"
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
 
