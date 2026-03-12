@@ -167,6 +167,21 @@ Max Connections`+"\t"+`: %d
 		return nil
 	}
 
+	submission := BatchSubmission{
+		URL:           hash,
+		DownloadID:    hash,
+		SavePath:      r.SavePath,
+		ContentLength: int64(r.ContentLength),
+	}
+
 	RegisterHandlersWithProgress(client, int64(r.ContentLength), int64(r.Downloaded))
-	return client.Listen()
+	listenErr := client.Listen()
+	waitErr := waitForBatchSubmission(submission)
+	if waitErr != nil {
+		if listenErr != nil {
+			return listenErr
+		}
+		return waitErr
+	}
+	return nil
 }

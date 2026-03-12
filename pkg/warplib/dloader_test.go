@@ -608,6 +608,35 @@ func TestOpenFileSucceedsWhenFileDoesNotExist(t *testing.T) {
 	}
 }
 
+func TestOpenResumeFileSucceedsWhenFileExists(t *testing.T) {
+	tmpDir := t.TempDir()
+	existingFile := filepath.Join(tmpDir, "existing.bin")
+	originalContent := []byte("existing content")
+
+	if err := os.WriteFile(existingFile, originalContent, 0666); err != nil {
+		t.Fatalf("failed to create existing file: %v", err)
+	}
+
+	d := &Downloader{
+		dlLoc:    tmpDir,
+		fileName: "existing.bin",
+	}
+
+	err := d.openResumeFile()
+	if err != nil {
+		t.Fatalf("expected no error when resume file exists, got: %v", err)
+	}
+	defer d.f.Close()
+
+	got, err := io.ReadAll(d.f)
+	if err != nil {
+		t.Fatalf("failed to read existing file: %v", err)
+	}
+	if string(got) != string(originalContent) {
+		t.Fatalf("expected existing content to be preserved, got %q", string(got))
+	}
+}
+
 // TestNumBasePartsInitialization tests that numBaseParts is properly validated during initialization.
 // Since getPartSize() is now a pure getter, validation happens in NewDownloader().
 func TestNumBasePartsInitialization(t *testing.T) {

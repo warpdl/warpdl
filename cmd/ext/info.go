@@ -24,6 +24,12 @@ func info(ctx *cli.Context) (err error) {
 		common.PrintRuntimeErr(ctx, "ext-info", "new_client", err)
 		return nil
 	}
+	defer client.Close()
+	id, err = resolveExtensionID(client, id)
+	if err != nil {
+		common.PrintRuntimeErr(ctx, "ext-info", "resolve-extension", err)
+		return nil
+	}
 	extInfo, err := client.GetExtension(id)
 	if err != nil {
 		common.PrintRuntimeErr(ctx, "ext-info", "get_extension", err)

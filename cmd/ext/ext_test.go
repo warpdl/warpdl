@@ -56,39 +56,52 @@ func startFakeServer(t *testing.T, fail ...map[common.UpdateType]string) *fakeSe
 			go func(c net.Conn) {
 				defer srv.wg.Done()
 				defer c.Close()
-				reqBytes, err := readMessage(c)
-				if err != nil {
-					return
-				}
-				var req struct {
-					Method common.UpdateType `json:"method"`
-				}
-				if err := json.Unmarshal(reqBytes, &req); err != nil {
-					return
-				}
-				if failMap != nil {
-					if msg, ok := failMap[req.Method]; ok {
-						writeError(c, msg)
+				for {
+					reqBytes, err := readMessage(c)
+					if err != nil {
 						return
 					}
-				}
-				switch req.Method {
-				case common.UPDATE_ADD_EXT, common.UPDATE_GET_EXT, common.UPDATE_ACTIVATE_EXT:
-					resp := common.ExtensionInfo{ExtensionId: "ext1", Name: "Ext", Version: "1.0", Description: "desc"}
-					writeResponse(c, req.Method, resp)
-				case common.UPDATE_DELETE_EXT, common.UPDATE_DEACTIVATE_EXT:
-					resp := common.ExtensionName{Name: "Ext"}
-					writeResponse(c, req.Method, resp)
-				case common.UPDATE_LIST_EXT:
-					var resp []common.ExtensionInfoShort
-					if emptyListOverride {
-						resp = []common.ExtensionInfoShort{}
-					} else {
-						resp = []common.ExtensionInfoShort{{ExtensionId: "ext1", Name: "Ext", Activated: true}}
+					var req struct {
+						Method  common.UpdateType `json:"method"`
+						Message struct {
+							ExtensionID string `json:"extension_id"`
+						} `json:"message"`
 					}
-					writeResponse(c, req.Method, resp)
-				default:
-					writeError(c, "unknown method")
+					if err := json.Unmarshal(reqBytes, &req); err != nil {
+						return
+					}
+					if failMap != nil {
+						if msg, ok := failMap[req.Method]; ok {
+							writeError(c, msg)
+							continue
+						}
+					}
+					switch req.Method {
+					case common.UPDATE_ADD_EXT, common.UPDATE_GET_EXT, common.UPDATE_ACTIVATE_EXT:
+						if req.Message.ExtensionID == "Ext" {
+							writeError(c, "module not found")
+							continue
+						}
+						resp := common.ExtensionInfo{ExtensionId: "ext1", Name: "Ext", Version: "1.0", Description: "desc"}
+						writeResponse(c, req.Method, resp)
+					case common.UPDATE_DELETE_EXT, common.UPDATE_DEACTIVATE_EXT:
+						if req.Message.ExtensionID == "Ext" {
+							writeError(c, "module not found")
+							continue
+						}
+						resp := common.ExtensionName{Name: "Ext"}
+						writeResponse(c, req.Method, resp)
+					case common.UPDATE_LIST_EXT:
+						var resp []common.ExtensionInfoShort
+						if emptyListOverride {
+							resp = []common.ExtensionInfoShort{}
+						} else {
+							resp = []common.ExtensionInfoShort{{ExtensionId: "ext1", Name: "Ext", Activated: true}}
+						}
+						writeResponse(c, req.Method, resp)
+					default:
+						writeError(c, "unknown method")
+					}
 				}
 			}(conn)
 		}
@@ -211,6 +224,37 @@ func TestExtCommands(t *testing.T) {
 	ctx = newContext(app, []string{"ext1"}, "uninstall")
 	if err := uninstall(ctx); err != nil {
 		t.Fatalf("uninstall: %v", err)
+	}
+}
+
+func TestExtCommandsResolveName(t *testing.T) {
+	srv := startFakeServer(t)
+	defer srv.close()
+
+	app := cli.NewApp()
+	app.Name = "warpdl"
+	app.HelpName = "warpdl"
+
+	tests := []struct {
+		name       string
+		args       []string
+		run        func(*cli.Context) error
+		wantOutput string
+	}{
+		{name: "info", args: []string{"Ext"}, run: info, wantOutput: "Extension Info"},
+		{name: "activate", args: []string{"Ext"}, run: activate, wantOutput: "Successfully activated extension"},
+		{name: "deactivate", args: []string{"Ext"}, run: deactivate, wantOutput: "Successfully deactivated extension"},
+		{name: "uninstall", args: []string{"Ext"}, run: uninstall, wantOutput: "Successfully uninstalled extension"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := newContext(app, tt.args, tt.name)
+			stdout, _ := captureOutput(func() {
+				_ = tt.run(ctx)
+			})
+			assertContains(t, stdout, tt.wantOutput)
+		})
 	}
 }
 

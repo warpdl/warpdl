@@ -52,6 +52,7 @@ func getHandler(pool *server.Pool, uidPtr *string, stopDownloadPtr *func() error
 				Value:      tread,
 				Hash:       hash,
 			}))
+			pool.StopDownload(uid)
 		},
 		DownloadStoppedHandler: func() {
 			uid := *uidPtr
@@ -59,6 +60,7 @@ func getHandler(pool *server.Pool, uidPtr *string, stopDownloadPtr *func() error
 				DownloadId: uid,
 				Action:     common.DownloadStopped,
 			}))
+			pool.StopDownload(uid)
 		},
 		CompileStartHandler: func(hash string) {
 			uid := *uidPtr
@@ -94,6 +96,17 @@ func resumeItem(i *warplib.Item) error {
 		return nil
 	}
 	return i.Resume()
+}
+
+func reportAsyncResumeError(pool *server.Pool, item *warplib.Item, err error) {
+	if err == nil || item == nil {
+		return
+	}
+	uid := item.Hash
+	pool.Broadcast(uid, server.InitError(err))
+	pool.WriteError(uid, server.ErrorTypeCritical, err.Error())
+	pool.StopDownload(uid)
+	_ = item.CloseDownloader()
 }
 
 var __stop = func() error { return nil }
@@ -219,9 +232,13 @@ func (s *Api) resumeHandler(sconn *server.SyncConn, pool *server.Pool, body json
 		// need more opinions on this one:
 		item.TotalSize += cItem.TotalSize
 	}
-	go resumeItem(item)
+	go func() {
+		reportAsyncResumeError(pool, item, resumeItem(item))
+	}()
 	if cItem != nil {
-		go resumeItem(cItem)
+		go func() {
+			reportAsyncResumeError(pool, cItem, resumeItem(cItem))
+		}()
 	}
 	maxConn, _ := item.GetMaxConnections()
 	maxParts, _ := item.GetMaxParts()

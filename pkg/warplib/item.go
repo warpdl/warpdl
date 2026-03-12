@@ -334,6 +334,25 @@ func (i *Item) Resume() error {
 	return d.Resume(context.Background(), partsCopy, h)
 }
 
+// Start begins a fresh download using the currently assigned downloader.
+func (i *Item) Start() error {
+	i.dAllocMu.RLock()
+	d := i.dAlloc
+	i.dAllocMu.RUnlock()
+
+	if d == nil {
+		return ErrItemDownloaderNotFound
+	}
+	return d.Download(context.Background(), nil)
+}
+
+// HasParts reports whether the item has any persisted part state.
+func (i *Item) HasParts() bool {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+	return len(i.Parts) > 0
+}
+
 // StopDownload pauses the download of the item.
 func (i *Item) StopDownload() error {
 	i.dAllocMu.Lock()

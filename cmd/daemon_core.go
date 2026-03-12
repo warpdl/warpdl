@@ -142,6 +142,22 @@ var initDaemonComponents = func(log logger.Logger, maxConcurrent int, rpcCfg *se
 		// onStartDownload is called by the queue when a slot becomes available
 		// for a waiting download. It auto-resumes the queued download.
 		onStartDownload := func(hash string) {
+			item := m.GetItem(hash)
+			if item == nil {
+				log.Error("Queue auto-start failed for %s: item not found", hash)
+				return
+			}
+
+			if !item.HasParts() {
+				go func() {
+					if err := item.Start(); err != nil {
+						log.Error("Queue auto-start failed for %s: %v", hash, err)
+					}
+				}()
+				log.Info("Queue auto-started download: %s", hash)
+				return
+			}
+
 			item, err := m.ResumeDownload(client, hash, nil)
 			if err != nil {
 				log.Error("Queue auto-start failed for %s: %v", hash, err)
@@ -206,6 +222,15 @@ var initDaemonComponents = func(log logger.Logger, maxConcurrent int, rpcCfg *se
 		if item.CronExpr != "" && item.Name != "" {
 			item.Name = daemonApplyTimestampSuffix(item.Name, time.Now())
 			m.UpdateItem(item)
+		}
+
+		if !item.HasParts() {
+			go func() {
+				if err := item.Start(); err != nil {
+					log.Error("Scheduler trigger: Start failed for %s: %v", hash, err)
+				}
+			}()
+			return
 		}
 
 		// Resume the download using the existing pattern

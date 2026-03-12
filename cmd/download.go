@@ -15,6 +15,8 @@ import (
 	"github.com/warpdl/warpdl/pkg/warplib"
 )
 
+const batchCompletionGrace = 2 * time.Second
+
 var (
 	dlPath   string
 	fileName string
@@ -378,9 +380,111 @@ func downloadBatchFromFile(ctx *cli.Context, client *warpcli.Client, inputFile s
 		return nil
 	}
 
+	if !ctx.Bool("background") {
+		_ = client.Close()
+		waitForBatchSubmissions(result)
+	}
+
 	// Print summary using BatchResult's String() method
 	fmt.Println()
 	fmt.Print(result.String())
 
 	return nil
+}
+
+func waitForBatchSubmissions(result *BatchResult) {
+	for _, submission := range result.Submissions {
+		if err := waitForBatchSubmission(submission); err != nil {
+			result.ConvertSuccessToError(submission.URL, err)
+		}
+	}
+}
+
+func waitForBatchSubmission(submission BatchSubmission) error {
+	if isBatchSubmissionComplete(submission) {
+		return nil
+	}
+
+	client, err := getClient()
+	if err != nil {
+		return err
+	}
+	client.CheckVersionMismatch(currentBuildArgs.Version)
+
+	_, err = client.AttachDownload(submission.DownloadID)
+	if err != nil {
+		_ = client.Close()
+		if waitForBatchCompletionGrace(submission) {
+			return nil
+		}
+		return err
+	}
+
+	registerBatchWaitHandlers(client)
+	err = client.Listen()
+	if err != nil && !waitForBatchCompletionGrace(submission) {
+		return err
+	}
+	if !waitForBatchCompletionGrace(submission) {
+		return fmt.Errorf("download %s did not complete", submission.DownloadID)
+	}
+	return nil
+}
+
+func waitForBatchCompletionGrace(submission BatchSubmission) bool {
+	deadline := time.Now().Add(batchCompletionGrace)
+	for {
+		if isBatchSubmissionComplete(submission) || isBatchSubmissionCompleteInManager(submission) {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+func isBatchSubmissionCompleteInManager(submission BatchSubmission) bool {
+	client, err := getClient()
+	if err != nil {
+		return false
+	}
+	defer client.Close()
+
+	resp, err := client.List(&warpcli.ListOpts{
+		ShowCompleted: true,
+		ShowPending:   true,
+	})
+	if err != nil {
+		return false
+	}
+
+	for _, item := range resp.Items {
+		if item == nil || item.Hash != submission.DownloadID {
+			continue
+		}
+		total := int64(item.TotalSize)
+		if total <= 0 {
+			return false
+		}
+		return int64(item.Downloaded) >= total
+	}
+
+	return false
+}
+
+func registerBatchWaitHandlers(client *warpcli.Client) {
+	client.AddHandler(
+		common.UPDATE_DOWNLOADING,
+		warpcli.NewDownloadingHandler("", func(dr *common.DownloadingResponse) error {
+			if dr.Hash != warplib.MAIN_HASH {
+				return nil
+			}
+			switch dr.Action {
+			case common.DownloadComplete, common.DownloadStopped:
+				client.Disconnect()
+			}
+			return nil
+		}),
+	)
 }

@@ -29,6 +29,7 @@ func list(ctx *cli.Context) error {
 		common.PrintRuntimeErr(ctx, "list-ext", "new_client", err)
 		return nil
 	}
+	defer client.Close()
 	exts, err := client.ListExtension(showAll)
 	if err != nil || exts == nil {
 		common.PrintRuntimeErr(ctx, "list-ext", "new_client", err)

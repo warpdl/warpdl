@@ -33,6 +33,7 @@ func install(ctx *cli.Context) error {
 		common.PrintRuntimeErr(ctx, "ext-install", "new_client", err)
 		return nil
 	}
+	defer client.Close()
 	ext, err := client.AddExtension(filepath.Join(cwd, path))
 	if err != nil {
 		common.PrintRuntimeErr(ctx, "ext-install", "load-extension", err)

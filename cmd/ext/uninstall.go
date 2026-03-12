@@ -24,6 +24,12 @@ func uninstall(ctx *cli.Context) error {
 		common.PrintRuntimeErr(ctx, "ext-uninstall", "new_client", err)
 		return nil
 	}
+	defer client.Close()
+	id, err = resolveExtensionID(client, id)
+	if err != nil {
+		common.PrintRuntimeErr(ctx, "ext-uninstall", "resolve-extension", err)
+		return nil
+	}
 	ext, err := client.DeleteExtension(id)
 	if err != nil {
 		common.PrintRuntimeErr(ctx, "ext-uninstall", "delete-extension", err)

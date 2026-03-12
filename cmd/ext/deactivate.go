@@ -24,6 +24,12 @@ func deactivate(ctx *cli.Context) error {
 		common.PrintRuntimeErr(ctx, "ext-deactivate", "new_client", err)
 		return nil
 	}
+	defer client.Close()
+	id, err = resolveExtensionID(client, id)
+	if err != nil {
+		common.PrintRuntimeErr(ctx, "ext-deactivate", "resolve-extension", err)
+		return nil
+	}
 	ext, err := client.DeactivateExtension(id)
 	if err != nil {
 		common.PrintRuntimeErr(ctx, "ext-deactivate", "delete-extension", err)

@@ -101,7 +101,7 @@ func TestValidateDownloadIntegrity_MissingMainFile_CompiledPart(t *testing.T) {
 	}
 }
 
-func TestValidateDownloadIntegrity_MissingMainFile_Downloaded(t *testing.T) {
+func TestValidateDownloadIntegrity_MissingMainFile_DownloadedWithoutParts(t *testing.T) {
 	base := t.TempDir()
 	if err := SetConfigDir(base); err != nil {
 		t.Fatalf("SetConfigDir: %v", err)
@@ -118,10 +118,39 @@ func TestValidateDownloadIntegrity_MissingMainFile_Downloaded(t *testing.T) {
 
 	err := validateDownloadIntegrity(item)
 	if err == nil {
-		t.Fatal("expected error for missing main file with Downloaded > 0")
+		t.Fatal("expected error for downloaded state without part data")
 	}
 	if !errors.Is(err, ErrDownloadDataMissing) {
 		t.Fatalf("expected ErrDownloadDataMissing, got %v", err)
+	}
+}
+
+func TestValidateDownloadIntegrity_ValidState_PartFilesOnly(t *testing.T) {
+	base := t.TempDir()
+	if err := SetConfigDir(base); err != nil {
+		t.Fatalf("SetConfigDir: %v", err)
+	}
+
+	item := newTestItem(t, "valid-part-files-only")
+	item.Downloaded = 50
+
+	dlPath := filepath.Join(DlDataDir, item.Hash)
+	if err := os.MkdirAll(dlPath, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	item.Parts[0] = &ItemPart{
+		Hash:        "part1",
+		FinalOffset: 100,
+		Compiled:    false,
+	}
+	partFile := getFileName(dlPath, "part1")
+	if err := os.WriteFile(partFile, []byte("partial content"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	if err := validateDownloadIntegrity(item); err != nil {
+		t.Fatalf("expected no error, got %v", err)
 	}
 }
 

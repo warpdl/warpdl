@@ -10,7 +10,10 @@ import (
 // It verifies:
 // 1. Download data directory exists ({DlDataDir}/{hash}/)
 // 2. Part files exist for all non-compiled parts ({dlPath}/{part.Hash}.warp)
-// 3. Main file exists if any part is compiled OR if bytes were downloaded ({item.AbsolutePath})
+// 3. Main file exists if any part was already compiled into it ({item.AbsolutePath})
+//
+// Raw download progress can live entirely inside part files, so Downloaded > 0
+// does not by itself require a non-empty destination file yet.
 //
 // Returns ErrDownloadDataMissing if any check fails.
 func validateDownloadIntegrity(item *Item) error {
@@ -31,18 +34,21 @@ func validateDownloadIntegrity(item *Item) error {
 		}
 	}
 
-	// Check 3: Main file if download has progress
-	needsMainFile := item.Downloaded > 0
-	if !needsMainFile {
-		for _, part := range item.Parts {
-			if part.Compiled {
-				needsMainFile = true
-				break
-			}
+	hasCompiledPart := false
+	for _, part := range item.Parts {
+		if part.Compiled {
+			hasCompiledPart = true
+			break
 		}
 	}
 
-	if needsMainFile {
+	// A resumed HTTP download must still have some segment state unless it has
+	// already compiled data into the destination file.
+	if item.Downloaded > 0 && len(item.Parts) == 0 && !hasCompiledPart {
+		return fmt.Errorf("%w: download has progress but no part state: %s", ErrDownloadDataMissing, item.Hash)
+	}
+
+	if hasCompiledPart {
 		mainFile := item.GetAbsolutePath()
 		stat, err := os.Stat(mainFile)
 		if err != nil {

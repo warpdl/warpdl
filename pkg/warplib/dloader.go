@@ -383,7 +383,9 @@ func (d *Downloader) Start() (err error) {
 		return
 	}
 	defer func() {
-		d.f.Close()
+		if closeErr := d.closeMainFile(); err == nil && closeErr != nil {
+			err = closeErr
+		}
 		// err = os.Rename(d.fName, d.GetSavePath())
 	}()
 	// Check disk space before starting download
@@ -450,6 +452,9 @@ func (d *Downloader) Start() (err error) {
 		d.Log("Download might be corrupted | Expected bytes: %d Found bytes: %d", d.contentLength.v(), d.nread)
 		// return
 	}
+	if err = d.closeMainFile(); err != nil {
+		return
+	}
 	d.handlers.DownloadCompleteHandler(MAIN_HASH, d.contentLength.v())
 	d.Log("All segments downloaded!")
 	return
@@ -472,12 +477,14 @@ func (d *Downloader) Resume(parts map[int64]*ItemPart) (err error) {
 		partsSnapshot[k] = v
 	}
 
-	err = d.openFile()
+	err = d.openResumeFile()
 	if err != nil {
 		return
 	}
 	defer func() {
-		d.f.Close()
+		if closeErr := d.closeMainFile(); err == nil && closeErr != nil {
+			err = closeErr
+		}
 		// err = os.Rename(d.fName, d.GetSavePath())
 	}()
 	// Check disk space before resuming download
@@ -536,6 +543,9 @@ func (d *Downloader) Resume(parts map[int64]*ItemPart) (err error) {
 	if d.contentLength.v() != d.nread {
 		d.Log("Download might be corrupted | Expected bytes: %d Found bytes: %d", d.contentLength.v(), d.nread)
 		// return
+	}
+	if err = d.closeMainFile(); err != nil {
+		return
 	}
 	d.handlers.DownloadCompleteHandler(MAIN_HASH, d.contentLength.v())
 	d.Log("All segments downloaded!")
@@ -646,6 +656,27 @@ func (d *Downloader) openFile() (err error) {
 	return
 }
 
+func (d *Downloader) openResumeFile() (err error) {
+	savePath := d.GetSavePath()
+
+	if _, statErr := WarpStat(savePath); statErr == nil {
+		d.f, err = WarpOpenFile(savePath, os.O_RDWR, DefaultFileMode)
+		return
+	}
+
+	d.f, err = WarpOpenFile(savePath, os.O_RDWR|os.O_CREATE, DefaultFileMode)
+	return
+}
+
+func (d *Downloader) closeMainFile() error {
+	if d.f == nil {
+		return nil
+	}
+	err := d.f.Close()
+	d.f = nil
+	return err
+}
+
 func (d *Downloader) spawnPart(ioff, foff int64) (part *Part, err error) {
 	// Calculate per-part speed limit: total limit / number of parts
 	partSpeedLimit := d.speedLimit
@@ -748,7 +779,6 @@ func (d *Downloader) resumePartDownload(hash string, ioff, foff, espeed int64) {
 	}
 	d.handlers.CompileStartHandler(part.hash)
 	readCapture := part.getRead()
-	defer d.handlers.CompileCompleteHandler(part.hash, readCapture)
 
 	d.Log("%s: compiling part", hash)
 
@@ -760,6 +790,7 @@ func (d *Downloader) resumePartDownload(hash string, ioff, foff, espeed int64) {
 		d.Log("%s: compile: %w", hash, err)
 		return
 	}
+	d.handlers.CompileCompleteHandler(part.hash, readCapture)
 	d.Log("%s: compilation complete: read %d bytes and wrote %d bytes", hash, read, written)
 
 	fName := getFileName(
@@ -798,7 +829,6 @@ func (d *Downloader) newPartDownload(ioff, foff, espeed int64) {
 
 	d.handlers.CompileStartHandler(part.hash)
 	readCapture := part.getRead()
-	defer d.handlers.CompileCompleteHandler(part.hash, readCapture)
 
 	d.Log("%s: compiling part", hash)
 
@@ -810,6 +840,7 @@ func (d *Downloader) newPartDownload(ioff, foff, espeed int64) {
 		d.Log("%s: compile: %w", hash, err)
 		return
 	}
+	d.handlers.CompileCompleteHandler(part.hash, readCapture)
 	d.Log("%s: compilation complete: read %d bytes and wrote %d bytes", hash, read, written)
 
 	fName := getFileName(
