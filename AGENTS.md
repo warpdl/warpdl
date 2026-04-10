@@ -44,6 +44,50 @@ go test ./pkg/warplib/...
 - Test files use `*_test.go` suffix with `_test` package for integration tests
 - Platform-specific code uses `_unix.go`, `_windows.go`, `_darwin.go` suffixes
 
+### Naming Rules
+
+**Packages:**
+- Lowercase, single word preferred (e.g., `api`, `cookies`, `scheduler`)
+- No underscores or mixedCaps in package names
+- Package name should match the directory name
+
+**Types (structs, interfaces):**
+- Exported types: `PascalCase` (e.g., `DownloadManager`, `ItemQueue`)
+- Unexported types: `camelCase` (e.g., `itemStore`, `connPool`)
+- Interfaces: end with `-er` suffix when describing behavior (e.g., `Reader`, `Writer`, `Downloader`, `Handler`)
+- Interface implementations should NOT repeat the interface name (use `Downloader` not `DownloaderImpl`)
+
+**Functions and Methods:**
+- Exported: `PascalCase` (e.g., `GetItem`, `StartDownload`, `NewManager`)
+- Unexported: `camelCase` (e.g., `parseURL`, `validatePath`, `initLogger`)
+- Factory functions: prefix with `New` (e.g., `NewManager`, `NewClient`)
+- Constructors returning error: `NewX` returns `(*X, error)` pattern
+- Getters: no `Get` prefix for simple field access (e.g., `item.Status()` not `item.GetStatus()`)
+- Setters: use `Set` prefix (e.g., `SetStatus`, `SetTimeout`)
+
+**Variables and Constants:**
+- Local variables: `camelCase` (e.g., `itemCount`, `downloadPath`)
+- Constants: `PascalCase` when exported, `camelCase` when unexported
+- Acronyms: preserve case (e.g., `HTTPClient`, `URLParser`, `maxID`, not `HttpClient`, `UrlParser`)
+- Common initialisms: `ID`, `URL`, `HTTP`, `JSON`, `API`, `CPU`, `TCP`, `UDP`, `FTP`, `SSH`
+
+**Error Variables:**
+- Prefix with `Err` (e.g., `ErrNotFound`, `ErrInvalidInput`)
+- Error messages: do not capitalize first letter, no trailing period
+- Error types: end with `Error` (e.g., `DownloadError`, `ValidationError`)
+
+**Test Files and Functions:**
+- Test files: `*_test.go` suffix
+- Test functions: `Test<Name>` (e.g., `TestDownload`, `TestQueueOperations`)
+- Benchmark functions: `Benchmark<Name>` (e.g., `BenchmarkDownload`)
+- Example functions: `Example<Name>` (e.g., `ExampleManager_Download`)
+- Table-driven tests: use `tests := struct{...}` pattern
+
+**File Naming:**
+- Platform-specific: `filename_unix.go`, `filename_windows.go`, `filename_darwin.go`
+- Architecture-specific: `filename_arm64.go`, `filename_amd64.go`
+- Build-constrained files use `//go:build` directive at top
+
 ## Testing Guidelines
 
 - Minimum 80% test coverage required (enforced in CI)
