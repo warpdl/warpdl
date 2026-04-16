@@ -1,0 +1,79 @@
+---
+title: Linux Troubleshooting
+description: Common issues and solutions on Linux
+---
+
+## Socket Permission Denied
+
+```bash
+# Check socket
+ls -la /tmp/warpdl.sock
+
+# Remove stale socket
+rm /tmp/warpdl.sock
+
+# Or use TCP
+export WARPDL_FORCE_TCP=1
+```
+
+## SELinux Blocking
+
+If SELinux blocks WarpDL:
+
+```bash
+# Check for denials
+ausearch -m avc -ts recent
+
+# Create policy module (temporary)
+setenforce 0
+
+# Or create proper policy
+audit2allow -a -M warpdl
+semodule -i warpdl.pp
+```
+
+## AppArmor Issues
+
+```bash
+# Check AppArmor status
+aa-status
+
+# Add WarpDL to complain mode
+aa-complain /usr/local/bin/warpdl
+```
+
+## Systemd Service Not Starting
+
+The WarpDL daemon runs as a user-mode systemd service (not system-wide).
+
+```bash
+# Check status
+systemctl --user status warpdl.service
+
+# View logs
+journalctl --user -u warpdl.service -f
+```
+
+## Config Directory Location
+
+WarpDL stores its configuration and data files in:
+
+```
+~/.config/warpdl/
+```
+
+This directory contains:
+- `daemon.pid` - PID file for the running daemon
+- `cookies.warp` - Stored cookies for downloads
+- `known_hosts` - Known host keys for SSH connections
+- `userdata.warp` - User data and settings
+- `dldata/` - Download segment data directory
+
+## Credential Storage (Keyring)
+
+WarpDL uses the system keyring. Ensure D-Bus is running:
+
+```bash
+# Check keyring service
+systemctl --user status gnome-keyring-daemon
+```

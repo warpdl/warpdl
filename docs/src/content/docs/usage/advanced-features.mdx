@@ -1,0 +1,235 @@
+---
+title: Advanced Features
+description: Background downloads, scheduling, batch downloads, speed limiting, and work stealing
+---
+
+WarpDL includes several advanced features for optimizing download performance and flexibility.
+
+## Background Downloads
+
+Run downloads in the background without blocking your terminal:
+
+```bash
+warpdl download --background https://example.com/large-file.zip
+```
+
+The download starts immediately and returns control to your terminal. Use `attach` to reconnect:
+
+```bash
+warpdl list -p          # Find the download hash
+warpdl attach <hash>    # Reconnect to view progress
+```
+
+### Environment Variable
+
+```bash
+# Note: WARPDL_BACKGROUND environment variable is not implemented.
+# Use the --background flag instead.
+warpdl download --background https://example.com/large-file.zip
+```
+
+## Scheduling
+
+Schedule downloads to start at a specific time or after a duration:
+
+### Start at a specific time
+
+```bash
+warpdl download --start-at "2024-12-25 08:00" https://example.com/file.zip
+```
+
+Format: `YYYY-MM-DD HH:MM` (24-hour format).
+
+### Start after a duration
+
+```bash
+warpdl download --start-in 2h30m https://example.com/file.zip
+warpdl download --start-in 30m https://example.com/file.zip
+```
+
+Supported duration formats: `2h`, `30m`, `1h30m`, etc. Mutually exclusive with `--start-at`.
+
+### Recurring schedule (cron)
+
+```bash
+warpdl download --schedule "0 2 * * *" https://example.com/backup.zip
+```
+
+Cron expression format (standard cron):
+- `"0 2 * * *"` — Daily at 2:00 AM
+- `"0 */6 * * *"` — Every 6 hours
+- `"0 0 * * 0"` — Weekly on Sunday
+
+## Batch Downloads
+
+Download multiple URLs from a file:
+
+```bash
+warpdl download -i urls.txt
+```
+
+The input file format:
+- One URL per line
+- Lines starting with `#` are treated as comments
+- You can also provide additional URLs as arguments:
+
+```bash
+warpdl download -i urls.txt https://example.com/extra-file.zip
+```
+
+## Cookie Import
+
+Import cookies from browser cookie stores for authenticated downloads:
+
+### Auto-detect browser cookies
+
+```bash
+warpdl download --cookies-from auto https://example.com/protected-file.zip
+```
+
+### Import from specific cookie file
+
+```bash
+warpdl download --cookies-from ~/.mozilla/firefox/xxx.default/cookies.sqlite https://example.com/protected-file.zip
+warpdl download --cookies-from "~/Library/Application Support/Google/Chrome/Default/Cookies" https://example.com/protected-file.zip
+```
+
+Supported formats:
+- **Firefox** (SQLite `cookies.sqlite` or `webappsstore.sqlite`)
+- **Chrome/Chromium** (SQLite `Cookies` file)
+- **Netscape** cookie file format (text-based)
+
+Use `auto` to automatically detect and use the default cookie store from installed browsers.
+
+## SFTP/SSH Downloads
+
+Download files from SFTP servers with SSH key authentication:
+
+```bash
+# Use password from URL
+warpdl download sftp://user:pass@host.com/path/to/file.zip
+
+# Use explicit SSH key
+warpdl download --ssh-key ~/.ssh/id_ed25519 sftp://user@host.com/path/to/file.zip
+
+# Use default SSH keys (auto-detects ~/.ssh/id_ed25519 or ~/.ssh/id_rsa)
+warpdl download sftp://user@host.com/path/to/file.zip
+```
+
+Notes:
+- SFTP downloads use single-stream (no parallel segments)
+- Supports resume for interrupted transfers
+- Passphrase-protected SSH keys are not supported
+
+## Speed Limiting
+
+Limit download speed to avoid saturating your network:
+
+```bash
+warpdl download --speed-limit 1MB https://example.com/file.zip
+warpdl download -S 512KB https://example.com/file.zip
+```
+
+Supported units:
+- `B` - Bytes per second
+- `KB` - Kilobytes per second
+- `MB` - Megabytes per second
+- `0` - Unlimited (default)
+
+### Environment Variable
+
+```bash
+export WARPDL_SPEED_LIMIT=1MB
+```
+
+## Work Stealing
+
+Work stealing is an optimization where faster download segments "steal" remaining work from slower segments. This maximizes bandwidth utilization when some connections are slower than others.
+
+**Enabled by default.** To disable:
+
+```bash
+warpdl download --no-work-steal https://example.com/file.zip
+```
+
+### How It Works
+
+1. File is split into segments (default: up to 200 parts)
+2. Each segment downloads in parallel
+3. When a fast segment completes, it takes over a portion of the slowest segment's remaining range
+4. This continues until the entire file is downloaded
+
+### When to Disable
+
+- When downloading from servers that don't handle range requests well
+- When you want predictable segment boundaries
+- When debugging download issues
+
+### Environment Variable
+
+```bash
+export WARPDL_NO_WORK_STEAL=1
+```
+
+## List Command Filters
+
+The `list` command supports filtering options to view different types of downloads:
+
+```bash
+# Show only pending downloads (default)
+warpdl list
+
+# Show completed downloads
+warpdl list --show-completed
+warpdl list -c
+
+# Show hidden downloads
+warpdl list --show-hidden
+warpdl list -g
+
+# Show all downloads (completed + pending + hidden)
+warpdl list --show-all
+warpdl list -a
+
+# Combine with pending flag
+warpdl list -p          # Show pending (default true, use --no-show-pending to hide)
+```
+
+## Checksum Validation
+
+WarpDL automatically validates downloads when the server provides checksums:
+
+- `Content-MD5` header
+- `Digest` header (SHA-256, SHA-512)
+
+If validation fails, the download is marked as corrupted and you'll be notified.
+
+## Debug Logging
+
+Enable verbose logging for troubleshooting:
+
+```bash
+warpdl download --debug https://example.com/file.zip
+```
+
+Or globally:
+
+```bash
+export WARPDL_DEBUG=1
+```
+
+Debug output includes:
+- HTTP request/response details
+- Segment allocation decisions
+- Work stealing events
+- Retry attempts and errors
+
+## Default Download Directory
+
+Set a default download location:
+
+```bash
+export WARPDL_DEFAULT_DL_DIR=~/Downloads
+```
+
+When set, downloads go to this directory unless overridden with `--download-path`.

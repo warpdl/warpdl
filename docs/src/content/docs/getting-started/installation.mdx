@@ -1,0 +1,51 @@
+---
+title: Installation
+description: How to install WarpDL on your system
+---
+
+## Package Managers
+
+### macOS (Homebrew)
+
+```bash
+brew install warpdl/tap/warpdl
+```
+
+### Windows (Scoop)
+
+```bash
+scoop bucket add warpdl https://github.com/warpdl/scoop-bucket
+scoop install warpdl
+```
+
+## Manual Installation
+
+Download the latest release from [GitHub Releases](https://github.com/warpdl/warpdl/releases).
+
+### Linux/macOS
+
+```bash
+# Download and extract
+tar -xzf warpdl_*.tar.gz
+sudo mv warpdl /usr/local/bin/
+```
+
+### Windows
+
+1. Download the `.zip` file
+2. Extract to a folder
+3. Add the folder to your PATH
+
+## Building from Source
+
+```bash
+git clone https://github.com/warpdl/warpdl.git
+cd warpdl
+make build
+```
+
+## Verify Installation
+
+```bash
+warpdl version
+```

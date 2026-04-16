@@ -1,0 +1,46 @@
+---
+title: Quick Start
+description: Download your first file in 30 seconds
+---
+
+## Download a File
+
+```bash
+warpdl https://example.com/file.zip
+```
+
+That's it! WarpDL will automatically:
+- Start the daemon if not running
+- Split the download into parallel segments
+- Show progress with speed and ETA
+
+## Common Options
+
+```bash
+# Specify output filename
+warpdl -o myfile.zip https://example.com/file.zip
+
+# Specify download directory
+warpdl -l ~/Downloads https://example.com/file.zip
+
+# Use a proxy
+warpdl --proxy http://proxy:8080 https://example.com/file.zip
+```
+
+## List Downloads
+
+```bash
+warpdl list
+```
+
+## Resume Interrupted Download
+
+```bash
+warpdl resume <hash>
+```
+
+## Next Steps
+
+- [CLI Reference](/usage/cli-reference) - Full command documentation
+- [Daemon](/usage/daemon) - Understanding the background daemon
+- [Configuration](/configuration/environment-variables) - Environment variables
