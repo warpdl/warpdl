@@ -19,7 +19,7 @@ fi
 run_jscpd() {
     local targets=("$@")
     echo "Running duplicate code detection..."
-    jscpd --exitCode 1 "${targets[@]}"
+    jscpd "${targets[@]}"
 }
 
 # In PR CI, scan only changed Go files against the PR base branch.

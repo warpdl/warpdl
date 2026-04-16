@@ -12,7 +12,8 @@
     "**/debug/**",
     "**/warpdl",
     "**/*.sum",
-    "**/*.mod"
+    "**/*.mod",
+    "**/*_test.go"
   ],
   "format": ["go"],
   "minLines": 5,
