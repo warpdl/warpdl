@@ -32,14 +32,14 @@ jobs:
         if: github.event_name == 'pull_request'
         run: git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
 
-      - name: golangci-lint (PR: changed code only)
+      - name: "golangci-lint (PR: changed code only)"
         if: github.event_name == 'pull_request'
         uses: golangci/golangci-lint-action@v7
         with:
           version: latest
           args: --timeout=5m --new-from-rev=origin/${{ github.base_ref }}
 
-      - name: golangci-lint (push/manual: full repo)
+      - name: "golangci-lint (push/manual: full repo)"
         if: github.event_name != 'pull_request'
         uses: golangci/golangci-lint-action@v7
         with:
