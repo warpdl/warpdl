@@ -117,6 +117,7 @@ func NewHTTPClientWithProxy(proxyURL string) (*http.Client, error) {
 		if err != nil {
 			return nil, err
 		}
+		//nolint:staticcheck // proxy.SOCKS5 returns a non-context dialer; this preserves existing SOCKS5 behavior
 		transport.Dial = dialer.Dial
 	} else {
 		transport.Proxy = http.ProxyURL(parsed)

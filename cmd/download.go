@@ -91,10 +91,10 @@ func validateCookiesFrom(value string) error {
 	}
 	info, err := os.Stat(value)
 	if err != nil {
-		return fmt.Errorf("error: cookie file not found: %s", value)
+		return fmt.Errorf("cookie file not found: %s", value)
 	}
 	if info.IsDir() {
-		return fmt.Errorf("error: %s is a directory, expected a cookie file path or 'auto'", value)
+		return fmt.Errorf("%s is a directory, expected a cookie file path or 'auto'", value)
 	}
 	return nil
 }

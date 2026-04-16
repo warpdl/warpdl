@@ -46,6 +46,7 @@ func TestDecryptValueLegacy(t *testing.T) {
 	iv := bytes.Repeat([]byte{0x01}, aes.BlockSize)
 	ciphertext := make([]byte, aes.BlockSize+len(plaintext))
 	copy(ciphertext, iv)
+	//nolint:staticcheck // tests legacy ciphertext compatibility path
 	stream := cipher.NewCFBEncrypter(block, iv)
 	stream.XORKeyStream(ciphertext[aes.BlockSize:], plaintext)
 

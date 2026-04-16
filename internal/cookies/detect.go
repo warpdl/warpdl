@@ -18,26 +18,26 @@ var sqliteMagic = []byte("SQLite format 3\x00")
 func DetectFormat(path string) (CookieFormat, error) {
 	info, err := os.Stat(path)
 	if err != nil {
-		return FormatUnknown, fmt.Errorf("error: cookie file not found: %s", path)
+		return FormatUnknown, fmt.Errorf("cookie file not found: %s", path)
 	}
 	if info.IsDir() {
-		return FormatUnknown, fmt.Errorf("error: %s is a directory, expected a cookie file path or 'auto'", path)
+		return FormatUnknown, fmt.Errorf("%s is a directory, expected a cookie file path or 'auto'", path)
 	}
 	if info.Size() == 0 {
-		return FormatUnknown, fmt.Errorf("error: cookie file at %s is empty or corrupted", path)
+		return FormatUnknown, fmt.Errorf("cookie file at %s is empty or corrupted", path)
 	}
 
 	// Read first 16 bytes to check for SQLite magic
 	f, err := os.Open(path)
 	if err != nil {
-		return FormatUnknown, fmt.Errorf("error: cannot open cookie file: %w", err)
+		return FormatUnknown, fmt.Errorf("cannot open cookie file: %w", err)
 	}
 	defer f.Close()
 
 	header := make([]byte, 16)
 	n, err := f.Read(header)
 	if err != nil {
-		return FormatUnknown, fmt.Errorf("error: cannot read cookie file: %w", err)
+		return FormatUnknown, fmt.Errorf("cannot read cookie file: %w", err)
 	}
 
 	// Check if it's a SQLite file
@@ -60,14 +60,14 @@ func DetectFormat(path string) (CookieFormat, error) {
 		return FormatNetscape, nil
 	}
 
-	return FormatUnknown, fmt.Errorf("error: unsupported cookie database schema at %s", path)
+	return FormatUnknown, fmt.Errorf("unsupported cookie database schema at %s", path)
 }
 
 // detectSQLiteFormat opens the SQLite file and checks which cookie table exists.
 func detectSQLiteFormat(path string) (CookieFormat, error) {
 	db, err := sql.Open("sqlite", fmt.Sprintf("file:%s?mode=ro", path))
 	if err != nil {
-		return FormatUnknown, fmt.Errorf("error: cannot open SQLite database: %w", err)
+		return FormatUnknown, fmt.Errorf("cannot open SQLite database: %w", err)
 	}
 	defer db.Close()
 
@@ -84,5 +84,5 @@ func detectSQLiteFormat(path string) (CookieFormat, error) {
 		return FormatChrome, nil
 	}
 
-	return FormatUnknown, fmt.Errorf("error: unsupported cookie database schema at %s", path)
+	return FormatUnknown, fmt.Errorf("unsupported cookie database schema at %s", path)
 }

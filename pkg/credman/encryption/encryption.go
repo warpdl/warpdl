@@ -87,6 +87,7 @@ func decryptLegacy(ciphertext []byte, key []byte) ([]byte, error) {
 	iv := ciphertext[:aes.BlockSize]
 	ciphertext = ciphertext[aes.BlockSize:]
 
+	//nolint:staticcheck // required to decrypt legacy credentials encrypted before AES-GCM migration
 	stream := cipher.NewCFBDecrypter(block, iv)
 	plaintext := make([]byte, len(ciphertext))
 	stream.XORKeyStream(plaintext, ciphertext)

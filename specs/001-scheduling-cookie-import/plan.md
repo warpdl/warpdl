@@ -192,13 +192,13 @@ This section maps every item from `checklists/spec-audit.md` to a design decisio
 
 | ID | Issue | Resolution | Artifact |
 |----|-------|------------|----------|
-| CHK049 | Zero-byte or truncated SQLite file | SQLite open will fail with driver error. Catch and report: `"error: cookie file at {path} is empty or corrupted"`. | contracts |
+| CHK049 | Zero-byte or truncated SQLite file | SQLite open will fail with driver error. Catch and report: `"cookie file at {path} is empty or corrupted"`. | contracts |
 | CHK050 | WAL file present but main file missing/corrupted | Same as CHK049 — SQLite driver handles this. If the main file is missing, `os.Stat` fails first. If corrupted, driver returns error. | contracts |
 | CHK051 | `--start-in 0s` or `--start-in 0m` | **Design decision**: Valid. Resolves to "now" — starts immediately. Equivalent to no scheduling flag. No warning needed. | contracts |
 | CHK052 | Cron expression that never fires (e.g., Feb 30) | `gronx.NextTickAfter()` returns the next valid occurrence. For impossible dates, it may return a far-future time or error. **Design decision**: If no next occurrence within 1 year, warn: `"warning: cron expression '{expr}' has no occurrence in the next year"`. | contracts |
-| CHK053 | Disk full during temp file copy | `io.Copy` returns error. Report: `"error: failed to copy cookie database: {err}"`. Standard error handling — no special case. | contracts |
+| CHK053 | Disk full during temp file copy | `io.Copy` returns error. Report: `"failed to copy cookie database: {err}"`. Standard error handling — no special case. | contracts |
 | CHK054 | URL returns 301 redirect between cron occurrences | Normal download behavior — WarpDL already follows redirects. The redirected URL becomes the actual download source. No special handling for recurring. | N/A (existing behavior) |
-| CHK055 | Older browser version with different schema | SQLite query will fail with "no such table" or "no such column" error. Report: `"error: unsupported cookie database schema at {path} — expected Firefox moz_cookies or Chrome cookies table"`. | contracts |
+| CHK055 | Older browser version with different schema | SQLite query will fail with "no such table" or "no such column" error. Report: `"unsupported cookie database schema at {path} — expected Firefox moz_cookies or Chrome cookies table"`. | contracts |
 | CHK056 | Maximum cron expression or `--start-at` length | **Design decision**: No explicit limit. `gronx.IsValid()` rejects malformed expressions. `time.Parse` rejects malformed dates. Go string limits are sufficient. No abuse vector since WarpDL is single-user. | plan (documented here) |
 | CHK057 | Ambiguous local time during DST fall-back | Go's `time.Parse` with `time.Local` returns the first occurrence of the ambiguous time. This is deterministic and consistent. Document: "Ambiguous times during DST fall-back resolve to the first occurrence." | plan (documented here) |
 | CHK058 | `--cookies-from` with symlink | **Design decision**: Follow symlinks. Standard `os.Open` behavior. No symlink detection or rejection. See CHK036. | plan (documented here) |

@@ -16,18 +16,18 @@ import (
 func SafeCopy(srcPath string) (tempDir string, cleanup func(), err error) {
 	info, err := os.Stat(srcPath)
 	if err != nil {
-		return "", nil, fmt.Errorf("error: cookie file not found: %s", srcPath)
+		return "", nil, fmt.Errorf("cookie file not found: %s", srcPath)
 	}
 	if info.IsDir() {
-		return "", nil, fmt.Errorf("error: %s is a directory, expected a cookie file path or 'auto'", srcPath)
+		return "", nil, fmt.Errorf("%s is a directory, expected a cookie file path or 'auto'", srcPath)
 	}
 	if info.Size() == 0 {
-		return "", nil, fmt.Errorf("error: cookie file at %s is empty or corrupted", srcPath)
+		return "", nil, fmt.Errorf("cookie file at %s is empty or corrupted", srcPath)
 	}
 
 	tempDir, err = os.MkdirTemp("", "warpdl-cookies-*")
 	if err != nil {
-		return "", nil, fmt.Errorf("error: cannot create temp directory: %w", err)
+		return "", nil, fmt.Errorf("cannot create temp directory: %w", err)
 	}
 
 	cleanup = func() {
@@ -57,18 +57,18 @@ func SafeCopy(srcPath string) (tempDir string, cleanup func(), err error) {
 func copyFile(src, dst string) error {
 	in, err := os.Open(src)
 	if err != nil {
-		return fmt.Errorf("error: cannot open source file %s: %w", src, err)
+		return fmt.Errorf("cannot open source file %s: %w", src, err)
 	}
 	defer in.Close()
 
 	out, err := os.Create(dst)
 	if err != nil {
-		return fmt.Errorf("error: cannot create destination file %s: %w", dst, err)
+		return fmt.Errorf("cannot create destination file %s: %w", dst, err)
 	}
 	defer out.Close()
 
 	if _, err := io.Copy(out, in); err != nil {
-		return fmt.Errorf("error: cannot copy file: %w", err)
+		return fmt.Errorf("cannot copy file: %w", err)
 	}
 	return nil
 }

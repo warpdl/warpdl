@@ -355,9 +355,7 @@ func TestExtInstallClientError(t *testing.T) {
 	}
 }
 
-// -----------------------------------------------------------------------------
 // Extension Command Output Tests
-// -----------------------------------------------------------------------------
 
 // TestOutput_ExtInstall_NoPath verifies install command shows error when no path provided.
 func TestOutput_ExtInstall_NoPath(t *testing.T) {

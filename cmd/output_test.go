@@ -28,9 +28,7 @@ func getShortSocketPath(t *testing.T) string {
 	return filepath.Join(tmpDir, "w.sock")
 }
 
-// =============================================================================
 // Download Command Output Tests
-// =============================================================================
 
 // TestOutput_Download_NoURL verifies that running download without a URL
 // shows an error message. Note: help text goes to console via cli framework.
@@ -161,9 +159,7 @@ func TestOutput_Download_InvalidProxy(t *testing.T) {
 	t.Skip("Requires real daemon - fake server doesn't handle early client exit")
 }
 
-// =============================================================================
 // Resume Command Output Tests
-// =============================================================================
 
 // TestOutput_Resume_NoHash verifies that running resume without a hash
 // shows an error message and help.
@@ -250,9 +246,7 @@ func TestOutput_Resume_InvalidHash(t *testing.T) {
 	assertContains(t, stdout, "resume")
 }
 
-// =============================================================================
 // List Command Output Tests
-// =============================================================================
 
 // TestOutput_List_Empty verifies that an empty list shows "no downloads found".
 func TestOutput_List_Empty(t *testing.T) {
@@ -479,9 +473,7 @@ func TestOutput_List_Percentage(t *testing.T) {
 	}
 }
 
-// =============================================================================
 // Stop Command Tests
-// =============================================================================
 
 // TestOutput_Stop_NoHash verifies that stop command shows error and help when
 // no hash is provided.
@@ -518,9 +510,7 @@ func TestOutput_Stop_Success(t *testing.T) {
 	assertContains(t, stdout, "Downloading stopped.")
 }
 
-// =============================================================================
 // Flush Command Tests
-// =============================================================================
 
 // TestOutput_Flush_SuccessAll verifies flush all with -f flag shows success message.
 func TestOutput_Flush_SuccessAll(t *testing.T) {
@@ -594,9 +584,7 @@ func TestOutput_Flush_TooManyArgs(t *testing.T) {
 	assertContains(t, stdout, "invalid amount of arguments")
 }
 
-// =============================================================================
 // Info Command Tests
-// =============================================================================
 
 // TestOutput_Info_NoURL verifies info command shows error and help when no URL provided.
 func TestOutput_Info_NoURL(t *testing.T) {
@@ -675,9 +663,7 @@ func TestOutput_Info_DisplaysInfo(t *testing.T) {
 	assertContains(t, stdout, "Size")
 }
 
-// =============================================================================
 // Attach Command Tests
-// =============================================================================
 
 // TestOutput_Attach_NoHash verifies attach command shows error and help when
 // no hash is provided.
@@ -714,9 +700,7 @@ func TestOutput_Attach_Success(t *testing.T) {
 	assertContains(t, stdout, ">> Initiating a WARP download <<")
 }
 
-// =============================================================================
 // Stop-Daemon Command Tests
-// =============================================================================
 
 // TestOutput_StopDaemon_NotRunning verifies stop-daemon shows appropriate message
 // when daemon is not running.
@@ -744,9 +728,7 @@ func TestOutput_StopDaemon_NotRunning(t *testing.T) {
 	}
 }
 
-// =============================================================================
 // Error Response Tests
-// =============================================================================
 
 // TestOutput_Stop_ErrorResponse verifies stop command error format when server fails.
 func TestOutput_Stop_ErrorResponse(t *testing.T) {
@@ -850,9 +832,7 @@ func TestOutput_Info_InvalidProxy(t *testing.T) {
 	assertErrorFormat(t, stdout, "info", "invalid_proxy")
 }
 
-// =============================================================================
 // Additional Output Verification Tests
-// =============================================================================
 
 // TestOutput_ErrorFormat_RuntimeErr verifies that runtime errors follow the
 // standard format: warpdl: cmd[action]: msg
@@ -1198,9 +1178,7 @@ func TestOutput_CommandAliases(t *testing.T) {
 	})
 }
 
-// =============================================================================
 // Edge Case Tests
-// =============================================================================
 
 // TestOutput_List_HiddenItems verifies that hidden items are not shown
 // unless showHidden is enabled.

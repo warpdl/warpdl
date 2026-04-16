@@ -75,23 +75,23 @@ Imported 12 cookies for example.com from Firefox (/path/to/cookies.sqlite)
 
 | Condition | Error Message |
 |-----------|---------------|
-| Both `--start-at` and `--start-in` specified | `error: flags --start-at and --start-in are mutually exclusive` |
-| Invalid `--start-at` format | `error: invalid --start-at format, expected YYYY-MM-DD HH:MM (e.g., 2026-03-01 02:00)` |
-| Invalid `--start-in` format | `error: invalid --start-in duration, expected format like 2h, 30m, or 1h30m (days not supported — use 24h)` |
-| Invalid `--schedule` cron expression | `error: invalid cron expression "{expr}", expected 5-field format (minute hour day-of-month month day-of-week)` |
+| Both `--start-at` and `--start-in` specified | `flags --start-at and --start-in are mutually exclusive` |
+| Invalid `--start-at` format | `invalid --start-at format, expected YYYY-MM-DD HH:MM (e.g., 2026-03-01 02:00)` |
+| Invalid `--start-in` format | `invalid --start-in duration, expected format like 2h, 30m, or 1h30m (days not supported — use 24h)` |
+| Invalid `--schedule` cron expression | `invalid cron expression "{expr}", expected 5-field format (minute hour day-of-month month day-of-week)` |
 | Cron expression with no occurrence in next year | `warning: cron expression "{expr}" has no occurrence in the next year` |
 | `--start-at` time is in the past | `warning: scheduled time is in the past, starting download immediately` |
 | `--start-in 0s` or `--start-in 0m` | No warning — treated as immediate download (valid input) |
-| Cookie file not found | `error: cookie file not found: {path}` |
-| Cookie path is a directory | `error: {path} is a directory, expected a cookie file path or "auto"` |
-| Cookie file is empty or truncated | `error: cookie file at {path} is empty or corrupted` |
-| Cookie file format unrecognized | `error: unrecognized cookie file format at {path} (expected Firefox SQLite, Chrome SQLite, or Netscape text)` |
-| Unsupported cookie database schema | `error: unsupported cookie database schema at {path} — expected Firefox moz_cookies or Chrome cookies table` |
-| Cookie database locked and copy fails | `error: cookie database is locked (browser may be running), try closing the browser or exporting cookies to Netscape format` |
-| Cookie database copy fails (disk full) | `error: failed to copy cookie database: {err}` |
+| Cookie file not found | `cookie file not found: {path}` |
+| Cookie path is a directory | `{path} is a directory, expected a cookie file path or "auto"` |
+| Cookie file is empty or truncated | `cookie file at {path} is empty or corrupted` |
+| Cookie file format unrecognized | `unrecognized cookie file format at {path} (expected Firefox SQLite, Chrome SQLite, or Netscape text)` |
+| Unsupported cookie database schema | `unsupported cookie database schema at {path} — expected Firefox moz_cookies or Chrome cookies table` |
+| Cookie database locked and copy fails | `cookie database is locked (browser may be running), try closing the browser or exporting cookies to Netscape format` |
+| Cookie database copy fails (disk full) | `failed to copy cookie database: {err}` |
 | No cookies found for domain | `warning: no cookies found for {domain} in {path}, proceeding without cookies` |
 | Chrome cookies are all encrypted | `warning: all cookies for {domain} in Chrome are encrypted, export to Netscape format using a browser extension (e.g., cookies.txt)` |
-| `--cookies-from auto` finds no browser | `error: no supported browser cookie store found, supported browsers: Firefox, LibreWolf, Chrome, Chromium, Edge, Brave` |
+| `--cookies-from auto` finds no browser | `no supported browser cookie store found, supported browsers: Firefox, LibreWolf, Chrome, Chromium, Edge, Brave` |
 
 ---
 

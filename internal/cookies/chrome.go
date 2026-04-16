@@ -25,7 +25,7 @@ func ParseChrome(dbPath string, domain string) ([]Cookie, error) {
 	dsn := fmt.Sprintf("file:%s?immutable=1", dbPath)
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
-		return nil, fmt.Errorf("error: cannot open Chrome cookie database: %w", err)
+		return nil, fmt.Errorf("cannot open Chrome cookie database: %w", err)
 	}
 	defer db.Close()
 
@@ -44,7 +44,7 @@ func ParseChrome(dbPath string, domain string) ([]Cookie, error) {
         ORDER BY path DESC, name ASC
     `, domain, dotDomain, wildcardDomain, nowChrome)
 	if err != nil {
-		return nil, fmt.Errorf("error: failed to query Chrome cookies: %w", err)
+		return nil, fmt.Errorf("failed to query Chrome cookies: %w", err)
 	}
 	defer rows.Close()
 
@@ -56,7 +56,7 @@ func ParseChrome(dbPath string, domain string) ([]Cookie, error) {
 			isSecure, isHttpOnly       int
 		)
 		if err := rows.Scan(&name, &value, &hostKey, &path, &expiresUTC, &isSecure, &isHttpOnly); err != nil {
-			return nil, fmt.Errorf("error: failed to scan Chrome cookie row: %w", err)
+			return nil, fmt.Errorf("failed to scan Chrome cookie row: %w", err)
 		}
 		unixExpiry := chromeToUnix(expiresUTC)
 		cookies = append(cookies, Cookie{
@@ -70,7 +70,7 @@ func ParseChrome(dbPath string, domain string) ([]Cookie, error) {
 		})
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error: failed to iterate Chrome cookie rows: %w", err)
+		return nil, fmt.Errorf("failed to iterate Chrome cookie rows: %w", err)
 	}
 
 	return cookies, nil

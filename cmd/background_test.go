@@ -8,9 +8,7 @@ import (
 	"github.com/urfave/cli"
 )
 
-// =============================================================================
 // Background Flag Tests - TDD Phase 1 (RED)
-// =============================================================================
 
 // TestDownload_BackgroundFlag_Parsed verifies that --background flag is parsed
 // correctly for the download command.
