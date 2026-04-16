@@ -224,6 +224,9 @@ func TestRateLimitedReader_EOF(t *testing.T) {
 
 	buf := make([]byte, 10)
 	n, err := reader.Read(buf)
+	if err != nil {
+		t.Fatalf("unexpected error on first read: %v", err)
+	}
 	if n != 5 {
 		t.Errorf("expected 5 bytes, got %d", n)
 	}

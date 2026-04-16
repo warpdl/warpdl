@@ -568,11 +568,6 @@ https://example.com/fail3.zip`
 }
 
 func TestDownloadBatch_AllSucceed_LargeFile(t *testing.T) {
-	// Create input file with many URLs
-	var urls []string
-	for i := 0; i < 10; i++ {
-		urls = append(urls, "https://example.com/file"+string(rune('0'+i))+".zip")
-	}
 	content := "https://example.com/file0.zip\nhttps://example.com/file1.zip\nhttps://example.com/file2.zip\nhttps://example.com/file3.zip\nhttps://example.com/file4.zip\nhttps://example.com/file5.zip\nhttps://example.com/file6.zip\nhttps://example.com/file7.zip\nhttps://example.com/file8.zip\nhttps://example.com/file9.zip"
 	tmpFile := createTempInputFile(t, content)
 	defer os.Remove(tmpFile)

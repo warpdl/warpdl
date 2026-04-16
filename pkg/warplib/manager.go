@@ -441,13 +441,6 @@ func (m *Manager) mapItem(item *Item) {
 	m.items[item.Hash] = item
 }
 
-// deleteItem deletes the item from the manager's items map.
-func (m *Manager) deleteItem(hash string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	delete(m.items, hash)
-}
-
 // UpdateItem updates the item in the manager's items map.
 func (m *Manager) UpdateItem(item *Item) {
 	m.mapItem(item)

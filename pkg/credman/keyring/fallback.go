@@ -29,7 +29,6 @@ type FileKeyStore struct {
 
 var (
 	fileRandRead    = rand.Read
-	fileWriteFile   = os.WriteFile
 	fileReadFile    = os.ReadFile
 	fileRemove      = os.Remove
 	fileRename      = os.Rename

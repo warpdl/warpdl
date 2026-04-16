@@ -74,26 +74,6 @@ func assertErrorFormat(t *testing.T, output, cmd, action string) {
 	}
 }
 
-// assertContainsAll checks that output contains all expected substrings.
-// It reports a failure for each missing substring.
-func assertContainsAll(t *testing.T, output string, expected []string) {
-	t.Helper()
-	for _, exp := range expected {
-		if !strings.Contains(output, exp) {
-			t.Errorf("expected output to contain %q, got:\n%s", exp, output)
-		}
-	}
-}
-
-// assertLineCount checks that output has at least the expected number of lines.
-func assertLineCount(t *testing.T, output string, minLines int) {
-	t.Helper()
-	lines := strings.Split(strings.TrimSpace(output), "\n")
-	if len(lines) < minLines {
-		t.Errorf("expected at least %d lines, got %d:\n%s", minLines, len(lines), output)
-	}
-}
-
 // newContext creates a CLI context for testing commands.
 func newContext(app *cli.App, args []string, name string) *cli.Context {
 	set := flag.NewFlagSet(name, flag.ContinueOnError)

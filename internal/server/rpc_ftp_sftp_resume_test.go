@@ -68,7 +68,7 @@ func TestRPCDownloadResume_FTP_HandlersFired(t *testing.T) {
 	}
 
 	// Phase 2: Pause the download.
-	code, resp = rpcCall(t, handler, "download.pause", map[string]any{
+	code, _ = rpcCall(t, handler, "download.pause", map[string]any{
 		"gid": gid,
 	}, secret)
 	if code != http.StatusOK {
@@ -167,7 +167,7 @@ func TestRPCDownloadResume_SFTP_HandlersFired(t *testing.T) {
 	}
 
 	// Phase 2: Pause.
-	code, resp = rpcCall(t, handler, "download.pause", map[string]any{
+	code, _ = rpcCall(t, handler, "download.pause", map[string]any{
 		"gid": gid,
 	}, secret)
 	if code != http.StatusOK {
