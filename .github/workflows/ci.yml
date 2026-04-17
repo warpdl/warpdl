@@ -39,12 +39,23 @@ jobs:
           version: latest
           args: --timeout=5m --new-from-rev=origin/${{ github.base_ref }}
 
-      - name: "golangci-lint (push/manual: full repo)"
+      - name: Determine lint baseline (push/manual)
+        if: github.event_name != 'pull_request'
+        id: lint_base
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "push" && "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]]; then
+            echo "rev=${{ github.event.before }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "rev=HEAD~1" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: "golangci-lint (push/manual: changed code only)"
         if: github.event_name != 'pull_request'
         uses: golangci/golangci-lint-action@v7
         with:
           version: latest
-          args: --timeout=5m
+          args: --timeout=5m --new-from-rev=${{ steps.lint_base.outputs.rev }}
 
   duplicate-code:
     name: Duplicate Code Detection

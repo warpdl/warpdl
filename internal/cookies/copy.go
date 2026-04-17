@@ -31,7 +31,7 @@ func SafeCopy(srcPath string) (tempDir string, cleanup func(), err error) {
 	}
 
 	cleanup = func() {
-		os.RemoveAll(tempDir)
+		_ = os.RemoveAll(tempDir)
 	}
 
 	baseName := filepath.Base(srcPath)
@@ -54,20 +54,28 @@ func SafeCopy(srcPath string) (tempDir string, cleanup func(), err error) {
 }
 
 // copyFile copies a file from src to dst.
-func copyFile(src, dst string) error {
+func copyFile(src, dst string) (err error) {
 	in, err := os.Open(src)
 	if err != nil {
 		return fmt.Errorf("cannot open source file %s: %w", src, err)
 	}
-	defer in.Close()
+	defer func() {
+		if closeErr := in.Close(); err == nil && closeErr != nil {
+			err = fmt.Errorf("cannot close source file %s: %w", src, closeErr)
+		}
+	}()
 
 	out, err := os.Create(dst)
 	if err != nil {
 		return fmt.Errorf("cannot create destination file %s: %w", dst, err)
 	}
-	defer out.Close()
+	defer func() {
+		if closeErr := out.Close(); err == nil && closeErr != nil {
+			err = fmt.Errorf("cannot close destination file %s: %w", dst, closeErr)
+		}
+	}()
 
-	if _, err := io.Copy(out, in); err != nil {
+	if _, err = io.Copy(out, in); err != nil {
 		return fmt.Errorf("cannot copy file: %w", err)
 	}
 	return nil

@@ -35,7 +35,11 @@ func createChromeFixture(t *testing.T, dir string, rows []chromeRow) string {
 	if err != nil {
 		t.Fatalf("failed to open sqlite: %v", err)
 	}
-	defer db.Close()
+	defer func() {
+		if closeErr := db.Close(); closeErr != nil {
+			t.Errorf("failed to close sqlite: %v", closeErr)
+		}
+	}()
 
 	_, err = db.Exec(`CREATE TABLE cookies (
         creation_utc INTEGER NOT NULL,
@@ -56,7 +60,11 @@ func createChromeFixture(t *testing.T, dir string, rows []chromeRow) string {
 	if err != nil {
 		t.Fatalf("failed to prepare insert: %v", err)
 	}
-	defer stmt.Close()
+	defer func() {
+		if closeErr := stmt.Close(); closeErr != nil {
+			t.Errorf("failed to close statement: %v", closeErr)
+		}
+	}()
 
 	for _, r := range rows {
 		encVal := r.EncryptedValue

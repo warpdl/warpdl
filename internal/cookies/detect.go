@@ -3,6 +3,7 @@ package cookies
 import (
 	"database/sql"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -32,11 +33,11 @@ func DetectFormat(path string) (CookieFormat, error) {
 	if err != nil {
 		return FormatUnknown, fmt.Errorf("cannot open cookie file: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	header := make([]byte, 16)
 	n, err := f.Read(header)
-	if err != nil {
+	if err != nil && err != io.EOF {
 		return FormatUnknown, fmt.Errorf("cannot read cookie file: %w", err)
 	}
 
@@ -47,9 +48,14 @@ func DetectFormat(path string) (CookieFormat, error) {
 
 	// Not SQLite — check for Netscape text format
 	// Re-read from start for line check
-	f.Seek(0, 0)
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return FormatUnknown, fmt.Errorf("cannot seek cookie file: %w", err)
+	}
 	buf := make([]byte, 512)
-	n, _ = f.Read(buf)
+	n, err = f.Read(buf)
+	if err != nil && err != io.EOF {
+		return FormatUnknown, fmt.Errorf("cannot read cookie file: %w", err)
+	}
 	firstLine := string(buf[:n])
 	if idx := strings.IndexByte(firstLine, '\n'); idx >= 0 {
 		firstLine = firstLine[:idx]
@@ -69,7 +75,7 @@ func detectSQLiteFormat(path string) (CookieFormat, error) {
 	if err != nil {
 		return FormatUnknown, fmt.Errorf("cannot open SQLite database: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Check for Firefox moz_cookies table
 	var tableName string
