@@ -390,12 +390,13 @@ func TestActivePartInfo_GetRemaining(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			foff := tt.foff
+			foff := new(atomic.Int64)
+			foff.Store(tt.foff)
 			read := tt.read
 			info := &activePartInfo{
 				hash:   "test",
 				offset: tt.offset,
-				foff:   &foff,
+				foff:   foff,
 				read:   &read,
 			}
 			got := info.getRemaining()
@@ -501,30 +502,33 @@ func TestFindBestVictimForStealing(t *testing.T) {
 			parts: func() map[string]*activePartInfo {
 				parts := make(map[string]*activePartInfo)
 				// Part A: 5MB remaining (below threshold)
-				foffA := int64(10*MB - 1)
+				foffA := new(atomic.Int64)
+				foffA.Store(int64(10*MB - 1))
 				readA := int64(5 * MB)
 				parts["partA"] = &activePartInfo{
 					hash:   "partA",
 					offset: 0,
-					foff:   &foffA,
+					foff:   foffA,
 					read:   &readA,
 				}
 				// Part B: 15MB remaining (above threshold, best candidate)
-				foffB := int64(20*MB - 1)
+				foffB := new(atomic.Int64)
+				foffB.Store(int64(20*MB - 1))
 				readB := int64(5 * MB)
 				parts["partB"] = &activePartInfo{
 					hash:   "partB",
 					offset: 0,
-					foff:   &foffB,
+					foff:   foffB,
 					read:   &readB,
 				}
 				// Part C: 8MB remaining (above threshold, but less than B)
-				foffC := int64(15*MB - 1)
+				foffC := new(atomic.Int64)
+				foffC.Store(int64(15*MB - 1))
 				readC := int64(7 * MB)
 				parts["partC"] = &activePartInfo{
 					hash:   "partC",
 					offset: 0,
-					foff:   &foffC,
+					foff:   foffC,
 					read:   &readC,
 				}
 				return parts
@@ -536,12 +540,13 @@ func TestFindBestVictimForStealing(t *testing.T) {
 			name: "no eligible parts (all below threshold)",
 			parts: func() map[string]*activePartInfo {
 				parts := make(map[string]*activePartInfo)
-				foffA := int64(5*MB - 1)
+				foffA := new(atomic.Int64)
+				foffA.Store(int64(5*MB - 1))
 				readA := int64(0)
 				parts["partA"] = &activePartInfo{
 					hash:   "partA",
 					offset: 0,
-					foff:   &foffA,
+					foff:   foffA,
 					read:   &readA,
 				}
 				return parts
@@ -554,24 +559,26 @@ func TestFindBestVictimForStealing(t *testing.T) {
 			parts: func() map[string]*activePartInfo {
 				parts := make(map[string]*activePartInfo)
 				// Part A: 15MB remaining but already stolen
-				foffA := int64(20*MB - 1)
+				foffA := new(atomic.Int64)
+				foffA.Store(int64(20*MB - 1))
 				readA := int64(5 * MB)
-				parts["partA"] = &activePartInfo{
+				pa := &activePartInfo{
 					hash:   "partA",
 					offset: 0,
-					foff:   &foffA,
+					foff:   foffA,
 					read:   &readA,
-					stolen: true,
 				}
+				pa.stolen.Store(true)
+				parts["partA"] = pa
 				// Part B: 8MB remaining, not stolen
-				foffB := int64(10*MB - 1)
+				foffB := new(atomic.Int64)
+				foffB.Store(int64(10*MB - 1))
 				readB := int64(2 * MB)
 				parts["partB"] = &activePartInfo{
 					hash:   "partB",
 					offset: 0,
-					foff:   &foffB,
+					foff:   foffB,
 					read:   &readB,
-					stolen: false,
 				}
 				return parts
 			}(),

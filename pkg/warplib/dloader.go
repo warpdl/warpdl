@@ -448,8 +448,8 @@ func (d *Downloader) Start() (err error) {
 			return
 		}
 	}
-	if v := d.contentLength.v(); v != -1 && v != d.nread {
-		d.Log("Download might be corrupted | Expected bytes: %d Found bytes: %d", d.contentLength.v(), d.nread)
+	if v, nread := d.contentLength.v(), atomic.LoadInt64(&d.nread); v != -1 && v != nread {
+		d.Log("Download might be corrupted | Expected bytes: %d Found bytes: %d", v, nread)
 		// return
 	}
 	if err = d.closeMainFile(); err != nil {
@@ -487,9 +487,11 @@ func (d *Downloader) Resume(parts map[int64]*ItemPart) (err error) {
 		}
 		// err = os.Rename(d.fName, d.GetSavePath())
 	}()
-	// Check disk space before resuming download
-	// Calculate remaining bytes to download
-	remainingBytes := d.contentLength.v() - d.nread
+	// Check disk space before resuming download.
+	// Calculate remaining bytes to download using an atomic read of nread —
+	// other resume goroutines update this counter concurrently in a few
+	// edge paths (e.g. already-compiled parts).
+	remainingBytes := d.contentLength.v() - atomic.LoadInt64(&d.nread)
 	if remainingBytes < 0 {
 		// This indicates potential data corruption or resume error
 		d.Log("Warning: negative remaining bytes detected (%d). This may indicate corruption.", remainingBytes)
@@ -540,8 +542,8 @@ func (d *Downloader) Resume(parts map[int64]*ItemPart) (err error) {
 			return
 		}
 	}
-	if d.contentLength.v() != d.nread {
-		d.Log("Download might be corrupted | Expected bytes: %d Found bytes: %d", d.contentLength.v(), d.nread)
+	if cl, nread := d.contentLength.v(), atomic.LoadInt64(&d.nread); cl != nread {
+		d.Log("Download might be corrupted | Expected bytes: %d Found bytes: %d", cl, nread)
 		// return
 	}
 	if err = d.closeMainFile(); err != nil {
@@ -582,7 +584,9 @@ func (d *Downloader) validateChecksum() error {
 	}
 	defer f.Close()
 
-	buf := make([]byte, d.chunk)
+	bp := getBuf(d.chunk)
+	defer putBuf(bp)
+	buf := *bp
 	var totalHashed int64
 	for {
 		n, err := f.Read(buf)
@@ -858,15 +862,25 @@ func (d *Downloader) newPartDownload(ioff, foff, espeed int64) {
 // offset. espeed stands for expected download speed which, slower
 // download speed than this espeed will result in spawning a new part
 // if a slot is available for it and maximum parts limit is not reached.
+//
+// The final offset is stored in a heap-allocated atomic.Int64 so that
+// the work-stealing stealer can reduce it concurrently without racing
+// with this goroutine's reads/writes.
 func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool, body io.ReadCloser) (err error) {
 	hash := part.hash
 	retryState := &RetryState{}
 	partStartTime := time.Now()
-	foffPtr := &foff // Pointer to allow work stealing to modify victim's foff
+
+	// Heap-allocate foff in an atomic cell so stealer and owner share
+	// a well-defined synchronization point.
+	foffAtomic := new(atomic.Int64)
+	foffAtomic.Store(foff)
 
 	// Register part for work stealing
-	d.registerActivePart(part, foffPtr)
+	d.registerActivePart(part, foffAtomic)
 	defer d.unregisterActivePart(hash)
+
+	loadFoff := func() int64 { return foffAtomic.Load() }
 
 	for {
 		if !repeated {
@@ -884,13 +898,14 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 
 		force := d.maxConn < 2
 
+		curFoff := loadFoff()
 		if body == nil {
 			// start downloading the content in provided
 			// offset range until part becomes slower than
 			// expected speed.
-			body, slow, err = part.download(d.headers, ioff, foff, force, d.requestTimeout)
+			body, slow, err = part.download(d.headers, ioff, curFoff, force, d.requestTimeout)
 		} else {
-			slow, err = part.copyBuffer(body, foff, force)
+			slow, err = part.copyBuffer(body, curFoff, force)
 		}
 
 		if err != nil {
@@ -937,7 +952,11 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 			continue
 		}
 		if !slow {
-			expectedRead := foff - part.offset + 1
+			// Re-read foff since a stealer may have reduced it while we
+			// were downloading. The body loop above used the post-steal
+			// value; here we compute expected-read against that same value.
+			endFoff := loadFoff()
+			expectedRead := endFoff - part.offset + 1
 			if part.getRead() != expectedRead {
 				d.Log("%s: part read bytes (%d) not equal to expected bytes (%d)", hash, part.getRead(), expectedRead)
 			}
@@ -961,12 +980,16 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 		// starting offset for a respawned part.
 		poff := part.offset + part.getRead()
 
-		if foff-poff <= 2*d.getMinPartSize() {
+		// Re-read foff for the slow-path decisions; a stealer may have
+		// shrunk the window we need to re-split.
+		curFoff = loadFoff()
+
+		if curFoff-poff <= 2*d.getMinPartSize() {
 			d.Log("%s: Detected part as running slow", hash)
 			// Min part size has been reached and hence
 			// don't spawn new part out of the current part.
 			d.Log("%s: Min part size reached, continuing as slow part...", hash)
-			_, err = part.copyBuffer(body, foff, true)
+			_, err = part.copyBuffer(body, curFoff, true)
 			if err != nil {
 				d.handlers.ErrorHandler(hash, err)
 			}
@@ -975,13 +998,13 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 			break
 		}
 
-		if d.maxParts != 0 && d.numParts >= d.maxParts {
+		if d.maxParts != 0 && atomic.LoadInt32(&d.numParts) >= d.maxParts {
 			d.Log("%s: Detected part as running slow", hash)
 			// Max part limit has been reached and hence
 			// don't spawn new parts and forcefully download
 			// rest of the content in slow part.
 			d.Log("%s: Max part limit reached, continuing slow part...", hash)
-			_, err = part.copyBuffer(body, foff, true)
+			_, err = part.copyBuffer(body, curFoff, true)
 			if err != nil {
 				d.handlers.ErrorHandler(hash, err)
 			}
@@ -990,7 +1013,7 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 			break
 		}
 
-		if d.maxConn != 0 && d.numConn >= d.maxConn {
+		if d.maxConn != 0 && atomic.LoadInt32(&d.numConn) >= d.maxConn {
 			// It waits until a connection is
 			// freed and spawns a new part once
 			// a slot is available.
@@ -1005,7 +1028,7 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 		// divide the pending bytes of current slow
 		// part among the current part and a newly
 		// spawned part.
-		div := (foff - poff) / 2
+		div := (curFoff - poff) / 2
 
 		// spawn a new part and add its goroutine to
 		// waitgroup, new part will download the last
@@ -1014,7 +1037,7 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 		// Capture loop variables
 		poffCapture := poff
 		divCapture := div
-		foffCapture := foff
+		foffCapture := curFoff
 		espeedCapture := espeed
 		go func(poff, div, foff, espeed int64) {
 			defer func() {
@@ -1028,13 +1051,25 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 			d.newPartDownload(poff+div, foff, espeed/2)
 		}(poffCapture, divCapture, foffCapture, espeedCapture)
 
-		// current part will download the first half
-		// of pending bytes.
-		foff = poff + div - 1
+		// current part will download the first half of pending bytes.
+		// Use CAS to guard against a concurrent steal that already lowered
+		// foff below the intended midpoint — in that case keep the lower value.
+		newFoff := poff + div - 1
+		for {
+			observed := foffAtomic.Load()
+			if newFoff >= observed {
+				// Stealer already pushed the bound lower than our midpoint
+				// — keep the stricter bound.
+				break
+			}
+			if foffAtomic.CompareAndSwap(observed, newFoff) {
+				break
+			}
+		}
 
 		d.Log("%s: part respawned", hash)
-		d.handlers.RespawnPartHandler(hash, part.offset, poff, foff)
-		d.Log("%s: slow | %d | %d => %d", part.hash, part.getRead(), part.offset, foff)
+		d.handlers.RespawnPartHandler(hash, part.offset, poff, loadFoff())
+		d.Log("%s: slow | %d | %d => %d", part.hash, part.getRead(), part.offset, loadFoff())
 		repeated = false
 		espeed /= 2
 	}
@@ -1047,9 +1082,14 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 // goroutines to finish because Stop() may be called from within a callback
 // (e.g., progress handler) running inside a download goroutine. Use Close()
 // for full cleanup after Start()/Resume() returns.
+//
+// Stop is safe to call repeatedly and safe to call on a Downloader that
+// was constructed without a context (cancel may be nil in that case).
 func (d *Downloader) Stop() {
 	atomic.StoreInt32(&d.stopped, 1)
-	d.cancel()
+	if d.cancel != nil {
+		d.cancel()
+	}
 }
 
 // Close releases all resources held by the Downloader.

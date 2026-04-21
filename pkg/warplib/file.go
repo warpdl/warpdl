@@ -96,9 +96,10 @@ func copyAndDelete(src, dst string) error {
 		}
 	}()
 
-	// Copy content using a buffer for better performance with large files
-	buf := make([]byte, DEF_CHUNK_SIZE)
-	_, err = io.CopyBuffer(dstFile, srcFile, buf)
+	// Copy content using a pooled buffer for better performance with large files.
+	bp := getBuf(int(DEF_CHUNK_SIZE))
+	defer putBuf(bp)
+	_, err = io.CopyBuffer(dstFile, srcFile, *bp)
 	if err != nil {
 		return fmt.Errorf("copy content: %w", err)
 	}

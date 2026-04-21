@@ -217,13 +217,15 @@ func (p *Part) copyBuffer(src io.ReadCloser, foff int64, force bool) (slow bool,
 	if lchunk > 0 && lchunk < chunk {
 		chunk = lchunk
 	}
-	var (
-		buf = make([]byte, chunk)
-		n   int
-	)
+	// Borrow a pooled buffer for the whole copy loop. The backing array
+	// is reused across chunks and resliced on the tail - no realloc.
+	bp := getBuf(int(chunk))
+	defer putBuf(bp)
+
+	var n int
 	for {
 		n++
-		slow, err = p.copyBufferChunkWithTime(src, p.pf, buf, !force && n%10 == 0)
+		slow, err = p.copyBufferChunkWithTime(src, p.pf, (*bp)[:chunk], !force && n%10 == 0)
 		if err != nil {
 			break
 		}
@@ -240,11 +242,11 @@ func (p *Part) copyBuffer(src io.ReadCloser, foff int64, force bool) (slow bool,
 			return false, fmt.Errorf("corruption detected: lchunk=%d (report: github.com/warpdl/warpdl)", lchunk)
 		}
 		if lchunk < chunk {
-			buf = make([]byte, lchunk)
+			// Reslice the same backing array instead of allocating a new one.
+			chunk = lchunk
 		}
 	}
-	// wait for all part progress to be sent via progress handlers
-	p.pwg.Wait()
+	// Progress callbacks are now synchronous - no goroutines to wait for.
 	_ = src.Close()
 	if err == io.EOF {
 		expectedBytes := foff + 1 - p.offset
@@ -291,10 +293,13 @@ func (p *Part) copyBufferChunk(src io.Reader, dst io.Writer, buf []byte) (err er
 			}
 		}
 		atomic.AddInt64(&p.read, int64(nw))
-		p.pwg.Add(1)
-		safeGo(p.l, &p.pwg, "part-progress-callback", nil, func() {
-			p.pfunc(p.hash, nw)
-		})
+		// Fire the progress callback synchronously. Spawning a goroutine
+		// per chunk previously produced hundreds of thousands of goroutines
+		// per GB downloaded; the callback itself is cheap (counter bump)
+		// and the caller takes its own lock, so running inline is correct.
+		if p.pfunc != nil {
+			p.callProgress(nw)
+		}
 		if ew != nil {
 			err = ew
 			return
@@ -308,11 +313,30 @@ func (p *Part) copyBufferChunk(src io.Reader, dst io.Writer, buf []byte) (err er
 	return
 }
 
+// callProgress invokes the progress callback with panic protection so a
+// misbehaving handler does not crash the download goroutine.
+func (p *Part) callProgress(nw int) {
+	defer func() {
+		if r := recover(); r != nil {
+			if p.l != nil {
+				p.log("progress callback panic: %v", r)
+			}
+		}
+	}()
+	p.pfunc(p.hash, nw)
+}
+
 func (p *Part) compile() (read, written int64, err error) {
 	// take the reader to origin from end
-	p.pf.Seek(0, 0)
+	if _, seekErr := p.pf.Seek(0, 0); seekErr != nil {
+		err = seekErr
+		return
+	}
 
-	buf := make([]byte, p.chunk)
+	bp := getBuf(int(p.chunk))
+	defer putBuf(bp)
+	buf := *bp
+
 	off := p.offset
 	for {
 		nr, er := p.pf.Read(buf)
@@ -326,10 +350,10 @@ func (p *Part) compile() (read, written int64, err error) {
 				}
 			}
 			atomic.AddInt64(&written, int64(nw))
-			p.pwg.Add(1)
-			safeGo(p.l, &p.pwg, "compile-progress-callback", nil, func() {
-				p.cfunc(p.hash, nw)
-			})
+			// Synchronous compile progress callback (see callProgress rationale).
+			if p.cfunc != nil {
+				p.callCompileProgress(nw)
+			}
 			if ew != nil {
 				err = ew
 				break
@@ -347,8 +371,20 @@ func (p *Part) compile() (read, written int64, err error) {
 			break
 		}
 	}
-	p.pwg.Wait()
 	return
+}
+
+// callCompileProgress invokes the compile progress callback with panic
+// protection.
+func (p *Part) callCompileProgress(nw int) {
+	defer func() {
+		if r := recover(); r != nil {
+			if p.l != nil {
+				p.log("compile progress callback panic: %v", r)
+			}
+		}
+	}()
+	p.cfunc(p.hash, nw)
 }
 
 func setRange(header http.Header, ioff, foff int64) {

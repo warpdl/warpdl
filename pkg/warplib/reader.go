@@ -31,16 +31,21 @@ func (p *CallbackProxyReader) Read(b []byte) (n int, err error) {
 }
 
 // AsyncCallbackProxyReader wraps an io.Reader and invokes a callback function
-// asynchronously in a goroutine after each read operation with the number of bytes read.
+// after each read.
+//
+// Historically this fired the callback in a goroutine per Read - on large
+// resumes that produced thousands of goroutines for zero concurrency benefit.
+// The callback is now invoked synchronously (protected against panics by
+// the caller) and Wait remains a no-op for backward compatibility.
 type AsyncCallbackProxyReader struct {
 	r  io.Reader
 	c  func(n int)
-	wg sync.WaitGroup
+	wg sync.WaitGroup // kept for backward compatibility; never used.
 	l  *log.Logger
 }
 
-// NewAsyncCallbackProxyReader creates a new AsyncCallbackProxyReader that wraps the given reader
-// and calls the callback function asynchronously in a goroutine after each read with the byte count.
+// NewAsyncCallbackProxyReader creates an AsyncCallbackProxyReader. See the
+// type-level comment for the behavior change compared with earlier versions.
 func NewAsyncCallbackProxyReader(reader io.Reader, callback func(n int), logger *log.Logger) *AsyncCallbackProxyReader {
 	return &AsyncCallbackProxyReader{
 		r: reader,
@@ -50,17 +55,27 @@ func NewAsyncCallbackProxyReader(reader io.Reader, callback func(n int), logger 
 }
 
 // Read reads data from the underlying reader into b and invokes the callback
-// asynchronously in a goroutine with the number of bytes read.
+// synchronously with the number of bytes read. A panic inside the callback
+// is recovered so it cannot abort the read loop.
 func (p *AsyncCallbackProxyReader) Read(b []byte) (n int, err error) {
 	n, err = p.r.Read(b)
-	p.wg.Add(1)
-	safeGo(p.l, &p.wg, "async-callback-reader", nil, func() {
-		p.c(n)
-	})
+	if p.c != nil {
+		p.invokeCallback(n)
+	}
 	return
 }
 
-// Wait blocks until all async callback goroutines have completed.
+func (p *AsyncCallbackProxyReader) invokeCallback(n int) {
+	defer func() {
+		if r := recover(); r != nil && p.l != nil {
+			p.l.Printf("async-callback-reader: panic in callback: %v", r)
+		}
+	}()
+	p.c(n)
+}
+
+// Wait is retained for backward compatibility. Because callbacks now run
+// synchronously, there is nothing to wait for; the call is a no-op.
 func (p *AsyncCallbackProxyReader) Wait() {
 	p.wg.Wait()
 }

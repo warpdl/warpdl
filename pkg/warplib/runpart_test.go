@@ -369,12 +369,13 @@ func TestRunPartWorkStealingSuccess(t *testing.T) {
 	d.activeParts.Make()
 
 	// Register a slow "victim" part with lots of remaining bytes
-	victimFoff := int64(50 * MB)
+	victimFoff := new(atomic.Int64)
+	victimFoff.Store(int64(50 * MB))
 	victimRead := int64(0) // Hasn't read anything yet
 	d.activeParts.Set("victim-part", &activePartInfo{
 		hash:   "victim-part",
 		offset: 0,
-		foff:   &victimFoff,
+		foff:   victimFoff,
 		read:   &victimRead,
 	})
 

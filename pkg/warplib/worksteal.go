@@ -107,21 +107,22 @@ func shouldAttemptWorkSteal(completionSpeed, adjacentRemaining int64) bool {
 }
 
 // activePartInfo tracks runtime state of an active downloading part for work stealing.
-// This struct is used to coordinate work stealing between parts.
+// All fields accessed across goroutines are either guarded by mu or stored in
+// atomic-capable types.
 type activePartInfo struct {
-	hash   string     // Unique identifier for the part
-	offset int64      // Initial byte offset (starting position)
-	foff   *int64     // Pointer to final offset (can be reduced by work stealing)
-	read   *int64     // Pointer to part's atomic read counter
-	mu     sync.Mutex // Protects foff modifications during steal operations
-	stolen bool       // True if work was already stolen from this part
+	hash   string        // Unique identifier for the part
+	offset int64         // Initial byte offset (starting position, never mutated)
+	foff   *atomic.Int64 // Final offset - reduced atomically by stealer
+	read   *int64        // Pointer to part's atomic read counter
+	mu     sync.Mutex    // Protects stolen transitions
+	stolen atomic.Bool   // True if work was already stolen from this part
 }
 
 // getRemaining calculates the remaining bytes to download for this part.
 // Returns the number of bytes left to download.
 func (a *activePartInfo) getRemaining() int64 {
 	currentPos := a.getCurrentPos()
-	foff := atomic.LoadInt64(a.foff)
+	foff := a.foff.Load()
 	remaining := foff - currentPos + 1
 	if remaining < 0 {
 		return 0
@@ -147,8 +148,9 @@ func findBestVictimForStealing(activeParts *VMap[string, *activePartInfo]) *acti
 	var bestRemaining int64 = 0
 
 	activeParts.Range(func(hash string, info *activePartInfo) bool {
-		// Skip if already had work stolen
-		if info.stolen {
+		// Skip if already had work stolen. stolen is atomic.Bool so this
+		// is a safe concurrent read.
+		if info.stolen.Load() {
 			return true // continue iteration
 		}
 
@@ -172,8 +174,9 @@ func findBestVictimForStealing(activeParts *VMap[string, *activePartInfo]) *acti
 }
 
 // registerActivePart registers a part for potential work stealing.
-// Called when a part starts downloading.
-func (d *Downloader) registerActivePart(part *Part, foff *int64) {
+// Called when a part starts downloading. foff must already be heap-allocated
+// (so the pointer is valid across goroutines).
+func (d *Downloader) registerActivePart(part *Part, foff *atomic.Int64) {
 	if !d.enableWorkStealing {
 		return
 	}
@@ -233,7 +236,7 @@ func (d *Downloader) attemptWorkSteal(stealerHash string, partSpeed int64) bool 
 	defer victim.mu.Unlock()
 
 	// Double-check conditions under lock
-	if victim.stolen {
+	if victim.stolen.Load() {
 		return false
 	}
 
@@ -245,17 +248,19 @@ func (d *Downloader) attemptWorkSteal(stealerHash string, partSpeed int64) bool 
 	// Calculate steal range using 50/50 split
 	stealStart, stealEnd, canSteal := calculateStealWork(
 		victim.offset,
-		atomic.LoadInt64(victim.foff),
+		victim.foff.Load(),
 		atomic.LoadInt64(victim.read),
 	)
 	if !canSteal {
 		return false
 	}
 
-	// Reduce victim's final offset (atomic for part's benefit)
+	// Reduce victim's final offset. The victim goroutine reads foff
+	// through the same atomic pointer, so it will observe the new bound
+	// on its next copy loop iteration.
 	newVictimFoff := stealStart - 1
-	atomic.StoreInt64(victim.foff, newVictimFoff)
-	victim.stolen = true
+	victim.foff.Store(newVictimFoff)
+	victim.stolen.Store(true)
 
 	d.Log("%s: stealing work from %s | bytes %d-%d", stealerHash, victim.hash, stealStart, stealEnd)
 	d.handlers.WorkStealHandler(stealerHash, victim.hash, stealStart, stealEnd)

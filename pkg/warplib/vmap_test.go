@@ -257,3 +257,152 @@ func TestVMapDeleteConcurrent(t *testing.T) {
 
 	wg.Wait()
 }
+
+// =============================================================================
+// VMap Make / Reset / Len tests (concurrent safety)
+// =============================================================================
+
+// TestVMapMakeIsIdempotentAndThreadSafe verifies that Make can be invoked
+// concurrently with other operations without triggering a data race or
+// destroying data that was already written.
+func TestVMapMakeIsIdempotentAndThreadSafe(t *testing.T) {
+	vm := NewVMap[int, string]()
+	const sentinelKey = -1
+	vm.Set(sentinelKey, "alpha")
+
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			vm.Make()
+		}()
+	}
+
+	// Concurrent writers/readers while Make is being spammed. These keys
+	// are disjoint from the sentinel so they cannot clobber it.
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for j := 0; j < 100; j++ {
+				key := id*1000 + j + 1 // strictly positive keys only
+				vm.Set(key, "x")
+				_ = vm.Get(key)
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Because Make is idempotent, the sentinel entry must survive.
+	if got := vm.Get(sentinelKey); got != "alpha" {
+		t.Fatalf("Make dropped existing entry: want %q got %q", "alpha", got)
+	}
+}
+
+// TestVMapResetReplacesMap verifies Reset actually clears the map and is safe
+// under concurrent use.
+func TestVMapResetReplacesMap(t *testing.T) {
+	vm := NewVMap[int, string]()
+	for i := 0; i < 50; i++ {
+		vm.Set(i, "v")
+	}
+	if vm.Len() != 50 {
+		t.Fatalf("unexpected pre-reset len: %d", vm.Len())
+	}
+
+	vm.Reset()
+	if vm.Len() != 0 {
+		t.Fatalf("Reset did not clear map, len=%d", vm.Len())
+	}
+
+	vm.Set(1, "new")
+	if vm.Get(1) != "new" {
+		t.Fatalf("Reset broke subsequent Set/Get")
+	}
+}
+
+// TestVMapZeroValueUsable verifies that a zero-value VMap (no Make) is still
+// safely usable - Set must auto-init the internal map.
+func TestVMapZeroValueUsable(t *testing.T) {
+	var vm VMap[int, string]
+	// No Make() called.
+	vm.Set(1, "one")
+	if vm.Get(1) != "one" {
+		t.Fatalf("zero-value VMap not usable after Set")
+	}
+	if vm.Len() != 1 {
+		t.Fatalf("unexpected len %d", vm.Len())
+	}
+}
+
+// TestVMapRangeSnapshotSemantics verifies that Range now iterates over a
+// snapshot - callbacks can mutate the VMap without deadlock.
+func TestVMapRangeSnapshotSemantics(t *testing.T) {
+	vm := NewVMap[int, int]()
+	for i := 0; i < 10; i++ {
+		vm.Set(i, i)
+	}
+
+	count := 0
+	vm.Range(func(key, val int) bool {
+		count++
+		// Mutate the underlying map from inside the callback - this used
+		// to deadlock the RLock variant.
+		vm.Set(key+100, val)
+		return true
+	})
+
+	if count != 10 {
+		t.Fatalf("expected to see 10 initial entries, got %d", count)
+	}
+	// Mutations must have been applied.
+	if vm.Len() != 20 {
+		t.Fatalf("expected 20 entries after Range mutations, got %d", vm.Len())
+	}
+}
+
+// TestVMapRangeLockedSemantics verifies the zero-copy variant still works
+// for the original callers that don't mutate.
+func TestVMapRangeLockedSemantics(t *testing.T) {
+	vm := NewVMap[int, int]()
+	for i := 0; i < 5; i++ {
+		vm.Set(i, i*2)
+	}
+
+	seen := map[int]int{}
+	vm.RangeLocked(func(k, v int) bool {
+		seen[k] = v
+		return true
+	})
+	if len(seen) != 5 {
+		t.Fatalf("RangeLocked visited %d entries, want 5", len(seen))
+	}
+	for k, v := range seen {
+		if v != k*2 {
+			t.Fatalf("RangeLocked corrupted value for key %d: %d", k, v)
+		}
+	}
+}
+
+// TestVMapDumpUsesReadLock is a smoke test ensuring Dump does not block
+// concurrent Dump callers - both must be able to hold the read lock.
+func TestVMapDumpUsesReadLock(t *testing.T) {
+	vm := NewVMap[int, int]()
+	for i := 0; i < 100; i++ {
+		vm.Set(i, i)
+	}
+	var wg sync.WaitGroup
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			keys, vals := vm.Dump()
+			if len(keys) != len(vals) {
+				t.Errorf("dump length mismatch")
+			}
+		}()
+	}
+	wg.Wait()
+}

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -36,6 +37,13 @@ type Manager struct {
 	queueState *QueueState
 	// schemeRouter dispatches URL schemes to protocol factories during resume.
 	schemeRouter *SchemeRouter
+	// persister coalesces high-frequency UpdateItem calls into bounded
+	// disk writes. See persist.go.
+	//
+	// Accessed through an atomic pointer so Close() can swap it to nil
+	// without racing the hot UpdateItem/UpdateItemAsync paths on
+	// concurrent goroutines.
+	persister atomic.Pointer[persister]
 }
 
 // SetSchemeRouter sets the scheme router for protocol dispatch during resume.
@@ -59,6 +67,16 @@ func InitManager() (m *Manager, err error) {
 		m = nil
 		return
 	}
+	// Start the background persister before decoding. persistence is
+	// started even when the file is empty so any subsequent AddDownload
+	// or progress update does not hit the slow synchronous path.
+	m.persister.Store(newPersister(
+		m.encodeLocked,
+		DefaultPersistInterval,
+		func(format string, args ...any) {
+			log.Printf("warplib: "+format, args...)
+		},
+	))
 	// Attempt to decode existing data. Try new format first, fall back to legacy.
 	var data ManagerData
 	if decErr := gob.NewDecoder(m.f).Decode(&data); decErr != nil {
@@ -227,7 +245,8 @@ func (m *Manager) patchHandlers(d *Downloader, item *Item) {
 		item.mu.Lock()
 		item.Downloaded += ContentLength(nread)
 		item.mu.Unlock()
-		m.UpdateItem(item)
+		// Hot path: coalesce writes via the background persister.
+		m.UpdateItemAsync(item)
 		oPH(hash, nread)
 	}
 	oCCH := d.handlers.CompileCompleteHandler
@@ -346,7 +365,8 @@ func (m *Manager) patchProtocolHandlers(h *Handlers, item *Item) {
 		item.mu.Lock()
 		item.Downloaded += ContentLength(nread)
 		item.mu.Unlock()
-		m.UpdateItem(item)
+		// Hot path: coalesce writes via the background persister.
+		m.UpdateItemAsync(item)
 		if oPH != nil {
 			oPH(hash, nread)
 		}
@@ -399,7 +419,13 @@ func (m *Manager) patchProtocolHandlers(h *Handlers, item *Item) {
 // Called by encode() which handles locking, or directly by Flush()/Close()
 // which must hold m.mu write lock.
 // Does NOT call Sync() - caller decides if durability is needed.
+// If the underlying file has already been closed (m.f == nil) this is a
+// no-op and returns nil - treating post-Close calls as quietly dropped
+// rather than an error keeps the API forgiving for naive callers.
 func (m *Manager) persistItems() error {
+	if m.f == nil {
+		return nil
+	}
 	data := ManagerData{
 		Items: m.items,
 	}
@@ -425,13 +451,24 @@ func (m *Manager) persistItems() error {
 	return nil
 }
 
-// encode persists items to disk.
-// This is a high-frequency operation (called on every progress update),
-// so it does NOT call Sync() for performance reasons.
-func (m *Manager) encode() error {
+// encodeLocked persists items to disk under the manager's write lock.
+// Used by the background persister; call sites that already hold the lock
+// should use persistItems directly.
+func (m *Manager) encodeLocked() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.persistItems()
+}
+
+// encode persists items to disk immediately, bypassing the background
+// persister. Kept for callers that need guaranteed durability.
+func (m *Manager) encode() error {
+	if p := m.persister.Load(); p != nil {
+		// Synchronously drain any pending dirty state so the call returns
+		// with a fully persisted view.
+		return p.flush()
+	}
+	return m.encodeLocked()
 }
 
 // mapItem maps the item to the manager's items map.
@@ -441,10 +478,51 @@ func (m *Manager) mapItem(item *Item) {
 	m.items[item.Hash] = item
 }
 
-// UpdateItem updates the item in the manager's items map.
+// UpdateItem updates the item in the manager's items map and persists the
+// state synchronously. Callers on a hot path (progress handler) should
+// prefer UpdateItemAsync which defers persistence to the background writer.
+//
+// Safe to call after Close: the update is applied to the in-memory map,
+// but persistence becomes a no-op because the persister has been shut
+// down. No panic.
 func (m *Manager) UpdateItem(item *Item) {
 	m.mapItem(item)
-	m.encode()
+	if p := m.persister.Load(); p != nil {
+		// Ensure any pending async dirt is flushed first so callers that
+		// expect synchronous durability (AddDownload, completion handlers)
+		// still get it. markDirty + flush is equivalent to a direct encode.
+		p.markDirty()
+		if err := p.flush(); err != nil {
+			log.Printf("warplib: warning: persister flush in UpdateItem: %v", err)
+		}
+		return
+	}
+	// After Close or when the Manager was constructed without a
+	// persister - fall back to direct write only if the file is still
+	// open (during Close itself). Best-effort.
+	if m.f != nil {
+		_ = m.encodeLocked()
+	}
+}
+
+// UpdateItemAsync records that the given item is dirty but defers the
+// actual disk write to the background persister. Bursts of updates
+// (e.g. progress callbacks on every 32 KB chunk) are coalesced into at
+// most one write per DefaultPersistInterval.
+//
+// Safe to call after Close: the in-memory update happens, persistence
+// becomes a no-op. No panic.
+func (m *Manager) UpdateItemAsync(item *Item) {
+	m.mapItem(item)
+	if p := m.persister.Load(); p != nil {
+		p.markDirty()
+		return
+	}
+	// No persister available. Only attempt a direct encode if the
+	// underlying file is still open; otherwise quietly drop the update.
+	if m.f != nil {
+		_ = m.encodeLocked()
+	}
 }
 
 // GetScheduledItems returns all items with ScheduleState == "scheduled".
@@ -664,6 +742,13 @@ func (m *Manager) ResumeDownload(client *http.Client, hash string, opts *ResumeD
 
 // Flush flushes away all the inactive download items.
 func (m *Manager) Flush() error {
+	// Drain any pending background writes first so this operation is
+	// applied on top of the latest persisted state.
+	if p := m.persister.Load(); p != nil {
+		if err := p.flush(); err != nil {
+			return fmt.Errorf("flush persister: %w", err)
+		}
+	}
 	// add a write lock to prevent data modification while flushing
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -695,6 +780,11 @@ func (m *Manager) Flush() error {
 // FlushOne flushes away the download item with the given hash.
 // Fixed Race 6: Uses write lock for entire operation to prevent TOCTOU.
 func (m *Manager) FlushOne(hash string) error {
+	if p := m.persister.Load(); p != nil {
+		if err := p.flush(); err != nil {
+			return fmt.Errorf("flush persister: %w", err)
+		}
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -726,11 +816,32 @@ func (m *Manager) FlushOne(hash string) error {
 }
 
 // Close closes the manager safely, ensuring all data is persisted.
+// Safe to call multiple times and concurrently; only the first
+// caller performs the shutdown, others are no-ops.
 func (m *Manager) Close() error {
+	// Swap the persister out atomically so concurrent UpdateItem calls
+	// see either the live persister or nil - never a half-closed state.
+	// CompareAndSwap ensures only the first caller shuts it down.
+	p := m.persister.Load()
+	if p != nil && m.persister.CompareAndSwap(p, nil) {
+		if err := p.shutdown(); err != nil {
+			log.Printf("warplib: warning: persister shutdown error: %v", err)
+		}
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Final persist and sync before closing
+	// Already closed — return immediately. Close is safe to call more
+	// than once; the first winning CAS above handled shutdown.
+	if m.f == nil {
+		return nil
+	}
+
+	// Final persist and sync before closing - belt-and-braces guard
+	// against a dirty flag that arrived after the persister's final
+	// flush. (If persister.flush already wrote everything this is a
+	// no-op from the OS's point of view beyond the fsync.)
 	if err := m.persistItems(); err != nil {
 		// Log but don't fail - still need to close file
 		log.Printf("warplib: warning: failed to persist on close: %v", err)
@@ -738,5 +849,7 @@ func (m *Manager) Close() error {
 	if err := m.f.Sync(); err != nil {
 		log.Printf("warplib: warning: failed to sync on close: %v", err)
 	}
-	return m.f.Close()
+	err := m.f.Close()
+	m.f = nil
+	return err
 }
