@@ -30,7 +30,7 @@ func (h Header) Delete(key string) {
 }
 
 func (h Header) Entries() [][]string {
-	v := make([][]string, len(h.std)-1)
+	v := make([][]string, len(h.std))
 	var i int64 = 0
 	for k, _v := range h.std {
 		if k == "Set-Cookie" {
@@ -58,7 +58,6 @@ func (h Header) ForEach(callback any) {
 			},
 		})
 	}
-	h.runtime.RunString("throw new Error('Invalid function type')")
 }
 
 func (h Header) Get(key string) string {
@@ -69,12 +68,16 @@ func (h Header) GetSetCookies() []string {
 	return h.std["Set-Cookie"]
 }
 
+func (h Header) Size() int {
+	return len(h.std)
+}
+
 func (h Header) Has(key string) bool {
 	return h.std.Get(key) != ""
 }
 
 func (h Header) Keys() []string {
-	var keys []string = make([]string, len(h.std)-1)
+	var keys []string = make([]string, len(h.std))
 	var i int64 = 0
 	for k := range h.std {
 		if k == "Set-Cookie" {
@@ -91,7 +94,7 @@ func (h Header) Set(key, value string) {
 }
 
 func (h Header) Values() []string {
-	var values []string = make([]string, len(h.std)-1)
+	var values []string = make([]string, len(h.std))
 	var i int64 = 0
 	for k, v := range h.std {
 		if k == "Set-Cookie" {

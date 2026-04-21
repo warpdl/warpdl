@@ -1,6 +1,6 @@
 {
 	"extends": "astro/tsconfigs/strict",
-	"include": [".astro/types.d.ts", "**/*"],
+	"include": ["src/**/*", ".astro/types.d.ts", "src/content.config.ts"],
 	"exclude": ["dist", "node_modules"],
 	"compilerOptions": {
 		"target": "ES2022",
@@ -20,7 +20,6 @@
 		"noUnusedParameters": true,
 		"noImplicitReturns": true,
 		"noFallthroughCasesInSwitch": true,
-		"jsxImportSource": "react",
 		"paths": {
 			"@/*": ["./*"]
 		}

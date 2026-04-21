@@ -15,11 +15,16 @@ Every extension requires two files:
 ### Directory Layout
 
 ```
-~/.config/warpdl/extstore/
+<platform-config-dir>/warpdl/extstore/
 └── <extension-hash>/
     ├── manifest.json
     └── main.js
 ```
+
+**Platform-specific paths:**
+- **Linux:** `~/.config/warpdl/extstore/`
+- **macOS:** `~/Library/Application Support/warpdl/extstore/`
+- **Windows:** `%AppData%/warpdl/extstore/` (e.g., `C:\Users\<username>\AppData\Roaming\warpdl\extstore\`)
 
 ## manifest.json
 
@@ -237,20 +242,22 @@ warpdl ext install /path/to/extension/
 warpdl ext list
 
 # Show all extensions (including inactive)
-warpdl ext list --all
+warpdl ext list --show-all
+# or
+warpdl ext list -a
 ```
 
 ### Activate/Deactivate
 
 ```bash
-warpdl ext activate <extension-id>
-warpdl ext deactivate <extension-id>
+warpdl ext activate <extension-id|name>
+warpdl ext deactivate <extension-id|name>
 ```
 
 ### Uninstall
 
 ```bash
-warpdl ext uninstall <extension-id>
+warpdl ext uninstall <extension-id|name>
 ```
 
 ## Limitations

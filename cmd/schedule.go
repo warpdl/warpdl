@@ -14,11 +14,11 @@ const startAtLayout = "2006-01-02 15:04"
 // Returns the parsed time or an error with the expected format.
 func parseStartAt(value string) (time.Time, error) {
 	if value == "" {
-		return time.Time{}, fmt.Errorf("error: invalid --start-at format, expected YYYY-MM-DD HH:MM")
+		return time.Time{}, fmt.Errorf("invalid --start-at format, expected YYYY-MM-DD HH:MM")
 	}
 	t, err := time.ParseInLocation(startAtLayout, value, time.Local)
 	if err != nil {
-		return time.Time{}, fmt.Errorf("error: invalid --start-at format, expected YYYY-MM-DD HH:MM")
+		return time.Time{}, fmt.Errorf("invalid --start-at format, expected YYYY-MM-DD HH:MM")
 	}
 	return t, nil
 }
@@ -48,11 +48,11 @@ func validateStartAt(value string) (result, warning string) {
 // Returns error for empty string or invalid duration formats.
 func parseStartIn(value string) (time.Time, error) {
 	if value == "" {
-		return time.Time{}, fmt.Errorf("error: invalid --start-in duration, expected format like 2h, 30m, or 1h30m (days not supported — use 24h)")
+		return time.Time{}, fmt.Errorf("invalid --start-in duration, expected format like 2h, 30m, or 1h30m (days not supported — use 24h)")
 	}
 	d, err := time.ParseDuration(value)
 	if err != nil {
-		return time.Time{}, fmt.Errorf("error: invalid --start-in duration, expected format like 2h, 30m, or 1h30m (days not supported — use 24h)")
+		return time.Time{}, fmt.Errorf("invalid --start-in duration, expected format like 2h, 30m, or 1h30m (days not supported — use 24h)")
 	}
 	return time.Now().Add(d), nil
 }
@@ -61,7 +61,7 @@ func parseStartIn(value string) (time.Time, error) {
 // Returns an error if both are non-empty.
 func validateStartAtStartInExclusion(startAt, startIn string) error {
 	if startAt != "" && startIn != "" {
-		return fmt.Errorf("error: flags --start-at and --start-in are mutually exclusive")
+		return fmt.Errorf("flags --start-at and --start-in are mutually exclusive")
 	}
 	return nil
 }
@@ -71,15 +71,15 @@ func validateStartAtStartInExclusion(startAt, startIn string) error {
 // Returns error for invalid expressions (empty, wrong field count, invalid values).
 func validateSchedule(expr string) error {
 	if expr == "" {
-		return fmt.Errorf("error: invalid cron expression %q, expected 5-field format (minute hour day-of-month month day-of-week)", expr)
+		return fmt.Errorf("invalid cron expression %q, expected 5-field format (minute hour day-of-month month day-of-week)", expr)
 	}
 	// Enforce exactly 5 fields — gronx.IsValid also accepts 6-field (with seconds).
 	fields := strings.Fields(expr)
 	if len(fields) != 5 {
-		return fmt.Errorf("error: invalid cron expression %q, expected 5-field format (minute hour day-of-month month day-of-week)", expr)
+		return fmt.Errorf("invalid cron expression %q, expected 5-field format (minute hour day-of-month month day-of-week)", expr)
 	}
 	if !gronx.IsValid(expr) {
-		return fmt.Errorf("error: invalid cron expression %q, expected 5-field format (minute hour day-of-month month day-of-week)", expr)
+		return fmt.Errorf("invalid cron expression %q, expected 5-field format (minute hour day-of-month month day-of-week)", expr)
 	}
 	return nil
 }

@@ -16,7 +16,7 @@ import (
 func ParseNetscape(filePath string, domain string) ([]Cookie, error) {
 	f, err := os.Open(filePath)
 	if err != nil {
-		return nil, fmt.Errorf("error: cannot open Netscape cookie file: %w", err)
+		return nil, fmt.Errorf("cannot open Netscape cookie file: %w", err)
 	}
 	defer f.Close()
 
@@ -88,7 +88,7 @@ func ParseNetscape(filePath string, domain string) ([]Cookie, error) {
 	}
 
 	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("error: failed to read Netscape cookie file: %w", err)
+		return nil, fmt.Errorf("failed to read Netscape cookie file: %w", err)
 	}
 
 	return cookies, nil

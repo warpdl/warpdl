@@ -21,6 +21,10 @@ WarpDL supports browser extension integration through the Native Messaging Host 
 
 If you installed WarpDL via Homebrew, Scoop, or a Linux package manager (deb/rpm), the native messaging host is configured automatically during installation.
 
+:::note
+Automatic native-host installation only works when `OfficialChromeExtensionID` and `OfficialFirefoxExtensionID` are set in `internal/nativehost/defaults.go` (currently empty strings).
+:::
+
 ### Manual Install
 
 For manual installations, run:

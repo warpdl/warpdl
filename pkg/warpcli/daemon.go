@@ -3,7 +3,6 @@ package warpcli
 import (
 	"fmt"
 	"os"
-	"strings"
 	"time"
 )
 
@@ -35,7 +34,7 @@ func ensureDaemon() error {
 	}
 
 	if skipDaemonForTests() {
-		return fmt.Errorf("daemon not running (test mode)")
+		return fmt.Errorf("connection error: daemon not running (test mode)")
 	}
 
 	// Spawn daemon
@@ -48,10 +47,7 @@ func ensureDaemon() error {
 }
 
 func skipDaemonForTests() bool {
-	if os.Getenv("WARPDL_TEST_SKIP_DAEMON") != "1" {
-		return false
-	}
-	return strings.HasSuffix(os.Args[0], ".test")
+	return os.Getenv("WARPDL_TEST_SKIP_DAEMON") == "1"
 }
 
 // waitForSocket polls until the socket/pipe becomes available or timeout expires.

@@ -28,7 +28,6 @@ func downloadStopped(client *warpcli.Client, sc *SpeedCounter) func(dr *common.D
 			return nil
 		}
 		sc.bar.Abort(false)
-		// fmt.Println("Download Stopped: ", dr.DownloadId)
 		client.Disconnect()
 		return nil
 	}
@@ -36,7 +35,6 @@ func downloadStopped(client *warpcli.Client, sc *SpeedCounter) func(dr *common.D
 
 func downloadProgress(sc *SpeedCounter) func(dr *common.DownloadingResponse) error {
 	return func(dr *common.DownloadingResponse) error {
-		// fmt.Println(dr.Action, dr.DownloadId, dr.Hash, dr.Value)
 		sc.IncrBy(int(dr.Value))
 		return nil
 	}
@@ -53,7 +51,6 @@ func resumeProgress(sc *SpeedCounter) func(dr *common.DownloadingResponse) error
 
 func downloadComplete(client *warpcli.Client, dbar, cbar *mpb.Bar, sc *SpeedCounter) func(dr *common.DownloadingResponse) error {
 	return func(dr *common.DownloadingResponse) error {
-		// fmt.Println("Download Complete: ", dr.Hash)
 		if dr.Hash != warplib.MAIN_HASH {
 			return nil
 		}
@@ -78,7 +75,6 @@ func compileStart(dr *common.DownloadingResponse) error {
 }
 
 func compileComplete(dr *common.DownloadingResponse) error {
-	// fmt.Println("Compile Complete: ", dr.Hash)
 	return nil
 }
 

@@ -11,6 +11,74 @@ on:
   workflow_dispatch:
 
 jobs:
+  lint:
+    name: Lint & Complexity Analysis
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: stable
+          cache: true
+
+      - name: Fetch base branch (PR only)
+        if: github.event_name == 'pull_request'
+        run: git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
+
+      - name: "golangci-lint (PR: changed code only)"
+        if: github.event_name == 'pull_request'
+        uses: golangci/golangci-lint-action@v7
+        with:
+          version: latest
+          args: --timeout=5m --new-from-rev=origin/${{ github.base_ref }}
+
+      - name: Determine lint baseline (push/manual)
+        if: github.event_name != 'pull_request'
+        id: lint_base
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "push" && "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]]; then
+            echo "rev=${{ github.event.before }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "rev=HEAD~1" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: "golangci-lint (push/manual: changed code only)"
+        if: github.event_name != 'pull_request'
+        uses: golangci/golangci-lint-action@v7
+        with:
+          version: latest
+          args: --timeout=5m --new-from-rev=${{ steps.lint_base.outputs.rev }}
+
+  duplicate-code:
+    name: Duplicate Code Detection
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 'lts/*'
+
+      - name: Install jscpd
+        run: npm install -g jscpd
+
+      - name: Run duplicate code detection
+        run: scripts/check_duplicates.sh
+
   test:
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -71,7 +139,30 @@ jobs:
       - name: Build
         run: go build -ldflags="-w -s" .
 
-  # E2E download tests - matrix with any-pass logic
+  # E2E tests using local HTTP server (no external network dependency)
+  e2e-local:
+    name: E2E Local (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: stable
+          cache: true
+
+      - name: Run local E2E tests
+        run: go test -v -tags=e2e -run "^(TestDownload_|TestResume_|TestList_|TestFlush_|TestStop_|TestInfo_|TestQueue_|TestVersion_|TestHelp_|TestLifecycle_|TestDaemon_|TestError_|TestExt_|TestNativeHost_|TestDownloadAlias|TestListAlias)" -timeout=10m ./tests/e2e/
+
+  # E2E download tests - matrix with any-pass logic (external network)
   e2e:
     name: E2E (${{ matrix.location }})
     runs-on: ubuntu-latest

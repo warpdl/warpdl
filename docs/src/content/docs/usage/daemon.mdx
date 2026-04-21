@@ -25,6 +25,90 @@ The daemon starts automatically when you run any download command. To start it m
 warpdl daemon
 ```
 
+### Daemon Options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--max-concurrent` | `3` | Maximum number of concurrent downloads (0 = unlimited) |
+| `--rpc-secret` | - | Secret token for JSON-RPC API authentication (required to enable RPC) |
+| `--rpc-listen-all` | `false` | Bind RPC to all interfaces instead of localhost only |
+
+Examples:
+
+```bash
+# Start with max 5 concurrent downloads
+warpdl daemon --max-concurrent 5
+
+# Enable JSON-RPC API with authentication
+warpdl daemon --rpc-secret my-secret-token
+
+# Enable RPC and bind to all interfaces (use with caution)
+warpdl daemon --rpc-secret my-secret-token --rpc-listen-all
+```
+
+Environment variables are also supported:
+
+```bash
+export WARPDL_MAX_CONCURRENT=5
+export WARPDL_RPC_SECRET=my-secret-token
+warpdl daemon
+```
+
+## Download Queue Management
+
+The daemon maintains a download queue that manages active and waiting downloads. Use the `queue` command to manage queue state.
+
+### View Queue Status
+
+```bash
+warpdl queue
+# or
+warpdl queue status
+```
+
+This displays:
+- Queue state (running/paused)
+- Maximum concurrent download limit
+- Active download count and waiting count
+- List of active downloads (with hashes)
+- Waiting queue with positions and priorities
+
+### Pause the Queue
+
+Prevent new downloads from starting automatically:
+
+```bash
+warpdl queue pause
+```
+
+Active downloads continue, but no new downloads will start from the waiting queue.
+
+### Resume the Queue
+
+Allow downloads to start automatically again:
+
+```bash
+warpdl queue resume
+```
+
+### Move a Queued Download
+
+Reposition a download in the waiting queue:
+
+```bash
+warpdl queue move <hash> <position>
+```
+
+- `<hash>` - The download hash (shown in queue status)
+- `<position>` - New position in queue (1-based index)
+
+Example:
+
+```bash
+# Move download with hash "abc123" to position 1 (front of queue)
+warpdl queue move abc123 1
+```
+
 ## Stopping the Daemon
 
 ```bash

@@ -1598,6 +1598,20 @@ func TestStopHandlerCancelsScheduledItem(t *testing.T) {
 
 // T070: stopHandler returns recurring-specific cancel message when CronExpr is set
 
+func TestReportAsyncDownloadError_NilError(t *testing.T) {
+	pool := server.NewPool(log.New(io.Discard, "", 0))
+	// Must not panic and must be a no-op for nil error
+	reportAsyncDownloadError(pool, "uid-1", nil)
+}
+
+func TestReportAsyncDownloadError_WithError(t *testing.T) {
+	pool := server.NewPool(log.New(io.Discard, "", 0))
+	// With a real error the function broadcasts and stops the download.
+	// The pool has no active download registered so StopDownload is a no-op,
+	// but calling through the full path covers the three statements.
+	reportAsyncDownloadError(pool, "uid-2", errors.New("async failure"))
+}
+
 func TestStopHandlerCancelsRecurringItem(t *testing.T) {
 	api, pool, cleanup := newTestApi(t)
 	defer cleanup()

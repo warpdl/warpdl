@@ -164,3 +164,68 @@ func TestResumePartDownloadCompilePath(t *testing.T) {
 		t.Fatalf("expected CompileCompleteHandler read=%d, got %d", len(testData), compileCompleteRead)
 	}
 }
+
+func TestResumePartDownloadCompileErrorDoesNotMarkComplete(t *testing.T) {
+	base := t.TempDir()
+	if err := SetConfigDir(base); err != nil {
+		t.Fatalf("SetConfigDir: %v", err)
+	}
+	hash := "h4"
+	if err := os.MkdirAll(filepath.Join(DlDataDir, hash), 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	content := []byte("data")
+	srv := newRangeServer(t, content)
+	defer srv.Close()
+
+	var compileCompleteCalled bool
+
+	d, err := initDownloader(srv.Client(), hash, srv.URL, ContentLength(len(content)), &DownloaderOpts{
+		DownloadDirectory: base,
+		FileName:          "file.bin",
+		Handlers: &Handlers{
+			CompileCompleteHandler: func(hash string, read int64) {
+				compileCompleteCalled = true
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("initDownloader: %v", err)
+	}
+	defer func() {
+		d.f = nil
+		_ = d.Close()
+	}()
+	d.ohmap.Make()
+	if err := d.openFile(); err != nil {
+		t.Fatalf("openFile: %v", err)
+	}
+
+	savePath := d.GetSavePath()
+	if err := d.f.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	partHash := "p1"
+	partPath := getFileName(d.dlPath, partHash)
+	if err := os.WriteFile(partPath, nil, 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	d.wg.Add(1)
+	d.resumePartDownload(partHash, 0, int64(len(content))-1, MB)
+	d.wg.Wait()
+
+	if compileCompleteCalled {
+		t.Fatalf("did not expect CompileCompleteHandler on compile failure")
+	}
+
+	info, err := os.Stat(savePath)
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+	if info.Size() != 0 {
+		t.Fatalf("expected empty save file after compile failure, got %d bytes", info.Size())
+	}
+}

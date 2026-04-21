@@ -15,7 +15,7 @@ func ParseFirefox(dbPath string, domain string) ([]Cookie, error) {
 	dsn := fmt.Sprintf("file:%s?immutable=1", dbPath)
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
-		return nil, fmt.Errorf("error: cannot open Firefox cookie database: %w", err)
+		return nil, fmt.Errorf("cannot open Firefox cookie database: %w", err)
 	}
 	defer db.Close()
 
@@ -31,7 +31,7 @@ func ParseFirefox(dbPath string, domain string) ([]Cookie, error) {
         ORDER BY path DESC, name ASC
     `, domain, dotDomain, wildcardDomain, now)
 	if err != nil {
-		return nil, fmt.Errorf("error: failed to query Firefox cookies: %w", err)
+		return nil, fmt.Errorf("failed to query Firefox cookies: %w", err)
 	}
 	defer rows.Close()
 
@@ -43,7 +43,7 @@ func ParseFirefox(dbPath string, domain string) ([]Cookie, error) {
 			isSecure, isHttpOnly    int
 		)
 		if err := rows.Scan(&name, &value, &host, &path, &expiry, &isSecure, &isHttpOnly); err != nil {
-			return nil, fmt.Errorf("error: failed to scan Firefox cookie row: %w", err)
+			return nil, fmt.Errorf("failed to scan Firefox cookie row: %w", err)
 		}
 		cookies = append(cookies, Cookie{
 			Name:     name,
@@ -56,7 +56,7 @@ func ParseFirefox(dbPath string, domain string) ([]Cookie, error) {
 		})
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error: failed to iterate Firefox cookie rows: %w", err)
+		return nil, fmt.Errorf("failed to iterate Firefox cookie rows: %w", err)
 	}
 
 	return cookies, nil

@@ -44,13 +44,30 @@ aa-complain /usr/local/bin/warpdl
 
 ## Systemd Service Not Starting
 
+The WarpDL daemon runs as a user-mode systemd service (not system-wide).
+
 ```bash
 # Check status
-systemctl status warpdl
+systemctl --user status warpdl.service
 
 # View logs
-journalctl -u warpdl -f
+journalctl --user -u warpdl.service -f
 ```
+
+## Config Directory Location
+
+WarpDL stores its configuration and data files in:
+
+```
+~/.config/warpdl/
+```
+
+This directory contains:
+- `daemon.pid` - PID file for the running daemon
+- `cookies.warp` - Stored cookies for downloads
+- `known_hosts` - Known host keys for SSH connections
+- `userdata.warp` - User data and settings
+- `dldata/` - Download segment data directory
 
 ## Credential Storage (Keyring)
 

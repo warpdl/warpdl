@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/warpdl/warpdl/common"
@@ -21,6 +22,14 @@ type BatchDownloadOpts struct {
 	DownloadDir string
 	// DownloadOpts contains additional options passed to each download.
 	DownloadOpts *warpcli.DownloadOpts
+}
+
+// BatchSubmission tracks a successfully submitted download request.
+type BatchSubmission struct {
+	URL           string
+	DownloadID    string
+	SavePath      string
+	ContentLength int64
 }
 
 // BatchError represents an error that occurred during a specific URL download.
@@ -62,6 +71,8 @@ type BatchResult struct {
 	Errors []BatchError
 	// SkippedURLs contains URLs that were skipped during input file parsing.
 	SkippedURLs []SkippedURL
+	// Submissions contains the successfully-submitted downloads.
+	Submissions []BatchSubmission
 }
 
 // NewBatchResult creates a new BatchResult with the specified total count.
@@ -75,6 +86,14 @@ func NewBatchResult(total int) *BatchResult {
 // AddSuccess increments the success count.
 func (r *BatchResult) AddSuccess() {
 	r.Succeeded++
+}
+
+// ConvertSuccessToError changes one accepted submission into a terminal failure.
+func (r *BatchResult) ConvertSuccessToError(url string, err error) {
+	if r.Succeeded > 0 {
+		r.Succeeded--
+	}
+	r.AddError(url, err)
 }
 
 // AddError records a download failure with the URL and error message.
@@ -169,13 +188,30 @@ func DownloadBatch(client BatchDownloadClient, inputFilePath string, directURLs 
 			downloadOpts = &warpcli.DownloadOpts{}
 		}
 
-		_, err := client.Download(url, "", opts.DownloadDir, downloadOpts)
+		resp, err := client.Download(url, "", opts.DownloadDir, downloadOpts)
 		if err != nil {
 			result.AddError(url, err)
 		} else {
 			result.AddSuccess()
+			result.Submissions = append(result.Submissions, BatchSubmission{
+				URL:           url,
+				DownloadID:    resp.DownloadId,
+				SavePath:      resp.SavePath,
+				ContentLength: int64(resp.ContentLength),
+			})
 		}
 	}
 
 	return result, nil
+}
+
+func isBatchSubmissionComplete(sub BatchSubmission) bool {
+	info, err := os.Stat(sub.SavePath)
+	if err != nil {
+		return false
+	}
+	if sub.ContentLength <= 0 {
+		return info.Size() >= 0
+	}
+	return info.Size() == sub.ContentLength
 }

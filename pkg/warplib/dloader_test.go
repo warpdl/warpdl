@@ -19,51 +19,6 @@ import (
 	"time"
 )
 
-// eofAfterNBytesReader returns partial content then EOF
-type eofAfterNBytesReader struct {
-	data      []byte
-	bytesRead int
-	eofAfter  int
-	mu        sync.Mutex
-}
-
-func (r *eofAfterNBytesReader) Read(p []byte) (int, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if r.bytesRead >= r.eofAfter {
-		return 0, io.EOF
-	}
-
-	remaining := r.eofAfter - r.bytesRead
-	toRead := len(p)
-	if toRead > remaining {
-		toRead = remaining
-	}
-	if toRead > len(r.data)-r.bytesRead {
-		toRead = len(r.data) - r.bytesRead
-	}
-
-	n := copy(p[:toRead], r.data[r.bytesRead:r.bytesRead+toRead])
-	r.bytesRead += n
-	return n, nil
-}
-
-func (r *eofAfterNBytesReader) Close() error {
-	return nil
-}
-
-// alwaysFailReader always returns EOF immediately
-type alwaysFailReader struct{}
-
-func (r *alwaysFailReader) Read(p []byte) (int, error) {
-	return 0, io.EOF
-}
-
-func (r *alwaysFailReader) Close() error {
-	return nil
-}
-
 // newRetryTestDownloader creates a Downloader configured for retry testing
 func newRetryTestDownloader(t *testing.T, client *http.Client, retryConfig *RetryConfig, handlers *Handlers) (*Downloader, string, *os.File) {
 	t.Helper()
@@ -605,6 +560,35 @@ func TestOpenFileSucceedsWhenFileDoesNotExist(t *testing.T) {
 				t.Fatal("expected file handle to be set")
 			}
 		})
+	}
+}
+
+func TestOpenResumeFileSucceedsWhenFileExists(t *testing.T) {
+	tmpDir := t.TempDir()
+	existingFile := filepath.Join(tmpDir, "existing.bin")
+	originalContent := []byte("existing content")
+
+	if err := os.WriteFile(existingFile, originalContent, 0666); err != nil {
+		t.Fatalf("failed to create existing file: %v", err)
+	}
+
+	d := &Downloader{
+		dlLoc:    tmpDir,
+		fileName: "existing.bin",
+	}
+
+	err := d.openResumeFile()
+	if err != nil {
+		t.Fatalf("expected no error when resume file exists, got: %v", err)
+	}
+	defer d.f.Close()
+
+	got, err := io.ReadAll(d.f)
+	if err != nil {
+		t.Fatalf("failed to read existing file: %v", err)
+	}
+	if string(got) != string(originalContent) {
+		t.Fatalf("expected existing content to be preserved, got %q", string(got))
 	}
 }
 

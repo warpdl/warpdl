@@ -43,3 +43,6 @@ specs/.current-spec
 **/.progress.md
 **/.ralph-state.json
 **/.coordinator-prompt.md
+
+# Code quality reports
+reports/

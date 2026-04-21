@@ -33,7 +33,7 @@ func ImportCookies(sourcePath string, domain string) ([]Cookie, *CookieSource, e
 		source.Browser = "Netscape"
 		cookies, err = ParseNetscape(sourcePath, domain)
 	default:
-		return nil, nil, fmt.Errorf("error: unsupported cookie database schema at %s", sourcePath)
+		return nil, nil, fmt.Errorf("unsupported cookie database schema at %s", sourcePath)
 	}
 
 	if err != nil {

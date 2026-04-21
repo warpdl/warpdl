@@ -4,7 +4,6 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"time"
 
@@ -118,6 +117,7 @@ func NewHTTPClientWithProxy(proxyURL string) (*http.Client, error) {
 		if err != nil {
 			return nil, err
 		}
+		//nolint:staticcheck // proxy.SOCKS5 returns a non-context dialer; this preserves existing SOCKS5 behavior
 		transport.Dial = dialer.Dial
 	} else {
 		transport.Proxy = http.ProxyURL(parsed)
@@ -132,24 +132,6 @@ func NewHTTPClientWithProxy(proxyURL string) (*http.Client, error) {
 // NewHTTPClientFromEnvironment creates an HTTP client using proxy settings from environment variables.
 // It checks HTTP_PROXY, http_proxy, HTTPS_PROXY, https_proxy, and ALL_PROXY.
 func NewHTTPClientFromEnvironment() (*http.Client, error) {
-	// Check for proxy environment variables
-	proxyURL := os.Getenv("HTTP_PROXY")
-	if proxyURL == "" {
-		proxyURL = os.Getenv("http_proxy")
-	}
-	if proxyURL == "" {
-		proxyURL = os.Getenv("HTTPS_PROXY")
-	}
-	if proxyURL == "" {
-		proxyURL = os.Getenv("https_proxy")
-	}
-	if proxyURL == "" {
-		proxyURL = os.Getenv("ALL_PROXY")
-	}
-	if proxyURL == "" {
-		proxyURL = os.Getenv("all_proxy")
-	}
-
 	// Use ProxyFromEnvironment which handles NO_PROXY automatically
 	transport := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,

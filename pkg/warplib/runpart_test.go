@@ -78,16 +78,6 @@ func newRunPart(t *testing.T, d *Downloader, preName string, f *os.File) *Part {
 	return part
 }
 
-// newRunPartWithSlowForce creates a part that forces slow detection on any
-// timed check by setting etime to -1 (any positive duration > -1).
-// This pattern is already used in parts_extra_test.go:88.
-func newRunPartWithSlowForce(t *testing.T, d *Downloader, preName string, f *os.File) *Part {
-	t.Helper()
-	part := newRunPart(t, d, preName, f)
-	part.etime = -1 // Force slow detection on any timing check
-	return part
-}
-
 func TestRunPartDownloadError(t *testing.T) {
 	base := t.TempDir()
 	mainFile, err := os.Create(filepath.Join(base, "main.bin"))

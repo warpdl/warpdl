@@ -1,6 +1,6 @@
 ---
 title: Advanced Features
-description: Background downloads, speed limiting, and work stealing
+description: Background downloads, scheduling, batch downloads, speed limiting, and work stealing
 ---
 
 WarpDL includes several advanced features for optimizing download performance and flexibility.
@@ -23,8 +23,103 @@ warpdl attach <hash>    # Reconnect to view progress
 ### Environment Variable
 
 ```bash
-export WARPDL_BACKGROUND=1  # Not yet implemented, use --background flag
+# Note: WARPDL_BACKGROUND environment variable is not implemented.
+# Use the --background flag instead.
+warpdl download --background https://example.com/large-file.zip
 ```
+
+## Scheduling
+
+Schedule downloads to start at a specific time or after a duration:
+
+### Start at a specific time
+
+```bash
+warpdl download --start-at "2024-12-25 08:00" https://example.com/file.zip
+```
+
+Format: `YYYY-MM-DD HH:MM` (24-hour format).
+
+### Start after a duration
+
+```bash
+warpdl download --start-in 2h30m https://example.com/file.zip
+warpdl download --start-in 30m https://example.com/file.zip
+```
+
+Supported duration formats: `2h`, `30m`, `1h30m`, etc. Mutually exclusive with `--start-at`.
+
+### Recurring schedule (cron)
+
+```bash
+warpdl download --schedule "0 2 * * *" https://example.com/backup.zip
+```
+
+Cron expression format (standard cron):
+- `"0 2 * * *"` — Daily at 2:00 AM
+- `"0 */6 * * *"` — Every 6 hours
+- `"0 0 * * 0"` — Weekly on Sunday
+
+## Batch Downloads
+
+Download multiple URLs from a file:
+
+```bash
+warpdl download -i urls.txt
+```
+
+The input file format:
+- One URL per line
+- Lines starting with `#` are treated as comments
+- You can also provide additional URLs as arguments:
+
+```bash
+warpdl download -i urls.txt https://example.com/extra-file.zip
+```
+
+## Cookie Import
+
+Import cookies from browser cookie stores for authenticated downloads:
+
+### Auto-detect browser cookies
+
+```bash
+warpdl download --cookies-from auto https://example.com/protected-file.zip
+```
+
+### Import from specific cookie file
+
+```bash
+warpdl download --cookies-from ~/.mozilla/firefox/xxx.default/cookies.sqlite https://example.com/protected-file.zip
+warpdl download --cookies-from "~/Library/Application Support/Google/Chrome/Default/Cookies" https://example.com/protected-file.zip
+```
+
+Supported formats:
+- **Firefox** (SQLite `cookies.sqlite` or `webappsstore.sqlite`)
+- **Chrome/Chromium** (SQLite `Cookies` file)
+- **Netscape** cookie file format (text-based)
+
+Use `auto` to automatically detect and use the default cookie store from installed browsers.
+
+## SFTP/SSH Downloads
+
+Download files from SFTP servers with SSH key authentication:
+
+```bash
+# Use password from URL
+warpdl download sftp://user:pass@host.com/path/to/file.zip
+
+# Use explicit SSH key
+warpdl download --ssh-key ~/.ssh/id_ed25519 sftp://user@host.com/path/to/file.zip
+
+# Use default SSH keys (auto-detects ~/.ssh/id_ed25519 or ~/.ssh/id_rsa)
+warpdl download sftp://user@host.com/path/to/file.zip
+```
+
+Notes:
+- SFTP downloads use single-stream (no parallel segments)
+- Supports resume for interrupted transfers
+- Passphrase-protected SSH keys are not supported
 
 ## Speed Limiting
 
@@ -74,6 +169,30 @@ warpdl download --no-work-steal https://example.com/file.zip
 
 ```bash
 export WARPDL_NO_WORK_STEAL=1
+```
+
+## List Command Filters
+
+The `list` command supports filtering options to view different types of downloads:
+
+```bash
+# Show only pending downloads (default)
+warpdl list
+
+# Show completed downloads
+warpdl list --show-completed
+warpdl list -c
+
+# Show hidden downloads
+warpdl list --show-hidden
+warpdl list -g
+
+# Show all downloads (completed + pending + hidden)
+warpdl list --show-all
+warpdl list -a
+
+# Combine with pending flag
+warpdl list -p          # Show pending (default true, use --no-show-pending to hide)
 ```
 
 ## Checksum Validation

@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/warpdl/warpdl/internal/extl"
 	"github.com/warpdl/warpdl/pkg/credman/keyring"
@@ -138,4 +139,31 @@ func TestInitDaemonComponents_WithCookieKey(t *testing.T) {
 	}
 
 	components.Close()
+}
+
+func TestDaemonApplyTimestampSuffix_WithExtension(t *testing.T) {
+	ts := time.Date(2026, 3, 1, 2, 0, 0, 0, time.UTC)
+	got := daemonApplyTimestampSuffix("backup.zip", ts)
+	want := "backup-2026-03-01T020000.zip"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestDaemonApplyTimestampSuffix_NoExtension(t *testing.T) {
+	ts := time.Date(2026, 3, 1, 2, 0, 0, 0, time.UTC)
+	got := daemonApplyTimestampSuffix("backup", ts)
+	want := "backup-2026-03-01T020000"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestDaemonApplyTimestampSuffix_MultipleDots(t *testing.T) {
+	ts := time.Date(2026, 6, 15, 10, 30, 0, 0, time.UTC)
+	got := daemonApplyTimestampSuffix("my.file.tar.gz", ts)
+	want := "my.file.tar-2026-06-15T103000.gz"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
 }

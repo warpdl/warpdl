@@ -1,0 +1,78 @@
+# golangci-lint configuration
+# https://golangci-lint.run/usage/configuration/
+
+version: "2"
+
+run:
+  timeout: 5m
+  issues-exit-code: 1
+  tests: true
+
+output:
+  formats:
+    text:
+      path: stdout
+      print-linter-name: true
+      print-issued-lines: true
+      colors: true
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
+linters:
+  default: none
+  enable:
+    # Dead code detection
+    - staticcheck
+    - unused
+    # Complexity analyzers (key for this signal)
+    - gocyclo
+    - gocritic
+    - gocognit
+    # Essential linters
+    - govet
+    - ineffassign
+    - misspell
+    - revive
+    - errcheck
+
+  settings:
+    gocyclo:
+      min-complexity: 15
+
+    gocritic:
+      disabled-checks:
+        - whyNoLint
+      enabled-tags:
+        - diagnostic
+        - style
+        - performance
+
+    gocognit:
+      min-complexity: 20
+
+    revive:
+      rules:
+        - name: cyclomatic
+          severity: warning
+          arguments: [15]
+
+  exclusions:
+    rules:
+      # Test files often have higher complexity for table-driven tests
+      - path: _test\.go
+        linters:
+          - gocyclo
+          - gocognit
+      # Generated files
+      - path: \.pb\.go
+        linters:
+          - gocyclo
+          - gocognit
+          - gocritic
+
+issues:
+  max-issues-per-linter: 50
+  max-same-issues: 3

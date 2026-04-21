@@ -153,6 +153,7 @@ type AddDownloadOpts struct {
 	ChildHash        string
 	AbsoluteLocation string
 	Priority         Priority
+	SkipQueue        bool
 	// SSHKeyPath is the SSH key path to persist in Item for SFTP resume.
 	// Empty means default key paths are tried on resume.
 	SSHKeyPath string
@@ -201,7 +202,7 @@ func (m *Manager) AddDownload(d *Downloader, opts *AddDownloadOpts) (err error) 
 	m.UpdateItem(item)
 
 	// Register with queue if enabled
-	if m.queue != nil {
+	if m.queue != nil && !opts.SkipQueue {
 		m.queue.Add(d.hash, opts.Priority)
 	}
 	return
@@ -302,7 +303,7 @@ func (m *Manager) AddProtocolDownload(pd ProtocolDownloader, probe ProbeResult, 
 	item.setDAlloc(pd)
 	m.UpdateItem(item)
 
-	if m.queue != nil {
+	if m.queue != nil && !opts.SkipQueue {
 		m.queue.Add(pd.GetHash(), opts.Priority)
 	}
 	return nil
@@ -438,13 +439,6 @@ func (m *Manager) mapItem(item *Item) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.items[item.Hash] = item
-}
-
-// deleteItem deletes the item from the manager's items map.
-func (m *Manager) deleteItem(hash string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	delete(m.items, hash)
 }
 
 // UpdateItem updates the item in the manager's items map.

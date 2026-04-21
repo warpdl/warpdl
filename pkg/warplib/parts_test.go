@@ -178,16 +178,6 @@ func TestCopyBufferCompleteEOF(t *testing.T) {
 	}
 }
 
-// seekErrorFile is an os.File wrapper that returns an error on Seek
-type seekErrorFile struct {
-	*os.File
-	seekErr error
-}
-
-func (s *seekErrorFile) Read(p []byte) (int, error) {
-	return 0, s.seekErr
-}
-
 // TestPartCompileSeekError tests compile() when seek fails.
 // The compile function calls Seek(0, 0) and then starts reading.
 // If the underlying file has issues, the read will fail.

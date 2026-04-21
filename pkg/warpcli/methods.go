@@ -13,6 +13,9 @@ func invoke[T any](c *Client, method common.UpdateType, message any) (*T, error)
 		return nil, err
 	}
 	var d T
+	if len(resp) == 0 {
+		return &d, nil
+	}
 	return &d, json.Unmarshal(resp, &d)
 }
 

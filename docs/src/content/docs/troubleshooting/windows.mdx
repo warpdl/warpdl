@@ -5,12 +5,22 @@ description: Common issues and solutions on Windows
 
 ## Named Pipes Connection Issues
 
-If WarpDL can't connect to the daemon:
+WarpDL uses the named pipe `\.\pipe\warpdl` for CLI-to-daemon communication on Windows. If WarpDL can't connect to the daemon:
 
 ```powershell
 # Force TCP mode
 $env:WARPDL_FORCE_TCP = "1"
 warpdl list
+```
+
+### Diagnostic Commands
+
+```powershell
+# Check if the named pipe exists
+[System.IO.Directory]::GetFiles("\\.\pipe\") | Where-Object { $_ -match "warpdl" }
+
+# List all named pipes (requires admin)
+[System.IO.Directory]::GetFiles("\\.\pipe\")
 ```
 
 ## Windows Firewall Configuration
@@ -84,7 +94,7 @@ Download managers are commonly flagged as suspicious due to parallel connections
 
 ### Recommended Exclusions
 
-- **Configuration directory**: `%LOCALAPPDATA%\warpdl\` (example: `C:\Users\JohnDoe\AppData\Local\warpdl\`)
+- **Configuration directory**: `%LOCALAPPDATA%\warpdl\` (typically `C:\Users\<username>\AppData\Local\warpdl\`)
 - **Executable path**: Full path to `warpdl.exe` (use `Get-Command warpdl` to find it, or check common locations like `C:\Program Files\warpdl\warpdl.exe`)
 
 ### Windows Defender Exclusions
@@ -177,6 +187,12 @@ Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' -Name
 If the Windows service fails to start:
 
 ```powershell
-# Check event log
-Get-EventLog -LogName Application -Source "WarpDL" -Newest 10
+# Check event log (requires PowerShell 3.0+)
+Get-WinEvent -FilterHashtable @{LogName='Application'; ProviderName='WarpDL'} -MaxEvents 10
+
+# Alternative: Use Format-List for detailed output
+Get-WinEvent -FilterHashtable @{LogName='Application'; ProviderName='WarpDL'} -MaxEvents 5 | Format-List
+
+# Export events to file for debugging
+Get-WinEvent -FilterHashtable @{LogName='Application'; ProviderName='WarpDL'} | Export-Csv -Path "warpdl-events.csv" -NoTypeInformation
 ```

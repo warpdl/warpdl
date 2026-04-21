@@ -45,6 +45,15 @@ func (s *Api) downloadHandler(sconn *server.SyncConn, pool *server.Pool, body js
 	}
 }
 
+func reportAsyncDownloadError(pool *server.Pool, uid string, err error) {
+	if err == nil {
+		return
+	}
+	pool.Broadcast(uid, server.InitError(err))
+	pool.WriteError(uid, server.ErrorTypeCritical, err.Error())
+	pool.StopDownload(uid)
+}
+
 // downloadHTTPHandler handles HTTP and HTTPS downloads.
 // This is the existing HTTP download logic extracted from downloadHandler — zero logic changes.
 func (s *Api) downloadHTTPHandler(sconn *server.SyncConn, pool *server.Pool, dlURL string, m *common.DownloadParams) (common.UpdateType, any, error) {
@@ -160,6 +169,7 @@ func (s *Api) downloadHTTPHandler(sconn *server.SyncConn, pool *server.Pool, dlU
 					Value:      tread,
 					Hash:       hash,
 				}))
+				pool.StopDownload(uid)
 			},
 			DownloadStoppedHandler: func() {
 				uid := d.GetHash()
@@ -167,6 +177,7 @@ func (s *Api) downloadHTTPHandler(sconn *server.SyncConn, pool *server.Pool, dlU
 					DownloadId: uid,
 					Action:     common.DownloadStopped,
 				}))
+				pool.StopDownload(uid)
 			},
 			CompileStartHandler: func(hash string) {
 				uid := d.GetHash()
@@ -200,12 +211,14 @@ func (s *Api) downloadHTTPHandler(sconn *server.SyncConn, pool *server.Pool, dlU
 		return common.UPDATE_DOWNLOAD, nil, err
 	}
 	pool.AddDownload(d.GetHash(), sconn)
+	skipQueue := m.Schedule != "" || m.StartAt != ""
 	err = s.manager.AddDownload(d, &warplib.AddDownloadOpts{
 		ChildHash:        m.ChildHash,
 		IsHidden:         m.IsHidden,
 		IsChildren:       m.IsChildren,
 		AbsoluteLocation: d.GetDownloadDirectory(),
 		Priority:         warplib.Priority(m.Priority),
+		SkipQueue:        skipQueue,
 	})
 	if err != nil {
 		return common.UPDATE_DOWNLOAD, nil, err
@@ -299,8 +312,16 @@ func (s *Api) downloadHTTPHandler(sconn *server.SyncConn, pool *server.Pool, dlU
 		}
 	}
 
-	// todo: handle download start error
-	go d.Start()
+	// Queue-enabled daemons start downloads through the queue callback.
+	// Without a queue, start immediately.
+	if s.manager.GetQueue() == nil {
+		go func() {
+			if err := d.Start(); err != nil {
+				reportAsyncDownloadError(pool, d.GetHash(), err)
+				_ = d.Close()
+			}
+		}()
+	}
 	return common.UPDATE_DOWNLOAD, &common.DownloadResponse{
 		ContentLength:     d.GetContentLength(),
 		DownloadId:        d.GetHash(),
@@ -375,6 +396,7 @@ func (s *Api) downloadProtocolHandler(sconn *server.SyncConn, pool *server.Pool,
 				Value:      tread,
 				Hash:       hash,
 			}))
+			pool.StopDownload(uid)
 		},
 		DownloadStoppedHandler: func() {
 			uid := pd.GetHash()
@@ -382,6 +404,7 @@ func (s *Api) downloadProtocolHandler(sconn *server.SyncConn, pool *server.Pool,
 				DownloadId: uid,
 				Action:     common.DownloadStopped,
 			}))
+			pool.StopDownload(uid)
 		},
 	}
 
@@ -389,20 +412,30 @@ func (s *Api) downloadProtocolHandler(sconn *server.SyncConn, pool *server.Pool,
 	cleanURL := warplib.StripURLCredentials(rawURL)
 
 	pool.AddDownload(pd.GetHash(), sconn)
+	skipQueue := m.Schedule != "" || m.StartAt != ""
 	err = s.manager.AddProtocolDownload(pd, probe, cleanURL, proto, handlers, &warplib.AddDownloadOpts{
 		ChildHash:        m.ChildHash,
 		IsHidden:         m.IsHidden,
 		IsChildren:       m.IsChildren,
 		AbsoluteLocation: pd.GetDownloadDirectory(),
 		Priority:         warplib.Priority(m.Priority),
+		SkipQueue:        skipQueue,
 		SSHKeyPath:       m.SSHKeyPath,
 	})
 	if err != nil {
 		return common.UPDATE_DOWNLOAD, nil, err
 	}
 
-	// Start protocol download in background
-	go pd.Download(context.Background(), handlers)
+	// Queue-enabled daemons start downloads through the queue callback.
+	// Without a queue, start immediately.
+	if s.manager.GetQueue() == nil {
+		go func() {
+			if err := pd.Download(context.Background(), handlers); err != nil {
+				reportAsyncDownloadError(pool, pd.GetHash(), err)
+				_ = pd.Close()
+			}
+		}()
+	}
 
 	return common.UPDATE_DOWNLOAD, &common.DownloadResponse{
 		ContentLength:     pd.GetContentLength(),
