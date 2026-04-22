@@ -295,6 +295,8 @@ func (p *OAuth2Provider) triggerFlowAndAwait(ctx context.Context, key types.Toke
 	f.CodeVerifier = verifier
 	f.State = state
 
+	// Pre-check is still useful to avoid starting any work after cancellation,
+	// but the real guard is the select around the Await.
 	select {
 	case <-ctx.Done():
 		p.flows.Cancel(f.ID, ctx.Err())
@@ -302,14 +304,31 @@ func (p *OAuth2Provider) triggerFlowAndAwait(ctx context.Context, key types.Toke
 	default:
 	}
 
-	tok, err := p.flows.Await(f.ID)
-	if err != nil {
-		return "", err
+	type awaitResult struct {
+		tok *types.OAuth2Token
+		err error
 	}
-	if err := p.store.Set(key, tok); err != nil {
-		return "", err
+	resCh := make(chan awaitResult, 1)
+	go func() {
+		t, e := p.flows.Await(f.ID)
+		resCh <- awaitResult{tok: t, err: e}
+	}()
+
+	select {
+	case <-ctx.Done():
+		p.flows.Cancel(f.ID, ctx.Err())
+		// Drain the goroutine — Cancel causes Await to return.
+		<-resCh
+		return "", ctx.Err()
+	case r := <-resCh:
+		if r.err != nil {
+			return "", r.err
+		}
+		if err := p.store.Set(key, r.tok); err != nil {
+			return "", err
+		}
+		return r.tok.AccessToken, nil
 	}
-	return tok.AccessToken, nil
 }
 
 // resolveScopes returns `request` when non-empty, else the full manifest set.
