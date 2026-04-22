@@ -57,6 +57,9 @@ func (tm *TokenManager) load() error {
 }
 
 func (tm *TokenManager) save() error {
+	if tm.f == nil {
+		return fmt.Errorf("token manager is closed")
+	}
 	var buf bytes.Buffer
 	if err := gob.NewEncoder(&buf).Encode(tm.tokens); err != nil {
 		return err
@@ -176,11 +179,11 @@ func (tm *TokenManager) List() []types.TokenKey {
 
 // Close flushes and closes the underlying file.
 func (tm *TokenManager) Close() error {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
 	if tm.f == nil {
 		return nil
 	}
-	tm.mu.Lock()
-	defer tm.mu.Unlock()
 	saveErr := tm.save()
 	closeErr := tm.f.Close()
 	tm.f = nil
