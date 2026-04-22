@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -110,38 +109,51 @@ func (s *Api) authStartPKCE(prov *auth.OAuth2Provider, key types.TokenKey, redir
 // goroutine that resolves the registry flow once the user completes
 // authorization (or cancels / times out).
 //
-// The goroutine uses a detached context so that a short-lived RPC
-// context (e.g. the CLI's request deadline) does not cancel the poll
-// prematurely. Flow timeout enforcement lives in FlowRegistry itself.
+// The goroutine uses the daemon-lifetime context (not a per-RPC one)
+// so that a short-lived RPC deadline does not kill the poll
+// prematurely; daemon shutdown WILL cancel it, bounding goroutine
+// lifetime at process lifetime. Flow timeout enforcement also lives
+// in FlowRegistry.
+//
+// If the registry Start call returned joined=true, a concurrent
+// caller has already issued the /device/code request and launched
+// the polling goroutine; we simply echo the cached init result to
+// keep the second caller in sync with the first — avoiding a second
+// /device/code hit AND a duplicate polling goroutine.
 func (s *Api) authStartDevice(prov *auth.OAuth2Provider, key types.TokenKey) (common.UpdateType, any, error) {
-	flow, _, err := prov.FlowRegistry().Start(key, auth.FlowKindDevice)
+	flow, joined, err := prov.FlowRegistry().Start(key, auth.FlowKindDevice)
 	if err != nil {
 		return common.UPDATE_AUTH_REQUIRED, nil, err
 	}
 
-	init, err := prov.StartDeviceCode(context.Background())
+	if joined {
+		// A polling goroutine is already running; just echo the
+		// previously-captured upstream state.
+		return common.UPDATE_AUTH_REQUIRED, &common.AuthLoginResult{
+			FlowID:          flow.ID,
+			DeviceCode:      flow.DeviceCode,
+			UserCode:        flow.UserCode,
+			VerificationURL: flow.VerificationURL,
+			Interval:        flow.Interval,
+			ExpiresAt:       flow.Started.Unix() + int64(flow.DeviceExpiresIn),
+		}, nil
+	}
+
+	init, err := prov.StartDeviceCode(s.daemonCtx())
 	if err != nil {
 		prov.FlowRegistry().Cancel(flow.ID, err)
 		return common.UPDATE_AUTH_REQUIRED, nil, err
 	}
-	// Stash the upstream device code on the flow so observers can
-	// correlate later pushes/completions.
+	// Stash the upstream device code + init metadata on the flow so
+	// observers (and joined callers) can correlate later
+	// pushes/completions without re-hitting /device/code.
 	flow.DeviceCode = init.DeviceCode
+	flow.UserCode = init.UserCode
+	flow.VerificationURL = init.VerificationURL
+	flow.Interval = init.Interval
+	flow.DeviceExpiresIn = init.ExpiresIn
 
-	flowID := flow.ID
-	flowKey := flow.Key
-	go func() {
-		tok, pollErr := prov.PollDeviceCode(context.Background(), init)
-		if pollErr != nil {
-			prov.FlowRegistry().Cancel(flowID, pollErr)
-			return
-		}
-		if err := prov.StoreToken(flowKey, tok); err != nil {
-			prov.FlowRegistry().Cancel(flowID, err)
-			return
-		}
-		prov.FlowRegistry().Resolve(flowID, tok, nil)
-	}()
+	go s.runDeviceFlow(prov, flow, init)
 
 	return common.UPDATE_AUTH_REQUIRED, &common.AuthLoginResult{
 		FlowID:          flow.ID,
@@ -151,6 +163,24 @@ func (s *Api) authStartDevice(prov *auth.OAuth2Provider, key types.TokenKey) (co
 		Interval:        init.Interval,
 		ExpiresAt:       flow.Started.Unix() + int64(init.ExpiresIn),
 	}, nil
+}
+
+// runDeviceFlow polls the IdP until the user completes the flow, the
+// daemon shuts down, or the flow is cancelled. Extracted from
+// authStartDevice so there is a single owner of the polling
+// goroutine (avoids a subtle duplicate-goroutine bug when Start
+// returns joined=true).
+func (s *Api) runDeviceFlow(prov *auth.OAuth2Provider, flow *auth.Flow, init *auth.DeviceAuthorization) {
+	tok, err := prov.PollDeviceCode(s.daemonCtx(), init)
+	if err != nil {
+		prov.FlowRegistry().Cancel(flow.ID, err)
+		return
+	}
+	if err := prov.StoreToken(flow.Key, tok); err != nil {
+		prov.FlowRegistry().Cancel(flow.ID, err)
+		return
+	}
+	prov.FlowRegistry().Resolve(flow.ID, tok, nil)
 }
 
 // lookupFlow walks all registered modules searching for the owner of

@@ -41,6 +41,15 @@ type Flow struct {
 	DeviceCode   string // Device flow
 	RedirectURI  string // PKCE loopback URI, set by RPC handler on Start
 
+	// Device-flow init cache. Populated by authStartDevice on the fresh
+	// Start and echoed to joined callers so we don't double-start the
+	// upstream /device/code request or spawn duplicate polling
+	// goroutines. All zero-valued on PKCE flows.
+	UserCode        string
+	VerificationURL string
+	Interval        int
+	DeviceExpiresIn int
+
 	// done is closed exactly once when the flow resolves (success or error).
 	// Closing it broadcasts completion to all awaiters.
 	done chan struct{}
