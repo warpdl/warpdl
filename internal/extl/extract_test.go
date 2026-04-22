@@ -114,3 +114,17 @@ func TestExtractObjectNonStringHeaderErrors(t *testing.T) {
 		t.Fatal("expected error for non-string header value")
 	}
 }
+
+func TestExtractObjectEndSentinel(t *testing.T) {
+	dir := writePluginDir(t, `function extract(){ return {url: "end"}; }`)
+	m, err := OpenModule(log.New(io.Discard, "", 0), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Load(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Extract("u"); err != ErrInteractionEnded {
+		t.Fatalf("expected ErrInteractionEnded, got %v", err)
+	}
+}
