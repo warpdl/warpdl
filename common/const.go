@@ -67,6 +67,20 @@ const (
 	UPDATE_QUEUE_RESUME UpdateType = "queue_resume"
 	// UPDATE_QUEUE_MOVE moves a queued item to a new position.
 	UPDATE_QUEUE_MOVE UpdateType = "queue_move"
+
+	// UPDATE_AUTH_REQUIRED is pushed to the CLI when a plugin's getAccessToken
+	// call has no valid token and needs a login flow. Payload: AuthLoginResult
+	// plus PluginID and Account.
+	UPDATE_AUTH_REQUIRED UpdateType = "auth_required"
+	// UPDATE_AUTH_COMPLETED is pushed when a flow successfully exchanges a code
+	// for tokens. Payload: AuthCompleteResult plus FlowID.
+	UPDATE_AUTH_COMPLETED UpdateType = "auth_completed"
+	// UPDATE_AUTH_FAILED is pushed when a flow fails or times out. Payload:
+	// FlowID and a Reason string.
+	UPDATE_AUTH_FAILED UpdateType = "auth_failed"
+	// UPDATE_AUTH_LOGGED_OUT is pushed after a successful logout so CLI lists
+	// refresh. Payload: PluginID and Account.
+	UPDATE_AUTH_LOGGED_OUT UpdateType = "auth_logged_out"
 )
 
 // DownloadingAction represents the current state or action occurring during
