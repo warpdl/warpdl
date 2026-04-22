@@ -47,6 +47,13 @@ type Flow struct {
 	// after done is observed. The CAS on result serves as the "resolve
 	// happens once" guard so timeout and Resolve races don't overwrite.
 	result atomic.Pointer[flowResult]
+	// awaiters counts the number of in-flight Await callers that still
+	// expect to observe this flow's terminal result. Each Start (fresh or
+	// join) increments by 1; each Await decrements by 1 on exit. Map
+	// entries are only cleaned up when the count reaches zero so that
+	// sequential Await callers joined via Start all observe the token
+	// instead of racing each other to ErrFlowUnknown.
+	awaiters atomic.Int64
 }
 
 type flowResult struct {
@@ -89,6 +96,7 @@ func (r *FlowRegistry) Start(key types.TokenKey, kind FlowKind) (*Flow, bool, er
 	default:
 	}
 	if existing, ok := r.byKey[key]; ok {
+		existing.awaiters.Add(1)
 		r.mu.Unlock()
 		return existing, true, nil
 	}
@@ -104,6 +112,7 @@ func (r *FlowRegistry) Start(key types.TokenKey, kind FlowKind) (*Flow, bool, er
 		Started: time.Now(),
 		done:    make(chan struct{}),
 	}
+	f.awaiters.Store(1)
 	r.byID[id] = f
 	r.byKey[key] = f
 	r.mu.Unlock()
@@ -123,8 +132,11 @@ func (r *FlowRegistry) Start(key types.TokenKey, kind FlowKind) (*Flow, bool, er
 }
 
 // Await blocks until the flow is resolved, cancelled, or times out.
-// Multiple goroutines may Await the same flow id concurrently; every
-// caller receives the same terminal result.
+// Multiple goroutines may Await the same flow id concurrently (or
+// sequentially, when joined via Start); every caller receives the same
+// terminal result. The last awaiter to leave performs map cleanup so
+// that a slow-to-call Await from a joined caller does not miss the
+// result and see ErrFlowUnknown.
 func (r *FlowRegistry) Await(id string) (*types.OAuth2Token, error) {
 	r.mu.Lock()
 	f, ok := r.byID[id]
@@ -134,15 +146,17 @@ func (r *FlowRegistry) Await(id string) (*types.OAuth2Token, error) {
 	}
 	<-f.done
 	res := f.result.Load()
-	// Best-effort cleanup. Idempotent: map deletes on missing keys are
-	// no-ops, and the identity check on byKey guards against a rare
-	// case where a new flow for the same key has taken the slot.
-	r.mu.Lock()
-	delete(r.byID, f.ID)
-	if cur, ok := r.byKey[f.Key]; ok && cur.ID == f.ID {
-		delete(r.byKey, f.Key)
+	// Last awaiter out cleans up. The identity check on byKey guards
+	// against a rare case where a new flow for the same key has taken
+	// the slot (should be prevented elsewhere, but kept as a safety net).
+	if f.awaiters.Add(-1) == 0 {
+		r.mu.Lock()
+		delete(r.byID, f.ID)
+		if cur, ok := r.byKey[f.Key]; ok && cur.ID == f.ID {
+			delete(r.byKey, f.Key)
+		}
+		r.mu.Unlock()
 	}
-	r.mu.Unlock()
 	return res.tok, res.err
 }
 
