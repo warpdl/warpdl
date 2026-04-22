@@ -440,3 +440,73 @@ func TestTokenCtxCancellationUnblocks(t *testing.T) {
 		t.Fatal("Token did not return after ctx.Cancel")
 	}
 }
+
+func TestDeviceCodeFlow(t *testing.T) {
+	var tokenCalls atomic.Int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/device/code", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"device_code":      "DEVICE-CODE-123",
+			"user_code":        "ABCD-1234",
+			"verification_url": "https://example.com/device",
+			"expires_in":       600,
+			"interval":         1,
+		})
+	})
+	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
+		n := tokenCalls.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		if n < 3 {
+			// First two polls return authorization_pending.
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":"authorization_pending"}`))
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token":  "DEV-AT",
+			"refresh_token": "DEV-RT",
+			"token_type":    "Bearer",
+			"expires_in":    3600,
+			"scope":         "drive.readonly",
+		})
+	})
+	srv := httptest.NewTLSServer(mux)
+	defer srv.Close()
+
+	key := make([]byte, 32)
+	_, _ = rand.Read(key)
+	tm, _ := credman.NewTokenManager(filepath.Join(t.TempDir(), "tokens.gob"), key)
+	defer tm.Close()
+	cfg := OAuth2Config{
+		Type:         "oauth2",
+		ClientID:     "c",
+		Scopes:       []string{"drive.readonly"},
+		AuthorizeURL: "https://example.com/authorize",
+		TokenURL:     srv.URL + "/token",
+		DeviceURL:    srv.URL + "/device/code",
+		PKCEMethod:   "S256",
+	}
+	cfg, _ = NormalizeOAuth2Config(cfg)
+	p := NewOAuth2Provider("pid", cfg, tm, NewFlowRegistry(time.Minute))
+	p.client = newInsecureTLSClient()
+
+	init, err := p.StartDeviceCode(context.Background())
+	if err != nil {
+		t.Fatalf("StartDeviceCode: %v", err)
+	}
+	if init.UserCode != "ABCD-1234" {
+		t.Fatalf("bad user code: %+v", init)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	tok, err := p.PollDeviceCode(ctx, init)
+	if err != nil {
+		t.Fatalf("PollDeviceCode: %v", err)
+	}
+	if tok.AccessToken != "DEV-AT" {
+		t.Fatalf("bad token: %+v", tok)
+	}
+	if tokenCalls.Load() < 3 {
+		t.Fatalf("expected 3 polls, got %d", tokenCalls.Load())
+	}
+}

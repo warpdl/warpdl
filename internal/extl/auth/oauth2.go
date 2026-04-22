@@ -358,6 +358,97 @@ func (p *OAuth2Provider) triggerFlowAndAwait(ctx context.Context, key types.Toke
 	}
 }
 
+// DeviceAuthorization is the /device/code response.
+type DeviceAuthorization struct {
+	DeviceCode      string
+	UserCode        string
+	VerificationURL string
+	ExpiresIn       int
+	Interval        int
+}
+
+// StartDeviceCode initiates the device flow and returns details to show the user.
+func (p *OAuth2Provider) StartDeviceCode(ctx context.Context) (*DeviceAuthorization, error) {
+	if p.cfg.DeviceURL == "" {
+		return nil, fmt.Errorf("device flow not supported by this plugin")
+	}
+	form := url.Values{}
+	form.Set("client_id", p.cfg.ClientID)
+	form.Set("scope", strings.Join(p.cfg.Scopes, " "))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.cfg.DeviceURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("%w: device/code: %s: %s", ErrProvider, resp.Status, string(body))
+	}
+	var raw struct {
+		DeviceCode      string `json:"device_code"`
+		UserCode        string `json:"user_code"`
+		VerificationURL string `json:"verification_url"`
+		VerificationURI string `json:"verification_uri"` // Google / RFC variant
+		ExpiresIn       int    `json:"expires_in"`
+		Interval        int    `json:"interval"`
+	}
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, fmt.Errorf("%w: decode device/code: %v", ErrProvider, err)
+	}
+	verification := raw.VerificationURL
+	if verification == "" {
+		verification = raw.VerificationURI
+	}
+	if raw.Interval == 0 {
+		raw.Interval = 5
+	}
+	return &DeviceAuthorization{
+		DeviceCode:      raw.DeviceCode,
+		UserCode:        raw.UserCode,
+		VerificationURL: verification,
+		ExpiresIn:       raw.ExpiresIn,
+		Interval:        raw.Interval,
+	}, nil
+}
+
+// PollDeviceCode polls /token until the user completes the flow or the
+// context is cancelled. Handles authorization_pending and slow_down
+// responses per RFC 8628.
+func (p *OAuth2Provider) PollDeviceCode(ctx context.Context, auth *DeviceAuthorization) (*types.OAuth2Token, error) {
+	interval := time.Duration(auth.Interval) * time.Second
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(interval):
+		}
+		form := url.Values{}
+		form.Set("grant_type", "urn:ietf:params:oauth:grant-type:device_code")
+		form.Set("device_code", auth.DeviceCode)
+		form.Set("client_id", p.cfg.ClientID)
+		tok, err := p.postToken(ctx, form, nil)
+		if err == nil {
+			return tok, nil
+		}
+		errStr := strings.ToLower(err.Error())
+		switch {
+		case strings.Contains(errStr, "authorization_pending"):
+			continue
+		case strings.Contains(errStr, "slow_down"):
+			interval += 5 * time.Second
+			continue
+		default:
+			return nil, err
+		}
+	}
+}
+
 // resolveScopes returns `request` when non-empty, else the full manifest set.
 func resolveScopes(request, manifest []string) []string {
 	if len(request) > 0 {
