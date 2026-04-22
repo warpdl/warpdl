@@ -53,6 +53,7 @@ func (p *OAuth2Provider) FlowRegistry() *FlowRegistry { return p.flows }
 // Token returns a valid access token, refreshing if possible, triggering
 // a flow if necessary.
 func (p *OAuth2Provider) Token(ctx context.Context, key types.TokenKey, scopes []string) (string, error) {
+	key.PluginID = p.pluginID
 	key = key.WithDefaultAccount()
 	if err := p.scopesAllowed(scopes); err != nil {
 		return "", err
@@ -86,6 +87,7 @@ func (p *OAuth2Provider) Token(ctx context.Context, key types.TokenKey, scopes [
 
 // Invalidate blanks the cached access token; refresh token (if any) stays.
 func (p *OAuth2Provider) Invalidate(key types.TokenKey) error {
+	key.PluginID = p.pluginID
 	key = key.WithDefaultAccount()
 	tok, err := p.store.Get(key)
 	if err != nil {
@@ -98,6 +100,7 @@ func (p *OAuth2Provider) Invalidate(key types.TokenKey) error {
 
 // Logout calls revoke_url if configured, then deletes from the store.
 func (p *OAuth2Provider) Logout(ctx context.Context, key types.TokenKey) error {
+	key.PluginID = p.pluginID
 	key = key.WithDefaultAccount()
 	tok, _ := p.store.Get(key)
 	if tok != nil && p.cfg.RevokeURL != "" {
