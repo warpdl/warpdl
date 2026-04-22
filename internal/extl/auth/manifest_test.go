@@ -40,14 +40,16 @@ func TestValidateRejectsCases(t *testing.T) {
 		mutate  func(*OAuth2Config)
 		wantMsg string
 	}{
-		{"missing type", func(c *OAuth2Config) { c.Type = "" }, "type"},
-		{"bad type", func(c *OAuth2Config) { c.Type = "magic" }, "oauth2"},
+		{"missing type", func(c *OAuth2Config) { c.Type = "" }, "type is required"},
+		{"bad type", func(c *OAuth2Config) { c.Type = "magic" }, "only type"},
 		{"no client_id", func(c *OAuth2Config) { c.ClientID = "" }, "client_id"},
 		{"empty scopes", func(c *OAuth2Config) { c.Scopes = nil }, "scopes"},
-		{"http authorize", func(c *OAuth2Config) { c.AuthorizeURL = "http://x" }, "https"},
-		{"http token", func(c *OAuth2Config) { c.TokenURL = "http://x" }, "https"},
-		{"http device", func(c *OAuth2Config) { c.DeviceURL = "http://x" }, "https"},
-		{"http revoke", func(c *OAuth2Config) { c.RevokeURL = "http://x" }, "https"},
+		{"http authorize", func(c *OAuth2Config) { c.AuthorizeURL = "http://x" }, "authorize_url"},
+		{"http token", func(c *OAuth2Config) { c.TokenURL = "http://x" }, "token_url"},
+		{"http device", func(c *OAuth2Config) { c.DeviceURL = "http://x" }, "device_url"},
+		{"http revoke", func(c *OAuth2Config) { c.RevokeURL = "http://x" }, "revoke_url"},
+		{"https no host", func(c *OAuth2Config) { c.AuthorizeURL = "https://" }, "missing host"},
+		{"https opaque", func(c *OAuth2Config) { c.AuthorizeURL = "https:example.com" }, "missing host"},
 		{"bad pkce", func(c *OAuth2Config) { c.PKCEMethod = "wat" }, "pkce"},
 		{"forbidden secret", func(c *OAuth2Config) { c.ClientSecret = "s" }, "client_secret"},
 	}
