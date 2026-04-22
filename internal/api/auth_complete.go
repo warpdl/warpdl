@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/warpdl/warpdl/common"
+	"github.com/warpdl/warpdl/internal/extl/auth"
 	"github.com/warpdl/warpdl/internal/server"
 )
 
@@ -36,11 +37,20 @@ func (s *Api) authCompleteHandler(sconn *server.SyncConn, pool *server.Pool, bod
 		return common.UPDATE_AUTH_COMPLETED, nil, err
 	}
 
+	// auth.complete is only valid for PKCE flows. Device flows resolve
+	// themselves from the polling goroutine started in authStartDevice
+	// and must not be "completed" by an RPC caller here — accepting
+	// one would bypass the /token exchange's device_code proof.
+	if flow.Kind != auth.FlowKindPKCE {
+		return common.UPDATE_AUTH_COMPLETED, nil, fmt.Errorf("flow %s is not a PKCE flow", flow.ID)
+	}
+
 	// CSRF guard: the state echoed back from the IdP must match the
-	// state we stamped on the authorize URL. Mismatch → cancel the flow
-	// and reject, since accepting the code would enable a cross-site
-	// login attack on the CLI user.
-	if flow.State != p.State {
+	// state we stamped on the authorize URL. Mismatch (or an empty
+	// state on our end, which would make "" == "" trivially pass) →
+	// cancel the flow and reject, since accepting the code would
+	// enable a cross-site login attack on the CLI user.
+	if flow.State == "" || flow.State != p.State {
 		mismatch := errors.New("state mismatch")
 		prov.FlowRegistry().Cancel(flow.ID, mismatch)
 		return common.UPDATE_AUTH_COMPLETED, nil, mismatch
