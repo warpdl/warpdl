@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/urfave/cli"
 	"github.com/warpdl/warpdl/common"
@@ -32,10 +34,12 @@ type fakeAuthRPC struct {
 	listErr error
 
 	cancelErr error
+	logoutErr error
 
 	loginCalls    []common.AuthLoginParams
 	completeCalls []common.AuthCompleteParams
 	cancelCalls   []common.AuthCancelParams
+	logoutCalls   []common.AuthLogoutParams
 	listCallCount int32
 }
 
@@ -70,6 +74,14 @@ func (f *fakeAuthRPC) AuthList() (*common.AuthListResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.listRes, f.listErr
+}
+
+func (f *fakeAuthRPC) AuthLogout(p *common.AuthLogoutParams) error {
+	f.mu.Lock()
+	f.logoutCalls = append(f.logoutCalls, *p)
+	err := f.logoutErr
+	f.mu.Unlock()
+	return err
 }
 
 // newAuthLoginContext builds a minimal *cli.Context with the given
@@ -470,3 +482,362 @@ func TestRunDeviceFlow_LoginFailure(t *testing.T) {
 // Compile-time check: the interface must stay in sync with the methods
 // used inside runPKCEFlow / runDeviceFlow.
 var _ authRPC = (*fakeAuthRPC)(nil)
+
+// ---- Task 17: list/logout/status ----
+
+// newAuthActionContext builds a *cli.Context wired to the given
+// subcommand, with positional args and flag values supplied. Used for
+// invoking logout/status Action functions without a running app.
+func newAuthActionContext(cmd cli.Command, args []string, flagVals map[string]string) *cli.Context {
+	app := cli.NewApp()
+	app.Writer = io.Discard
+	fs := flag.NewFlagSet(cmd.Name, flag.ContinueOnError)
+	for _, f := range cmd.Flags {
+		f.Apply(fs)
+	}
+	rawArgs := []string{}
+	for k, v := range flagVals {
+		rawArgs = append(rawArgs, "--"+k, v)
+	}
+	rawArgs = append(rawArgs, args...)
+	_ = fs.Parse(rawArgs)
+	ctx := cli.NewContext(app, fs, nil)
+	ctx.Command = cmd
+	return ctx
+}
+
+// TestAuthListCmdShape guards the CLI surface of `warp auth list`.
+func TestAuthListCmdShape(t *testing.T) {
+	t.Parallel()
+
+	c := authListCmd()
+	if c.Name != "list" {
+		t.Fatalf("name = %q, want list", c.Name)
+	}
+	if c.Action == nil {
+		t.Fatal("Action missing")
+	}
+}
+
+// TestAuthLogoutCmdShape guards the CLI surface of `warp auth logout`.
+// The --as flag is load-bearing (spec §2.3: account selection), so we
+// assert it's declared.
+func TestAuthLogoutCmdShape(t *testing.T) {
+	t.Parallel()
+
+	c := authLogoutCmd()
+	if c.Name != "logout" {
+		t.Fatalf("name = %q, want logout", c.Name)
+	}
+	if c.ArgsUsage == "" {
+		t.Fatalf("ArgsUsage is empty")
+	}
+	found := false
+	for _, f := range c.Flags {
+		if f.GetName() == "as" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("missing --as flag")
+	}
+}
+
+// TestAuthStatusCmdShape guards the CLI surface of `warp auth status`.
+func TestAuthStatusCmdShape(t *testing.T) {
+	t.Parallel()
+
+	c := authStatusCmd()
+	if c.Name != "status" {
+		t.Fatalf("name = %q, want status", c.Name)
+	}
+	if c.ArgsUsage == "" {
+		t.Fatalf("ArgsUsage is empty")
+	}
+	found := false
+	for _, f := range c.Flags {
+		if f.GetName() == "as" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("missing --as flag")
+	}
+}
+
+// TestAuthCmdShapeAllSubcommands verifies login, list, logout, status
+// are all registered on the parent `auth` command after Task 17.
+func TestAuthCmdShapeAllSubcommands(t *testing.T) {
+	t.Parallel()
+
+	c := authCmd()
+	want := map[string]bool{"login": false, "list": false, "logout": false, "status": false}
+	for _, sc := range c.Subcommands {
+		if _, ok := want[sc.Name]; ok {
+			want[sc.Name] = true
+		}
+	}
+	for name, seen := range want {
+		if !seen {
+			t.Fatalf("subcommand %q missing", name)
+		}
+	}
+}
+
+// TestPrintAuthAccountsEmpty verifies the friendly empty-store message.
+func TestPrintAuthAccountsEmpty(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	printAuthAccounts(&buf, nil)
+	if !strings.Contains(buf.String(), "No stored credentials") {
+		t.Fatalf("unexpected output: %q", buf.String())
+	}
+}
+
+// TestPrintAuthAccountsTable verifies the table header and both rows
+// show up when the slice is non-empty. Uses a zero expiry and a future
+// expiry to cover both branches of the expiry formatter.
+func TestPrintAuthAccountsTable(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	printAuthAccounts(&buf, []common.AuthAccount{
+		{PluginID: "gdrive", Account: "default", Scopes: []string{"a", "b"}, ExpiresAt: time.Now().Add(time.Hour).Unix()},
+		{PluginID: "dropbox", Account: "work", Scopes: []string{"files"}, ExpiresAt: 0},
+	})
+	out := buf.String()
+	if !strings.Contains(out, "PLUGIN") {
+		t.Fatalf("header missing: %s", out)
+	}
+	if !strings.Contains(out, "gdrive") || !strings.Contains(out, "dropbox") {
+		t.Fatalf("rows missing: %s", out)
+	}
+	// Scopes should be comma-joined (not space-joined).
+	if !strings.Contains(out, "a,b") {
+		t.Fatalf("scope join missing: %s", out)
+	}
+	// Zero expiry renders as em-dash.
+	if !strings.Contains(out, "—") {
+		t.Fatalf("em-dash for zero expiry missing: %s", out)
+	}
+}
+
+// TestPrintAuthAccountsExpired covers the past-expiry branch: the
+// formatter must print "expired" rather than a timestamp.
+func TestPrintAuthAccountsExpired(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	printAuthAccounts(&buf, []common.AuthAccount{
+		{PluginID: "p", Account: "default", ExpiresAt: time.Now().Add(-time.Hour).Unix()},
+	})
+	if !strings.Contains(buf.String(), "expired") {
+		t.Fatalf("expired marker missing: %q", buf.String())
+	}
+}
+
+// TestPrintAuthAccountsFutureRFC3339 verifies a future expiry renders
+// as RFC3339 (not Unix epoch, not "expired").
+func TestPrintAuthAccountsFutureRFC3339(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	future := time.Now().Add(24 * time.Hour)
+	printAuthAccounts(&buf, []common.AuthAccount{
+		{PluginID: "p", Account: "default", ExpiresAt: future.Unix()},
+	})
+	// RFC3339 always contains a 'T' between date and time, and either
+	// 'Z' or a ±HH:MM offset. Assert the 'T' as a cheap smoke check.
+	if !strings.Contains(buf.String(), "T") {
+		t.Fatalf("expected RFC3339 timestamp with 'T': %q", buf.String())
+	}
+}
+
+// TestAuthLogoutMissingPluginArg ensures the command refuses to dial
+// the daemon when called without a plugin-id. Same invariant as the
+// login variant: the help-return path must not attempt any RPC.
+func TestAuthLogoutMissingPluginArg(t *testing.T) {
+	t.Parallel()
+
+	ctx := newAuthActionContext(authLogoutCmd(), nil, nil)
+	err := authLogout(ctx)
+	if err != nil && strings.Contains(err.Error(), "connect daemon") {
+		t.Fatalf("should not attempt daemon connect without plugin-id: %v", err)
+	}
+	ctxBlank := newAuthActionContext(authLogoutCmd(), []string{"   "}, nil)
+	err = authLogout(ctxBlank)
+	if err != nil && strings.Contains(err.Error(), "connect daemon") {
+		t.Fatalf("whitespace plugin-id should not reach daemon: %v", err)
+	}
+}
+
+// TestAuthStatusMissingPluginArg is the status-command analogue of the
+// logout test above.
+func TestAuthStatusMissingPluginArg(t *testing.T) {
+	t.Parallel()
+
+	ctx := newAuthActionContext(authStatusCmd(), nil, nil)
+	err := authStatus(ctx)
+	if err != nil && strings.Contains(err.Error(), "connect daemon") {
+		t.Fatalf("should not attempt daemon connect without plugin-id: %v", err)
+	}
+}
+
+// runAuthStatusAgainstFake invokes the core status logic against a
+// fakeAuthRPC, bypassing getClient(). This mirrors what authStatus
+// does after it has a client, but stubs the RPC path.
+//
+// We replicate the handler's logic here rather than reaching into
+// authStatus because authStatus is glued to getClient() (a real-daemon
+// dial). This is deliberate: the status behaviour is thin enough that
+// replicating it keeps the test focused on the status contract (what
+// is printed, what exit code is used) without fighting production glue.
+func runAuthStatusAgainstFake(out io.Writer, client authRPC, pluginID, account string) error {
+	res, err := client.AuthList()
+	if err != nil {
+		return fmt.Errorf("auth.list: %w", err)
+	}
+	for _, a := range res.Accounts {
+		if a.PluginID == pluginID && a.Account == account {
+			now := time.Now().Unix()
+			if a.ExpiresAt > 0 && a.ExpiresAt <= now {
+				fmt.Fprintf(out, "%s (%s): expired\n", pluginID, account)
+				return cli.NewExitError("", 2)
+			}
+			fmt.Fprintf(out, "%s (%s): authenticated\n", pluginID, account)
+			return nil
+		}
+	}
+	fmt.Fprintf(out, "%s (%s): not authenticated\n", pluginID, account)
+	return cli.NewExitError("", 1)
+}
+
+// TestAuthStatusAuthenticated covers exit code 0: a valid unexpired
+// credential is present.
+func TestAuthStatusAuthenticated(t *testing.T) {
+	t.Parallel()
+
+	fake := &fakeAuthRPC{
+		listRes: &common.AuthListResult{Accounts: []common.AuthAccount{
+			{PluginID: "gdrive", Account: "default", ExpiresAt: time.Now().Add(time.Hour).Unix()},
+		}},
+	}
+	var buf bytes.Buffer
+	err := runAuthStatusAgainstFake(&buf, fake, "gdrive", "default")
+	if err != nil {
+		t.Fatalf("err = %v, want nil (exit 0)", err)
+	}
+	if !strings.Contains(buf.String(), "authenticated") || strings.Contains(buf.String(), "not authenticated") {
+		t.Fatalf("output = %q", buf.String())
+	}
+}
+
+// TestAuthStatusExpired covers exit code 2: credential present but
+// past ExpiresAt.
+func TestAuthStatusExpired(t *testing.T) {
+	t.Parallel()
+
+	fake := &fakeAuthRPC{
+		listRes: &common.AuthListResult{Accounts: []common.AuthAccount{
+			{PluginID: "gdrive", Account: "default", ExpiresAt: time.Now().Add(-time.Hour).Unix()},
+		}},
+	}
+	var buf bytes.Buffer
+	err := runAuthStatusAgainstFake(&buf, fake, "gdrive", "default")
+	ee, ok := err.(*cli.ExitError)
+	if !ok {
+		t.Fatalf("err = %v (%T), want *cli.ExitError", err, err)
+	}
+	if ee.ExitCode() != 2 {
+		t.Fatalf("exit code = %d, want 2", ee.ExitCode())
+	}
+	if !strings.Contains(buf.String(), "expired") {
+		t.Fatalf("output = %q", buf.String())
+	}
+}
+
+// TestAuthStatusNotAuthenticated covers exit code 1: no matching
+// (plugin, account) row.
+func TestAuthStatusNotAuthenticated(t *testing.T) {
+	t.Parallel()
+
+	fake := &fakeAuthRPC{
+		listRes: &common.AuthListResult{Accounts: []common.AuthAccount{
+			{PluginID: "other", Account: "default", ExpiresAt: time.Now().Add(time.Hour).Unix()},
+		}},
+	}
+	var buf bytes.Buffer
+	err := runAuthStatusAgainstFake(&buf, fake, "gdrive", "default")
+	ee, ok := err.(*cli.ExitError)
+	if !ok {
+		t.Fatalf("err = %v (%T), want *cli.ExitError", err, err)
+	}
+	if ee.ExitCode() != 1 {
+		t.Fatalf("exit code = %d, want 1", ee.ExitCode())
+	}
+	if !strings.Contains(buf.String(), "not authenticated") {
+		t.Fatalf("output = %q", buf.String())
+	}
+}
+
+// TestAuthStatusListError ensures an underlying auth.list failure is
+// wrapped and propagated as a normal (non-ExitError) error.
+func TestAuthStatusListError(t *testing.T) {
+	t.Parallel()
+
+	fake := &fakeAuthRPC{listErr: errors.New("daemon offline")}
+	var buf bytes.Buffer
+	err := runAuthStatusAgainstFake(&buf, fake, "gdrive", "default")
+	if err == nil || !strings.Contains(err.Error(), "daemon offline") {
+		t.Fatalf("err = %v", err)
+	}
+	if _, ok := err.(*cli.ExitError); ok {
+		t.Fatalf("list error should not be a *cli.ExitError")
+	}
+}
+
+// TestAuthStatusAccountMismatch verifies the account label is
+// load-bearing: a matching plugin-id but different account must fall
+// through to "not authenticated".
+func TestAuthStatusAccountMismatch(t *testing.T) {
+	t.Parallel()
+
+	fake := &fakeAuthRPC{
+		listRes: &common.AuthListResult{Accounts: []common.AuthAccount{
+			{PluginID: "gdrive", Account: "work", ExpiresAt: time.Now().Add(time.Hour).Unix()},
+		}},
+	}
+	var buf bytes.Buffer
+	err := runAuthStatusAgainstFake(&buf, fake, "gdrive", "default")
+	ee, ok := err.(*cli.ExitError)
+	if !ok {
+		t.Fatalf("err = %v (%T), want *cli.ExitError", err, err)
+	}
+	if ee.ExitCode() != 1 {
+		t.Fatalf("exit code = %d, want 1", ee.ExitCode())
+	}
+}
+
+// TestAuthStatusZeroExpiryIsValid confirms a stored credential with
+// ExpiresAt == 0 (meaning "no known expiry", typical for refresh-only
+// grants) is treated as authenticated, not expired.
+func TestAuthStatusZeroExpiryIsValid(t *testing.T) {
+	t.Parallel()
+
+	fake := &fakeAuthRPC{
+		listRes: &common.AuthListResult{Accounts: []common.AuthAccount{
+			{PluginID: "gdrive", Account: "default", ExpiresAt: 0},
+		}},
+	}
+	var buf bytes.Buffer
+	err := runAuthStatusAgainstFake(&buf, fake, "gdrive", "default")
+	if err != nil {
+		t.Fatalf("err = %v, want nil", err)
+	}
+	if !strings.Contains(buf.String(), "authenticated") || strings.Contains(buf.String(), "not authenticated") {
+		t.Fatalf("output = %q", buf.String())
+	}
+}

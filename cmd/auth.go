@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"text/tabwriter"
 	"time"
 
 	"github.com/urfave/cli"
@@ -28,15 +29,16 @@ const authLoginTimeout = 5 * time.Minute
 // so a stuck client cannot prevent CLI exit.
 const authCallbackShutdown = 2 * time.Second
 
-// authCmd returns the `warp auth` subcommand tree. Tasks 17 and 18
-// append `list`, `logout`, and `status` subcommands; this file keeps
-// only the Task 16 surface (`login`).
+// authCmd returns the `warp auth` subcommand tree.
 func authCmd() cli.Command {
 	return cli.Command{
 		Name:  "auth",
 		Usage: "Manage OAuth credentials for warpdl plugins",
 		Subcommands: []cli.Command{
 			authLoginCmd(),
+			authListCmd(),
+			authLogoutCmd(),
+			authStatusCmd(),
 		},
 	}
 }
@@ -105,6 +107,7 @@ type authRPC interface {
 	AuthComplete(*common.AuthCompleteParams) (*common.AuthCompleteResult, error)
 	AuthCancel(*common.AuthCancelParams) error
 	AuthList() (*common.AuthListResult, error)
+	AuthLogout(*common.AuthLogoutParams) error
 }
 
 // compile-time check: the concrete client must satisfy the interface.
@@ -338,4 +341,165 @@ p { margin: 0; color: #555; }
 func renderCallbackPage(w http.ResponseWriter, title, message string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = callbackTmpl.Execute(w, struct{ Title, Message string }{Title: title, Message: message})
+}
+
+// ---- list ----
+
+// authListCmd builds the `warp auth list` subcommand, which prints a
+// tab-aligned table of stored credentials (plugin, account, scopes,
+// expiry).
+func authListCmd() cli.Command {
+	return cli.Command{
+		Name:   "list",
+		Usage:  "List stored OAuth credentials",
+		Action: authList,
+	}
+}
+
+// authList is the Action for `warp auth list`. It enumerates stored
+// credentials via the daemon and prints them; an empty store prints a
+// friendly "No stored credentials." message instead of an empty table.
+func authList(ctx *cli.Context) error {
+	client, err := getClient()
+	if err != nil {
+		return fmt.Errorf("connect daemon: %w", err)
+	}
+	defer client.Close()
+	res, err := client.AuthList()
+	if err != nil {
+		return fmt.Errorf("auth.list: %w", err)
+	}
+	printAuthAccounts(ctx.App.Writer, res.Accounts)
+	return nil
+}
+
+// printAuthAccounts renders an AuthAccount slice as a tab-aligned
+// table. Expiries are emitted as RFC3339 for future timestamps, the
+// literal "expired" for past ones, and an em-dash for the zero value
+// (which means "no known expiry" — typical for refresh-token-only
+// grants). Exposed for direct unit testing without the daemon.
+func printAuthAccounts(out io.Writer, accounts []common.AuthAccount) {
+	if len(accounts) == 0 {
+		fmt.Fprintln(out, "No stored credentials.")
+		return
+	}
+	tw := tabwriter.NewWriter(out, 2, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "PLUGIN\tACCOUNT\tSCOPES\tEXPIRES")
+	for _, a := range accounts {
+		expires := "—"
+		if a.ExpiresAt > 0 {
+			t := time.Unix(a.ExpiresAt, 0)
+			if t.Before(time.Now()) {
+				expires = "expired"
+			} else {
+				expires = t.Format(time.RFC3339)
+			}
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", a.PluginID, a.Account, strings.Join(a.Scopes, ","), expires)
+	}
+	_ = tw.Flush()
+}
+
+// ---- logout ----
+
+// authLogoutCmd builds the `warp auth logout <plugin-id>` subcommand.
+// --as names the account within the plugin; absent, "default" is used.
+func authLogoutCmd() cli.Command {
+	return cli.Command{
+		Name:      "logout",
+		Usage:     "Forget a stored OAuth credential",
+		ArgsUsage: "<plugin-id>",
+		Flags: []cli.Flag{
+			cli.StringFlag{
+				Name:  "as",
+				Usage: "account label (default \"default\")",
+			},
+		},
+		Action: authLogout,
+	}
+}
+
+// authLogout is the Action for `warp auth logout`. It validates the
+// plugin-id arg, dials the daemon, and issues AuthLogout for the
+// (plugin, account) pair. On success it prints a confirmation.
+func authLogout(ctx *cli.Context) error {
+	pluginID := strings.TrimSpace(ctx.Args().First())
+	if pluginID == "" {
+		return cli.ShowCommandHelp(ctx, ctx.Command.Name)
+	}
+	account := ctx.String("as")
+	if account == "" {
+		account = "default"
+	}
+	client, err := getClient()
+	if err != nil {
+		return fmt.Errorf("connect daemon: %w", err)
+	}
+	defer client.Close()
+	if err := client.AuthLogout(&common.AuthLogoutParams{
+		PluginID: pluginID,
+		Account:  account,
+	}); err != nil {
+		return fmt.Errorf("auth.logout: %w", err)
+	}
+	fmt.Fprintf(ctx.App.Writer, "Logged out of %s (%s)\n", pluginID, account)
+	return nil
+}
+
+// ---- status ----
+
+// authStatusCmd builds the `warp auth status <plugin-id>` subcommand.
+// The exit code is meaningful for shell scripts: 0 when a valid token
+// exists, 1 when no credential exists, 2 when the credential exists but
+// has expired.
+func authStatusCmd() cli.Command {
+	return cli.Command{
+		Name:      "status",
+		Usage:     "Report whether a plugin has stored credentials (exit 0 iff authenticated and not expired)",
+		ArgsUsage: "<plugin-id>",
+		Flags: []cli.Flag{
+			cli.StringFlag{
+				Name:  "as",
+				Usage: "account label (default \"default\")",
+			},
+		},
+		Action: authStatus,
+	}
+}
+
+// authStatus is the Action for `warp auth status`. Spec §2.3 states
+// status is CLI-side filtering over auth.list — we fetch the full list
+// and scan for the target (plugin, account) pair, returning an
+// appropriate exit code based on presence and expiry.
+func authStatus(ctx *cli.Context) error {
+	pluginID := strings.TrimSpace(ctx.Args().First())
+	if pluginID == "" {
+		return cli.ShowCommandHelp(ctx, ctx.Command.Name)
+	}
+	account := ctx.String("as")
+	if account == "" {
+		account = "default"
+	}
+	client, err := getClient()
+	if err != nil {
+		return fmt.Errorf("connect daemon: %w", err)
+	}
+	defer client.Close()
+	res, err := client.AuthList()
+	if err != nil {
+		return fmt.Errorf("auth.list: %w", err)
+	}
+	for _, a := range res.Accounts {
+		if a.PluginID == pluginID && a.Account == account {
+			now := time.Now().Unix()
+			if a.ExpiresAt > 0 && a.ExpiresAt <= now {
+				fmt.Fprintf(ctx.App.Writer, "%s (%s): expired\n", pluginID, account)
+				return cli.NewExitError("", 2)
+			}
+			fmt.Fprintf(ctx.App.Writer, "%s (%s): authenticated\n", pluginID, account)
+			return nil
+		}
+	}
+	fmt.Fprintf(ctx.App.Writer, "%s (%s): not authenticated\n", pluginID, account)
+	return cli.NewExitError("", 1)
 }
