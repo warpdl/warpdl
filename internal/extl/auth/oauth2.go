@@ -220,8 +220,14 @@ func (p *OAuth2Provider) postToken(ctx context.Context, form url.Values, prior *
 		return nil, fmt.Errorf("%w: empty access_token in response", ErrProvider)
 	}
 	scopes := p.cfg.Scopes
-	if payload.Scope != "" {
+	switch {
+	case payload.Scope != "":
 		scopes = strings.Fields(payload.Scope)
+	case prior != nil:
+		// Server omitted scope on refresh (common). Preserve the
+		// actually-granted set from the prior token rather than widening
+		// to the manifest — user may have consented to a narrower set.
+		scopes = prior.Scopes
 	}
 	refresh := payload.RefreshToken
 	if refresh == "" && prior != nil {
