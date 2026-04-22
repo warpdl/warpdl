@@ -53,7 +53,12 @@ func (tm *TokenManager) load() error {
 	if len(data) == 0 {
 		return nil
 	}
-	return gob.NewDecoder(bytes.NewReader(data)).Decode(&tm.tokens)
+	if err := gob.NewDecoder(bytes.NewReader(data)).Decode(&tm.tokens); err != nil {
+		tm.f.Close()
+		tm.f = nil
+		return err
+	}
+	return nil
 }
 
 func (tm *TokenManager) save() error {
