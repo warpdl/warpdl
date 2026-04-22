@@ -61,22 +61,38 @@ func (s *Api) authLoginHandler(sconn *server.SyncConn, pool *server.Pool, body j
 
 // authStartPKCE kicks off a PKCE authorization-code flow: registers a
 // flow, generates verifier + state, and returns the authorize URL.
+//
+// If the registry Start call returned joined=true, a previous caller
+// (e.g. a plugin's triggerFlowAndAwait path) has already committed the
+// flow's PKCE verifier, CSRF state, and redirect URI. We MUST echo
+// those back instead of overwriting them, otherwise a second RPC call
+// would (a) break the original authorize URL commitment and (b) allow
+// any subsequent caller to rotate the CSRF state on a live flow.
 func (s *Api) authStartPKCE(prov *auth.OAuth2Provider, key types.TokenKey, redirectURI string, scopes []string) (common.UpdateType, any, error) {
-	flow, _, err := prov.FlowRegistry().Start(key, auth.FlowKindPKCE)
+	flow, joined, err := prov.FlowRegistry().Start(key, auth.FlowKindPKCE)
 	if err != nil {
 		return common.UPDATE_AUTH_REQUIRED, nil, err
 	}
-	verifier, err := auth.NewPKCEVerifier()
-	if err != nil {
-		return common.UPDATE_AUTH_REQUIRED, nil, err
+	var verifier, state string
+	if joined {
+		verifier = flow.CodeVerifier
+		state = flow.State
+		// Keep the original redirect URI — don't let a second caller
+		// redirect-hijack the flow.
+		redirectURI = flow.RedirectURI
+	} else {
+		verifier, err = auth.NewPKCEVerifier()
+		if err != nil {
+			return common.UPDATE_AUTH_REQUIRED, nil, err
+		}
+		state, err = auth.NewFlowState()
+		if err != nil {
+			return common.UPDATE_AUTH_REQUIRED, nil, err
+		}
+		flow.CodeVerifier = verifier
+		flow.State = state
+		flow.RedirectURI = redirectURI
 	}
-	state, err := auth.NewFlowState()
-	if err != nil {
-		return common.UPDATE_AUTH_REQUIRED, nil, err
-	}
-	flow.CodeVerifier = verifier
-	flow.State = state
-	flow.RedirectURI = redirectURI
 
 	challenge := auth.PKCEChallenge(verifier, prov.Config().PKCEMethod)
 	url := prov.BuildAuthorizeURL(redirectURI, state, challenge, scopes)
