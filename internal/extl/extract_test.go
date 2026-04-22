@@ -128,3 +128,29 @@ func TestExtractObjectEndSentinel(t *testing.T) {
 		t.Fatalf("expected ErrInteractionEnded, got %v", err)
 	}
 }
+
+func TestEngineLoadsAuthProvider(t *testing.T) {
+	dir := t.TempDir()
+	manifest := `{
+		"name":"p","version":"0","matches":["^x"],"entrypoint":"main.js",
+		"auth":{"type":"oauth2","client_id":"c","scopes":["a"],
+		        "authorize_url":"https://example.com/a",
+		        "token_url":"https://example.com/t"}
+	}`
+	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), []byte(manifest), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "main.js"), []byte(`function extract(u){ return "x:"+typeof getAccessToken; }`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := OpenModule(log.New(io.Discard, "", 0), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Auth == nil {
+		t.Fatal("manifest auth block not parsed")
+	}
+	if m.Auth.PKCEMethod != "S256" {
+		t.Fatalf("PKCEMethod default not applied: %q", m.Auth.PKCEMethod)
+	}
+}

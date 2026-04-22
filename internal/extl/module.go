@@ -2,6 +2,7 @@ package extl
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -9,6 +10,8 @@ import (
 	"strings"
 
 	"errors"
+
+	"github.com/warpdl/warpdl/internal/extl/auth"
 )
 
 // Module represents a loaded JavaScript extension with its metadata and runtime.
@@ -31,11 +34,25 @@ type Module struct {
 	// Assets should be filled with all the files that must be loaded with the extension.
 	// For example: any extra js files that are imported in main.js.
 	Assets []string `json:"assets,omitempty"`
+	// Auth is the optional OAuth2 authentication configuration declared
+	// in the plugin manifest. nil when the plugin requires no auth.
+	// Parsed + validated + normalized by OpenModule.
+	Auth *auth.OAuth2Config `json:"auth,omitempty"`
 	// modulePath is the module directory path (*/extstore/{module_hash}/)
 	modulePath string
 	// runtime is the module exclusive JavaScript runtime
 	runtime *Runtime
-	l       *log.Logger
+	// provider is the AuthProvider wired by Engine.attachProvider when
+	// this module has a non-nil Auth block. nil otherwise.
+	provider auth.AuthProvider
+	l        *log.Logger
+}
+
+// Provider returns the AuthProvider for this module, or nil if the
+// manifest didn't declare an auth block (or the engine was constructed
+// without a TokenManager/FlowRegistry).
+func (m *Module) Provider() auth.AuthProvider {
+	return m.provider
 }
 
 // OpenModule tries to create a module object by reading its manifest.
@@ -62,6 +79,13 @@ func OpenModule(l *log.Logger, path string) (*Module, error) {
 	}
 	if m.Entrypoint == "" {
 		m.Entrypoint = DEF_MODULE_ENTRY
+	}
+	if m.Auth != nil {
+		normalized, err := auth.NormalizeOAuth2Config(*m.Auth)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", m.Name, err)
+		}
+		m.Auth = &normalized
 	}
 	return &m, nil
 }
