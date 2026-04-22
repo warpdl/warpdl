@@ -61,6 +61,11 @@ func (tm *TokenManager) load() error {
 	return nil
 }
 
+// save writes the map to a sibling temp file, then atomically renames it
+// over filePath. The receiver's file handle (tm.f) is updated to point
+// at the newly-renamed file on success. On any failure the on-disk state
+// and the original handle are untouched — so the caller can roll back
+// the in-memory map safely.
 func (tm *TokenManager) save() error {
 	if tm.f == nil {
 		return fmt.Errorf("token manager is closed")
@@ -69,14 +74,24 @@ func (tm *TokenManager) save() error {
 	if err := gob.NewEncoder(&buf).Encode(tm.tokens); err != nil {
 		return err
 	}
-	if err := tm.f.Truncate(0); err != nil {
+	tmpPath := tm.filePath + ".tmp"
+	if err := os.WriteFile(tmpPath, buf.Bytes(), 0600); err != nil {
 		return err
 	}
-	if _, err := tm.f.Seek(0, 0); err != nil {
+	if err := os.Rename(tmpPath, tm.filePath); err != nil {
+		_ = os.Remove(tmpPath)
 		return err
 	}
-	_, err := tm.f.Write(buf.Bytes())
-	return err
+	// Close the old handle and reopen at the renamed path so subsequent
+	// saves/closes see the new inode on Linux.
+	_ = tm.f.Close()
+	f, err := os.OpenFile(tm.filePath, os.O_RDWR, 0600)
+	if err != nil {
+		tm.f = nil
+		return err
+	}
+	tm.f = f
+	return nil
 }
 
 func (tm *TokenManager) encryptSecrets(t *types.OAuth2Token) (*types.OAuth2Token, error) {
@@ -144,6 +159,8 @@ func (tm *TokenManager) Get(key types.TokenKey) (*types.OAuth2Token, error) {
 }
 
 // Set encrypts and stores the token, replacing any existing entry.
+// If save() fails, the in-memory map is rolled back so it stays in
+// sync with the on-disk state.
 func (tm *TokenManager) Set(key types.TokenKey, t *types.OAuth2Token) error {
 	if t == nil {
 		return fmt.Errorf("token is nil")
@@ -155,20 +172,35 @@ func (tm *TokenManager) Set(key types.TokenKey, t *types.OAuth2Token) error {
 	key = key.WithDefaultAccount()
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
+	prev, existed := tm.tokens[key]
 	tm.tokens[key] = enc
-	return tm.save()
+	if err := tm.save(); err != nil {
+		if existed {
+			tm.tokens[key] = prev
+		} else {
+			delete(tm.tokens, key)
+		}
+		return err
+	}
+	return nil
 }
 
-// Delete removes a token entry.
+// Delete removes a token entry. If save() fails, the in-memory map is
+// rolled back so it stays in sync with the on-disk state.
 func (tm *TokenManager) Delete(key types.TokenKey) error {
 	key = key.WithDefaultAccount()
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
-	if _, ok := tm.tokens[key]; !ok {
+	prev, ok := tm.tokens[key]
+	if !ok {
 		return fmt.Errorf("token not found: %s/%s", key.PluginID, key.Account)
 	}
 	delete(tm.tokens, key)
-	return tm.save()
+	if err := tm.save(); err != nil {
+		tm.tokens[key] = prev
+		return err
+	}
+	return nil
 }
 
 // List returns all token keys currently stored.
