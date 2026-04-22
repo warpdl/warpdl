@@ -64,6 +64,7 @@ func GetApp(bArgs BuildArgs) *cli.App {
 			Usage:       "manage warpdl extensions",
 			Subcommands: ext.Commands,
 		},
+		authCmd(),
 		{
 			Name:        "native-host",
 			Usage:       "manage native messaging host for browser extensions",
