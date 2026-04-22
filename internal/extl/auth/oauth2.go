@@ -216,6 +216,9 @@ func (p *OAuth2Provider) postToken(ctx context.Context, form url.Values, prior *
 	if err := json.Unmarshal(body, &payload); err != nil {
 		return nil, fmt.Errorf("%w: decode: %v", ErrProvider, err)
 	}
+	if payload.AccessToken == "" {
+		return nil, fmt.Errorf("%w: empty access_token in response", ErrProvider)
+	}
 	scopes := p.cfg.Scopes
 	if payload.Scope != "" {
 		scopes = strings.Fields(payload.Scope)
