@@ -39,6 +39,7 @@ type Flow struct {
 	CodeVerifier string // PKCE
 	State        string // CSRF guard
 	DeviceCode   string // Device flow
+	RedirectURI  string // PKCE loopback URI, set by RPC handler on Start
 
 	// done is closed exactly once when the flow resolves (success or error).
 	// Closing it broadcasts completion to all awaiters.

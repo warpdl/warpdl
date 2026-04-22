@@ -47,6 +47,7 @@ func TestAuthUpdateConstantsAreDistinct(t *testing.T) {
 		"UPDATE_AUTH_COMPLETED":  UPDATE_AUTH_COMPLETED,
 		"UPDATE_AUTH_FAILED":     UPDATE_AUTH_FAILED,
 		"UPDATE_AUTH_LOGGED_OUT": UPDATE_AUTH_LOGGED_OUT,
+		"UPDATE_AUTH_LIST":       UPDATE_AUTH_LIST,
 	} {
 		if prev, dup := seen[v]; dup {
 			t.Fatalf("constants %s and %s have same value %s", name, prev, v)

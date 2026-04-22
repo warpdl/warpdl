@@ -46,6 +46,20 @@ func NewOAuth2Provider(pluginID string, cfg OAuth2Config, store *credman.TokenMa
 // Config returns the normalized config (read-only).
 func (p *OAuth2Provider) Config() OAuth2Config { return p.cfg }
 
+// SetHTTPClient swaps the provider's HTTP client. Exposed so tests can
+// inject a client that tolerates httptest TLS certs; callers in
+// production should not need this.
+func (p *OAuth2Provider) SetHTTPClient(c *http.Client) { p.client = c }
+
+// OverrideTokenURL replaces the token endpoint on this provider. Test
+// helper for cases where a manifest-bound provider needs to point at
+// an httptest server after AddModule. Not for production use.
+func (p *OAuth2Provider) OverrideTokenURL(u string) { p.cfg.TokenURL = u }
+
+// OverrideDeviceURL replaces the /device/code endpoint on this
+// provider. Test helper; not for production use.
+func (p *OAuth2Provider) OverrideDeviceURL(u string) { p.cfg.DeviceURL = u }
+
 // FlowRegistry returns the registry used by this provider (so the RPC
 // layer can Resolve flows).
 func (p *OAuth2Provider) FlowRegistry() *FlowRegistry { return p.flows }
@@ -115,6 +129,27 @@ func (p *OAuth2Provider) Logout(ctx context.Context, key types.TokenKey) error {
 	// for the full process lifetime every time an account logs out.
 	p.refreshLocks.Delete(key)
 	return err
+}
+
+// StoreToken persists a freshly-acquired token under (pluginID, account).
+// Exposed so device-flow polling goroutines (in the RPC layer) can
+// commit the token without reaching into the unexported store.
+func (p *OAuth2Provider) StoreToken(key types.TokenKey, tok *types.OAuth2Token) error {
+	key.PluginID = p.pluginID
+	key = key.WithDefaultAccount()
+	return p.store.Set(key, tok)
+}
+
+// AccountDetails returns the scopes and unix expiry of the stored token
+// for (pluginID, account). Used by the auth.list RPC handler to build a
+// row per stored account without exposing the TokenManager.
+func (p *OAuth2Provider) AccountDetails(account string) ([]string, int64, error) {
+	key := types.TokenKey{PluginID: p.pluginID, Account: account}.WithDefaultAccount()
+	tok, err := p.store.Get(key)
+	if err != nil {
+		return nil, 0, err
+	}
+	return tok.Scopes, tok.ExpiresAt.Unix(), nil
 }
 
 // ListAccounts returns account labels for this plugin only.

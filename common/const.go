@@ -81,6 +81,9 @@ const (
 	// UPDATE_AUTH_LOGGED_OUT is pushed after a successful logout so CLI lists
 	// refresh. Payload: PluginID and Account.
 	UPDATE_AUTH_LOGGED_OUT UpdateType = "auth_logged_out"
+	// UPDATE_AUTH_LIST is the RPC tag for enumerating stored credentials.
+	// Request has no body; response carries AuthListResult.
+	UPDATE_AUTH_LIST UpdateType = "auth_list"
 )
 
 // DownloadingAction represents the current state or action occurring during

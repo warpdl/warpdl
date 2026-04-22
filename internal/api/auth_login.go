@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -75,6 +76,7 @@ func (s *Api) authStartPKCE(prov *auth.OAuth2Provider, key types.TokenKey, redir
 	}
 	flow.CodeVerifier = verifier
 	flow.State = state
+	flow.RedirectURI = redirectURI
 
 	challenge := auth.PKCEChallenge(verifier, prov.Config().PKCEMethod)
 	url := prov.BuildAuthorizeURL(redirectURI, state, challenge, scopes)
@@ -86,15 +88,72 @@ func (s *Api) authStartPKCE(prov *auth.OAuth2Provider, key types.TokenKey, redir
 	}, nil
 }
 
-// authStartDevice stubs the device-code flow for Task 13. It registers
-// a flow so the CLI has a FlowID to reference, but does not contact the
-// upstream device endpoint — that lives in Task 14's polling goroutine.
+// authStartDevice kicks off an RFC 8628 device-code flow. It hits the
+// upstream /device/code endpoint synchronously so the CLI can receive
+// the user_code/verification_url in its response, and spawns a polling
+// goroutine that resolves the registry flow once the user completes
+// authorization (or cancels / times out).
+//
+// The goroutine uses a detached context so that a short-lived RPC
+// context (e.g. the CLI's request deadline) does not cancel the poll
+// prematurely. Flow timeout enforcement lives in FlowRegistry itself.
 func (s *Api) authStartDevice(prov *auth.OAuth2Provider, key types.TokenKey) (common.UpdateType, any, error) {
 	flow, _, err := prov.FlowRegistry().Start(key, auth.FlowKindDevice)
 	if err != nil {
 		return common.UPDATE_AUTH_REQUIRED, nil, err
 	}
+
+	init, err := prov.StartDeviceCode(context.Background())
+	if err != nil {
+		prov.FlowRegistry().Cancel(flow.ID, err)
+		return common.UPDATE_AUTH_REQUIRED, nil, err
+	}
+	// Stash the upstream device code on the flow so observers can
+	// correlate later pushes/completions.
+	flow.DeviceCode = init.DeviceCode
+
+	flowID := flow.ID
+	flowKey := flow.Key
+	go func() {
+		tok, pollErr := prov.PollDeviceCode(context.Background(), init)
+		if pollErr != nil {
+			prov.FlowRegistry().Cancel(flowID, pollErr)
+			return
+		}
+		if err := prov.StoreToken(flowKey, tok); err != nil {
+			prov.FlowRegistry().Cancel(flowID, err)
+			return
+		}
+		prov.FlowRegistry().Resolve(flowID, tok, nil)
+	}()
+
 	return common.UPDATE_AUTH_REQUIRED, &common.AuthLoginResult{
-		FlowID: flow.ID,
+		FlowID:          flow.ID,
+		DeviceCode:      init.DeviceCode,
+		UserCode:        init.UserCode,
+		VerificationURL: init.VerificationURL,
+		Interval:        init.Interval,
+		ExpiresAt:       flow.Started.Unix() + int64(init.ExpiresIn),
 	}, nil
+}
+
+// lookupFlow walks all registered modules searching for the owner of
+// flowID. Returns the flow and its provider, or an error if no module's
+// FlowRegistry knows about it. Used by auth.complete and auth.cancel
+// which receive a FlowID without a plugin context.
+func (s *Api) lookupFlow(flowID string) (*auth.Flow, *auth.OAuth2Provider, error) {
+	for _, info := range s.elEngine.ListModules(false) {
+		m := s.elEngine.GetModule(info.ExtensionId)
+		if m == nil {
+			continue
+		}
+		prov, ok := m.Provider().(*auth.OAuth2Provider)
+		if !ok || prov == nil {
+			continue
+		}
+		if f := prov.FlowRegistry().Get(flowID); f != nil {
+			return f, prov, nil
+		}
+	}
+	return nil, nil, fmt.Errorf("unknown flow: %s", flowID)
 }

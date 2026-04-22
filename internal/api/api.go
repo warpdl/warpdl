@@ -82,6 +82,10 @@ func (s *Api) RegisterHandlers(server *server.Server) {
 
 	// authentication methods
 	server.RegisterHandler(common.UPDATE_AUTH_REQUIRED, s.authLoginHandler)
+	server.RegisterHandler(common.UPDATE_AUTH_COMPLETED, s.authCompleteHandler)
+	server.RegisterHandler(common.UPDATE_AUTH_FAILED, s.authCancelHandler)
+	server.RegisterHandler(common.UPDATE_AUTH_LOGGED_OUT, s.authLogoutHandler)
+	server.RegisterHandler(common.UPDATE_AUTH_LIST, s.authListHandler)
 }
 
 // Close releases resources held by the Api, specifically closing the

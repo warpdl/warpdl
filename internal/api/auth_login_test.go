@@ -216,7 +216,10 @@ func TestAuthLoginHandler_PKCE_DefaultsScopesFromConfig(t *testing.T) {
 	}
 }
 
-func TestAuthLoginHandler_Device_Stub(t *testing.T) {
+func TestAuthLoginHandler_Device_NoDeviceURL(t *testing.T) {
+	// The test extension manifest does not declare a device_url, so
+	// StartDeviceCode returns an error. The handler must surface that
+	// error rather than returning a bogus FlowID/UserCode.
 	api, pool, cleanup := newAuthTestApi(t)
 	defer cleanup()
 
@@ -231,30 +234,9 @@ func TestAuthLoginHandler_Device_Stub(t *testing.T) {
 		Flow:     "device",
 	}
 	body, _ := json.Marshal(params)
-	tag, msg, err := api.authLoginHandler(nil, pool, body)
-	if err != nil {
-		t.Fatalf("authLoginHandler: %v", err)
-	}
-	if tag != common.UPDATE_AUTH_REQUIRED {
-		t.Fatalf("expected tag UPDATE_AUTH_REQUIRED")
-	}
-	res, ok := msg.(*common.AuthLoginResult)
-	if !ok {
-		t.Fatalf("expected *AuthLoginResult, got %T", msg)
-	}
-	if res.FlowID == "" {
-		t.Fatalf("expected FlowID")
-	}
-	// Task 13 stub: device handler does not produce a user_code or
-	// verification URL; Task 14's polling goroutine will.
-	if res.UserCode != "" {
-		t.Errorf("expected no UserCode in stub, got %q", res.UserCode)
-	}
-	if res.VerificationURL != "" {
-		t.Errorf("expected no VerificationURL in stub, got %q", res.VerificationURL)
-	}
-	if res.AuthorizeURL != "" {
-		t.Errorf("expected no AuthorizeURL in device flow, got %q", res.AuthorizeURL)
+	_, _, err = api.authLoginHandler(nil, pool, body)
+	if err == nil {
+		t.Fatal("expected error when manifest has no device_url")
 	}
 }
 
