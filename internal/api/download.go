@@ -24,10 +24,19 @@ func (s *Api) downloadHandler(sconn *server.SyncConn, pool *server.Pool, body js
 		return common.UPDATE_DOWNLOAD, nil, err
 	}
 
-	dlURL, err := s.elEngine.Extract(m.Url)
+	extRes, err := s.elEngine.Extract(m.Url)
+	dlURL := extRes.URL
 	if err != nil {
 		s.log.Printf("failed to extract URL from extension: %s\n", err.Error())
 		dlURL = m.Url
+	}
+	// Merge plugin-supplied headers into the request headers so the
+	// downloader sends them. Plugin headers take precedence over caller
+	// defaults (plugins typically add auth tokens the caller cannot know
+	// about). Downloader-side header stripping on redirect is handled
+	// elsewhere (see Task 19).
+	for k, v := range extRes.Headers {
+		m.Headers.Update(k, v)
 	}
 
 	// Detect scheme to choose code path

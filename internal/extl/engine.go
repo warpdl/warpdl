@@ -270,11 +270,12 @@ func (e *Engine) offloadModule(moduleId string) error {
 	return nil
 }
 
-// Extract attempts to extract a download URL using registered extension modules.
-// It iterates through active modules and returns the extracted URL from the first
-// module whose match pattern matches the input URL.
-// Returns the original URL unchanged if no matching module is found.
-func (e *Engine) Extract(url string) (string, error) {
+// Extract attempts to extract a download URL (and optional headers) using
+// registered extension modules. It iterates through active modules and
+// returns the ExtractResult from the first module whose match pattern
+// matches the input URL. Returns the original URL (wrapped in
+// ExtractResult, no headers) unchanged if no matching module is found.
+func (e *Engine) Extract(url string) (ExtractResult, error) {
 	for _, m := range e.modules {
 		for _, a := range m.Matches {
 			if ok, err := regexp.MatchString(a, url); ok && err == nil {
@@ -285,8 +286,8 @@ func (e *Engine) Extract(url string) (string, error) {
 	}
 	// not able to find out any actual usecase of this error
 	// so commenting out for now.
-	// return url, ErrNoMatchFound
-	return url, nil
+	// return ExtractResult{URL: url}, ErrNoMatchFound
+	return ExtractResult{URL: url}, nil
 }
 
 // GetModule retrieves an active module by its identifier.
