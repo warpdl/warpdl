@@ -102,7 +102,11 @@ func (p *OAuth2Provider) Logout(ctx context.Context, key types.TokenKey) error {
 		}
 		_ = p.postRevoke(ctx, tokenToRevoke) // best-effort
 	}
-	return p.store.Delete(key)
+	err := p.store.Delete(key)
+	// Drop the refresh mutex too; otherwise the sync.Map entry lingers
+	// for the full process lifetime every time an account logs out.
+	p.refreshLocks.Delete(key)
+	return err
 }
 
 // ListAccounts returns account labels for this plugin only.
