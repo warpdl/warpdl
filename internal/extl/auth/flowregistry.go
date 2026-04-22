@@ -96,9 +96,19 @@ func (r *FlowRegistry) Start(key types.TokenKey, kind FlowKind) (*Flow, bool, er
 	default:
 	}
 	if existing, ok := r.byKey[key]; ok {
-		existing.awaiters.Add(1)
-		r.mu.Unlock()
-		return existing, true, nil
+		// Only join if the existing flow isn't already resolved. A stale
+		// resolved entry can linger while the last awaiter is still on
+		// its way out (ref-counted cleanup); a new caller must get a
+		// fresh flow rather than immediately observing the previous
+		// caller's token.
+		if existing.result.Load() == nil {
+			existing.awaiters.Add(1)
+			r.mu.Unlock()
+			return existing, true, nil
+		}
+		// Stale resolved entry; drop it so we can create a fresh one.
+		delete(r.byKey, key)
+		delete(r.byID, existing.ID)
 	}
 	id, err := randomID()
 	if err != nil {
