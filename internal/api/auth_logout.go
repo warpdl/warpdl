@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -34,7 +33,7 @@ func (s *Api) authLogoutHandler(sconn *server.SyncConn, pool *server.Pool, body 
 	}
 
 	key := types.TokenKey{PluginID: p.PluginID, Account: p.Account}.WithDefaultAccount()
-	if err := prov.Logout(context.Background(), key); err != nil {
+	if err := prov.Logout(s.daemonCtx(), key); err != nil {
 		return common.UPDATE_AUTH_LOGGED_OUT, nil, err
 	}
 	return common.UPDATE_AUTH_LOGGED_OUT, nil, nil

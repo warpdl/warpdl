@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -47,7 +46,7 @@ func (s *Api) authCompleteHandler(sconn *server.SyncConn, pool *server.Pool, bod
 		return common.UPDATE_AUTH_COMPLETED, nil, mismatch
 	}
 
-	tok, err := prov.ExchangeCode(context.Background(), flow.Key, p.Code, flow.CodeVerifier, flow.RedirectURI)
+	tok, err := prov.ExchangeCode(s.daemonCtx(), flow.Key, p.Code, flow.CodeVerifier, flow.RedirectURI)
 	if err != nil {
 		prov.FlowRegistry().Cancel(flow.ID, err)
 		return common.UPDATE_AUTH_COMPLETED, nil, fmt.Errorf("exchange code: %w", err)
