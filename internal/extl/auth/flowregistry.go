@@ -24,6 +24,8 @@ var (
 	ErrFlowUnknown = errors.New("flow: unknown flow id")
 	// ErrFlowTimeout is returned when a flow exceeds the registry's timeout.
 	ErrFlowTimeout = errors.New("flow: timed out")
+	// ErrRegistryShutDown is returned by Start when the registry has been shut down.
+	ErrRegistryShutDown = errors.New("flow: registry shut down")
 )
 
 // Flow is a running auth attempt. The registry owns its lifecycle.
@@ -80,6 +82,12 @@ func NewFlowRegistry(timeout time.Duration) *FlowRegistry {
 func (r *FlowRegistry) Start(key types.TokenKey, kind FlowKind) (*Flow, bool, error) {
 	key = key.WithDefaultAccount()
 	r.mu.Lock()
+	select {
+	case <-r.done:
+		r.mu.Unlock()
+		return nil, false, ErrRegistryShutDown
+	default:
+	}
 	if existing, ok := r.byKey[key]; ok {
 		r.mu.Unlock()
 		return existing, true, nil
@@ -171,9 +179,17 @@ func (r *FlowRegistry) Get(id string) *Flow {
 }
 
 // Shutdown cancels every in-flight flow and signals all timeout
-// goroutines to exit. Safe to call once.
+// goroutines to exit. Safe to call more than once; subsequent calls
+// are no-ops.
 func (r *FlowRegistry) Shutdown() {
 	r.mu.Lock()
+	select {
+	case <-r.done:
+		r.mu.Unlock()
+		return
+	default:
+	}
+	close(r.done)
 	ids := make([]string, 0, len(r.byID))
 	for id := range r.byID {
 		ids = append(ids, id)
@@ -182,7 +198,6 @@ func (r *FlowRegistry) Shutdown() {
 	for _, id := range ids {
 		r.Cancel(id, errors.New("registry shutdown"))
 	}
-	close(r.done)
 }
 
 func randomID() (string, error) {

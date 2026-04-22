@@ -2,6 +2,7 @@ package auth
 
 import (
 	"errors"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -100,4 +101,46 @@ func TestFlowRegistry_AwaitUnknownErrors(t *testing.T) {
 	if !errors.Is(err, ErrFlowUnknown) {
 		t.Fatalf("expected ErrFlowUnknown, got %v", err)
 	}
+}
+
+func TestFlowRegistry_ShutdownIsIdempotent(t *testing.T) {
+	fr := NewFlowRegistry(time.Minute)
+	fr.Shutdown()
+	// Second call must not panic.
+	fr.Shutdown()
+	fr.Shutdown()
+}
+
+func TestFlowRegistry_ShutdownDoesNotDeadlockWithConcurrentStarts(t *testing.T) {
+	fr := NewFlowRegistry(time.Minute)
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for i := 0; i < 32; i++ {
+		i := i
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			k := types.TokenKey{PluginID: "p", Account: "a" + strconv.Itoa(i)}
+			f, _, err := fr.Start(k, FlowKindPKCE)
+			if err != nil {
+				return // shutdown raced us; acceptable
+			}
+			// Don't actually await forever; we expect Cancel to fire.
+			done := make(chan struct{})
+			go func() {
+				_, _ = fr.Await(f.ID)
+				close(done)
+			}()
+			select {
+			case <-done:
+			case <-time.After(2 * time.Second):
+				t.Errorf("Await(%s) deadlocked", f.ID)
+			}
+		}()
+	}
+	close(start)
+	time.Sleep(5 * time.Millisecond)
+	fr.Shutdown()
+	wg.Wait()
 }
