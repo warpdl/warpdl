@@ -35,4 +35,11 @@ var (
 	ErrAuthTimeout   = errors.New("authentication timed out")
 	ErrScopeDenied   = errors.New("requested scope not granted")
 	ErrProvider      = errors.New("identity provider error")
+	// ErrInvalidGrant is a definitive rejection of the credential by the
+	// identity provider (RFC 6749 errors: invalid_grant, invalid_client,
+	// unauthorized_client, invalid_request, unsupported_grant_type).
+	// Callers use errors.Is to distinguish these from transient failures
+	// (network, 5xx) which should not cause the stored credential to be
+	// deleted.
+	ErrInvalidGrant = errors.New("identity provider rejected credentials")
 )

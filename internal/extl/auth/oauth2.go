@@ -74,9 +74,14 @@ func (p *OAuth2Provider) Token(ctx context.Context, key types.TokenKey, scopes [
 	if err == nil {
 		return newTok.AccessToken, nil
 	}
-	// Refresh failed → drop credential and start a flow.
-	_ = p.store.Delete(key)
-	return p.triggerFlowAndAwait(ctx, key, scopes)
+	// Only nuke the credential on a definitive IdP rejection. Transient
+	// errors (network, 5xx) leave the stored token alone so a retry after
+	// network recovery can use the still-valid refresh token.
+	if errors.Is(err, ErrInvalidGrant) {
+		_ = p.store.Delete(key)
+		return p.triggerFlowAndAwait(ctx, key, scopes)
+	}
+	return "", err
 }
 
 // Invalidate blanks the cached access token; refresh token (if any) stays.
@@ -207,7 +212,25 @@ func (p *OAuth2Provider) postToken(ctx context.Context, form url.Values, prior *
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("%w: %s: %s", ErrProvider, resp.Status, string(body))
+		var errPayload struct {
+			Error       string `json:"error"`
+			Description string `json:"error_description"`
+		}
+		_ = json.Unmarshal(body, &errPayload)
+		base := ErrProvider
+		switch errPayload.Error {
+		case "invalid_grant", "invalid_client", "unauthorized_client",
+			"invalid_request", "unsupported_grant_type":
+			base = ErrInvalidGrant
+		}
+		msg := errPayload.Error
+		if errPayload.Description != "" {
+			msg = errPayload.Error + ": " + errPayload.Description
+		}
+		if msg == "" {
+			msg = string(body)
+		}
+		return nil, fmt.Errorf("%w: %s: %s", base, resp.Status, msg)
 	}
 	var payload struct {
 		AccessToken  string `json:"access_token"`
