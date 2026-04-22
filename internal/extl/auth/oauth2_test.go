@@ -5,9 +5,11 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -190,5 +192,251 @@ func TestLogoutRevokesAndDeletes(t *testing.T) {
 	}
 	if _, err := tm.Get(key); err == nil {
 		t.Fatal("expected deleted after logout")
+	}
+}
+
+func TestRefreshIsSerialized(t *testing.T) {
+	var tokenHits atomic.Int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
+		tokenHits.Add(1)
+		// Small sleep to widen the race window.
+		time.Sleep(30 * time.Millisecond)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token":  "AT-NEW",
+			"refresh_token": "RT-NEW",
+			"token_type":    "Bearer",
+			"expires_in":    3600,
+			"scope":         "drive.readonly",
+		})
+	})
+	srv := httptest.NewTLSServer(mux)
+	defer srv.Close()
+
+	key := make([]byte, 32)
+	_, _ = rand.Read(key)
+	tm, _ := credman.NewTokenManager(filepath.Join(t.TempDir(), "tokens.gob"), key)
+	defer tm.Close()
+	cfg := OAuth2Config{
+		Type:         "oauth2",
+		ClientID:     "c",
+		Scopes:       []string{"drive.readonly"},
+		AuthorizeURL: "https://example.com/a",
+		TokenURL:     srv.URL + "/token",
+		PKCEMethod:   "S256",
+	}
+	cfg, _ = NormalizeOAuth2Config(cfg)
+	p := NewOAuth2Provider("pid", cfg, tm, NewFlowRegistry(time.Minute))
+	p.client = newInsecureTLSClient()
+
+	tk := types.TokenKey{PluginID: "pid"}
+	_ = tm.Set(tk, &types.OAuth2Token{
+		AccessToken:  "OLD",
+		RefreshToken: "RT-OLD",
+		ExpiresAt:    time.Now().Add(-time.Minute),
+		Scopes:       []string{"drive.readonly"},
+	})
+
+	var wg sync.WaitGroup
+	var errCnt atomic.Int32
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := p.Token(context.Background(), tk, []string{"drive.readonly"})
+			if err != nil {
+				errCnt.Add(1)
+			}
+		}()
+	}
+	wg.Wait()
+
+	if errCnt.Load() != 0 {
+		t.Fatalf("%d Token calls failed", errCnt.Load())
+	}
+	if got := tokenHits.Load(); got != 1 {
+		t.Fatalf("expected 1 /token hit (refresh serialized), got %d", got)
+	}
+}
+
+func TestPostTokenRejectsEmptyAccessToken(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token": "",
+			"token_type":   "Bearer",
+			"expires_in":   3600,
+		})
+	})
+	srv := httptest.NewTLSServer(mux)
+	defer srv.Close()
+	p, _ := makeTestProvider(t, srv.URL+"/token", "")
+	verifier, _ := NewPKCEVerifier()
+	_, err := p.ExchangeCode(context.Background(), types.TokenKey{PluginID: "plugin-1"}, "CODE", verifier, "http://127.0.0.1/cb")
+	if err == nil {
+		t.Fatal("expected error for empty access_token")
+	}
+	if !errors.Is(err, ErrProvider) {
+		t.Fatalf("expected ErrProvider, got %v", err)
+	}
+}
+
+func TestRefreshPreservesNarrowerScopesWhenServerOmits(t *testing.T) {
+	var firstCall atomic.Bool
+	mux := http.NewServeMux()
+	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
+		// Refresh response omits `scope` — server-side behavior for
+		// Google and similar when scopes haven't changed.
+		firstCall.Store(true)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token": "REFRESHED",
+			"token_type":   "Bearer",
+			"expires_in":   3600,
+			// no refresh_token, no scope
+		})
+	})
+	srv := httptest.NewTLSServer(mux)
+	defer srv.Close()
+
+	key := make([]byte, 32)
+	_, _ = rand.Read(key)
+	tm, _ := credman.NewTokenManager(filepath.Join(t.TempDir(), "tokens.gob"), key)
+	defer tm.Close()
+
+	// Manifest lists TWO scopes, but user consented only to one.
+	cfg := OAuth2Config{
+		Type:         "oauth2",
+		ClientID:     "c",
+		Scopes:       []string{"drive.readonly", "drive.metadata"},
+		AuthorizeURL: "https://example.com/a",
+		TokenURL:     srv.URL + "/token",
+		PKCEMethod:   "S256",
+	}
+	cfg, _ = NormalizeOAuth2Config(cfg)
+	p := NewOAuth2Provider("pid", cfg, tm, NewFlowRegistry(time.Minute))
+	p.client = newInsecureTLSClient()
+
+	tk := types.TokenKey{PluginID: "pid"}
+	_ = tm.Set(tk, &types.OAuth2Token{
+		AccessToken:  "OLD",
+		RefreshToken: "RT",
+		ExpiresAt:    time.Now().Add(-time.Minute),
+		Scopes:       []string{"drive.readonly"}, // narrower than manifest
+	})
+
+	_, err := p.Token(context.Background(), tk, []string{"drive.readonly"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !firstCall.Load() {
+		t.Fatal("expected token endpoint called")
+	}
+	stored, _ := tm.Get(tk)
+	if len(stored.Scopes) != 1 || stored.Scopes[0] != "drive.readonly" {
+		t.Fatalf("stored scopes widened after refresh: %v", stored.Scopes)
+	}
+}
+
+func TestTokenTransientRefreshFailurePreservesCreds(t *testing.T) {
+	var attempt atomic.Int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
+		// Return 503 (transient) rather than 4xx invalid_grant.
+		attempt.Add(1)
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"error": "server_error"}`))
+	})
+	srv := httptest.NewTLSServer(mux)
+	defer srv.Close()
+	p, tm := makeTestProvider(t, srv.URL+"/token", "")
+	tk := types.TokenKey{PluginID: "plugin-1"}
+	_ = tm.Set(tk, &types.OAuth2Token{
+		AccessToken:  "OLD",
+		RefreshToken: "RT",
+		ExpiresAt:    time.Now().Add(-time.Minute),
+		Scopes:       []string{"drive.readonly"},
+	})
+
+	_, err := p.Token(context.Background(), tk, []string{"drive.readonly"})
+	if err == nil {
+		t.Fatal("expected error on transient failure")
+	}
+	// CRITICAL: credentials must still be there.
+	stored, getErr := tm.Get(tk)
+	if getErr != nil {
+		t.Fatalf("credentials nuked on transient failure: %v", getErr)
+	}
+	if stored.RefreshToken != "RT" {
+		t.Fatalf("refresh token lost: %+v", stored)
+	}
+}
+
+func TestTokenInvalidGrantNukesCreds(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error": "invalid_grant", "error_description": "Token revoked"}`))
+	})
+	srv := httptest.NewTLSServer(mux)
+	defer srv.Close()
+	p, tm := makeTestProvider(t, srv.URL+"/token", "")
+	tk := types.TokenKey{PluginID: "plugin-1"}
+	_ = tm.Set(tk, &types.OAuth2Token{
+		AccessToken:  "OLD",
+		RefreshToken: "DEAD",
+		ExpiresAt:    time.Now().Add(-time.Minute),
+		Scopes:       []string{"drive.readonly"},
+	})
+
+	// Put a 10ms timeout on the context so triggerFlowAndAwait returns
+	// quickly when it tries to await a flow no one will complete.
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	_, err := p.Token(ctx, tk, []string{"drive.readonly"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	// CRITICAL: credentials must be GONE after invalid_grant.
+	if _, getErr := tm.Get(tk); getErr == nil {
+		t.Fatal("credentials should have been deleted after invalid_grant")
+	}
+}
+
+func TestLogoutCleansRefreshLock(t *testing.T) {
+	p, tm := makeTestProvider(t, "https://example.com/t", "")
+	tk := types.TokenKey{PluginID: "plugin-1"}
+	_ = tm.Set(tk, &types.OAuth2Token{AccessToken: "A", RefreshToken: "R", ExpiresAt: time.Now().Add(time.Hour)})
+	// Warm the mutex map.
+	_ = p.muFor(tk.WithDefaultAccount())
+	if err := p.Logout(context.Background(), tk); err != nil {
+		t.Fatal(err)
+	}
+	// Mutex should be gone.
+	if _, loaded := p.refreshLocks.Load(tk.WithDefaultAccount()); loaded {
+		t.Fatal("refreshLocks leaked after Logout")
+	}
+}
+
+func TestTokenCtxCancellationUnblocks(t *testing.T) {
+	// Provider has no stored token → triggerFlowAndAwait will block.
+	p, _ := makeTestProvider(t, "https://example.com/t", "")
+	tk := types.TokenKey{PluginID: "plugin-1"}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := p.Token(ctx, tk, []string{"drive.readonly"})
+		done <- err
+	}()
+	// Let it register the flow then cancel.
+	time.Sleep(20 * time.Millisecond)
+	cancel()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("expected context cancellation error")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Token did not return after ctx.Cancel")
 	}
 }
