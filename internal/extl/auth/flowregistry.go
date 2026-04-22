@@ -255,3 +255,8 @@ func randomID() (string, error) {
 	}
 	return hex.EncodeToString(b), nil
 }
+
+// NewFlowState returns a CSRF-state token for a PKCE authorize URL.
+// Same entropy as flow IDs; a distinct function is exported so the RPC
+// layer doesn't reach into unexported helpers.
+func NewFlowState() (string, error) { return randomID() }

@@ -79,6 +79,9 @@ func (s *Api) RegisterHandlers(server *server.Server) {
 	server.RegisterHandler(common.UPDATE_QUEUE_PAUSE, s.queuePauseHandler)
 	server.RegisterHandler(common.UPDATE_QUEUE_RESUME, s.queueResumeHandler)
 	server.RegisterHandler(common.UPDATE_QUEUE_MOVE, s.queueMoveHandler)
+
+	// authentication methods
+	server.RegisterHandler(common.UPDATE_AUTH_REQUIRED, s.authLoginHandler)
 }
 
 // Close releases resources held by the Api, specifically closing the
