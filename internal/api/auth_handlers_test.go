@@ -129,6 +129,72 @@ func TestAuthCompleteHappyPath(t *testing.T) {
 	}
 }
 
+// TestAuthCompleteExchangeFailureCancelsFlow regression-tests the error
+// branch where the IdP's /token endpoint fails: the handler must
+// propagate the error AND cancel the flow so any awaiter (e.g. a
+// plugin Token() call) wakes up with the failure rather than blocking
+// until the FlowRegistry timeout.
+func TestAuthCompleteExchangeFailureCancelsFlow(t *testing.T) {
+	api, pool, cleanup := newAuthTestApi(t)
+	defer cleanup()
+
+	path := writeAuthExtension(t, t.TempDir())
+	ext, err := api.elEngine.AddModule(path)
+	if err != nil {
+		t.Fatalf("AddModule: %v", err)
+	}
+
+	// /token returns HTTP 500 with an OAuth2 server_error payload.
+	mux := http.NewServeMux()
+	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"error":"server_error"}`))
+	})
+	srv := httptest.NewTLSServer(mux)
+	defer srv.Close()
+
+	prov := api.elEngine.GetModule(ext.ModuleId).Provider().(*auth.OAuth2Provider)
+	prov.OverrideTokenURL(srv.URL + "/token")
+	prov.SetHTTPClient(insecureTLSClient())
+
+	flowID, state, _ := startPKCEFlow(t, api, ext.ModuleId)
+
+	body, _ := json.Marshal(common.AuthCompleteParams{
+		FlowID: flowID,
+		Code:   "AUTH_CODE",
+		State:  state,
+	})
+	_, _, err = api.authCompleteHandler(nil, pool, body)
+	if err == nil {
+		t.Fatal("expected exchange-failure error, got nil")
+	}
+
+	// Flow must be cancelled — a subsequent Await wakes immediately
+	// with an error rather than blocking on the registry's timeout.
+	awaitDone := make(chan struct {
+		tok *types.OAuth2Token
+		err error
+	}, 1)
+	go func() {
+		tok, awaitErr := prov.FlowRegistry().Await(flowID)
+		awaitDone <- struct {
+			tok *types.OAuth2Token
+			err error
+		}{tok, awaitErr}
+	}()
+	select {
+	case r := <-awaitDone:
+		if r.err == nil {
+			t.Fatal("expected Await to return exchange error")
+		}
+		if r.tok != nil {
+			t.Fatalf("expected no token after failed exchange, got %+v", r.tok)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Await did not return after exchange failure; flow was not cancelled")
+	}
+}
+
 func TestAuthCompleteStateMismatch(t *testing.T) {
 	api, pool, cleanup := newAuthTestApi(t)
 	defer cleanup()
