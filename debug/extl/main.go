@@ -35,7 +35,7 @@ func run(args []string) error {
 		return nil
 	}
 
-	extEng, err := extl.NewEngine(log.Default(), nil, true)
+	extEng, err := extl.NewEngine(log.Default(), nil, nil, nil, true)
 	if err != nil {
 		return err
 	}

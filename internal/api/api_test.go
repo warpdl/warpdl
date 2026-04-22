@@ -113,7 +113,7 @@ func newTestApi(t *testing.T) (*Api, *server.Pool, func()) {
 	if err != nil {
 		t.Fatalf("InitManager: %v", err)
 	}
-	eng, err := extl.NewEngine(log.New(io.Discard, "", 0), nil, false)
+	eng, err := extl.NewEngine(log.New(io.Discard, "", 0), nil, nil, nil, false)
 	if err != nil {
 		t.Fatalf("NewEngine: %v", err)
 	}
@@ -532,7 +532,7 @@ func TestRegisterHandlersAndClose(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InitManager: %v", err)
 	}
-	eng, err := extl.NewEngine(log.New(io.Discard, "", 0), nil, false)
+	eng, err := extl.NewEngine(log.New(io.Discard, "", 0), nil, nil, nil, false)
 	if err != nil {
 		t.Fatalf("NewEngine: %v", err)
 	}
