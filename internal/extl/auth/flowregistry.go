@@ -183,7 +183,31 @@ func (r *FlowRegistry) Resolve(id string, tok *types.OAuth2Token, err error) {
 	res := &flowResult{tok: tok, err: err}
 	if f.result.CompareAndSwap(nil, res) {
 		close(f.done)
+		// If nobody is currently awaiting, schedule a deferred sweep so
+		// the maps don't leak when the RPC caller died before calling
+		// Await. A grace window keeps very-late Await calls viable.
+		if f.awaiters.Load() == 0 {
+			go r.sweepAfter(f, 5*time.Second)
+		}
 	}
+}
+
+// sweepAfter waits for a grace period (or registry shutdown) and then
+// removes the flow from the maps if no awaiter has claimed it since.
+func (r *FlowRegistry) sweepAfter(f *Flow, grace time.Duration) {
+	select {
+	case <-time.After(grace):
+	case <-r.done:
+	}
+	if f.awaiters.Load() != 0 {
+		return
+	}
+	r.mu.Lock()
+	delete(r.byID, f.ID)
+	if cur, ok := r.byKey[f.Key]; ok && cur.ID == f.ID {
+		delete(r.byKey, f.Key)
+	}
+	r.mu.Unlock()
 }
 
 // Cancel resolves a flow with an error. If err is nil, a generic
