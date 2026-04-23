@@ -264,3 +264,43 @@ func (c *Client) QueueMove(hash string, position int) error {
 	_, err := invoke[any](c, common.UPDATE_QUEUE_MOVE, params)
 	return err
 }
+
+// AuthLogin starts a new authentication flow for a plugin. The Flow
+// field of params selects PKCE (default) or device-code. For PKCE the
+// caller must supply a loopback RedirectURI that matches the callback
+// server it has bound. The returned AuthLoginResult carries a FlowID
+// that subsequent AuthComplete / AuthCancel calls reference.
+func (c *Client) AuthLogin(params *common.AuthLoginParams) (*common.AuthLoginResult, error) {
+	return invoke[common.AuthLoginResult](c, common.UPDATE_AUTH_REQUIRED, params)
+}
+
+// AuthComplete delivers a PKCE authorization code from the loopback
+// callback back to the daemon, which exchanges it for tokens and
+// stores them under the flow's (plugin, account) key. Returns the
+// account, scopes, and expiry of the issued token.
+func (c *Client) AuthComplete(params *common.AuthCompleteParams) (*common.AuthCompleteResult, error) {
+	return invoke[common.AuthCompleteResult](c, common.UPDATE_AUTH_COMPLETED, params)
+}
+
+// AuthCancel aborts an in-flight auth flow. Safe to call after a flow
+// has already completed or expired (the daemon treats unknown flow IDs
+// as a no-op).
+func (c *Client) AuthCancel(params *common.AuthCancelParams) error {
+	_, err := invoke[any](c, common.UPDATE_AUTH_FAILED, params)
+	return err
+}
+
+// AuthList enumerates stored OAuth credentials across all installed
+// plugins. Each entry carries the plugin ID, account label, scopes,
+// and token expiry.
+func (c *Client) AuthList() (*common.AuthListResult, error) {
+	return invoke[common.AuthListResult](c, common.UPDATE_AUTH_LIST, struct{}{})
+}
+
+// AuthLogout forgets the stored credential for a (plugin, account)
+// pair. If params.Account is empty the daemon deletes every account
+// stored under params.PluginID.
+func (c *Client) AuthLogout(params *common.AuthLogoutParams) error {
+	_, err := invoke[any](c, common.UPDATE_AUTH_LOGGED_OUT, params)
+	return err
+}

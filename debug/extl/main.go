@@ -35,7 +35,7 @@ func run(args []string) error {
 		return nil
 	}
 
-	extEng, err := extl.NewEngine(log.Default(), nil, true)
+	extEng, err := extl.NewEngine(log.Default(), nil, nil, nil, true)
 	if err != nil {
 		return err
 	}
@@ -47,11 +47,14 @@ func run(args []string) error {
 			return fmt.Errorf("extract: missing url")
 		}
 		url := args[1]
-		eUrl, err := extEng.Extract(url)
+		res, err := extEng.Extract(url)
 		if err != nil {
 			return fmt.Errorf("extract: %w", err)
 		}
-		log.Println("Extracted URL:", eUrl)
+		log.Println("Extracted URL:", res.URL)
+		if len(res.Headers) > 0 {
+			log.Println("Extracted Headers:", res.Headers)
+		}
 	case "load":
 		if len(args) < 2 {
 			return fmt.Errorf("load: missing extension path")

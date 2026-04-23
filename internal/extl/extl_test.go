@@ -103,12 +103,12 @@ func TestModuleLoadExtract(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 	m.runtime.imported = []string{"extra.js"}
-	url, err := m.Extract("http://example.com")
+	res, err := m.Extract("http://example.com")
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
-	if url != "http://example.com?ext=1" {
-		t.Fatalf("unexpected url: %s", url)
+	if res.URL != "http://example.com?ext=1" {
+		t.Fatalf("unexpected url: %s", res.URL)
 	}
 }
 
@@ -117,7 +117,7 @@ func TestEngineModuleLifecycle(t *testing.T) {
 	if err := SetEngineStore(base); err != nil {
 		t.Fatalf("SetEngineStore: %v", err)
 	}
-	eng, err := NewEngine(log.New(io.Discard, "", 0), nil, false)
+	eng, err := NewEngine(log.New(io.Discard, "", 0), nil, nil, nil, false)
 	if err != nil {
 		t.Fatalf("NewEngine: %v", err)
 	}
@@ -136,11 +136,11 @@ func TestEngineModuleLifecycle(t *testing.T) {
 	if err := eng.Save(); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
-	extURL, err := eng.Extract("http://example.com")
+	extRes, err := eng.Extract("http://example.com")
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
-	if extURL == "http://example.com" {
+	if extRes.URL == "http://example.com" {
 		t.Fatalf("expected extract to modify url")
 	}
 	mods := eng.ListModules(true)
@@ -163,7 +163,7 @@ func TestGetModuleNotFound(t *testing.T) {
 	if err := SetEngineStore(base); err != nil {
 		t.Fatalf("SetEngineStore: %v", err)
 	}
-	eng, err := NewEngine(log.New(io.Discard, "", 0), nil, false)
+	eng, err := NewEngine(log.New(io.Discard, "", 0), nil, nil, nil, false)
 	if err != nil {
 		t.Fatalf("NewEngine: %v", err)
 	}
@@ -179,7 +179,7 @@ func TestActivateModuleNotFound(t *testing.T) {
 	if err := SetEngineStore(base); err != nil {
 		t.Fatalf("SetEngineStore: %v", err)
 	}
-	eng, err := NewEngine(log.New(io.Discard, "", 0), nil, false)
+	eng, err := NewEngine(log.New(io.Discard, "", 0), nil, nil, nil, false)
 	if err != nil {
 		t.Fatalf("NewEngine: %v", err)
 	}
@@ -195,7 +195,7 @@ func TestDeactivateModuleNotFound(t *testing.T) {
 	if err := SetEngineStore(base); err != nil {
 		t.Fatalf("SetEngineStore: %v", err)
 	}
-	eng, err := NewEngine(log.New(io.Discard, "", 0), nil, false)
+	eng, err := NewEngine(log.New(io.Discard, "", 0), nil, nil, nil, false)
 	if err != nil {
 		t.Fatalf("NewEngine: %v", err)
 	}
@@ -211,7 +211,7 @@ func TestDeleteModuleNotFound(t *testing.T) {
 	if err := SetEngineStore(base); err != nil {
 		t.Fatalf("SetEngineStore: %v", err)
 	}
-	eng, err := NewEngine(log.New(io.Discard, "", 0), nil, false)
+	eng, err := NewEngine(log.New(io.Discard, "", 0), nil, nil, nil, false)
 	if err != nil {
 		t.Fatalf("NewEngine: %v", err)
 	}
@@ -405,7 +405,7 @@ func TestNewEngineLoadsModules(t *testing.T) {
 	if err := os.WriteFile(engFile, engJSON, 0644); err != nil {
 		t.Fatalf("WriteFile engine: %v", err)
 	}
-	eng, err := NewEngine(log.New(io.Discard, "", 0), nil, false)
+	eng, err := NewEngine(log.New(io.Discard, "", 0), nil, nil, nil, false)
 	if err != nil {
 		t.Fatalf("NewEngine: %v", err)
 	}
@@ -424,7 +424,7 @@ func TestNewEngineInvalidJSON(t *testing.T) {
 	if err := os.WriteFile(engFile, []byte("{bad-json"), 0644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
-	if _, err := NewEngine(log.New(io.Discard, "", 0), nil, false); err == nil {
+	if _, err := NewEngine(log.New(io.Discard, "", 0), nil, nil, nil, false); err == nil {
 		t.Fatalf("expected error for invalid engine json")
 	}
 }

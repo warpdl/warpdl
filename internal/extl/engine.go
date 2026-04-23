@@ -9,6 +9,7 @@ import (
 	"regexp"
 
 	"github.com/warpdl/warpdl/common"
+	"github.com/warpdl/warpdl/internal/extl/auth"
 	"github.com/warpdl/warpdl/pkg/credman"
 )
 
@@ -35,6 +36,13 @@ type Engine struct {
 	// cookieMan is a reference to the cookie manager
 	// to be used for storing cookies
 	cookieMan *credman.CookieManager
+	// tokens is the shared OAuth2 token store used by every
+	// module-scoped AuthProvider. nil disables auth binding
+	// installation (Provider() returns nil on all modules).
+	tokens *credman.TokenManager
+	// flows is the shared PKCE / device-code flow registry that
+	// AuthProvider instances register interactive flows on.
+	flows *auth.FlowRegistry
 	// LoadedModule is a map of path to moduleId.
 	// This is used to store the moduleId in the module_engine.json file
 	// and to load the module from the module storage when the engine is started.
@@ -53,7 +61,12 @@ type LoadedModuleState struct {
 // It loads previously registered modules from the engine state file and
 // activates any modules that were marked as activated.
 // The debugger parameter controls whether to use debug-specific storage paths.
-func NewEngine(l *log.Logger, cookieManager *credman.CookieManager, debugger bool) (*Engine, error) {
+//
+// tokens and flows may be nil (useful in tests or the debug CLI). When
+// either is nil, plugins with an auth block still parse successfully but
+// Module.Provider() will return nil and the OAuth JS bindings
+// (getAccessToken etc.) won't be installed on the runtime.
+func NewEngine(l *log.Logger, cookieManager *credman.CookieManager, tokens *credman.TokenManager, flows *auth.FlowRegistry, debugger bool) (*Engine, error) {
 	l.Println("Creating extension engine")
 	// mePath is the path to the module_engine.json file
 	// this is used to store the moduleId
@@ -90,6 +103,8 @@ func NewEngine(l *log.Logger, cookieManager *credman.CookieManager, debugger boo
 		LoadedModule: make(map[string]LoadedModuleState),
 		modIndex:     make(map[string]int),
 		cookieMan:    cookieManager,
+		tokens:       tokens,
+		flows:        flows,
 	}
 	e.enc.SetIndent("", "  ")
 	// decode the module_engine.json to e
@@ -114,12 +129,18 @@ func NewEngine(l *log.Logger, cookieManager *credman.CookieManager, debugger boo
 		// (this reads manifest.json internally and parses the module)
 		m, err := OpenModule(l, filepath.Join(absMsPath, modState.ModuleId))
 		if err != nil {
+			file.Close()
 			return nil, err
 		}
 		m.ModuleId = modState.ModuleId
 		// allocate a runtime to the module
 		err = m.Load()
 		if err != nil {
+			file.Close()
+			return nil, err
+		}
+		if err := e.attachProvider(m); err != nil {
+			file.Close()
 			return nil, err
 		}
 		e.modIndex[m.ModuleId] = i
@@ -127,6 +148,19 @@ func NewEngine(l *log.Logger, cookieManager *credman.CookieManager, debugger boo
 		i++
 	}
 	return &e, nil
+}
+
+// attachProvider wires an AuthProvider and JS bindings for a module
+// that declared an auth block. Called after m.Load() has set up the
+// runtime. No-op when the module has no auth block or when the engine
+// was constructed without tokens/flows (debug CLI, tests).
+func (e *Engine) attachProvider(m *Module) error {
+	if m.Auth == nil || e.tokens == nil || e.flows == nil {
+		return nil
+	}
+	prov := auth.NewOAuth2Provider(m.ModuleId, *m.Auth, e.tokens, e.flows)
+	m.provider = prov
+	return auth.RegisterBindings(m.runtime.Runtime, prov)
 }
 
 // AddModule installs a new extension module from the given path.
@@ -145,6 +179,11 @@ func (e *Engine) AddModule(path string) (*Module, error) {
 	// if module id is empty string, it generates a new hash.
 	err = migrateModule(m, e.LoadedModule[path].ModuleId, e.msPath)
 	if err != nil {
+		return nil, err
+	}
+	// migrateModule re-opens the module and overwrites *m, so attach
+	// the provider AFTER migration (not inside loadModule).
+	if err := e.attachProvider(m); err != nil {
 		return nil, err
 	}
 	e.modIndex[m.ModuleId] = len(e.modules)
@@ -210,6 +249,12 @@ func (e *Engine) ActivateModule(moduleId string) (*Module, error) {
 	if err != nil {
 		return nil, err
 	}
+	// loadModule doesn't know the moduleId; set it here so the
+	// AuthProvider (keyed by plugin id) is wired correctly.
+	m.ModuleId = moduleId
+	if err := e.attachProvider(m); err != nil {
+		return nil, err
+	}
 	e.modIndex[moduleId] = len(e.modules)
 	e.modules = append(e.modules, m)
 	e.l.Println("Activated Ext: ", m.Name, "(", moduleId, ")")
@@ -270,11 +315,12 @@ func (e *Engine) offloadModule(moduleId string) error {
 	return nil
 }
 
-// Extract attempts to extract a download URL using registered extension modules.
-// It iterates through active modules and returns the extracted URL from the first
-// module whose match pattern matches the input URL.
-// Returns the original URL unchanged if no matching module is found.
-func (e *Engine) Extract(url string) (string, error) {
+// Extract attempts to extract a download URL (and optional headers) using
+// registered extension modules. It iterates through active modules and
+// returns the ExtractResult from the first module whose match pattern
+// matches the input URL. Returns the original URL (wrapped in
+// ExtractResult, no headers) unchanged if no matching module is found.
+func (e *Engine) Extract(url string) (ExtractResult, error) {
 	for _, m := range e.modules {
 		for _, a := range m.Matches {
 			if ok, err := regexp.MatchString(a, url); ok && err == nil {
@@ -285,8 +331,8 @@ func (e *Engine) Extract(url string) (string, error) {
 	}
 	// not able to find out any actual usecase of this error
 	// so commenting out for now.
-	// return url, ErrNoMatchFound
-	return url, nil
+	// return ExtractResult{URL: url}, ErrNoMatchFound
+	return ExtractResult{URL: url}, nil
 }
 
 // GetModule retrieves an active module by its identifier.

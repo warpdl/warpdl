@@ -14,6 +14,7 @@ import (
 	"github.com/warpdl/warpdl/internal/api"
 	"github.com/warpdl/warpdl/internal/cookies"
 	"github.com/warpdl/warpdl/internal/extl"
+	"github.com/warpdl/warpdl/internal/extl/auth"
 	"github.com/warpdl/warpdl/internal/scheduler"
 	"github.com/warpdl/warpdl/internal/server"
 	"github.com/warpdl/warpdl/pkg/credman"
@@ -38,6 +39,8 @@ func (l *loggerKeyringAdapter) Warning(format string, args ...interface{}) {
 // console mode and Windows service mode.
 type DaemonComponents struct {
 	CookieManager   *credman.CookieManager
+	TokenManager    *credman.TokenManager
+	FlowRegistry    *auth.FlowRegistry
 	ExtEngine       *extl.Engine
 	Manager         *warplib.Manager
 	Api             *api.Api
@@ -82,6 +85,16 @@ func (c *DaemonComponents) Close() {
 		c.ExtEngine.Close()
 	}
 
+	// Shut down OAuth flow registry (cancels any in-flight flows).
+	if c.FlowRegistry != nil {
+		c.FlowRegistry.Shutdown()
+	}
+
+	// Close token manager (flushes encrypted state).
+	if c.TokenManager != nil {
+		_ = c.TokenManager.Close()
+	}
+
 	// Close cookie manager
 	if c.CookieManager != nil {
 		_ = c.CookieManager.Close()
@@ -101,16 +114,40 @@ func (c *DaemonComponents) Close() {
 var initDaemonComponents = func(log logger.Logger, maxConcurrent int, rpcCfg *server.RPCConfig) (*DaemonComponents, error) {
 	stdLog := logger.ToStdLogger(log)
 
-	// Initialize cookie manager
-	cm, err := getCookieManagerWithLogger(log)
+	// Resolve the shared credman master key (env or keyring) once so
+	// CookieManager and TokenManager encrypt with the same material.
+	credKey, err := getCredmanKey(log)
 	if err != nil {
 		return nil, err
 	}
 
+	// Initialize cookie manager
+	cookieFile := filepath.Join(warplib.ConfigDir, "cookies.warp")
+	cm, err := credman.NewCookieManager(cookieFile, credKey)
+	if err != nil {
+		log.Error("Cookie manager initialization failed: %v", err)
+		return nil, err
+	}
+
+	// Initialize token manager (OAuth2 plugin credentials).
+	tokenFile := filepath.Join(warplib.ConfigDir, "tokens.gob")
+	tm, err := credman.NewTokenManager(tokenFile, credKey)
+	if err != nil {
+		log.Error("Token manager initialization failed: %v", err)
+		cm.Close()
+		return nil, err
+	}
+
+	// Flow registry for in-flight OAuth flows (PKCE + device code).
+	// 5-minute per-flow timeout matches typical IdP code-expiration windows.
+	flows := auth.NewFlowRegistry(5 * time.Minute)
+
 	// Initialize extension engine
-	elEng, err := extl.NewEngine(stdLog, cm, false)
+	elEng, err := extl.NewEngine(stdLog, cm, tm, flows, false)
 	if err != nil {
 		log.Error("Extension engine initialization failed: %v", err)
+		flows.Shutdown()
+		_ = tm.Close()
 		cm.Close()
 		return nil, err
 	}
@@ -120,6 +157,8 @@ var initDaemonComponents = func(log logger.Logger, maxConcurrent int, rpcCfg *se
 	if err != nil {
 		log.Error("Cookie jar creation failed: %v", err)
 		elEng.Close()
+		flows.Shutdown()
+		_ = tm.Close()
 		cm.Close()
 		return nil, err
 	}
@@ -133,6 +172,8 @@ var initDaemonComponents = func(log logger.Logger, maxConcurrent int, rpcCfg *se
 	if err != nil {
 		log.Error("WarpLib manager initialization failed: %v", err)
 		elEng.Close()
+		flows.Shutdown()
+		_ = tm.Close()
 		cm.Close()
 		return nil, err
 	}
@@ -282,6 +323,8 @@ var initDaemonComponents = func(log logger.Logger, maxConcurrent int, rpcCfg *se
 		schedCancel()
 		m.Close()
 		elEng.Close()
+		flows.Shutdown()
+		_ = tm.Close()
 		cm.Close()
 		return nil, err
 	}
@@ -292,6 +335,8 @@ var initDaemonComponents = func(log logger.Logger, maxConcurrent int, rpcCfg *se
 
 	return &DaemonComponents{
 		CookieManager:   cm,
+		TokenManager:    tm,
+		FlowRegistry:    flows,
 		ExtEngine:       elEng,
 		Manager:         m,
 		Api:             s,
@@ -306,21 +351,31 @@ var initDaemonComponents = func(log logger.Logger, maxConcurrent int, rpcCfg *se
 // getCookieManagerWithLogger initializes the cookie manager using the Logger interface.
 // This is used in service mode where cli.Context is not available.
 func getCookieManagerWithLogger(log logger.Logger) (*credman.CookieManager, error) {
+	key, err := getCredmanKey(log)
+	if err != nil {
+		return nil, err
+	}
+	cookieFile := filepath.Join(warplib.ConfigDir, "cookies.warp")
+	cm, err := credman.NewCookieManager(cookieFile, key)
+	if err != nil {
+		log.Error("Cookie manager initialization failed: %v", err)
+		return nil, err
+	}
+	return cm, nil
+}
+
+// getCredmanKey resolves the master credential-encryption key used by
+// both CookieManager and TokenManager. Env var wins; otherwise fall
+// back to the OS keyring, generating a new key on first use.
+func getCredmanKey(log logger.Logger) ([]byte, error) {
 	if keyHex := os.Getenv(cookieKeyEnv); keyHex != "" {
 		key, err := hex.DecodeString(keyHex)
 		if err != nil {
 			log.Error("Invalid cookie key hex: %v", err)
 			return nil, err
 		}
-		cookieFile := filepath.Join(warplib.ConfigDir, "cookies.warp")
-		cm, err := credman.NewCookieManager(cookieFile, key)
-		if err != nil {
-			log.Error("Cookie manager initialization failed: %v", err)
-			return nil, err
-		}
-		return cm, nil
+		return key, nil
 	}
-
 	kr := newKeyring(warplib.ConfigDir, &loggerKeyringAdapter{log: log})
 	key, err := kr.GetKey()
 	if err != nil {
@@ -330,14 +385,7 @@ func getCookieManagerWithLogger(log logger.Logger) (*credman.CookieManager, erro
 			return nil, err
 		}
 	}
-
-	cookieFile := filepath.Join(warplib.ConfigDir, "cookies.warp")
-	cm, err := credman.NewCookieManager(cookieFile, key)
-	if err != nil {
-		log.Error("Cookie manager initialization failed: %v", err)
-		return nil, err
-	}
-	return cm, nil
+	return key, nil
 }
 
 // daemonApplyTimestampSuffix adds a per-occurrence timestamp suffix to a filename

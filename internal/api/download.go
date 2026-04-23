@@ -24,10 +24,18 @@ func (s *Api) downloadHandler(sconn *server.SyncConn, pool *server.Pool, body js
 		return common.UPDATE_DOWNLOAD, nil, err
 	}
 
-	dlURL, err := s.elEngine.Extract(m.Url)
+	extRes, err := s.elEngine.Extract(m.Url)
+	dlURL := extRes.URL
 	if err != nil {
 		s.log.Printf("failed to extract URL from extension: %s\n", err.Error())
 		dlURL = m.Url
+	}
+	// Plugin-supplied headers flow through a separate slice so the
+	// downloader can strip them on cross-origin redirects (Task 19)
+	// while preserving user-supplied Headers semantics.
+	var pluginHeaders warplib.Headers
+	for k, v := range extRes.Headers {
+		pluginHeaders = append(pluginHeaders, warplib.Header{Key: k, Value: v})
 	}
 
 	// Detect scheme to choose code path
@@ -41,7 +49,7 @@ func (s *Api) downloadHandler(sconn *server.SyncConn, pool *server.Pool, body js
 	case "ftp", "ftps", "sftp":
 		return s.downloadProtocolHandler(sconn, pool, dlURL, scheme, &m)
 	default:
-		return s.downloadHTTPHandler(sconn, pool, dlURL, &m)
+		return s.downloadHTTPHandler(sconn, pool, dlURL, &m, pluginHeaders)
 	}
 }
 
@@ -55,8 +63,10 @@ func reportAsyncDownloadError(pool *server.Pool, uid string, err error) {
 }
 
 // downloadHTTPHandler handles HTTP and HTTPS downloads.
-// This is the existing HTTP download logic extracted from downloadHandler — zero logic changes.
-func (s *Api) downloadHTTPHandler(sconn *server.SyncConn, pool *server.Pool, dlURL string, m *common.DownloadParams) (common.UpdateType, any, error) {
+// pluginHeaders carries headers sourced from a plugin's extract() result;
+// they are routed through DownloaderOpts.PluginHeaders so the downloader
+// strips them on cross-origin redirects (Task 19).
+func (s *Api) downloadHTTPHandler(sconn *server.SyncConn, pool *server.Pool, dlURL string, m *common.DownloadParams, pluginHeaders warplib.Headers) (common.UpdateType, any, error) {
 	// Determine which client to use based on proxy setting
 	dlClient := s.client
 	if m.Proxy != "" {
@@ -132,6 +142,7 @@ func (s *Api) downloadHTTPHandler(sconn *server.SyncConn, pool *server.Pool, dlU
 
 	d, err = warplib.NewDownloader(dlClient, dlURL, &warplib.DownloaderOpts{
 		Headers:           m.Headers,
+		PluginHeaders:     pluginHeaders,
 		ForceParts:        m.ForceParts,
 		FileName:          m.FileName,
 		DownloadDirectory: m.DownloadDirectory,

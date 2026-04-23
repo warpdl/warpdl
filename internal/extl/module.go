@@ -2,6 +2,7 @@ package extl
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -9,6 +10,8 @@ import (
 	"strings"
 
 	"errors"
+
+	"github.com/warpdl/warpdl/internal/extl/auth"
 )
 
 // Module represents a loaded JavaScript extension with its metadata and runtime.
@@ -31,11 +34,25 @@ type Module struct {
 	// Assets should be filled with all the files that must be loaded with the extension.
 	// For example: any extra js files that are imported in main.js.
 	Assets []string `json:"assets,omitempty"`
+	// Auth is the optional OAuth2 authentication configuration declared
+	// in the plugin manifest. nil when the plugin requires no auth.
+	// Parsed + validated + normalized by OpenModule.
+	Auth *auth.OAuth2Config `json:"auth,omitempty"`
 	// modulePath is the module directory path (*/extstore/{module_hash}/)
 	modulePath string
 	// runtime is the module exclusive JavaScript runtime
 	runtime *Runtime
-	l       *log.Logger
+	// provider is the AuthProvider wired by Engine.attachProvider when
+	// this module has a non-nil Auth block. nil otherwise.
+	provider auth.AuthProvider
+	l        *log.Logger
+}
+
+// Provider returns the AuthProvider for this module, or nil if the
+// manifest didn't declare an auth block (or the engine was constructed
+// without a TokenManager/FlowRegistry).
+func (m *Module) Provider() auth.AuthProvider {
+	return m.provider
 }
 
 // OpenModule tries to create a module object by reading its manifest.
@@ -62,6 +79,13 @@ func OpenModule(l *log.Logger, path string) (*Module, error) {
 	}
 	if m.Entrypoint == "" {
 		m.Entrypoint = DEF_MODULE_ENTRY
+	}
+	if m.Auth != nil {
+		normalized, err := auth.NormalizeOAuth2Config(*m.Auth)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", m.Name, err)
+		}
+		m.Auth = &normalized
 	}
 	return &m, nil
 }
@@ -106,25 +130,73 @@ func (m *Module) Load() error {
 	return nil
 }
 
-// Extract invokes the module's JavaScript extract function with the given URL.
-// It returns the transformed download URL or an error if extraction fails.
-// Returns ErrInteractionEnded if the module explicitly ends the interaction.
-func (m *Module) Extract(url string) (string, error) {
+// ExtractResult is the structured return value of a plugin's extract()
+// function. Plugins may return either a plain URL string (legacy
+// contract) or a {url, headers} object — both produce an ExtractResult.
+// Future-compatible: additional optional fields (cookies, method, body)
+// can be added here without breaking string-return plugins.
+type ExtractResult struct {
+	// URL is the resolved/transformed download URL.
+	URL string
+	// Headers are extra HTTP headers the downloader should attach when
+	// fetching URL. May be nil or empty. Plugins return these as a flat
+	// {string: string} object in JS; non-string values are rejected.
+	Headers map[string]string
+}
+
+// Extract invokes the module's JavaScript extract function with the
+// given URL. The JS function may return either a plain string (legacy
+// contract) or an object of the form {url: string, headers?: {string:
+// string}}. Returns ErrInteractionEnded if the module explicitly ends
+// the interaction, ErrInvalidReturnType if the return value doesn't
+// match either expected shape.
+func (m *Module) Extract(url string) (ExtractResult, error) {
 	// call the extract function in js runtime
-	v, err := m.runtime.RunString(EXTRACT_CALLBACK + `("` + url + `")`)
+	v, err := m.runtime.RunString(EXTRACT_CALLBACK + `(` + jsQuote(url) + `)`)
 	if err != nil {
-		return "", err
+		return ExtractResult{}, err
 	}
-	// export the url returned by the extract function in js runtime
-	url, ok := v.Export().(string)
-	if !ok {
-		return "", ErrInvalidReturnType
+	exported := v.Export()
+	switch x := exported.(type) {
+	case string:
+		// return ErrInteractionEnded in case the user interaction
+		// failed with the module, or if the module explicitly chose
+		// to end the interaction.
+		if x == EXPORTED_END {
+			return ExtractResult{}, ErrInteractionEnded
+		}
+		return ExtractResult{URL: x}, nil
+	case map[string]any:
+		rawURL, ok := x["url"].(string)
+		if !ok || rawURL == "" {
+			return ExtractResult{}, ErrInvalidReturnType
+		}
+		if rawURL == EXPORTED_END {
+			return ExtractResult{}, ErrInteractionEnded
+		}
+		var headers map[string]string
+		if raw, ok := x["headers"].(map[string]any); ok && len(raw) > 0 {
+			headers = make(map[string]string, len(raw))
+			for k, val := range raw {
+				s, ok := val.(string)
+				if !ok {
+					return ExtractResult{}, ErrInvalidReturnType
+				}
+				headers[k] = s
+			}
+		}
+		return ExtractResult{URL: rawURL, Headers: headers}, nil
+	default:
+		return ExtractResult{}, ErrInvalidReturnType
 	}
-	// return ErrInteractionEnded in case the user interaction
-	// failed with module, or if the module explicitly chose to
-	// end the interaction.
-	if url == EXPORTED_END {
-		return "", ErrInteractionEnded
-	}
-	return url, nil
+}
+
+// jsQuote wraps s in a JSON string literal so it is safe to splice into
+// a JavaScript expression. The prior implementation concatenated the
+// URL with bare double-quotes, which broke on URLs containing quotes,
+// backslashes, or newlines — and opened a minor injection surface.
+// json.Marshal on a string always yields a valid JS string literal.
+func jsQuote(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b)
 }
