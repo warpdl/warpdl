@@ -332,6 +332,71 @@ func TestModuleLoadErrors(t *testing.T) {
 	}
 }
 
+// A plugin may return {url, headers, filename}. The filename flows
+// through ExtractResult.FileName so download.go can use it as a hint
+// when the user didn't pass -o and the server doesn't send
+// Content-Disposition (e.g. Drive API /alt=media).
+func TestModuleExtractPropagatesFileName(t *testing.T) {
+	modDir := writeModuleWithMain(t, t.TempDir(), "main.js",
+		`function extract(u){ return {url: u, filename: "My Real File.pdf", headers: {"Authorization":"Bearer X"}}; }`)
+	m, err := OpenModule(log.New(io.Discard, "", 0), modDir)
+	if err != nil {
+		t.Fatalf("OpenModule: %v", err)
+	}
+	if err := m.Load(); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	res, err := m.Extract("http://example.com")
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	if res.FileName != "My Real File.pdf" {
+		t.Errorf("FileName = %q, want %q", res.FileName, "My Real File.pdf")
+	}
+	if res.Headers["Authorization"] != "Bearer X" {
+		t.Errorf("header lost: %#v", res.Headers)
+	}
+}
+
+// A non-string filename must be rejected to keep the contract tight.
+func TestModuleExtractRejectsNonStringFileName(t *testing.T) {
+	modDir := writeModuleWithMain(t, t.TempDir(), "main.js",
+		`function extract(u){ return {url: u, filename: 42}; }`)
+	m, err := OpenModule(log.New(io.Discard, "", 0), modDir)
+	if err != nil {
+		t.Fatalf("OpenModule: %v", err)
+	}
+	if err := m.Load(); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if _, err := m.Extract("http://example.com"); err != ErrInvalidReturnType {
+		t.Fatalf("expected ErrInvalidReturnType, got %v", err)
+	}
+}
+
+// Omitting filename must not fail — FileName is optional.
+func TestModuleExtractFileNameOptional(t *testing.T) {
+	modDir := writeModuleWithMain(t, t.TempDir(), "main.js",
+		`function extract(u){ return {url: u}; }`)
+	m, err := OpenModule(log.New(io.Discard, "", 0), modDir)
+	if err != nil {
+		t.Fatalf("OpenModule: %v", err)
+	}
+	if err := m.Load(); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	res, err := m.Extract("http://example.com")
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	if res.FileName != "" {
+		t.Errorf("FileName = %q, want empty", res.FileName)
+	}
+	if res.URL != "http://example.com" {
+		t.Errorf("URL round-trip lost: %q", res.URL)
+	}
+}
+
 func TestModuleExtractErrors(t *testing.T) {
 	modDir := writeModuleWithMain(t, t.TempDir(), "main.js", "function extract(url){ return 1; }\n")
 	m, err := OpenModule(log.New(io.Discard, "", 0), modDir)

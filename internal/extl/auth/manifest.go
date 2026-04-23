@@ -6,10 +6,17 @@ import (
 )
 
 // OAuth2Config is the `auth` block of a plugin manifest.
+//
+// ClientSecret is optional. Some IdPs — notably Google's "Desktop app"
+// OAuth client type — still require the client_secret field on /token
+// requests even though the app is a public (PKCE) client. In that case
+// the secret is embedded in the distributed plugin and is not
+// cryptographically secret. Plugins that can rely on pure PKCE should
+// leave this empty.
 type OAuth2Config struct {
 	Type            string            `json:"type"`
 	ClientID        string            `json:"client_id"`
-	ClientSecret    string            `json:"client_secret,omitempty"` // REJECTED; kept for friendly error
+	ClientSecret    string            `json:"client_secret,omitempty"`
 	Scopes          []string          `json:"scopes"`
 	AuthorizeURL    string            `json:"authorize_url"`
 	TokenURL        string            `json:"token_url"`
@@ -26,10 +33,6 @@ func ValidateOAuth2Config(cfg OAuth2Config) error {
 	}
 	if cfg.Type != "oauth2" {
 		return fmt.Errorf("auth: only type \"oauth2\" is supported (got %q)", cfg.Type)
-	}
-	if cfg.ClientSecret != "" {
-		return fmt.Errorf("auth: client_secret is not supported " +
-			"(PKCE public clients only). Remove client_secret from the manifest.")
 	}
 	if cfg.ClientID == "" {
 		return fmt.Errorf("auth: client_id is required")

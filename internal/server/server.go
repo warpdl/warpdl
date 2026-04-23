@@ -49,6 +49,14 @@ func (s *Server) RegisterHandler(method common.UpdateType, handler HandlerFunc) 
 	s.handler[method] = handler
 }
 
+// Pool returns the server's download pool. Exposed so daemon code can
+// broadcast error events on async paths (e.g. queue auto-start failures)
+// that would otherwise only log to the daemon console and leave the CLI
+// polling forever.
+func (s *Server) Pool() *Pool {
+	return s.pool
+}
+
 // Start begins listening for incoming connections and blocks until the context is canceled.
 // It first starts the web server in a separate goroutine, then creates a platform-specific
 // listener (Unix socket/named pipe with TCP fallback) and accepts connections in a loop.

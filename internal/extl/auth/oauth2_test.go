@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -25,6 +26,8 @@ type stubIdP struct {
 	lastCode         string
 	lastVerifier     string
 	lastRefreshToken string
+	lastClientID     string
+	lastClientSecret string
 }
 
 func newStubIdP(t *testing.T, access, refresh string, expiresIn int) *stubIdP {
@@ -38,6 +41,8 @@ func newStubIdP(t *testing.T, access, refresh string, expiresIn int) *stubIdP {
 		s.lastCode = r.FormValue("code")
 		s.lastVerifier = r.FormValue("code_verifier")
 		s.lastRefreshToken = r.FormValue("refresh_token")
+		s.lastClientID = r.FormValue("client_id")
+		s.lastClientSecret = r.FormValue("client_secret")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"access_token":  access,
 			"refresh_token": refresh,
@@ -61,6 +66,10 @@ func newInsecureTLSClient() *http.Client {
 }
 
 func makeTestProvider(t *testing.T, tokenURL, revokeURL string) (*OAuth2Provider, *credman.TokenManager) {
+	return makeTestProviderWithSecret(t, tokenURL, revokeURL, "")
+}
+
+func makeTestProviderWithSecret(t *testing.T, tokenURL, revokeURL, clientSecret string) (*OAuth2Provider, *credman.TokenManager) {
 	t.Helper()
 	key := make([]byte, 32)
 	_, _ = rand.Read(key)
@@ -72,6 +81,7 @@ func makeTestProvider(t *testing.T, tokenURL, revokeURL string) (*OAuth2Provider
 	cfg := OAuth2Config{
 		Type:         "oauth2",
 		ClientID:     "client-id",
+		ClientSecret: clientSecret,
 		Scopes:       []string{"drive.readonly"},
 		AuthorizeURL: "https://example.com/authorize",
 		TokenURL:     tokenURL,
@@ -508,5 +518,146 @@ func TestDeviceCodeFlow(t *testing.T) {
 	}
 	if tokenCalls.Load() < 3 {
 		t.Fatalf("expected 3 polls, got %d", tokenCalls.Load())
+	}
+}
+
+// Google Desktop-app OAuth clients require client_secret on /token even
+// though the flow is PKCE. Regression test for the "client_secret is
+// missing" rejection from Google's token endpoint.
+func TestExchangeCodeSendsClientSecretWhenConfigured(t *testing.T) {
+	idp := newStubIdP(t, "AT1", "RT1", 3600)
+	p, _ := makeTestProviderWithSecret(t, idp.server.URL+"/token", "", "GOCSPX-test-secret")
+	verifier, _ := NewPKCEVerifier()
+	if _, err := p.ExchangeCode(context.Background(), types.TokenKey{PluginID: "plugin-1"}, "CODE", verifier, "http://127.0.0.1/cb"); err != nil {
+		t.Fatalf("ExchangeCode: %v", err)
+	}
+	if idp.lastClientID != "client-id" {
+		t.Fatalf("client_id = %q", idp.lastClientID)
+	}
+	if idp.lastClientSecret != "GOCSPX-test-secret" {
+		t.Fatalf("client_secret not sent: got %q", idp.lastClientSecret)
+	}
+}
+
+// When the manifest supplies no client_secret, pure PKCE must stay pure —
+// never inject anything into the form.
+func TestExchangeCodeOmitsClientSecretByDefault(t *testing.T) {
+	idp := newStubIdP(t, "AT1", "RT1", 3600)
+	p, _ := makeTestProvider(t, idp.server.URL+"/token", "")
+	verifier, _ := NewPKCEVerifier()
+	if _, err := p.ExchangeCode(context.Background(), types.TokenKey{PluginID: "plugin-1"}, "CODE", verifier, "http://127.0.0.1/cb"); err != nil {
+		t.Fatalf("ExchangeCode: %v", err)
+	}
+	if idp.lastClientSecret != "" {
+		t.Fatalf("client_secret leaked into PKCE flow: %q", idp.lastClientSecret)
+	}
+}
+
+// Refresh grant must also carry client_secret; Google's /token rejects
+// refresh_token grants from Desktop clients without it.
+func TestRefreshSendsClientSecretWhenConfigured(t *testing.T) {
+	idp := newStubIdP(t, "AT-REFRESHED", "RT-ROTATED", 3600)
+	p, tm := makeTestProviderWithSecret(t, idp.server.URL+"/token", "", "GOCSPX-test-secret")
+	key := types.TokenKey{PluginID: "plugin-1"}
+	_ = tm.Set(key, &types.OAuth2Token{
+		AccessToken:  "OLD",
+		RefreshToken: "RT-OLD",
+		ExpiresAt:    time.Now().Add(-time.Minute),
+		Scopes:       []string{"drive.readonly"},
+	})
+	if _, err := p.Token(context.Background(), key, []string{"drive.readonly"}); err != nil {
+		t.Fatalf("Token: %v", err)
+	}
+	if idp.lastGrant != "refresh_token" {
+		t.Fatalf("grant_type = %q", idp.lastGrant)
+	}
+	if idp.lastClientSecret != "GOCSPX-test-secret" {
+		t.Fatalf("client_secret not sent on refresh: got %q", idp.lastClientSecret)
+	}
+}
+
+// Device-code grant (RFC 8628) runs through postToken too; client_secret
+// must be included when configured.
+func TestDeviceCodeGrantSendsClientSecretWhenConfigured(t *testing.T) {
+	var tokenCalls atomic.Int32
+	var seenSecret atomic.Value
+	seenSecret.Store("")
+	mux := http.NewServeMux()
+	mux.HandleFunc("/device/code", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"device_code":      "DEVICE-CODE-123",
+			"user_code":        "ABCD-1234",
+			"verification_url": "https://example.com/device",
+			"expires_in":       600,
+			"interval":         1,
+		})
+	})
+	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		seenSecret.Store(r.FormValue("client_secret"))
+		tokenCalls.Add(1)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token":  "DEV-AT",
+			"refresh_token": "DEV-RT",
+			"token_type":    "Bearer",
+			"expires_in":    3600,
+			"scope":         "drive.readonly",
+		})
+	})
+	srv := httptest.NewTLSServer(mux)
+	defer srv.Close()
+
+	key := make([]byte, 32)
+	_, _ = rand.Read(key)
+	tm, _ := credman.NewTokenManager(filepath.Join(t.TempDir(), "tokens.gob"), key)
+	defer tm.Close()
+	cfg := OAuth2Config{
+		Type:         "oauth2",
+		ClientID:     "c",
+		ClientSecret: "GOCSPX-device-secret",
+		Scopes:       []string{"drive.readonly"},
+		AuthorizeURL: "https://example.com/authorize",
+		TokenURL:     srv.URL + "/token",
+		DeviceURL:    srv.URL + "/device/code",
+		PKCEMethod:   "S256",
+	}
+	cfg, _ = NormalizeOAuth2Config(cfg)
+	p := NewOAuth2Provider("pid", cfg, tm, NewFlowRegistry(time.Minute))
+	p.client = newInsecureTLSClient()
+
+	init, err := p.StartDeviceCode(context.Background())
+	if err != nil {
+		t.Fatalf("StartDeviceCode: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if _, err := p.PollDeviceCode(ctx, init); err != nil {
+		t.Fatalf("PollDeviceCode: %v", err)
+	}
+	if got := seenSecret.Load().(string); got != "GOCSPX-device-secret" {
+		t.Fatalf("client_secret not sent on device_code grant: got %q", got)
+	}
+	if tokenCalls.Load() == 0 {
+		t.Fatal("/token never called")
+	}
+}
+
+// A caller that has already set client_secret on the form (future-proof
+// against exotic grants) must not be overwritten by the manifest's value.
+func TestPostTokenPreservesExplicitClientSecret(t *testing.T) {
+	idp := newStubIdP(t, "AT", "", 3600)
+	p, _ := makeTestProviderWithSecret(t, idp.server.URL+"/token", "", "MANIFEST-SECRET")
+	form := url.Values{}
+	form.Set("grant_type", "authorization_code")
+	form.Set("code", "x")
+	form.Set("redirect_uri", "http://127.0.0.1/cb")
+	form.Set("client_id", "client-id")
+	form.Set("code_verifier", "verifier")
+	form.Set("client_secret", "EXPLICIT-SECRET")
+	if _, err := p.postToken(context.Background(), form, nil); err != nil {
+		t.Fatalf("postToken: %v", err)
+	}
+	if idp.lastClientSecret != "EXPLICIT-SECRET" {
+		t.Fatalf("caller-provided client_secret clobbered: got %q", idp.lastClientSecret)
 	}
 }

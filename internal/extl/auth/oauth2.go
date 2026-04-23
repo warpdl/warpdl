@@ -237,6 +237,13 @@ func (p *OAuth2Provider) muFor(key types.TokenKey) *sync.Mutex {
 }
 
 func (p *OAuth2Provider) postToken(ctx context.Context, form url.Values, prior *types.OAuth2Token) (*types.OAuth2Token, error) {
+	// Some IdPs (e.g. Google Desktop-app clients) require the client_secret
+	// on /token even though the app uses PKCE. Include it when the manifest
+	// declares one. Pure PKCE public clients leave it empty and it stays
+	// out of the form.
+	if p.cfg.ClientSecret != "" && form.Get("client_secret") == "" {
+		form.Set("client_secret", p.cfg.ClientSecret)
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.cfg.TokenURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		return nil, err

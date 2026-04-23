@@ -22,6 +22,14 @@ func TestValidateMinimal(t *testing.T) {
 	}
 }
 
+func TestValidateAcceptsOptionalClientSecret(t *testing.T) {
+	c := validCfg()
+	c.ClientSecret = "GOCSPX-embedded-secret"
+	if err := ValidateOAuth2Config(c); err != nil {
+		t.Fatalf("config with client_secret rejected: %v", err)
+	}
+}
+
 func TestValidateDefaultsPKCE(t *testing.T) {
 	c := validCfg()
 	c.PKCEMethod = ""
@@ -51,7 +59,6 @@ func TestValidateRejectsCases(t *testing.T) {
 		{"https no host", func(c *OAuth2Config) { c.AuthorizeURL = "https://" }, "missing host"},
 		{"https opaque", func(c *OAuth2Config) { c.AuthorizeURL = "https:example.com" }, "missing host"},
 		{"bad pkce", func(c *OAuth2Config) { c.PKCEMethod = "wat" }, "pkce"},
-		{"forbidden secret", func(c *OAuth2Config) { c.ClientSecret = "s" }, "client_secret"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

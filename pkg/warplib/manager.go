@@ -815,6 +815,41 @@ func (m *Manager) FlushOne(hash string) error {
 	return WarpRemoveAll(GetPath(DlDataDir, hash))
 }
 
+// PurgeFailedDownload removes a download entry that never wrote any
+// bytes. Unlike FlushOne it does NOT refuse items whose dAlloc pointer
+// is still set: an item that fails inside item.Start()/Resume() may
+// leave dAlloc populated even though the download never made progress,
+// and history hygiene requires we drop those rows anyway. Items that
+// downloaded any bytes (Downloaded > 0) are KEPT so the user can
+// resume — the caller is responsible for the Downloaded == 0 check.
+//
+// Returns nil if the hash isn't in the manager (idempotent — safe to
+// call from a generic error path even if the item was never added).
+func (m *Manager) PurgeFailedDownload(hash string) error {
+	if p := m.persister.Load(); p != nil {
+		if err := p.flush(); err != nil {
+			return fmt.Errorf("flush persister: %w", err)
+		}
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	item, found := m.items[hash]
+	if !found {
+		return nil
+	}
+	delete(m.items, hash)
+	if err := m.persistItems(); err != nil {
+		// Restore on persist error to keep on-disk state consistent.
+		m.items[hash] = item
+		return fmt.Errorf("purge failed download: %w", err)
+	}
+	if err := m.f.Sync(); err != nil {
+		return fmt.Errorf("purge failed download sync: %w", err)
+	}
+	return WarpRemoveAll(GetPath(DlDataDir, hash))
+}
+
 // Close closes the manager safely, ensuring all data is persisted.
 // Safe to call multiple times and concurrently; only the first
 // caller performs the shutdown, others are no-ops.
