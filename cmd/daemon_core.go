@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"encoding/hex"
+	"fmt"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -178,49 +179,26 @@ var initDaemonComponents = func(log logger.Logger, maxConcurrent int, rpcCfg *se
 		return nil, err
 	}
 
-	// Set up download queue if max-concurrent is specified
-	if maxConcurrent > 0 {
-		// onStartDownload is called by the queue when a slot becomes available
-		// for a waiting download. It auto-resumes the queued download.
-		onStartDownload := func(hash string) {
-			item := m.GetItem(hash)
-			if item == nil {
-				log.Error("Queue auto-start failed for %s: item not found", hash)
-				return
-			}
-
-			if !item.HasParts() {
-				go func() {
-					if err := item.Start(); err != nil {
-						log.Error("Queue auto-start failed for %s: %v", hash, err)
-					}
-				}()
-				log.Info("Queue auto-started download: %s", hash)
-				return
-			}
-
-			item, err := m.ResumeDownload(client, hash, nil)
-			if err != nil {
-				log.Error("Queue auto-start failed for %s: %v", hash, err)
-				return
-			}
-			// Start the download in background
-			go func() {
-				if err := item.Resume(); err != nil {
-					log.Error("Queue auto-resume failed for %s: %v", hash, err)
-				}
-			}()
-			log.Info("Queue auto-started download: %s", hash)
-		}
-		m.SetMaxConcurrentDownloads(maxConcurrent, onStartDownload)
-		log.Info("Download queue enabled: max %d concurrent", maxConcurrent)
-	}
+	// Queue setup is deferred until after the Server is constructed
+	// (below) so onStartDownload can capture the pool and broadcast
+	// errors back to any connected CLI. Wiring it before the server
+	// existed meant failures were silent: only the daemon console saw
+	// them; the CLI kept polling at 0 B/s forever.
 
 	// Create SchemeRouter for protocol dispatch (http, https, ftp, ftps)
 	router := warplib.NewSchemeRouter(client)
 	m.SetSchemeRouter(router)
 
-	// Initialize scheduler for --start-at scheduling
+	// Initialize scheduler for --start-at scheduling.
+	//
+	// schedPool is nil during startup (missed-schedule replay) and gets
+	// populated below once the server exists. Closures capture it by
+	// reference so trigger callbacks that fire AFTER the server is up
+	// will see a non-nil pool and broadcast failures to any connected
+	// CLI. Nil-safe: ReportAsyncDownloadError does nothing useful with
+	// a nil pool — we guard the call site instead of unsafely passing
+	// nil and crashing.
+	var schedPool *server.Pool
 	schedCtx, schedCancel := context.WithCancel(context.Background())
 	triggerFn := func(hash string) {
 		log.Info("Scheduler triggered download: %s", hash)
@@ -269,6 +247,9 @@ var initDaemonComponents = func(log logger.Logger, maxConcurrent int, rpcCfg *se
 			go func() {
 				if err := item.Start(); err != nil {
 					log.Error("Scheduler trigger: Start failed for %s: %v", hash, err)
+					if schedPool != nil {
+						api.ReportAsyncDownloadError(schedPool, hash, err, m)
+					}
 				}
 			}()
 			return
@@ -278,11 +259,17 @@ var initDaemonComponents = func(log logger.Logger, maxConcurrent int, rpcCfg *se
 		resumedItem, err := m.ResumeDownload(client, hash, nil)
 		if err != nil {
 			log.Error("Scheduler trigger: ResumeDownload failed for %s: %v", hash, err)
+			if schedPool != nil {
+				api.ReportAsyncDownloadError(schedPool, hash, err, m)
+			}
 			return
 		}
 		go func() {
 			if err := resumedItem.Resume(); err != nil {
 				log.Error("Scheduler trigger: Resume failed for %s: %v", hash, err)
+				if schedPool != nil {
+					api.ReportAsyncDownloadError(schedPool, hash, err, m)
+				}
 			}
 		}()
 	}
@@ -332,6 +319,55 @@ var initDaemonComponents = func(log logger.Logger, maxConcurrent int, rpcCfg *se
 	// Create server
 	serv := server.NewServer(stdLog, m, DEF_PORT, client, router, rpcCfg)
 	s.RegisterHandlers(serv)
+
+	// Now that the pool exists, wire up the queue's auto-start callback so
+	// any failure surfaces to both logs.txt (via item.Start/Resume) and
+	// the CLI (via pool.Broadcast). Without broadcasting the CLI would
+	// poll progress forever, never learning the download never actually
+	// began.
+	// Populate the late-bound scheduler pool reference so trigger
+	// callbacks firing after daemon startup can broadcast failures.
+	schedPool = serv.Pool()
+
+	if maxConcurrent > 0 {
+		pool := serv.Pool()
+		onStartDownload := func(hash string) {
+			item := m.GetItem(hash)
+			if item == nil {
+				err := fmt.Errorf("queue auto-start: item %s not found", hash)
+				log.Error("%v", err)
+				api.ReportAsyncDownloadError(pool, hash, err, m)
+				return
+			}
+
+			if !item.HasParts() {
+				go func() {
+					if err := item.Start(); err != nil {
+						log.Error("Queue auto-start failed for %s: %v", hash, err)
+						api.ReportAsyncDownloadError(pool, hash, err, m)
+					}
+				}()
+				log.Info("Queue auto-started download: %s", hash)
+				return
+			}
+
+			resumed, err := m.ResumeDownload(client, hash, nil)
+			if err != nil {
+				log.Error("Queue auto-start failed for %s: %v", hash, err)
+				api.ReportAsyncDownloadError(pool, hash, err, m)
+				return
+			}
+			go func() {
+				if err := resumed.Resume(); err != nil {
+					log.Error("Queue auto-resume failed for %s: %v", hash, err)
+					api.ReportAsyncDownloadError(pool, hash, err, m)
+				}
+			}()
+			log.Info("Queue auto-started download: %s", hash)
+		}
+		m.SetMaxConcurrentDownloads(maxConcurrent, onStartDownload)
+		log.Info("Download queue enabled: max %d concurrent", maxConcurrent)
+	}
 
 	return &DaemonComponents{
 		CookieManager:   cm,

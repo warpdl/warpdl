@@ -70,6 +70,10 @@ type Downloader struct {
 	// plugin did not anticipate. Set only when opts.PluginHeaders was
 	// populated; nil means no plugin headers.
 	pluginHeaderNames map[string]struct{}
+	// lockFileName, when true, disables auto-rename on collision. Mirrors
+	// DownloaderOpts.LockFileName so the runtime can decide policy in
+	// fetchInfo / openFile.
+	lockFileName bool
 	// total downloaded bytes
 	nread int64
 	// dlPath is the path where the downloaded content
@@ -160,8 +164,18 @@ type DownloaderOpts struct {
 	RetryConfig *RetryConfig
 
 	// Overwrite allows replacing an existing file at the destination path.
-	// If false and the file exists, the download will fail with ErrFileExists.
+	// If false and the file exists, the download will be auto-renamed
+	// browser-style (foo.pdf -> foo (1).pdf) UNLESS LockFileName is set,
+	// in which case the download fails with ErrFileExists.
 	Overwrite bool
+
+	// LockFileName disables auto-rename on collision. Set this when the
+	// caller (typically the user passing -o/--filename on the CLI)
+	// supplied an explicit filename that must not be silently changed.
+	// Plugin-supplied filename hints leave this false so a retry of a
+	// previous failed download falls back to "name (1).ext" instead of
+	// erroring out.
+	LockFileName bool
 
 	// ProxyURL specifies the proxy server URL to use for the download.
 	// Supported schemes: http, https, socks5.
@@ -265,6 +279,7 @@ func NewDownloader(client *http.Client, url string, opts *DownloaderOpts, optFun
 		maxParts:           opts.MaxSegments,
 		headers:            opts.Headers,
 		pluginHeaderNames:  pluginHeaderNames,
+		lockFileName:       opts.LockFileName,
 		resumable:          true,
 		retryConfig:        retryConfig,
 		overwrite:          opts.Overwrite,
@@ -416,6 +431,15 @@ func initDownloader(client *http.Client, hash, url string, cLength ContentLength
 // until the downloading is complete.
 func (d *Downloader) Start() (err error) {
 	defer d.lw.Close()
+	// Log every exit path on error so logs.txt tells the same story the
+	// caller sees. Without this, a failed openFile / disk check / etc.
+	// left logs.txt with only the init lines and the user had to chase
+	// the daemon console to find out why their download never started.
+	defer func() {
+		if err != nil {
+			d.Log("Start failed: %v", err)
+		}
+	}()
 	err = d.openFile()
 	if err != nil {
 		return
@@ -502,6 +526,11 @@ func (d *Downloader) Start() (err error) {
 // It blocks the current goroutine until the download is complete.
 func (d *Downloader) Resume(parts map[int64]*ItemPart) (err error) {
 	defer d.lw.Close()
+	defer func() {
+		if err != nil {
+			d.Log("Resume failed: %v", err)
+		}
+	}()
 	if parts == nil {
 		return errors.New("invalid or uninitialized parts; cannot resume download")
 	}
@@ -1214,7 +1243,14 @@ func (d *Downloader) IsStopped() bool {
 
 // Log adds the provided string to download's log file.
 // It can't be used once download is complete.
+// Safe on a Downloader whose logger was never initialised (e.g. when
+// Start/Resume exits very early before setupLogger ran, or in tests
+// that skip full setup) — the call becomes a no-op instead of a nil
+// pointer panic.
 func (d *Downloader) Log(s string, a ...any) {
+	if d == nil || d.l == nil {
+		return
+	}
 	wlog(d.l, s, a...)
 }
 
@@ -1331,6 +1367,50 @@ func (d *Downloader) checkContentType(h *http.Header) (err error) {
 	return
 }
 
+// httpErrorBodyPeek bounds how much of a 4xx/5xx response body we pull
+// into the error message. Just enough to surface a useful server
+// message ("Drive API not enabled", "invalid_token", ...) without
+// flooding terminals when the server streams a huge error HTML page.
+const httpErrorBodyPeek = 2048
+
+// HTTPStatusError is returned by fetchInfo when the server responds
+// with a non-success status for the initial download request. Callers
+// can test with errors.As / errors.Is to distinguish "network is fine,
+// server rejected us" from transport errors.
+type HTTPStatusError struct {
+	StatusCode int
+	Status     string
+	URL        string
+	Snippet    string // first few KB of body, trimmed
+}
+
+func (e *HTTPStatusError) Error() string {
+	if e.Snippet == "" {
+		return fmt.Sprintf("HTTP %s for %s", e.Status, e.URL)
+	}
+	return fmt.Sprintf("HTTP %s for %s: %s", e.Status, e.URL, e.Snippet)
+}
+
+func newHTTPStatusError(resp *http.Response) *HTTPStatusError {
+	e := &HTTPStatusError{
+		StatusCode: resp.StatusCode,
+		Status:     resp.Status,
+	}
+	if resp.Request != nil && resp.Request.URL != nil {
+		e.URL = resp.Request.URL.String()
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, httpErrorBodyPeek+1))
+	snippet := string(bytes.TrimSpace(body))
+	if len(snippet) > httpErrorBodyPeek {
+		snippet = snippet[:httpErrorBodyPeek] + "…"
+	}
+	// Collapse runs of whitespace so multi-line HTML/JSON error pages
+	// don't blow up the CLI output.
+	snippet = strings.Join(strings.Fields(snippet), " ")
+	e.Snippet = snippet
+	return e
+}
+
 // fetchInfo fetches the information about the file to be downloaded.
 // It sets the content length, file name, and prepares the downloader.
 // After the initial request, if the URL was redirected, d.url is updated
@@ -1343,6 +1423,15 @@ func (d *Downloader) fetchInfo() (err error) {
 		return
 	}
 	defer resp.Body.Close()
+
+	// Guard: if the server returned a non-2xx/3xx the body is almost
+	// certainly an error page or JSON, not the file. Treating it as file
+	// content (as we used to) saves nonsense to disk and hides whatever
+	// the server actually said. Surface the status + a body excerpt so
+	// the user sees the real message (e.g. "Drive API not enabled").
+	if resp.StatusCode >= 400 {
+		return newHTTPStatusError(resp)
+	}
 
 	// Update URL to final resolved URL after any redirect chain.
 	// This ensures all subsequent Range requests (parallel segments)
@@ -1377,6 +1466,21 @@ func (d *Downloader) fetchInfo() (err error) {
 	err = d.setFileName(resp.Request, &h)
 	if err != nil {
 		return
+	}
+
+	// Auto-rename on destination collision (browser-style: "name (1).ext")
+	// so a retry of a previously-failed download doesn't get blocked by
+	// the leftover stub file. Skipped when:
+	//   - the user explicitly chose --overwrite (their intent wins)
+	//   - the user explicitly named the file via --filename (LockFileName)
+	// In LockFileName mode the collision will surface later from
+	// openFile() as ErrFileExists, matching previous behaviour exactly.
+	if !d.overwrite && !d.lockFileName && d.fileName != "" {
+		candidate := GetPath(d.dlLoc, d.fileName)
+		uniq, uerr := uniquifyPath(candidate)
+		if uerr == nil && uniq != candidate {
+			d.fileName = filepath.Base(uniq)
+		}
 	}
 
 	// Extract checksums from response headers

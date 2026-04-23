@@ -38,6 +38,20 @@ func (s *Api) downloadHandler(sconn *server.SyncConn, pool *server.Pool, body js
 		pluginHeaders = append(pluginHeaders, warplib.Header{Key: k, Value: v})
 	}
 
+	// If the user did NOT pass -o/--filename but the plugin supplied a
+	// filename hint (e.g. Drive's files.get?fields=name result), use it.
+	// User intent always wins over plugin hints.
+	//
+	// userExplicitFileName is captured BEFORE the plugin fallback so the
+	// downloader knows whether to lock the name (user-chosen, error on
+	// collision) or auto-rename it browser-style (URL/plugin-derived,
+	// rename to "foo (1).pdf" so a retry of a failed download isn't
+	// blocked by the leftover stub).
+	userExplicitFileName := m.FileName != ""
+	if m.FileName == "" && extRes.FileName != "" {
+		m.FileName = extRes.FileName
+	}
+
 	// Detect scheme to choose code path
 	parsed, parseErr := url.Parse(dlURL)
 	if parseErr != nil {
@@ -49,24 +63,52 @@ func (s *Api) downloadHandler(sconn *server.SyncConn, pool *server.Pool, body js
 	case "ftp", "ftps", "sftp":
 		return s.downloadProtocolHandler(sconn, pool, dlURL, scheme, &m)
 	default:
-		return s.downloadHTTPHandler(sconn, pool, dlURL, &m, pluginHeaders)
+		return s.downloadHTTPHandler(sconn, pool, dlURL, &m, pluginHeaders, userExplicitFileName)
 	}
 }
 
-func reportAsyncDownloadError(pool *server.Pool, uid string, err error) {
+// ReportAsyncDownloadError pushes an async-path error (queue auto-start
+// failure, scheduler trigger failure, goroutine panic) through the pool
+// so any connected CLI sees an InitError broadcast and Stop event
+// instead of polling progress forever.
+//
+// When mgr is non-nil and the failed download never wrote a byte
+// (item.Downloaded == 0), the manager entry is purged. Rationale: a
+// download that died before writing anything has no resume state and
+// no completed bytes — leaving it in history is noise that accumulates
+// every retry. Mid-download failures (nread > 0) are kept so the user
+// can resume.
+//
+// Exported for daemon wiring (queue, scheduler).
+func ReportAsyncDownloadError(pool *server.Pool, uid string, err error, mgr *warplib.Manager) {
 	if err == nil {
 		return
 	}
 	pool.Broadcast(uid, server.InitError(err))
 	pool.WriteError(uid, server.ErrorTypeCritical, err.Error())
 	pool.StopDownload(uid)
+	if mgr != nil {
+		if item := mgr.GetItem(uid); item != nil && item.Downloaded == 0 {
+			_ = mgr.PurgeFailedDownload(uid)
+		}
+	}
+}
+
+// reportAsyncDownloadError is the api-internal helper that wraps
+// ReportAsyncDownloadError with the api's manager so zero-byte
+// failures are also purged from history.
+func (s *Api) reportAsyncDownloadError(pool *server.Pool, uid string, err error) {
+	ReportAsyncDownloadError(pool, uid, err, s.manager)
 }
 
 // downloadHTTPHandler handles HTTP and HTTPS downloads.
 // pluginHeaders carries headers sourced from a plugin's extract() result;
 // they are routed through DownloaderOpts.PluginHeaders so the downloader
 // strips them on cross-origin redirects (Task 19).
-func (s *Api) downloadHTTPHandler(sconn *server.SyncConn, pool *server.Pool, dlURL string, m *common.DownloadParams, pluginHeaders warplib.Headers) (common.UpdateType, any, error) {
+// userExplicitFileName is true when the user passed --filename on the CLI
+// (vs. a name supplied by a plugin or derived from the URL); the
+// downloader uses it to decide whether to auto-rename on collision.
+func (s *Api) downloadHTTPHandler(sconn *server.SyncConn, pool *server.Pool, dlURL string, m *common.DownloadParams, pluginHeaders warplib.Headers, userExplicitFileName bool) (common.UpdateType, any, error) {
 	// Determine which client to use based on proxy setting
 	dlClient := s.client
 	if m.Proxy != "" {
@@ -143,6 +185,7 @@ func (s *Api) downloadHTTPHandler(sconn *server.SyncConn, pool *server.Pool, dlU
 	d, err = warplib.NewDownloader(dlClient, dlURL, &warplib.DownloaderOpts{
 		Headers:           m.Headers,
 		PluginHeaders:     pluginHeaders,
+		LockFileName:      userExplicitFileName,
 		ForceParts:        m.ForceParts,
 		FileName:          m.FileName,
 		DownloadDirectory: m.DownloadDirectory,
@@ -328,7 +371,7 @@ func (s *Api) downloadHTTPHandler(sconn *server.SyncConn, pool *server.Pool, dlU
 	if s.manager.GetQueue() == nil {
 		go func() {
 			if err := d.Start(); err != nil {
-				reportAsyncDownloadError(pool, d.GetHash(), err)
+				s.reportAsyncDownloadError(pool, d.GetHash(), err)
 				_ = d.Close()
 			}
 		}()
@@ -442,7 +485,7 @@ func (s *Api) downloadProtocolHandler(sconn *server.SyncConn, pool *server.Pool,
 	if s.manager.GetQueue() == nil {
 		go func() {
 			if err := pd.Download(context.Background(), handlers); err != nil {
-				reportAsyncDownloadError(pool, pd.GetHash(), err)
+				s.reportAsyncDownloadError(pool, pd.GetHash(), err)
 				_ = pd.Close()
 			}
 		}()

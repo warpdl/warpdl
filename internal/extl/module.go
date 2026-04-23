@@ -132,9 +132,10 @@ func (m *Module) Load() error {
 
 // ExtractResult is the structured return value of a plugin's extract()
 // function. Plugins may return either a plain URL string (legacy
-// contract) or a {url, headers} object — both produce an ExtractResult.
-// Future-compatible: additional optional fields (cookies, method, body)
-// can be added here without breaking string-return plugins.
+// contract) or a {url, headers, filename} object — both produce an
+// ExtractResult. Future-compatible: additional optional fields
+// (cookies, method, body) can be added here without breaking
+// string-return plugins.
 type ExtractResult struct {
 	// URL is the resolved/transformed download URL.
 	URL string
@@ -142,6 +143,11 @@ type ExtractResult struct {
 	// fetching URL. May be nil or empty. Plugins return these as a flat
 	// {string: string} object in JS; non-string values are rejected.
 	Headers map[string]string
+	// FileName is an optional filename hint. When non-empty, the
+	// downloader prefers it over the URL-derived name and over
+	// Content-Disposition. Useful for APIs (e.g. Google Drive's
+	// /files/<id>?alt=media) that stream bytes without a C-D header.
+	FileName string
 }
 
 // Extract invokes the module's JavaScript extract function with the
@@ -185,7 +191,15 @@ func (m *Module) Extract(url string) (ExtractResult, error) {
 				headers[k] = s
 			}
 		}
-		return ExtractResult{URL: rawURL, Headers: headers}, nil
+		var filename string
+		if raw, ok := x["filename"]; ok && raw != nil {
+			s, sok := raw.(string)
+			if !sok {
+				return ExtractResult{}, ErrInvalidReturnType
+			}
+			filename = s
+		}
+		return ExtractResult{URL: rawURL, Headers: headers, FileName: filename}, nil
 	default:
 		return ExtractResult{}, ErrInvalidReturnType
 	}

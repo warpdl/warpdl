@@ -1601,7 +1601,7 @@ func TestStopHandlerCancelsScheduledItem(t *testing.T) {
 func TestReportAsyncDownloadError_NilError(t *testing.T) {
 	pool := server.NewPool(log.New(io.Discard, "", 0))
 	// Must not panic and must be a no-op for nil error
-	reportAsyncDownloadError(pool, "uid-1", nil)
+	ReportAsyncDownloadError(pool, "uid-1", nil, nil)
 }
 
 func TestReportAsyncDownloadError_WithError(t *testing.T) {
@@ -1609,7 +1609,7 @@ func TestReportAsyncDownloadError_WithError(t *testing.T) {
 	// With a real error the function broadcasts and stops the download.
 	// The pool has no active download registered so StopDownload is a no-op,
 	// but calling through the full path covers the three statements.
-	reportAsyncDownloadError(pool, "uid-2", errors.New("async failure"))
+	ReportAsyncDownloadError(pool, "uid-2", errors.New("async failure"), nil)
 }
 
 func TestStopHandlerCancelsRecurringItem(t *testing.T) {
