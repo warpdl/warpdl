@@ -63,6 +63,13 @@ type Downloader struct {
 	hash string
 	// headers to use for http requests
 	headers Headers
+	// pluginHeaderNames records the canonical names of headers that were
+	// supplied by a plugin's extract() return value. On cross-origin
+	// redirect these are stripped to avoid leaking credentials (e.g.
+	// plugin-injected Authorization tokens) to a redirect target the
+	// plugin did not anticipate. Set only when opts.PluginHeaders was
+	// populated; nil means no plugin headers.
+	pluginHeaderNames map[string]struct{}
 	// total downloaded bytes
 	nread int64
 	// dlPath is the path where the downloaded content
@@ -135,6 +142,15 @@ type DownloaderOpts struct {
 
 	Headers Headers
 
+	// PluginHeaders are headers returned by a plugin's extract() call.
+	// They are attached to every segment request (merged into Headers)
+	// and, unlike user-supplied Headers, are STRIPPED when following a
+	// cross-origin redirect so plugin-injected credentials do not leak
+	// to a redirect target the plugin did not anticipate. On same-origin
+	// redirects plugin headers are preserved (e.g. an API that 302s
+	// internally).
+	PluginHeaders Headers
+
 	Handlers *Handlers
 
 	SkipSetup bool
@@ -198,6 +214,11 @@ func NewDownloader(client *http.Client, url string, opts *DownloaderOpts, optFun
 		opts.Headers = make(Headers, 0)
 	}
 	opts.Headers.InitOrUpdate(USER_AGENT_KEY, DEF_USER_AGENT)
+	// Merge plugin-supplied headers into opts.Headers and record their
+	// canonical names so the cross-origin redirect path can strip them
+	// independently of the standard safe-header list.
+	pluginHeaderNames := buildPluginHeaderSet(opts.PluginHeaders)
+	mergePluginHeaders(&opts.Headers, opts.PluginHeaders)
 	// loc := opts.DownloadDirectory
 	// loc = strings.TrimSuffix(loc, "/")
 	// if loc == "" {
@@ -224,6 +245,11 @@ func NewDownloader(client *http.Client, url string, opts *DownloaderOpts, optFun
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
+	// Carry plugin header names on the downloader's root context so any
+	// request derived from it (parts, unknown-size fallback) inherits the
+	// strip set. The shared http.Client CheckRedirect consults this when
+	// handling cross-origin redirects.
+	ctx = WithPluginHeaderNames(ctx, pluginHeaderNames)
 	d = &Downloader{
 		ctx:                ctx,
 		cancel:             cancel,
@@ -238,6 +264,7 @@ func NewDownloader(client *http.Client, url string, opts *DownloaderOpts, optFun
 		dlLoc:              opts.DownloadDirectory,
 		maxParts:           opts.MaxSegments,
 		headers:            opts.Headers,
+		pluginHeaderNames:  pluginHeaderNames,
 		resumable:          true,
 		retryConfig:        retryConfig,
 		overwrite:          opts.Overwrite,
@@ -309,6 +336,13 @@ func initDownloader(client *http.Client, hash, url string, cLength ContentLength
 		opts.Headers = make(Headers, 0)
 	}
 	opts.Headers.InitOrUpdate(USER_AGENT_KEY, DEF_USER_AGENT)
+	// Merge plugin-supplied headers into opts.Headers and record their
+	// canonical names so the cross-origin redirect path can strip them
+	// independently of the standard safe-header list. Resume callers
+	// (manager.go) typically do not set PluginHeaders, so this is a
+	// no-op in the normal resume case.
+	pluginHeaderNames := buildPluginHeaderSet(opts.PluginHeaders)
+	mergePluginHeaders(&opts.Headers, opts.PluginHeaders)
 	// loc := opts.DownloadDirectory
 	// loc = strings.TrimSuffix(loc, "/")
 	// if loc == "" {
@@ -330,28 +364,32 @@ func initDownloader(client *http.Client, hash, url string, cLength ContentLength
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
+	// Carry plugin header names on the downloader's root context so any
+	// request derived from it inherits the strip set.
+	ctx = WithPluginHeaderNames(ctx, pluginHeaderNames)
 	d = &Downloader{
-		ctx:            ctx,
-		cancel:         cancel,
-		wg:             &sync.WaitGroup{},
-		client:         client,
-		url:            url,
-		maxConn:        opts.MaxConnections,
-		chunk:          int(DEF_CHUNK_SIZE),
-		force:          opts.ForceParts,
-		handlers:       opts.Handlers,
-		fileName:       opts.FileName,
-		dlLoc:          opts.DownloadDirectory,
-		maxParts:       opts.MaxSegments,
-		contentLength:  cLength,
-		hash:           hash,
-		dlPath:         filepath.Join(DlDataDir, hash),
-		retryConfig:    retryConfig,
-		overwrite:      opts.Overwrite,
-		requestTimeout: opts.RequestTimeout,
-		maxFileSize:    opts.MaxFileSize,
-		checksumConfig: opts.ChecksumConfig,
-		speedLimit:     opts.SpeedLimit,
+		ctx:               ctx,
+		cancel:            cancel,
+		wg:                &sync.WaitGroup{},
+		client:            client,
+		url:               url,
+		maxConn:           opts.MaxConnections,
+		chunk:             int(DEF_CHUNK_SIZE),
+		force:             opts.ForceParts,
+		handlers:          opts.Handlers,
+		fileName:          opts.FileName,
+		dlLoc:             opts.DownloadDirectory,
+		maxParts:          opts.MaxSegments,
+		pluginHeaderNames: pluginHeaderNames,
+		contentLength:     cLength,
+		hash:              hash,
+		dlPath:            filepath.Join(DlDataDir, hash),
+		retryConfig:       retryConfig,
+		overwrite:         opts.Overwrite,
+		requestTimeout:    opts.RequestTimeout,
+		maxFileSize:       opts.MaxFileSize,
+		checksumConfig:    opts.ChecksumConfig,
+		speedLimit:        opts.SpeedLimit,
 	}
 
 	// Apply functional options
@@ -1315,10 +1353,14 @@ func (d *Downloader) fetchInfo() (err error) {
 		// If so, strip unsafe headers (Authorization, custom tokens, etc.)
 		// from d.headers to prevent credential leakage on all subsequent
 		// requests (prepareDownloader, segment downloads) to the new origin.
+		// Plugin-supplied headers are stripped in addition to the standard
+		// unsafe set — a plugin cannot anticipate where its target URL
+		// might 302 to, so any header it added (including ones that look
+		// "safe" like User-Agent) must be dropped.
 		origURL, parseErr := url.Parse(d.url)
 		finalParsed, parseErr2 := url.Parse(finalURL)
 		if parseErr == nil && parseErr2 == nil && isCrossOrigin(origURL, finalParsed) {
-			d.headers = StripUnsafeFromHeaders(d.headers)
+			d.headers = StripUnsafeFromHeadersCrossOrigin(d.headers, d.pluginHeaderNames)
 		}
 		d.url = finalURL
 	}
@@ -1364,10 +1406,16 @@ func (d *Downloader) fetchInfo() (err error) {
 
 // makeRequest makes a new http request with provided method and headers.
 // Cookie and Set-Cookie header values are redacted in debug logs (CHK034).
+// If the downloader carries plugin-supplied header names, they are threaded
+// through the request context so the shared-client CheckRedirect policy
+// can strip them on cross-origin redirects.
 func (d *Downloader) makeRequest(method string, hdrs ...Header) (*http.Response, error) {
 	req, err := http.NewRequest(method, d.url, nil)
 	if err != nil {
 		return nil, err
+	}
+	if len(d.pluginHeaderNames) > 0 {
+		req = req.WithContext(WithPluginHeaderNames(req.Context(), d.pluginHeaderNames))
 	}
 	header := req.Header
 	for _, hdr := range hdrs {
@@ -1455,6 +1503,9 @@ func (d *Downloader) prepareDownloader() (err error) {
 
 // downloadUnknownSizeFile is a fallback download handler in case the file
 // to be downloaded doesn't support multipart.
+// The downloader's root context (d.ctx) already carries any plugin
+// header names via WithPluginHeaderNames, so the CheckRedirect policy
+// on the shared client will strip them on cross-origin redirects.
 func (d *Downloader) downloadUnknownSizeFile() error {
 	defer d.wg.Done()
 	req, err := http.NewRequestWithContext(d.ctx, http.MethodGet, d.url, nil)
