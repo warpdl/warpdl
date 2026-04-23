@@ -1,8 +1,11 @@
 package cmd
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -277,6 +280,19 @@ func download(ctx *cli.Context) (err error) {
 		Schedule:            scheduleValue,
 	})
 	if err != nil {
+		if isAuthRequiredError(err) {
+			// The daemon's plugin extractor called getAccessToken() on
+			// an unauthenticated account and triggerFlowAndAwait timed
+			// out without a resolver. We don't know the plugin id from
+			// this error alone (common.AuthLoginResult doesn't carry
+			// PluginID either), so point the user at the generic
+			// recovery command. Once the daemon starts broadcasting
+			// UPDATE_AUTH_REQUIRED during downloads this whole branch
+			// becomes the degraded-path fallback.
+			fmt.Fprintln(os.Stderr, "This download requires authentication.")
+			fmt.Fprintln(os.Stderr, "Run `warp auth login <plugin-id>` for the plugin that matches this URL and retry.")
+			fmt.Fprintln(os.Stderr, "Use `warp ext list` to see installed plugins and their IDs.")
+		}
 		cmdcommon.PrintRuntimeErr(ctx, "info", "download", err)
 		return nil
 	}
@@ -305,7 +321,77 @@ Max Connections`+"\t"+`: %d
 	}
 
 	RegisterHandlers(client, int64(d.ContentLength))
+	registerAuthRequiredHandler(client)
 	return client.Listen()
+}
+
+// authRequiredHandler adapts the warpcli Handler interface to the
+// HandleAuthRequired orchestrator. It decodes the pushed
+// AuthLoginResult and — if either UserCode (device flow) or
+// AuthorizeURL (PKCE flow) is populated — invokes the orchestrator.
+//
+// KNOWN GAP: as of Task 18 the daemon does NOT push
+// UPDATE_AUTH_REQUIRED during a download. The downloadHandler RPC in
+// internal/api/download.go runs elEngine.Extract synchronously; the
+// plugin's getAccessToken blocks in triggerFlowAndAwait until
+// ErrFlowTimeout (5 min) then surfaces as a regular RPC error.
+// Implementing the push requires:
+//   - plumbing a *server.Pool (or an equivalent notifier) into the
+//     auth provider's flow-trigger path
+//   - broadcasting UPDATE_AUTH_REQUIRED on a newly-allocated uid
+//     before blocking on Await
+//   - extending common.AuthLoginResult with PluginID + Account so the
+//     CLI knows which plugin to prompt for
+//
+// Registering the handler now is cheap wiring that makes the CLI
+// ready for the future push — today it simply never fires.
+type authRequiredHandler struct {
+	client authRPC
+	out    io.Writer
+}
+
+// Handle satisfies warpcli.Handler. It tolerates malformed payloads
+// gracefully (prints to stderr, returns nil so the listener keeps
+// serving download progress updates).
+//
+// CRITICAL: HandleAuthRequired eventually calls client.AuthComplete
+// (via the callback server) or client.AuthCancel, each of which
+// acquires a write-lock on the warpcli client's mu. This handler
+// itself runs UNDER the listener's RLock (see warpcli.Client.Listen),
+// so invoking those RPCs inline would deadlock the listener against
+// itself. We spawn the orchestrator in a goroutine so the listener
+// can release its RLock and keep dispatching download-progress
+// updates while the user interacts with the browser / device flow.
+func (h *authRequiredHandler) Handle(m json.RawMessage) error {
+	var res common.AuthLoginResult
+	if err := json.Unmarshal(m, &res); err != nil {
+		fmt.Fprintf(os.Stderr, "auth_required push: invalid payload: %v\n", err)
+		return nil
+	}
+	// The pushed payload lacks a PluginID field today
+	// (common.AuthLoginResult predates Task 18's push wiring). Pass
+	// an empty string; HandleAuthRequired falls back to a generic
+	// prompt label.
+	//
+	// context.Background() gives HandleAuthRequired its own
+	// authLoginTimeout budget — the outer download listener has no
+	// timeout to inherit.
+	go func() {
+		if err := HandleAuthRequired(context.Background(), h.out, h.client, "", "default", &res, false); err != nil {
+			fmt.Fprintf(os.Stderr, "auth flow failed: %v\n", err)
+		}
+	}()
+	return nil
+}
+
+// registerAuthRequiredHandler installs a handler that reacts to
+// UPDATE_AUTH_REQUIRED pushes during a download. Safe to call even if
+// the daemon never pushes — the handler simply never fires.
+func registerAuthRequiredHandler(client *warpcli.Client) {
+	client.AddHandler(common.UPDATE_AUTH_REQUIRED, &authRequiredHandler{
+		client: client,
+		out:    os.Stdout,
+	})
 }
 
 // downloadBatchFromFile handles batch download from an input file.

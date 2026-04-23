@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -839,5 +840,331 @@ func TestAuthStatusZeroExpiryIsValid(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "authenticated") || strings.Contains(buf.String(), "not authenticated") {
 		t.Fatalf("output = %q", buf.String())
+	}
+}
+
+// ---- Task 18: interactive mid-download auth ----
+
+// TestIsAuthRequiredErrorFlowTimeout verifies the recognizer picks up
+// the FlowRegistry.ErrFlowTimeout sentinel wording, which is the error
+// shape a plugin's getAccessToken call surfaces when the user never
+// authenticates. The literal string is stable — see
+// internal/extl/auth/flowregistry.go.
+func TestIsAuthRequiredErrorFlowTimeout(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		in   error
+		want bool
+	}{
+		{"nil", nil, false},
+		{"raw_timeout", errors.New("flow: timed out"), true},
+		{"wrapped_timeout", fmt.Errorf("extract failed: %w", errors.New("flow: timed out")), true},
+		{"mixed_case", errors.New("Flow: Timed Out"), true},
+		{"auth_required_sentinel", errors.New("plugin foo: auth_required"), true},
+		{"authentication_required_wording", errors.New("authentication required for drive"), true},
+		{"unrelated_network", errors.New("i/o timeout"), false},
+		{"unrelated_parse", errors.New("invalid url"), false},
+		{"empty", errors.New(""), false},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := isAuthRequiredError(tc.in); got != tc.want {
+				t.Fatalf("isAuthRequiredError(%v) = %v, want %v", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestHandleAuthRequiredNilResult guards the nil-safety contract. The
+// handler is invoked with whatever JSON the daemon sends; a malformed
+// push must not panic or leave state behind.
+func TestHandleAuthRequiredNilResult(t *testing.T) {
+	t.Parallel()
+
+	fake := &fakeAuthRPC{}
+	var buf bytes.Buffer
+	err := HandleAuthRequired(context.Background(), &buf, fake, "gdrive", "default", nil, true)
+	if err == nil {
+		t.Fatalf("expected error for nil result")
+	}
+	if len(fake.completeCalls) != 0 {
+		t.Fatalf("AuthComplete must not be called for nil result")
+	}
+}
+
+// TestHandleAuthRequiredEmptyResult covers the defensive branch where
+// neither UserCode nor AuthorizeURL is populated — the daemon sent us
+// a malformed push.
+func TestHandleAuthRequiredEmptyResult(t *testing.T) {
+	t.Parallel()
+
+	fake := &fakeAuthRPC{}
+	var buf bytes.Buffer
+	err := HandleAuthRequired(context.Background(), &buf, fake, "gdrive", "default", &common.AuthLoginResult{FlowID: "f"}, true)
+	if err == nil {
+		t.Fatalf("expected error for empty result")
+	}
+	if !strings.Contains(err.Error(), "user_code") && !strings.Contains(err.Error(), "authorize_url") {
+		t.Fatalf("err = %v, want hint about missing fields", err)
+	}
+}
+
+// TestHandleAuthRequiredNilContextDefaults confirms passing nil ctx
+// falls back to context.Background() without panicking — defensive
+// sanity for callers that might not thread a context.
+func TestHandleAuthRequiredNilContextDefaults(t *testing.T) {
+	t.Parallel()
+
+	fake := &fakeAuthRPC{}
+	var buf bytes.Buffer
+	// Device flow returns immediately — nil ctx path is safe here.
+	res := &common.AuthLoginResult{
+		UserCode:        "X-1",
+		VerificationURL: "https://idp/a",
+	}
+	if err := HandleAuthRequired(nil, &buf, fake, "p", "default", res, false); err != nil {
+		t.Fatalf("err = %v, want nil", err)
+	}
+}
+
+// TestHandleAuthRequiredDeviceFlow_PrintsCodeAndReturns verifies the
+// device-flow branch: CLI prints the user_code + verification_url but
+// does NOT block — the daemon's polling goroutine is doing the waiting.
+func TestHandleAuthRequiredDeviceFlow_PrintsCodeAndReturns(t *testing.T) {
+	t.Parallel()
+
+	fake := &fakeAuthRPC{}
+	var buf bytes.Buffer
+	res := &common.AuthLoginResult{
+		FlowID:          "f-device",
+		UserCode:        "WARP-1234",
+		VerificationURL: "https://idp.example/activate",
+		Interval:        5,
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- HandleAuthRequired(context.Background(), &buf, fake, "gdrive", "default", res, false)
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("err = %v, want nil", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("device-flow branch must not block: daemon polls internally")
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, "WARP-1234") {
+		t.Fatalf("user_code missing from output: %q", out)
+	}
+	if !strings.Contains(out, "https://idp.example/activate") {
+		t.Fatalf("verification_url missing from output: %q", out)
+	}
+	if !strings.Contains(out, "gdrive") {
+		t.Fatalf("plugin id missing from output: %q", out)
+	}
+	// Must NOT touch AuthComplete — daemon is driving completion.
+	if len(fake.completeCalls) != 0 {
+		t.Fatalf("device flow must not call AuthComplete: %d calls", len(fake.completeCalls))
+	}
+	if len(fake.cancelCalls) != 0 {
+		t.Fatalf("device flow must not call AuthCancel: %d calls", len(fake.cancelCalls))
+	}
+}
+
+// TestHandleAuthRequiredPKCE_PrintsAuthorizeURL exercises the
+// entry-point logic of the PKCE branch: with noBrowser=true,
+// HandleAuthRequired prints the authorize URL for the user to open
+// manually, then blocks waiting for a callback. We pass a
+// short-deadline context to force a clean cancellation path,
+// verifying the ctx.Done() branch wires up correctly AND that the
+// user-facing strings landed.
+//
+// The full browser-callback happy path is covered by
+// TestCallbackServerSuccess (which exercises the same
+// newCallbackServer implementation HandleAuthRequired reuses).
+func TestHandleAuthRequiredPKCE_PrintsAuthorizeURL(t *testing.T) {
+	// Cannot run in parallel: mutates WARP_NO_BROWSER.
+	t.Setenv("WARP_NO_BROWSER", "1")
+
+	fake := &fakeAuthRPC{completeRes: &common.AuthCompleteResult{Account: "default"}}
+	var buf bytes.Buffer
+	res := &common.AuthLoginResult{
+		FlowID:       "f-pkce",
+		AuthorizeURL: "https://idp.example/authorize?client_id=x",
+	}
+
+	// 500ms budget is plenty for the listener bind + printout; we
+	// rely on ctx.Done() to unwind the blocking select. The function
+	// returns ctx.Err() so we assert that shape below.
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	err := HandleAuthRequired(ctx, &buf, fake, "gdrive", "default", res, true)
+	if err == nil {
+		t.Fatalf("expected cancellation error, got nil")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v, want context.DeadlineExceeded", err)
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, res.AuthorizeURL) {
+		t.Fatalf("authorize URL missing from output: %q", out)
+	}
+	if !strings.Contains(out, "gdrive") {
+		t.Fatalf("plugin label missing from output: %q", out)
+	}
+
+	// ctx.Done() branch should have issued an AuthCancel to the
+	// daemon so the remote flow is cleaned up.
+	if len(fake.cancelCalls) != 1 {
+		t.Fatalf("AuthCancel calls = %d, want 1 on ctx cancellation", len(fake.cancelCalls))
+	}
+	if fake.cancelCalls[0].FlowID != "f-pkce" {
+		t.Fatalf("AuthCancel FlowID = %q, want f-pkce", fake.cancelCalls[0].FlowID)
+	}
+}
+
+// TestHandleAuthRequiredEmptyPluginIDFallback confirms that an empty
+// pluginID (the default today because common.AuthLoginResult doesn't
+// carry PluginID) still produces a coherent prompt — we fall back to a
+// generic label rather than printing "Authentication required for ".
+func TestHandleAuthRequiredEmptyPluginIDFallback(t *testing.T) {
+	t.Parallel()
+
+	fake := &fakeAuthRPC{}
+	var buf bytes.Buffer
+	res := &common.AuthLoginResult{
+		FlowID:          "f",
+		UserCode:        "AB-12",
+		VerificationURL: "https://idp/activate",
+	}
+	err := HandleAuthRequired(context.Background(), &buf, fake, "", "default", res, false)
+	if err != nil {
+		t.Fatalf("err = %v, want nil", err)
+	}
+	out := buf.String()
+	// Must not print "for " followed by nothing.
+	if strings.Contains(out, "Authentication required for \n") {
+		t.Fatalf("empty plugin label leaked into output: %q", out)
+	}
+	// Must mention SOMETHING as the subject of the prompt.
+	if !strings.Contains(out, "Authentication required for") {
+		t.Fatalf("prompt missing: %q", out)
+	}
+}
+
+// TestAuthRequiredHandler_Handle_DecodesAndInvokes drives the
+// warpcli-side Handler shim: a raw JSON payload shaped like a device
+// push should unmarshal cleanly and print the user_code.
+//
+// The handler dispatches the orchestrator in a goroutine (to avoid
+// deadlocking the warpcli listener's RLock, see Handle's comment), so
+// the test polls the output buffer until the expected text appears,
+// bounded by a short deadline.
+func TestAuthRequiredHandler_Handle_DecodesAndInvokes(t *testing.T) {
+	t.Parallel()
+
+	fake := &fakeAuthRPC{}
+	// syncBuf wraps bytes.Buffer with a mutex — the handler's
+	// HandleAuthRequired goroutine writes to it concurrently with
+	// the test's Contains check, so we need to serialise access.
+	buf := newSyncBuffer()
+	h := &authRequiredHandler{client: fake, out: buf}
+
+	raw := []byte(`{
+		"flow_id": "f-push",
+		"user_code": "PUSH-0001",
+		"verification_url": "https://idp/activate",
+		"interval": 5
+	}`)
+	if err := h.Handle(raw); err != nil {
+		t.Fatalf("Handle err = %v, want nil", err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if strings.Contains(buf.String(), "PUSH-0001") {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("user_code not propagated within deadline: %q", buf.String())
+}
+
+// syncBuffer is a mutex-guarded bytes.Buffer for tests that read
+// while a handler goroutine may be writing. The standard bytes.Buffer
+// is NOT safe for concurrent use.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func newSyncBuffer() *syncBuffer { return &syncBuffer{} }
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buf.Write(p)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buf.String()
+}
+
+// TestAuthRequiredHandler_Handle_MalformedPayload ensures a malformed
+// push doesn't crash the handler — it returns nil so the outer
+// listener keeps dispatching download-progress updates.
+func TestAuthRequiredHandler_Handle_MalformedPayload(t *testing.T) {
+	t.Parallel()
+
+	fake := &fakeAuthRPC{}
+	var buf bytes.Buffer
+	h := &authRequiredHandler{client: fake, out: &buf}
+
+	if err := h.Handle([]byte("not json")); err != nil {
+		t.Fatalf("Handle err = %v, want nil for malformed payload", err)
+	}
+	// No downstream RPC calls on bad input.
+	if len(fake.completeCalls)+len(fake.cancelCalls) != 0 {
+		t.Fatalf("malformed payload must not trigger RPC calls")
+	}
+}
+
+// TestAuthRequiredHandler_Handle_EmptyPayload covers the degenerate
+// case where the daemon broadcasts an empty object. HandleAuthRequired
+// rejects it (no user_code, no authorize_url), but the handler shim
+// still returns nil to keep the listener alive.
+//
+// The orchestrator runs in a goroutine that emits an error-log line
+// to stderr and returns immediately. We do NOT write to h.out on
+// this path (the error goes to os.Stderr via the handler shim), so
+// the only observable signal is that the handler itself returns nil.
+func TestAuthRequiredHandler_Handle_EmptyPayload(t *testing.T) {
+	t.Parallel()
+
+	fake := &fakeAuthRPC{}
+	buf := newSyncBuffer()
+	h := &authRequiredHandler{client: fake, out: buf}
+
+	if err := h.Handle([]byte(`{}`)); err != nil {
+		t.Fatalf("Handle err = %v, want nil", err)
+	}
+	// The background goroutine returns after HandleAuthRequired's
+	// "empty result" error check — no RPC calls, no writes to buf.
+	// Give it a beat to finish so it doesn't outlive the test.
+	time.Sleep(50 * time.Millisecond)
+	if len(fake.cancelCalls) != 0 || len(fake.completeCalls) != 0 {
+		t.Fatalf("empty payload must not trigger RPC calls")
 	}
 }

@@ -113,6 +113,141 @@ type authRPC interface {
 // compile-time check: the concrete client must satisfy the interface.
 var _ authRPC = (*warpcli.Client)(nil)
 
+// HandleAuthRequired runs the interactive auth orchestrator in response
+// to a daemon-pushed UPDATE_AUTH_REQUIRED event received while the CLI
+// was driving a download. It mirrors the logic of explicit
+// `warp auth login`: device flows print the user_code +
+// verification_url (the daemon's polling goroutine does the rest),
+// PKCE flows bind a loopback listener, open the browser, deliver the
+// authorization code via auth.complete, and block until the flow
+// resolves or the timeout expires.
+//
+// Today no daemon code path actually broadcasts UPDATE_AUTH_REQUIRED
+// during a download — plugin getAccessToken calls block synchronously
+// inside the downloadHandler RPC and never surface a push (see the
+// TODO on registerAuthRequiredHandler in cmd/download.go). This
+// function exists so the CLI is ready the moment the daemon-side push
+// lands, and so the download-side fallback (printing a "run warp auth
+// login" hint) has a shared code path to hand off to. Writing it
+// now also lets us test the orchestration logic in isolation, before
+// the cross-cutting plumbing work.
+//
+// The ctx parameter lets callers (and tests) cancel a blocking PKCE
+// wait early. Pass context.Background() for the production-default
+// 5-minute timeout; pass a short-deadline context in tests to avoid
+// goroutine leaks.
+func HandleAuthRequired(ctx context.Context, out io.Writer, client authRPC, pluginID, account string, res *common.AuthLoginResult, noBrowser bool) error {
+	if res == nil {
+		return errors.New("auth: empty result")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if pluginID == "" {
+		pluginID = "plugin"
+	}
+	// Device flow: daemon is already polling the IdP; CLI's only job
+	// is to surface the user_code + verification_url to the user.
+	if res.UserCode != "" {
+		fmt.Fprintf(out, "\nAuthentication required for %s\n", pluginID)
+		fmt.Fprintf(out, "Open: %s\n", res.VerificationURL)
+		fmt.Fprintf(out, "Enter code: %s\n", res.UserCode)
+		return nil
+	}
+	// PKCE flow: CLI binds loopback, opens browser, delivers code to
+	// auth.complete. Distinct from runPKCEFlow because the flow is
+	// already started (by the daemon) — we're adopting an existing
+	// FlowID rather than requesting a new one.
+	if res.AuthorizeURL == "" {
+		return errors.New("auth: result has neither user_code nor authorize_url")
+	}
+	fmt.Fprintf(out, "\nAuthentication required for %s — opening browser...\n", pluginID)
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return fmt.Errorf("bind loopback: %w", err)
+	}
+
+	callbackCh := make(chan error, 1)
+	srv := newCallbackServer(client, res.FlowID, callbackCh)
+	go func() {
+		// Serve returns ErrServerClosed on graceful shutdown; surface
+		// other errors only if the callback channel hasn't delivered
+		// a verdict first.
+		if serr := srv.Serve(listener); serr != nil && !errors.Is(serr, http.ErrServerClosed) {
+			select {
+			case callbackCh <- fmt.Errorf("loopback server: %w", serr):
+			default:
+			}
+		}
+	}()
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), authCallbackShutdown)
+		defer cancel()
+		_ = srv.Shutdown(shutdownCtx)
+	}()
+
+	if noBrowser {
+		fmt.Fprintf(out, "Please open this URL in your browser:\n  %s\n", res.AuthorizeURL)
+	} else {
+		_ = openBrowser(out, res.AuthorizeURL)
+	}
+
+	select {
+	case ferr := <-callbackCh:
+		if ferr != nil {
+			_ = client.AuthCancel(&common.AuthCancelParams{FlowID: res.FlowID})
+			return ferr
+		}
+		fmt.Fprintf(out, "Logged in to %s as %q\n", pluginID, account)
+		return nil
+	case <-ctx.Done():
+		_ = client.AuthCancel(&common.AuthCancelParams{FlowID: res.FlowID})
+		return ctx.Err()
+	case <-time.After(authLoginTimeout):
+		_ = client.AuthCancel(&common.AuthCancelParams{FlowID: res.FlowID})
+		return fmt.Errorf("authentication timed out after %s", authLoginTimeout)
+	}
+}
+
+// isAuthRequiredError recognises the error surfaces warpdl uses to
+// signal "a plugin needed a token but the user has not authenticated".
+// Today the daemon returns these as plain error strings from the
+// downloadHandler RPC because extraction is synchronous and the
+// plugin's getAccessToken call blocks in triggerFlowAndAwait until
+// ErrFlowTimeout fires.
+//
+// Returning true drives the download-time fallback UX — print a
+// pointer to `warp auth login <plugin>` instead of a confusing raw
+// timeout. When the daemon-side push is added (see comment on
+// registerAuthRequiredHandler in cmd/download.go), this heuristic
+// will continue to work for the degraded case where push delivery
+// itself fails.
+func isAuthRequiredError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	// FlowRegistry.ErrFlowTimeout propagates out of
+	// triggerFlowAndAwait when the user never authenticates. The
+	// literal wording is stable ("flow: timed out") — see
+	// internal/extl/auth/flowregistry.go.
+	if strings.Contains(msg, "flow: timed out") {
+		return true
+	}
+	// Future-proofing: the daemon may eventually return a structured
+	// "auth_required" sentinel. Match on the word stem so both the
+	// bare and wrapped forms ("plugin foo: auth_required") hit.
+	if strings.Contains(msg, "auth_required") || strings.Contains(msg, "authentication required") {
+		return true
+	}
+	// When a token exchange fails with an invalid_grant the daemon
+	// deletes the credential and re-triggers a flow; if the user
+	// still doesn't authenticate, it surfaces as ErrFlowTimeout above
+	// — so we don't need a separate branch for invalid_grant.
+	return false
+}
+
 // runPKCEFlow binds a loopback HTTP server on 127.0.0.1:<random>,
 // asks the daemon to start a PKCE flow with that redirect URI, opens
 // the user's browser (or prints the URL), and blocks until the
