@@ -130,6 +130,9 @@ func (rs *RPCServer) methods() handler.Map {
 		"download.remove":   handler.New(rs.downloadRemove),
 		"download.status":   handler.New(rs.downloadStatus),
 		"download.list":     handler.New(rs.downloadList),
+		// resolve.url shells out to yt-dlp to resolve video page URLs into
+		// downloadable format lists. See internal/server/rpc_resolve.go.
+		"resolve.url": handler.New(rs.resolveURL),
 	}
 }
 

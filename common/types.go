@@ -263,3 +263,66 @@ type QueueMoveParams struct {
 	// Position is the target 0-indexed position in the queue.
 	Position int `json:"position"`
 }
+
+// ResolveURLParams contains parameters for resolving a video page URL
+// into a list of downloadable formats. The daemon shells out to yt-dlp
+// (or a compatible tool) to perform extraction.
+type ResolveURLParams struct {
+	// URL is the video page URL to resolve (e.g. a YouTube watch URL).
+	URL string `json:"url"`
+	// CookiesFrom names a browser profile to import cookies from
+	// ("firefox", "chrome", "edge", "brave"). Empty disables cookie
+	// forwarding. Mutually exclusive with CookiesFromFile.
+	CookiesFrom string `json:"cookiesFrom,omitempty"`
+	// CookiesFromFile is a path to a Netscape-format cookies.txt file.
+	// Used for private/age-gated content. Mutually exclusive with CookiesFrom.
+	CookiesFromFile string `json:"cookiesFromFile,omitempty"`
+	// Timeout is the per-call timeout in seconds. Defaults to 30; capped at 120.
+	Timeout int `json:"timeout,omitempty"`
+}
+
+// ResolveURLResult is the response for resolve.url requests.
+type ResolveURLResult struct {
+	// Title is the video title reported by the extractor.
+	Title string `json:"title"`
+	// Author is the uploader/channel name, if reported.
+	Author string `json:"author,omitempty"`
+	// Duration is the video duration in seconds, if reported.
+	Duration int `json:"duration,omitempty"`
+	// Formats is the list of downloadable format entries.
+	// Streaming manifests (HLS/DASH) are excluded.
+	Formats []ResolvedFormat `json:"formats"`
+}
+
+// ResolvedFormat describes one downloadable format entry.
+type ResolvedFormat struct {
+	// FormatID is the extractor's format identifier. For YouTube this
+	// corresponds to the itag.
+	FormatID string `json:"formatId"`
+	// URL is the direct, already-signed download URL usable with HTTP GET.
+	URL string `json:"url"`
+	// Ext is the container extension (e.g. "mp4", "webm", "m4a").
+	Ext string `json:"ext"`
+	// MimeType is the full MIME type, if reported.
+	MimeType string `json:"mimeType,omitempty"`
+	// Quality is a human-facing quality label (e.g. "1080p", "medium").
+	Quality string `json:"quality,omitempty"`
+	// FileSize is the size in bytes (0 = unknown).
+	FileSize int64 `json:"fileSize,omitempty"`
+	// HasVideo indicates whether this format carries a video stream.
+	HasVideo bool `json:"hasVideo"`
+	// HasAudio indicates whether this format carries an audio stream.
+	HasAudio bool `json:"hasAudio"`
+	// VideoCodec is the video codec string (empty if no video).
+	VideoCodec string `json:"videoCodec,omitempty"`
+	// AudioCodec is the audio codec string (empty if no audio).
+	AudioCodec string `json:"audioCodec,omitempty"`
+	// Height is the pixel height for video formats.
+	Height int `json:"height,omitempty"`
+	// Width is the pixel width for video formats.
+	Width int `json:"width,omitempty"`
+	// Fps is the video framerate, if reported.
+	Fps int `json:"fps,omitempty"`
+	// AudioBitrate is the audio bitrate in kbps, if reported.
+	AudioBitrate int `json:"audioBitrate,omitempty"`
+}
