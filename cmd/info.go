@@ -16,7 +16,7 @@ var (
 	infoFlags = []cli.Flag{
 		cli.StringFlag{
 			Name:        "user-agent",
-			Usage:       "HTTP user agent to use for downloding (default: warp)",
+			Usage:       "HTTP user agent to use for downloading (default: warp)",
 			Destination: &userAgent,
 		},
 	}

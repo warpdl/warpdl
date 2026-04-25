@@ -17,19 +17,26 @@ warpdl
 ```
 [--background|-b]
 [--cookie]=[value]
+[--cookies-from]=[value]
 [--daemon-uri]=[value]
 [--debug|-d]
 [--download-path|-l]=[value]
 [--file-name|-o]=[value]
 [--force-parts|-f]
+[--input-file|-i]=[value]
 [--max-connection|-x]=[value]
 [--max-parts|-s]=[value]
 [--max-retries]=[value]
 [--no-work-steal]
 [--overwrite|-y]
+[--priority]=[value]
 [--proxy]=[value]
 [--retry-delay]=[value]
+[--schedule]=[value]
 [--speed-limit|-S]=[value]
+[--ssh-key]=[value]
+[--start-at]=[value]
+[--start-in]=[value]
 [--time-taken|-e]
 [--timeout|-t]=[value]
 [--user-agent]=[value]
@@ -51,6 +58,8 @@ warpdl [GLOBAL OPTIONS] command [COMMAND OPTIONS] [ARGUMENTS...]
 
 **--cookie**="": HTTP cookie(s) for authentication (format: 'name=value', can be specified multiple times)
 
+**--cookies-from**="": import cookies from browser cookie file (Firefox, Chrome, Netscape) or 'auto' for auto-detection
+
 **--daemon-uri**="": daemon URI (unix:///path, tcp://host:port, pipe://name)
 
 **--debug, -d**: enable debug logging for troubleshooting
@@ -60,6 +69,8 @@ warpdl [GLOBAL OPTIONS] command [COMMAND OPTIONS] [ARGUMENTS...]
 **--file-name, -o**="": explicitly set the name of file (determined automatically if not specified)
 
 **--force-parts, -f**: forceful file segmentation (default: true)
+
+**--input-file, -i**="": read URLs from input file (one URL per line, # for comments)
 
 **--max-connection, -x**="": specify the number of maximum parallel connection (default: 24)
 
@@ -71,17 +82,27 @@ warpdl [GLOBAL OPTIONS] command [COMMAND OPTIONS] [ARGUMENTS...]
 
 **--overwrite, -y**: overwrite existing file at destination path
 
+**--priority**="": queue priority: high, normal, low (default: normal) (default: normal)
+
 **--proxy**="": proxy server URL (http://host:port, https://host:port, socks5://host:port)
 
 **--retry-delay**="": base delay between retries in milliseconds (default: 500)
 
+**--schedule**="": cron expression for recurring download schedule (e.g., "0 2 * * *" = daily 2 AM)
+
 **--speed-limit, -S**="": limit download speed (e.g., 1MB, 512KB, 0 for unlimited)
+
+**--ssh-key**="": path to SSH private key file for SFTP downloads (default: ~/.ssh/id_ed25519 or ~/.ssh/id_rsa)
+
+**--start-at**="": schedule download to start at a specific time (format: YYYY-MM-DD HH:MM)
+
+**--start-in**="": schedule download to start after a relative duration (e.g., 2h, 30m, 1h30m); mutually exclusive with --start-at
 
 **--time-taken, -e**: 
 
 **--timeout, -t**="": per-request timeout in seconds (0 = no timeout) (default: 30)
 
-**--user-agent**="": HTTP user agent to use for downloding (default: warp)
+**--user-agent**="": HTTP user agent to use for downloading (default: warp)
 
 
 ## Commands
@@ -116,6 +137,38 @@ activate an unactivated warpdl extension
 
 deactivate a warpdl extension
 
+## auth
+
+Manage OAuth credentials for warpdl plugins
+
+### login
+
+Log in to an OAuth-backed plugin
+
+**--as**="": account label (default "default")
+
+**--device**: use device-code flow instead of loopback PKCE
+
+**--no-browser**: print the authorize URL instead of opening a browser
+
+**--scopes**="": scope subset to request (default: manifest scopes)
+
+### list
+
+List stored OAuth credentials
+
+### logout
+
+Forget a stored OAuth credential
+
+**--as**="": account label (default "default")
+
+### status
+
+Report whether a plugin has stored credentials (exit 0 iff authenticated and not expired)
+
+**--as**="": account label (default "default")
+
 ## native-host
 
 manage native messaging host for browser extensions
@@ -146,6 +199,12 @@ show installation status for all browsers
 
 start the warpdl daemon
 
+**--max-concurrent**="": maximum number of concurrent downloads (0 = unlimited) (default: 3)
+
+**--rpc-listen-all**: bind RPC to all interfaces instead of localhost only
+
+**--rpc-secret**="": secret token for JSON-RPC API authentication (required to enable RPC)
+
 ## stop-daemon
 
 stop the running daemon gracefully
@@ -160,7 +219,7 @@ stop the running daemon gracefully
 
 shows info about a file
 
-**--user-agent**="": HTTP user agent to use for downloding (default: warp)
+**--user-agent**="": HTTP user agent to use for downloading (default: warp)
 
 ## stop
 
@@ -190,6 +249,8 @@ fastly download a file
 
 **--cookie**="": HTTP cookie(s) for authentication (format: 'name=value', can be specified multiple times)
 
+**--cookies-from**="": import cookies from browser cookie file (Firefox, Chrome, Netscape) or 'auto' for auto-detection
+
 **--daemon-uri**="": daemon URI (unix:///path, tcp://host:port, pipe://name)
 
 **--debug, -d**: enable debug logging for troubleshooting
@@ -199,6 +260,8 @@ fastly download a file
 **--file-name, -o**="": explicitly set the name of file (determined automatically if not specified)
 
 **--force-parts, -f**: forceful file segmentation (default: true)
+
+**--input-file, -i**="": read URLs from input file (one URL per line, # for comments)
 
 **--max-connection, -x**="": specify the number of maximum parallel connection (default: 24)
 
@@ -210,17 +273,27 @@ fastly download a file
 
 **--overwrite, -y**: overwrite existing file at destination path
 
+**--priority**="": queue priority: high, normal, low (default: normal) (default: normal)
+
 **--proxy**="": proxy server URL (http://host:port, https://host:port, socks5://host:port)
 
 **--retry-delay**="": base delay between retries in milliseconds (default: 500)
 
+**--schedule**="": cron expression for recurring download schedule (e.g., "0 2 * * *" = daily 2 AM)
+
 **--speed-limit, -S**="": limit download speed (e.g., 1MB, 512KB, 0 for unlimited)
+
+**--ssh-key**="": path to SSH private key file for SFTP downloads (default: ~/.ssh/id_ed25519 or ~/.ssh/id_rsa)
+
+**--start-at**="": schedule download to start at a specific time (format: YYYY-MM-DD HH:MM)
+
+**--start-in**="": schedule download to start after a relative duration (e.g., 2h, 30m, 1h30m); mutually exclusive with --start-at
 
 **--time-taken, -e**: 
 
 **--timeout, -t**="": per-request timeout in seconds (0 = no timeout) (default: 30)
 
-**--user-agent**="": HTTP user agent to use for downloding (default: warp)
+**--user-agent**="": HTTP user agent to use for downloading (default: warp)
 
 ## list, l
 
@@ -268,7 +341,7 @@ resume an incomplete download
 
 **--timeout, -t**="": per-request timeout in seconds (0 = no timeout) (default: 30)
 
-**--user-agent**="": HTTP user agent to use for downloding (default: warp)
+**--user-agent**="": HTTP user agent to use for downloading (default: warp)
 
 ## flush, c
 
@@ -283,6 +356,56 @@ flush the user download history
 **--force, -f**: use this flag to force flush (default: false)
 
 **--item-hash, -i**="": use this flag to flush a particular item (default: all)
+
+## queue
+
+manage download queue
+
+**--cookie**="": HTTP cookie(s) for authentication (format: 'name=value', can be specified multiple times)
+
+**--daemon-uri**="": daemon URI (unix:///path, tcp://host:port, pipe://name)
+
+**--debug, -d**: enable debug logging for troubleshooting
+
+### status
+
+show queue status
+
+**--cookie**="": HTTP cookie(s) for authentication (format: 'name=value', can be specified multiple times)
+
+**--daemon-uri**="": daemon URI (unix:///path, tcp://host:port, pipe://name)
+
+**--debug, -d**: enable debug logging for troubleshooting
+
+### pause
+
+pause the queue (no new downloads start)
+
+**--cookie**="": HTTP cookie(s) for authentication (format: 'name=value', can be specified multiple times)
+
+**--daemon-uri**="": daemon URI (unix:///path, tcp://host:port, pipe://name)
+
+**--debug, -d**: enable debug logging for troubleshooting
+
+### resume
+
+resume the queue
+
+**--cookie**="": HTTP cookie(s) for authentication (format: 'name=value', can be specified multiple times)
+
+**--daemon-uri**="": daemon URI (unix:///path, tcp://host:port, pipe://name)
+
+**--debug, -d**: enable debug logging for troubleshooting
+
+### move
+
+move a queued download to a new position
+
+**--cookie**="": HTTP cookie(s) for authentication (format: 'name=value', can be specified multiple times)
+
+**--daemon-uri**="": daemon URI (unix:///path, tcp://host:port, pipe://name)
+
+**--debug, -d**: enable debug logging for troubleshooting
 
 ## help, h
 

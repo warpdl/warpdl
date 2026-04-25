@@ -22,45 +22,56 @@ WarpDL can be configured using environment variables. These take precedence over
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| ` + "`WARPDL_SOCKET_PATH`" + ` | Unix socket path for daemon communication | ` + "`/tmp/warpdl.sock`" + ` |
-| ` + "`WARPDL_TCP_PORT`" + ` | TCP port for daemon (1-65535) | ` + "`3849`" + ` |
-| ` + "`WARPDL_FORCE_TCP`" + ` | Force TCP instead of Unix socket (set to "1") | ` + "`false`" + ` |
-| ` + "`WARPDL_PIPE_NAME`" + ` | Windows named pipe name | ` + "`warpdl`" + ` |
-
+` + "| `WARPDL_SOCKET_PATH` | Unix socket path for daemon communication | `/tmp/warpdl.sock` |\n" +
+	"| `WARPDL_TCP_PORT` | TCP port for daemon (1-65535) | `3849` |\n" +
+	"| `WARPDL_FORCE_TCP` | Force TCP instead of Unix socket (set to \"1\") | `false` |\n" +
+	"| `WARPDL_PIPE_NAME` | Windows named pipe name | `warpdl` |\n" +
+	`
 ## Debug & Logging
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| ` + "`WARPDL_DEBUG`" + ` | Enable debug logging (set to "1") | ` + "`false`" + ` |
-| ` + "`WARPDL_SUPPRESS_VERSION_CHECK`" + ` | Suppress version check warnings (set to "1") | ` + "`false`" + ` |
-
+` + "| `WARPDL_DEBUG` | Enable debug logging (set to \"1\") | `false` |\n" +
+	"| `WARPDL_SUPPRESS_VERSION_CHECK` | Suppress version check warnings (set to \"1\") | `false` |\n" +
+	`
 ## Download Settings
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| ` + "`WARPDL_PROXY`" + ` | Default proxy URL for downloads | none |
-| ` + "`WARPDL_TIMEOUT`" + ` | Per-request timeout in seconds | ` + "`30`" + ` |
-| ` + "`WARPDL_MAX_RETRIES`" + ` | Maximum retry attempts | ` + "`5`" + ` |
-| ` + "`WARPDL_RETRY_DELAY`" + ` | Base retry delay in milliseconds | ` + "`500`" + ` |
-| ` + "`WARPDL_DEFAULT_DL_DIR`" + ` | Default download directory | current directory |
-| ` + "`WARPDL_SPEED_LIMIT`" + ` | Default speed limit (e.g., 1MB, 512KB) | unlimited |
-| ` + "`WARPDL_NO_WORK_STEAL`" + ` | Disable work stealing (set to "1") | ` + "`false`" + ` |
-| ` + "`WARP_MAX_PARTS`" + ` | Maximum file segments | ` + "`200`" + ` |
-| ` + "`WARP_MAX_CONN`" + ` | Maximum parallel connections | ` + "`24`" + ` |
-| ` + "`WARP_FORCE_SEGMENTS`" + ` | Force file segmentation (set to "1") | ` + "`true`" + ` |
-
+` + "| `WARPDL_PROXY` | Default proxy URL for downloads | none |\n" +
+	"| `WARPDL_TIMEOUT` | Per-request timeout in seconds | `30` |\n" +
+	"| `WARPDL_MAX_RETRIES` | Maximum retry attempts | `5` |\n" +
+	"| `WARPDL_RETRY_DELAY` | Base retry delay in milliseconds | `500` |\n" +
+	"| `WARPDL_DEFAULT_DL_DIR` | Default download directory | current directory |\n" +
+	"| `WARPDL_SPEED_LIMIT` | Default speed limit (e.g., 1MB, 512KB) | unlimited |\n" +
+	"| `WARPDL_NO_WORK_STEAL` | Disable work stealing (set to \"1\") | `false` |\n" +
+	"| `WARPDL_PRIORITY` | Default download priority: high, normal, low | `normal` |\n" +
+	"| `WARP_MAX_PARTS` | Maximum file segments (legacy prefix) | `200` |\n" +
+	"| `WARP_MAX_CONN` | Maximum parallel connections (legacy prefix) | `24` |\n" +
+	"| `WARP_FORCE_SEGMENTS` | Force file segmentation (set to \"1\", legacy prefix) | `true` |\n" +
+	`
 ## Daemon Connection
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| ` + "`WARPDL_DAEMON_URI`" + ` | Daemon URI (unix:///path, tcp://host:port, pipe://name) | auto-detected |
-
+` + "| `WARPDL_DAEMON_URI` | Daemon URI (unix:///path, tcp://host:port, pipe://name) | auto-detected |\n" +
+	"| `WARPDL_DAEMON_TIMEOUT` | Daemon startup timeout (e.g., 10s, 1m) | `10s` |\n" +
+	"| `WARPDL_MAX_CONCURRENT` | Maximum concurrent downloads (0 = unlimited) | `3` |\n" +
+	`
 ## Storage & Security
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| ` + "`WARPDL_CONFIG_DIR`" + ` | Configuration directory path | ` + "`~/.config/warpdl`" + ` |
-| ` + "`WARPDL_COOKIE_KEY`" + ` | Credential encryption key (hex format) | auto-generated |
+` + "| `WARPDL_CONFIG_DIR` | Configuration directory path | `~/.config/warpdl` |\n" +
+	"| `WARPDL_COOKIE_KEY` | Credential encryption key (hex format) | auto-generated |\n" +
+	`
+## Browser Integration
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+` + "| `WARP_NO_BROWSER` | Disable automatic browser opening (set to \"1\") | `false` |\n" +
+	`
+> **Note:** ` + "`WARP_NO_BROWSER`" + ` uses the ` + "`WARP_`" + ` prefix (without "DL") for historical compatibility. ` + "`WARPDL_NO_BROWSER`" + ` is not recognized.
 
 ## Platform-Specific Notes
 
@@ -71,6 +82,8 @@ WarpDL can be configured using environment variables. These take precedence over
 ### Windows
 - ` + "`WARPDL_PIPE_NAME`" + ` is used for named pipe IPC
 - Falls back to TCP if named pipes fail
+- ` + "`WARPDL_RPC_LISTEN_ALL`" + ` - Listen on all network interfaces in service mode (set to "1" or "true")
+- ` + "`WARPDL_RPC_SECRET`" + ` - Secret token for RPC authentication (Windows service mode)
 `
 
 func main() {
