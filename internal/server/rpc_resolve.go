@@ -1,102 +1,65 @@
 package server
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net/url"
-	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/creachadair/jrpc2"
+	youtube "github.com/kkdai/youtube/v2"
 	"github.com/warpdl/warpdl/common"
 )
 
-// Custom JSON-RPC error codes for resolve.url.
+// Custom JSON-RPC error codes for resolve.url and youtube.download.
 const (
-	codeResolverUnavailable = jrpc2.Code(-32101)
+	codeResolverFailed      = jrpc2.Code(-32101)
 	codeResolverTimeout     = jrpc2.Code(-32102)
-	codeResolverFailed      = jrpc2.Code(-32103)
 	codeResolverUnsupported = jrpc2.Code(-32104)
+	codeMuxerUnavailable    = jrpc2.Code(-32105)
+	codeFormatNotFound      = jrpc2.Code(-32106)
+	codeFormatMismatch      = jrpc2.Code(-32107)
 )
 
 // Resolver default/cap values. Exposed as vars (not consts) so tests can tweak.
 var (
-	// defaultResolverTimeout is applied when Params.Timeout <= 0.
-	defaultResolverTimeout = 30 * time.Second
-	// maxResolverTimeout caps Params.Timeout regardless of caller value.
-	maxResolverTimeout = 120 * time.Second
-	// maxResolverOutputBytes caps yt-dlp stdout to prevent OOM.
-	maxResolverOutputBytes int64 = 32 * 1024 * 1024
-	// resolverBinary is the yt-dlp binary name. LookPath resolves it at runtime.
-	resolverBinary = "yt-dlp"
+	defaultResolverTimeout       = 30 * time.Second
+	maxResolverTimeout           = 120 * time.Second
 )
 
-// execCommandContext is replaced in tests with a stub that constructs a Cmd
-// running under /bin/sh -c. This keeps the production path as direct exec.
-var execCommandContext = exec.CommandContext
-
-// lookPath is replaced in tests to simulate a missing or found binary.
-var lookPath = exec.LookPath
-
-// ytdlpVideoInfo is the subset of yt-dlp --dump-single-json we consume.
-// yt-dlp emits ~150 fields per video; we tolerate unknown ones by ignoring them.
-type ytdlpVideoInfo struct {
-	Title     string          `json:"title"`
-	Uploader  string          `json:"uploader"`
-	Channel   string          `json:"channel"`
-	Duration  float64         `json:"duration"`
-	Formats   []ytdlpFormat   `json:"formats"`
+// ytClientFactory builds a kkdai client. Replaced in tests with a stub
+// that returns a fake client (driven by an in-memory fixture).
+var ytClientFactory = func() ytFetcher {
+	return &kkdaiClient{client: &youtube.Client{}}
 }
 
-type ytdlpFormat struct {
-	FormatID   string   `json:"format_id"`
-	URL        string   `json:"url"`
-	Ext        string   `json:"ext"`
-	Protocol   string   `json:"protocol"`
-	VCodec     string   `json:"vcodec"`
-	ACodec     string   `json:"acodec"`
-	Height     int      `json:"height"`
-	Width      int      `json:"width"`
-	Fps        float64  `json:"fps"`
-	ABR        float64  `json:"abr"`
-	FileSize   int64    `json:"filesize"`
-	FileSizeA  int64    `json:"filesize_approx"`
-	FormatNote string   `json:"format_note"`
-	MimeType   string   `json:"mime_type"`
-	Quality    float64  `json:"quality"`
+// ytFetcher is the minimal kkdai surface we depend on. Defined as an
+// interface so tests can substitute a stub without spinning up HTTP.
+type ytFetcher interface {
+	GetVideoContext(ctx context.Context, url string) (*youtube.Video, error)
+	GetStreamURLContext(ctx context.Context, video *youtube.Video, format *youtube.Format) (string, error)
 }
 
-// resolveURL shells out to yt-dlp to extract downloadable format URLs for the
-// given page URL. It is the handler for the JSON-RPC method "resolve.url".
-//
-// Security: params are validated before being passed to exec. No shell is used;
-// the binary is resolved via exec.LookPath and arguments are passed directly.
+type kkdaiClient struct{ client *youtube.Client }
+
+func (k *kkdaiClient) GetVideoContext(ctx context.Context, url string) (*youtube.Video, error) {
+	return k.client.GetVideoContext(ctx, url)
+}
+func (k *kkdaiClient) GetStreamURLContext(ctx context.Context, v *youtube.Video, f *youtube.Format) (string, error) {
+	return k.client.GetStreamURLContext(ctx, v, f)
+}
+
+// resolveURL extracts downloadable format metadata for a YouTube URL via
+// github.com/kkdai/youtube/v2. The response is metadata-only — direct
+// stream URLs are deferred to youtube.download (kkdai requires a roundtrip
+// per format to decode the signature cipher).
 func (rs *RPCServer) resolveURL(ctx context.Context, p *common.ResolveURLParams) (*common.ResolveURLResult, error) {
 	if p == nil || strings.TrimSpace(p.URL) == "" {
 		return nil, &jrpc2.Error{Code: codeInvalidParams, Message: "missing required param: url"}
 	}
-	if _, err := url.Parse(p.URL); err != nil {
-		return nil, &jrpc2.Error{Code: codeInvalidParams, Message: "invalid url: " + err.Error()}
-	}
-	if p.CookiesFrom != "" && p.CookiesFromFile != "" {
-		return nil, &jrpc2.Error{Code: codeInvalidParams, Message: "cookiesFrom and cookiesFromFile are mutually exclusive"}
-	}
 
-	// Resolve binary. Cache result in a local for the error message.
-	bin, err := lookPath(resolverBinary)
-	if err != nil {
-		return nil, &jrpc2.Error{
-			Code:    codeResolverUnavailable,
-			Message: fmt.Sprintf("%s not found on PATH; install yt-dlp to use resolve.url", resolverBinary),
-		}
-	}
-
-	// Apply timeout bounds.
 	timeout := time.Duration(p.Timeout) * time.Second
 	if timeout <= 0 {
 		timeout = defaultResolverTimeout
@@ -107,179 +70,167 @@ func (rs *RPCServer) resolveURL(ctx context.Context, p *common.ResolveURLParams)
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	args := []string{"--no-warnings", "--skip-download", "--dump-single-json"}
-	if p.CookiesFrom != "" {
-		args = append(args, "--cookies-from-browser", p.CookiesFrom)
-	}
-	if p.CookiesFromFile != "" {
-		args = append(args, "--cookies", p.CookiesFromFile)
-	}
-	args = append(args, p.URL)
-
-	cmd := execCommandContext(runCtx, bin, args...)
-	stdout := &bytes.Buffer{}
-	stderr := &bytes.Buffer{}
-	cmd.Stdout = &limitedWriter{w: stdout, remaining: maxResolverOutputBytes}
-	cmd.Stderr = &limitedWriter{w: stderr, remaining: 64 * 1024}
-
-	if err := cmd.Run(); err != nil {
-		// Timeout first — context deadline produces exec.ExitError wrapped around ctx.Err
+	video, err := ytClientFactory().GetVideoContext(runCtx, p.URL)
+	if err != nil {
 		if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
 			return nil, &jrpc2.Error{
 				Code:    codeResolverTimeout,
-				Message: fmt.Sprintf("%s timed out after %s", resolverBinary, timeout),
+				Message: fmt.Sprintf("resolve timed out after %s", timeout),
 			}
 		}
-		// Extractor-not-found-for-URL
-		tail := tailString(stderr.String(), 400)
-		if strings.Contains(stderr.String(), "Unsupported URL") || strings.Contains(stderr.String(), "No video extraction") {
-			return nil, &jrpc2.Error{
-				Code:    codeResolverUnsupported,
-				Message: "no extractor matched URL: " + tail,
-			}
+		msg := err.Error()
+		if isUnsupportedURLError(msg) {
+			return nil, &jrpc2.Error{Code: codeResolverUnsupported, Message: "URL is not a recognized YouTube video: " + msg}
 		}
-		return nil, &jrpc2.Error{
-			Code:    codeResolverFailed,
-			Message: fmt.Sprintf("%s failed: %s", resolverBinary, tail),
-		}
+		return nil, &jrpc2.Error{Code: codeResolverFailed, Message: msg}
 	}
 
-	info, err := parseYtdlpOutput(stdout.Bytes())
-	if err != nil {
-		return nil, &jrpc2.Error{
-			Code:    codeResolverFailed,
-			Message: "failed to parse yt-dlp output: " + err.Error(),
-		}
-	}
-
-	return info, nil
+	return mapVideo(video), nil
 }
 
-// parseYtdlpOutput converts yt-dlp's --dump-single-json payload into the
-// public ResolveURLResult shape. Exported for tests (via lowercase wrapper).
-func parseYtdlpOutput(raw []byte) (*common.ResolveURLResult, error) {
-	if len(bytes.TrimSpace(raw)) == 0 {
-		return nil, errors.New("empty output")
+// mapVideo converts kkdai's Video into our wire shape.
+func mapVideo(v *youtube.Video) *common.ResolveURLResult {
+	out := &common.ResolveURLResult{
+		VideoID:  v.ID,
+		Title:    v.Title,
+		Author:   v.Author,
+		Duration: int(v.Duration / time.Second),
+		Formats:  make([]common.ResolvedFormat, 0, len(v.Formats)),
 	}
-
-	// --dump-single-json emits one object for videos, a playlist wrapper
-	// for playlists. We take the first "video" entry in a playlist, or
-	// the single object directly. Try single-video first.
-	var info ytdlpVideoInfo
-	if err := json.Unmarshal(raw, &info); err != nil {
-		return nil, fmt.Errorf("json decode: %w", err)
+	for i := range v.Formats {
+		out.Formats = append(out.Formats, mapFormat(&v.Formats[i]))
 	}
-
-	// If this was a playlist, formats will be empty and there's an "entries"
-	// array. We don't currently support playlist resolution; return the
-	// metadata with an empty formats list rather than failing outright.
-	result := &common.ResolveURLResult{
-		Title:   info.Title,
-		Author:  pickNonEmpty(info.Uploader, info.Channel),
-		Formats: make([]common.ResolvedFormat, 0, len(info.Formats)),
-	}
-	if info.Duration > 0 {
-		result.Duration = int(info.Duration)
-	}
-
-	for _, f := range info.Formats {
-		if f.URL == "" {
-			continue
-		}
-		// Skip streaming manifests (HLS, DASH). They need separate handling.
-		if isManifestProtocol(f.Protocol) {
-			continue
-		}
-
-		hasVideo := f.VCodec != "" && f.VCodec != "none"
-		hasAudio := f.ACodec != "" && f.ACodec != "none"
-		if !hasVideo && !hasAudio {
-			continue
-		}
-
-		size := f.FileSize
-		if size == 0 {
-			size = f.FileSizeA
-		}
-
-		result.Formats = append(result.Formats, common.ResolvedFormat{
-			FormatID:     f.FormatID,
-			URL:          f.URL,
-			Ext:          f.Ext,
-			MimeType:     f.MimeType,
-			Quality:      deriveQualityLabel(f),
-			FileSize:     size,
-			HasVideo:     hasVideo,
-			HasAudio:     hasAudio,
-			VideoCodec:   codecOrEmpty(f.VCodec),
-			AudioCodec:   codecOrEmpty(f.ACodec),
-			Height:       f.Height,
-			Width:        f.Width,
-			Fps:          int(f.Fps),
-			AudioBitrate: int(f.ABR),
-		})
-	}
-
-	return result, nil
+	return out
 }
 
-func isManifestProtocol(p string) bool {
-	switch strings.ToLower(p) {
-	case "m3u8", "m3u8_native", "http_dash_segments", "dash":
-		return true
+// mapFormat translates a kkdai Format into a ResolvedFormat. URL is left
+// empty: it is decoded lazily by youtube.download.
+func mapFormat(f *youtube.Format) common.ResolvedFormat {
+	mainMime, codecs := splitMimeType(f.MimeType)
+	hasVideo := strings.HasPrefix(mainMime, "video/")
+	hasAudio := strings.HasPrefix(mainMime, "audio/") || (hasVideo && len(codecs) >= 2)
+
+	var vcodec, acodec string
+	switch {
+	case hasVideo && hasAudio:
+		// Progressive: codecs are [video, audio].
+		if len(codecs) >= 1 {
+			vcodec = codecs[0]
+		}
+		if len(codecs) >= 2 {
+			acodec = codecs[1]
+		}
+	case hasVideo:
+		if len(codecs) >= 1 {
+			vcodec = codecs[0]
+		}
+	case hasAudio:
+		if len(codecs) >= 1 {
+			acodec = codecs[0]
+		}
 	}
-	return false
+
+	return common.ResolvedFormat{
+		FormatID:     strconv.Itoa(f.ItagNo),
+		URL:          "", // resolved at download time
+		Ext:          extFromMime(mainMime, f.MimeType),
+		MimeType:     f.MimeType,
+		Quality:      pickQualityLabel(f),
+		FileSize:     f.ContentLength,
+		HasVideo:     hasVideo,
+		HasAudio:     hasAudio,
+		VideoCodec:   vcodec,
+		AudioCodec:   acodec,
+		Height:       f.Height,
+		Width:        f.Width,
+		Fps:          f.FPS,
+		AudioBitrate: bitrateKbps(f, hasAudio && !hasVideo),
+	}
 }
 
-func codecOrEmpty(c string) string {
-	if c == "" || c == "none" {
-		return ""
+// splitMimeType separates the type/subtype from codecs.
+//   `video/mp4; codecs="avc1.640028, mp4a.40.2"` →
+//   ("video/mp4", ["avc1.640028", "mp4a.40.2"])
+func splitMimeType(mt string) (string, []string) {
+	if mt == "" {
+		return "", nil
 	}
-	return c
+	parts := strings.SplitN(mt, ";", 2)
+	main := strings.TrimSpace(parts[0])
+	if len(parts) < 2 {
+		return main, nil
+	}
+	rest := strings.TrimSpace(parts[1])
+	rest = strings.TrimPrefix(rest, "codecs=")
+	rest = strings.Trim(rest, `"`)
+	if rest == "" {
+		return main, nil
+	}
+	out := strings.Split(rest, ",")
+	for i := range out {
+		out[i] = strings.TrimSpace(out[i])
+	}
+	return main, out
 }
 
-func deriveQualityLabel(f ytdlpFormat) string {
-	if f.FormatNote != "" {
-		return f.FormatNote
+// extFromMime maps a MIME type to a typical file extension. Falls back to
+// the part after the slash if not recognized.
+func extFromMime(mainMime, full string) string {
+	switch mainMime {
+	case "video/mp4":
+		return "mp4"
+	case "video/webm":
+		return "webm"
+	case "audio/mp4":
+		return "m4a"
+	case "audio/webm":
+		// audio/webm with opus → opus container preferred for raw audio,
+		// but most users expect ".webm". Stay with webm to match upstream tools.
+		return "webm"
+	}
+	if idx := strings.Index(mainMime, "/"); idx > 0 {
+		return mainMime[idx+1:]
+	}
+	_ = full
+	return ""
+}
+
+// pickQualityLabel returns the best human-facing label for a format.
+func pickQualityLabel(f *youtube.Format) string {
+	if f.QualityLabel != "" {
+		return f.QualityLabel
+	}
+	if f.Quality != "" {
+		return f.Quality
 	}
 	if f.Height > 0 {
-		return fmt.Sprintf("%dp", f.Height)
+		return strconv.Itoa(f.Height) + "p"
 	}
-	if f.ABR > 0 {
-		return fmt.Sprintf("%d kbps", int(f.ABR))
+	if f.Bitrate > 0 {
+		return strconv.Itoa(f.Bitrate/1000) + " kbps"
 	}
 	return ""
 }
 
-func pickNonEmpty(a, b string) string {
-	if a != "" {
-		return a
+// bitrateKbps returns the audio bitrate in kbps for audio-only streams,
+// derived from kkdai's per-format bitrate (which is in bps).
+func bitrateKbps(f *youtube.Format, audioOnly bool) int {
+	if !audioOnly {
+		return 0
 	}
-	return b
+	if f.Bitrate <= 0 {
+		return 0
+	}
+	return f.Bitrate / 1000
 }
 
-func tailString(s string, n int) string {
-	if len(s) <= n {
-		return strings.TrimSpace(s)
-	}
-	return "..." + strings.TrimSpace(s[len(s)-n:])
-}
-
-// limitedWriter caps how much data passes through to the underlying buffer.
-// Oversized input is silently dropped after the limit is exceeded.
-type limitedWriter struct {
-	w         io.Writer
-	remaining int64
-}
-
-func (lw *limitedWriter) Write(p []byte) (int, error) {
-	if lw.remaining <= 0 {
-		return len(p), nil
-	}
-	if int64(len(p)) > lw.remaining {
-		p = p[:lw.remaining]
-	}
-	n, err := lw.w.Write(p)
-	lw.remaining -= int64(n)
-	return n, err
+// isUnsupportedURLError reports whether a kkdai error string looks like a
+// "not a YouTube URL" failure rather than a network/extractor failure.
+func isUnsupportedURLError(msg string) bool {
+	low := strings.ToLower(msg)
+	return strings.Contains(low, "invalid characters in video id") ||
+		strings.Contains(low, "url format not supported") ||
+		strings.Contains(low, "no video id found") ||
+		strings.Contains(low, "extractvideoid") ||
+		strings.Contains(low, "video id is empty")
 }

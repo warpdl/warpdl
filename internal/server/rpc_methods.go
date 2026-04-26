@@ -130,9 +130,15 @@ func (rs *RPCServer) methods() handler.Map {
 		"download.remove":   handler.New(rs.downloadRemove),
 		"download.status":   handler.New(rs.downloadStatus),
 		"download.list":     handler.New(rs.downloadList),
-		// resolve.url shells out to yt-dlp to resolve video page URLs into
-		// downloadable format lists. See internal/server/rpc_resolve.go.
+		// resolve.url uses github.com/kkdai/youtube/v2 to resolve YouTube
+		// page URLs into a list of downloadable formats. URLs are decoded
+		// lazily by youtube.download. See internal/server/rpc_resolve.go.
 		"resolve.url": handler.New(rs.resolveURL),
+		// youtube.download downloads a chosen format. Progressive itags
+		// (audio+video bundled) flow through the existing download manager.
+		// Adaptive (video-only + audio-only) downloads run a parallel-leg
+		// download then ffmpeg remux. See internal/server/rpc_youtube_download.go.
+		"youtube.download": handler.New(rs.youtubeDownload),
 	}
 }
 

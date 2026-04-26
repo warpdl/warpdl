@@ -265,25 +265,21 @@ type QueueMoveParams struct {
 }
 
 // ResolveURLParams contains parameters for resolving a video page URL
-// into a list of downloadable formats. The daemon shells out to yt-dlp
-// (or a compatible tool) to perform extraction.
+// into a list of downloadable formats. The daemon uses
+// github.com/kkdai/youtube/v2 for YouTube URLs.
 type ResolveURLParams struct {
-	// URL is the video page URL to resolve (e.g. a YouTube watch URL).
+	// URL is the video page URL to resolve (a YouTube watch URL).
 	URL string `json:"url"`
-	// CookiesFrom names a browser profile to import cookies from
-	// ("firefox", "chrome", "edge", "brave"). Empty disables cookie
-	// forwarding. Mutually exclusive with CookiesFromFile.
-	CookiesFrom string `json:"cookiesFrom,omitempty"`
-	// CookiesFromFile is a path to a Netscape-format cookies.txt file.
-	// Used for private/age-gated content. Mutually exclusive with CookiesFrom.
-	CookiesFromFile string `json:"cookiesFromFile,omitempty"`
 	// Timeout is the per-call timeout in seconds. Defaults to 30; capped at 120.
 	Timeout int `json:"timeout,omitempty"`
 }
 
 // ResolveURLResult is the response for resolve.url requests.
 type ResolveURLResult struct {
-	// Title is the video title reported by the extractor.
+	// VideoID is the YouTube video identifier (kkdai's Video.ID). Required
+	// by youtube.download to identify the video without re-parsing the URL.
+	VideoID string `json:"videoId,omitempty"`
+	// Title is the video title.
 	Title string `json:"title"`
 	// Author is the uploader/channel name, if reported.
 	Author string `json:"author,omitempty"`
@@ -295,17 +291,23 @@ type ResolveURLResult struct {
 }
 
 // ResolvedFormat describes one downloadable format entry.
+//
+// URL is intentionally empty in resolve.url responses — kkdai requires a
+// per-format roundtrip to decode signature-cipher streams, so URL resolution
+// is deferred to youtube.download (which receives the FormatID and resolves
+// at download time). Use FormatID (the YouTube itag) as the stable identifier.
 type ResolvedFormat struct {
-	// FormatID is the extractor's format identifier. For YouTube this
-	// corresponds to the itag.
+	// FormatID is the YouTube itag as a string.
 	FormatID string `json:"formatId"`
-	// URL is the direct, already-signed download URL usable with HTTP GET.
+	// URL is left empty by resolve.url; populated only when extractors emit
+	// already-decoded URLs (rare for kkdai; reserved for future generic
+	// extractor backends).
 	URL string `json:"url"`
 	// Ext is the container extension (e.g. "mp4", "webm", "m4a").
 	Ext string `json:"ext"`
-	// MimeType is the full MIME type, if reported.
+	// MimeType is the full MIME type with codecs param.
 	MimeType string `json:"mimeType,omitempty"`
-	// Quality is a human-facing quality label (e.g. "1080p", "medium").
+	// Quality is a human-facing quality label (e.g. "1080p60", "medium").
 	Quality string `json:"quality,omitempty"`
 	// FileSize is the size in bytes (0 = unknown).
 	FileSize int64 `json:"fileSize,omitempty"`
@@ -313,16 +315,53 @@ type ResolvedFormat struct {
 	HasVideo bool `json:"hasVideo"`
 	// HasAudio indicates whether this format carries an audio stream.
 	HasAudio bool `json:"hasAudio"`
-	// VideoCodec is the video codec string (empty if no video).
+	// VideoCodec is the video codec (parsed from MimeType, e.g. "avc1.640028").
 	VideoCodec string `json:"videoCodec,omitempty"`
-	// AudioCodec is the audio codec string (empty if no audio).
+	// AudioCodec is the audio codec (parsed from MimeType, e.g. "mp4a.40.2").
 	AudioCodec string `json:"audioCodec,omitempty"`
 	// Height is the pixel height for video formats.
 	Height int `json:"height,omitempty"`
 	// Width is the pixel width for video formats.
 	Width int `json:"width,omitempty"`
-	// Fps is the video framerate, if reported.
+	// Fps is the video framerate.
 	Fps int `json:"fps,omitempty"`
-	// AudioBitrate is the audio bitrate in kbps, if reported.
+	// AudioBitrate is the audio bitrate in kbps (Format.Bitrate / 1000).
 	AudioBitrate int `json:"audioBitrate,omitempty"`
+}
+
+// YouTubeDownloadParams is the input for youtube.download.
+//
+// Two modes:
+//   - Progressive: AudioFormatID empty. VideoFormatID points to a progressive
+//     itag (e.g. "18", "22") with both audio+video. Daemon issues a single
+//     warplib download.
+//   - Adaptive: AudioFormatID set. VideoFormatID is video-only, AudioFormatID
+//     is audio-only. Daemon downloads both legs in parallel, then muxes via
+//     ffmpeg into a single container.
+type YouTubeDownloadParams struct {
+	// VideoID is kkdai's Video.ID (returned by resolve.url as VideoID).
+	VideoID string `json:"videoId"`
+	// VideoFormatID is the itag of the video (or progressive) stream.
+	VideoFormatID string `json:"videoFormatId"`
+	// AudioFormatID is the itag of the audio stream. If set, mux is performed.
+	AudioFormatID string `json:"audioFormatId,omitempty"`
+	// Dir is the output directory. Defaults to daemon config when empty.
+	Dir string `json:"dir,omitempty"`
+	// FileName overrides the auto-derived base filename (without extension).
+	FileName string `json:"fileName,omitempty"`
+	// Connections is the per-download segment parallelism. Defaults to 24.
+	Connections int32 `json:"connections,omitempty"`
+}
+
+// YouTubeDownloadResult is the response for youtube.download.
+type YouTubeDownloadResult struct {
+	// GID is the download identifier for status / progress notifications.
+	// For progressive downloads, this is the warplib download GID.
+	// For adaptive downloads, this is a synthetic parent GID that aggregates
+	// the video + audio leg progress.
+	GID string `json:"gid"`
+	// Muxed is true when an audio leg was downloaded and ffmpeg-merged.
+	Muxed bool `json:"muxed"`
+	// FileName is the final filename (post-mux for adaptive downloads).
+	FileName string `json:"fileName"`
 }

@@ -3,466 +3,401 @@ package server
 import (
 	"context"
 	"errors"
-	"os/exec"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/creachadair/jrpc2"
+	youtube "github.com/kkdai/youtube/v2"
 	"github.com/warpdl/warpdl/common"
 )
 
-// Minimal yt-dlp-shaped JSON fixture covering the fields we consume.
-const sampleYtdlpJSON = `{
-  "title": "Test Video",
-  "uploader": "Test Channel",
-  "channel": "Test Channel",
-  "duration": 125.4,
-  "formats": [
-    {
-      "format_id": "18",
-      "url": "https://example.com/video18.mp4?sig=abc",
-      "ext": "mp4",
-      "protocol": "https",
-      "vcodec": "avc1.42001E",
-      "acodec": "mp4a.40.2",
-      "height": 360,
-      "width": 640,
-      "fps": 30,
-      "filesize": 1234567,
-      "format_note": "360p",
-      "mime_type": "video/mp4"
-    },
-    {
-      "format_id": "137",
-      "url": "https://example.com/video137.mp4?sig=xyz",
-      "ext": "mp4",
-      "protocol": "https",
-      "vcodec": "avc1.640028",
-      "acodec": "none",
-      "height": 1080,
-      "width": 1920,
-      "fps": 60,
-      "filesize_approx": 48765432,
-      "format_note": "1080p60"
-    },
-    {
-      "format_id": "251",
-      "url": "https://example.com/audio251.webm",
-      "ext": "webm",
-      "protocol": "https",
-      "vcodec": "none",
-      "acodec": "opus",
-      "abr": 160,
-      "filesize": 2500000,
-      "format_note": "medium"
-    },
-    {
-      "format_id": "hls-1",
-      "url": "https://example.com/manifest.m3u8",
-      "ext": "mp4",
-      "protocol": "m3u8_native",
-      "vcodec": "avc1.64001F",
-      "acodec": "mp4a.40.2",
-      "height": 720
-    },
-    {
-      "format_id": "empty-codecs",
-      "url": "https://example.com/no-codecs.mp4",
-      "ext": "mp4",
-      "protocol": "https",
-      "vcodec": "none",
-      "acodec": "none"
-    }
-  ]
-}`
-
-func TestParseYtdlpOutput_Basic(t *testing.T) {
-	result, err := parseYtdlpOutput([]byte(sampleYtdlpJSON))
-	if err != nil {
-		t.Fatalf("parseYtdlpOutput: %v", err)
-	}
-
-	if result.Title != "Test Video" {
-		t.Errorf("Title = %q, want %q", result.Title, "Test Video")
-	}
-	if result.Author != "Test Channel" {
-		t.Errorf("Author = %q, want %q", result.Author, "Test Channel")
-	}
-	if result.Duration != 125 {
-		t.Errorf("Duration = %d, want 125", result.Duration)
-	}
-
-	// HLS manifest + empty-codecs entries are filtered out; 3 remain.
-	if len(result.Formats) != 3 {
-		t.Fatalf("got %d formats, want 3 (18, 137, 251)", len(result.Formats))
-	}
-
-	byID := map[string]common.ResolvedFormat{}
-	for _, f := range result.Formats {
-		byID[f.FormatID] = f
-	}
-
-	f18, ok := byID["18"]
-	if !ok {
-		t.Fatal("missing format 18")
-	}
-	if !f18.HasVideo || !f18.HasAudio {
-		t.Errorf("format 18: HasVideo=%v HasAudio=%v, want both true", f18.HasVideo, f18.HasAudio)
-	}
-	if f18.FileSize != 1234567 {
-		t.Errorf("format 18: FileSize=%d, want 1234567", f18.FileSize)
-	}
-	if f18.Quality != "360p" {
-		t.Errorf("format 18: Quality=%q, want 360p", f18.Quality)
-	}
-	if f18.MimeType != "video/mp4" {
-		t.Errorf("format 18: MimeType=%q", f18.MimeType)
-	}
-
-	f137 := byID["137"]
-	if !f137.HasVideo || f137.HasAudio {
-		t.Errorf("format 137: HasVideo=%v HasAudio=%v, want video only", f137.HasVideo, f137.HasAudio)
-	}
-	if f137.FileSize != 48765432 {
-		t.Errorf("format 137: FileSize=%d, want 48765432 (filesize_approx fallback)", f137.FileSize)
-	}
-	if f137.Height != 1080 || f137.Width != 1920 || f137.Fps != 60 {
-		t.Errorf("format 137 dims: %dx%d@%dfps", f137.Width, f137.Height, f137.Fps)
-	}
-
-	f251 := byID["251"]
-	if f251.HasVideo || !f251.HasAudio {
-		t.Errorf("format 251: HasVideo=%v HasAudio=%v, want audio only", f251.HasVideo, f251.HasAudio)
-	}
-	if f251.AudioBitrate != 160 {
-		t.Errorf("format 251: AudioBitrate=%d, want 160", f251.AudioBitrate)
-	}
+// stubFetcher is a hand-rolled ytFetcher for test injection.
+type stubFetcher struct {
+	video   *youtube.Video
+	err     error
+	urlStub func(*youtube.Video, *youtube.Format) (string, error)
+	delay   time.Duration
 }
 
-func TestParseYtdlpOutput_Empty(t *testing.T) {
-	_, err := parseYtdlpOutput([]byte(""))
-	if err == nil {
-		t.Fatal("expected error for empty input")
-	}
-}
-
-func TestParseYtdlpOutput_InvalidJSON(t *testing.T) {
-	_, err := parseYtdlpOutput([]byte("not json"))
-	if err == nil {
-		t.Fatal("expected json decode error")
-	}
-}
-
-func TestParseYtdlpOutput_NoFormats(t *testing.T) {
-	result, err := parseYtdlpOutput([]byte(`{"title":"T","formats":[]}`))
-	if err != nil {
-		t.Fatalf("parseYtdlpOutput: %v", err)
-	}
-	if len(result.Formats) != 0 {
-		t.Errorf("expected 0 formats, got %d", len(result.Formats))
-	}
-}
-
-func TestDeriveQualityLabel(t *testing.T) {
-	tests := []struct {
-		name string
-		in   ytdlpFormat
-		want string
-	}{
-		{"note wins", ytdlpFormat{FormatNote: "720p60", Height: 720}, "720p60"},
-		{"height fallback", ytdlpFormat{Height: 1080}, "1080p"},
-		{"abr fallback", ytdlpFormat{ABR: 128}, "128 kbps"},
-		{"nothing", ytdlpFormat{}, ""},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := deriveQualityLabel(tc.in); got != tc.want {
-				t.Errorf("got %q, want %q", got, tc.want)
-			}
-		})
-	}
-}
-
-func TestIsManifestProtocol(t *testing.T) {
-	manifests := []string{"m3u8", "m3u8_native", "http_dash_segments", "dash", "M3U8"}
-	for _, p := range manifests {
-		if !isManifestProtocol(p) {
-			t.Errorf("isManifestProtocol(%q) = false, want true", p)
+func (s *stubFetcher) GetVideoContext(ctx context.Context, _ string) (*youtube.Video, error) {
+	if s.delay > 0 {
+		select {
+		case <-time.After(s.delay):
+		case <-ctx.Done():
+			return nil, ctx.Err()
 		}
 	}
-	nonManifests := []string{"https", "http", "", "ftp"}
-	for _, p := range nonManifests {
-		if isManifestProtocol(p) {
-			t.Errorf("isManifestProtocol(%q) = true, want false", p)
-		}
+	if s.err != nil {
+		return nil, s.err
 	}
+	return s.video, nil
 }
 
-func TestTailString(t *testing.T) {
-	if got := tailString("short", 10); got != "short" {
-		t.Errorf("short tail: got %q", got)
+func (s *stubFetcher) GetStreamURLContext(_ context.Context, v *youtube.Video, f *youtube.Format) (string, error) {
+	if s.urlStub != nil {
+		return s.urlStub(v, f)
 	}
-	if got := tailString("0123456789abcdef", 4); got != "...cdef" {
-		t.Errorf("long tail: got %q", got)
-	}
-	if got := tailString("  whitespace  ", 20); got != "whitespace" {
-		t.Errorf("trimmed: got %q", got)
-	}
+	return "https://stub/" + f.MimeType, nil
 }
 
-func TestLimitedWriter(t *testing.T) {
-	var out [10]byte
-	lw := &limitedWriter{w: &captureWriter{buf: out[:0]}, remaining: 5}
-	n, _ := lw.Write([]byte("abc"))
-	if n != 3 {
-		t.Errorf("first write: n=%d, want 3", n)
-	}
-	if lw.remaining != 2 {
-		t.Errorf("remaining=%d, want 2", lw.remaining)
-	}
-	n, _ = lw.Write([]byte("defgh"))
-	if n != 2 {
-		t.Errorf("second write: n=%d, want 2 (cap)", n)
-	}
-	if lw.remaining != 0 {
-		t.Errorf("remaining=%d, want 0", lw.remaining)
-	}
-	// Further writes are silently dropped.
-	n, _ = lw.Write([]byte("xyz"))
-	if n != 3 {
-		t.Errorf("overflow write: n=%d, want 3 (reported but dropped)", n)
-	}
+// withStubFetcher swaps ytClientFactory for the duration of the test.
+func withStubFetcher(t *testing.T, sf *stubFetcher) {
+	t.Helper()
+	prev := ytClientFactory
+	ytClientFactory = func() ytFetcher { return sf }
+	t.Cleanup(func() { ytClientFactory = prev })
 }
 
-type captureWriter struct{ buf []byte }
-
-func (cw *captureWriter) Write(p []byte) (int, error) {
-	cw.buf = append(cw.buf, p...)
-	return len(p), nil
-}
-
-// --- RPC-level tests with stubbed exec ---
-
-func TestResolveURL_InvalidParams(t *testing.T) {
-	rs := &RPCServer{}
-	cases := []struct {
-		name string
-		p    *common.ResolveURLParams
-	}{
-		{"nil params", nil},
-		{"empty url", &common.ResolveURLParams{URL: ""}},
-		{"whitespace url", &common.ResolveURLParams{URL: "   "}},
-		{"conflicting cookies", &common.ResolveURLParams{
-			URL:             "https://example.com/v",
-			CookiesFrom:     "firefox",
-			CookiesFromFile: "/tmp/cookies.txt",
-		}},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			_, err := rs.resolveURL(context.Background(), tc.p)
-			var je *jrpc2.Error
-			if !errors.As(err, &je) {
-				t.Fatalf("want jrpc2.Error, got %T: %v", err, err)
-			}
-			if je.Code != codeInvalidParams {
-				t.Errorf("code=%v, want %v", je.Code, codeInvalidParams)
-			}
-		})
-	}
-}
-
-func TestResolveURL_BinaryNotFound(t *testing.T) {
-	origLookPath := lookPath
-	t.Cleanup(func() { lookPath = origLookPath })
-
-	lookPath = func(_ string) (string, error) {
-		return "", exec.ErrNotFound
-	}
-
-	rs := &RPCServer{}
-	_, err := rs.resolveURL(context.Background(), &common.ResolveURLParams{
-		URL: "https://youtube.com/watch?v=abc",
-	})
-	var je *jrpc2.Error
-	if !errors.As(err, &je) {
-		t.Fatalf("want jrpc2.Error, got %T: %v", err, err)
-	}
-	if je.Code != codeResolverUnavailable {
-		t.Errorf("code=%v, want resolver_unavailable", je.Code)
+func makeFixtureVideo() *youtube.Video {
+	return &youtube.Video{
+		ID:       "dQw4w9WgXcQ",
+		Title:    "Never Gonna Give You Up",
+		Author:   "Rick Astley",
+		Duration: 213 * time.Second,
+		Formats: youtube.FormatList{
+			// Progressive 360p mp4 (itag 18) — has video + audio.
+			{
+				ItagNo:        18,
+				MimeType:      `video/mp4; codecs="avc1.42001E, mp4a.40.2"`,
+				Quality:       "medium",
+				QualityLabel:  "360p",
+				Width:         640,
+				Height:        360,
+				FPS:           30,
+				Bitrate:       500000,
+				ContentLength: 12_345_678,
+			},
+			// Adaptive video-only 1080p60 mp4 (itag 137).
+			{
+				ItagNo:        137,
+				MimeType:      `video/mp4; codecs="avc1.640028"`,
+				Quality:       "hd1080",
+				QualityLabel:  "1080p60",
+				Width:         1920,
+				Height:        1080,
+				FPS:           60,
+				Bitrate:       4_500_000,
+				ContentLength: 75_000_000,
+			},
+			// Adaptive audio-only opus 160k (itag 251).
+			{
+				ItagNo:        251,
+				MimeType:      `audio/webm; codecs="opus"`,
+				Quality:       "tiny",
+				QualityLabel:  "",
+				Bitrate:       160_000,
+				ContentLength: 2_500_000,
+			},
+			// Adaptive video-only webm (itag 248) — different container.
+			{
+				ItagNo:        248,
+				MimeType:      `video/webm; codecs="vp9"`,
+				Quality:       "hd1080",
+				QualityLabel:  "1080p",
+				Width:         1920,
+				Height:        1080,
+				FPS:           30,
+				Bitrate:       3_500_000,
+				ContentLength: 60_000_000,
+			},
+		},
 	}
 }
 
 func TestResolveURL_Success(t *testing.T) {
-	withStubbedExec(t, sampleYtdlpJSON, "", 0)
+	withStubFetcher(t, &stubFetcher{video: makeFixtureVideo()})
 
 	rs := &RPCServer{}
-	res, err := rs.resolveURL(context.Background(), &common.ResolveURLParams{
-		URL: "https://youtube.com/watch?v=abc",
-	})
+	res, err := rs.resolveURL(context.Background(), &common.ResolveURLParams{URL: "https://youtube.com/watch?v=dQw4w9WgXcQ"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if res.Title != "Test Video" {
-		t.Errorf("Title=%q", res.Title)
+	if res.VideoID != "dQw4w9WgXcQ" {
+		t.Errorf("VideoID = %q, want %q", res.VideoID, "dQw4w9WgXcQ")
 	}
-	if len(res.Formats) != 3 {
-		t.Errorf("want 3 formats, got %d", len(res.Formats))
+	if res.Title != "Never Gonna Give You Up" {
+		t.Errorf("Title = %q", res.Title)
 	}
-}
-
-func TestResolveURL_Unsupported(t *testing.T) {
-	withStubbedExec(t, "", "ERROR: Unsupported URL: gopher://not-a-site", 1)
-
-	rs := &RPCServer{}
-	_, err := rs.resolveURL(context.Background(), &common.ResolveURLParams{
-		URL: "https://site-not-supported.example/video",
-	})
-	var je *jrpc2.Error
-	if !errors.As(err, &je) {
-		t.Fatalf("want jrpc2.Error, got %T: %v", err, err)
+	if res.Author != "Rick Astley" {
+		t.Errorf("Author = %q", res.Author)
 	}
-	if je.Code != codeResolverUnsupported {
-		t.Errorf("code=%v, want resolver_unsupported", je.Code)
+	if res.Duration != 213 {
+		t.Errorf("Duration = %d, want 213", res.Duration)
+	}
+	if len(res.Formats) != 4 {
+		t.Fatalf("len(Formats) = %d, want 4", len(res.Formats))
 	}
 }
 
-func TestResolveURL_GenericFailure(t *testing.T) {
-	withStubbedExec(t, "", "ERROR: something went wrong", 1)
-
+func TestResolveURL_FormatMappingProgressive(t *testing.T) {
+	withStubFetcher(t, &stubFetcher{video: makeFixtureVideo()})
 	rs := &RPCServer{}
-	_, err := rs.resolveURL(context.Background(), &common.ResolveURLParams{
-		URL: "https://youtube.com/watch?v=abc",
-	})
-	var je *jrpc2.Error
-	if !errors.As(err, &je) {
-		t.Fatalf("want jrpc2.Error, got %T: %v", err, err)
+	res, err := rs.resolveURL(context.Background(), &common.ResolveURLParams{URL: "https://youtube.com/watch?v=x"})
+	if err != nil {
+		t.Fatalf("err = %v", err)
 	}
-	if je.Code != codeResolverFailed {
-		t.Errorf("code=%v, want resolver_failed", je.Code)
+	// itag 18 — progressive
+	f := findFormat(t, res.Formats, "18")
+	if !f.HasVideo || !f.HasAudio {
+		t.Errorf("itag 18 should have both video+audio, got video=%v audio=%v", f.HasVideo, f.HasAudio)
 	}
-	if !strings.Contains(je.Message, "something went wrong") {
-		t.Errorf("message should include stderr tail; got %q", je.Message)
+	if f.VideoCodec != "avc1.42001E" {
+		t.Errorf("itag 18 VideoCodec = %q", f.VideoCodec)
+	}
+	if f.AudioCodec != "mp4a.40.2" {
+		t.Errorf("itag 18 AudioCodec = %q", f.AudioCodec)
+	}
+	if f.Ext != "mp4" {
+		t.Errorf("itag 18 Ext = %q", f.Ext)
+	}
+	if f.Quality != "360p" {
+		t.Errorf("itag 18 Quality = %q", f.Quality)
+	}
+	if f.URL != "" {
+		t.Errorf("URL must be empty in resolve.url response, got %q", f.URL)
+	}
+}
+
+func TestResolveURL_FormatMappingVideoOnly(t *testing.T) {
+	withStubFetcher(t, &stubFetcher{video: makeFixtureVideo()})
+	rs := &RPCServer{}
+	res, _ := rs.resolveURL(context.Background(), &common.ResolveURLParams{URL: "x"})
+	f := findFormat(t, res.Formats, "137")
+	if !f.HasVideo || f.HasAudio {
+		t.Errorf("itag 137 should be video-only, got video=%v audio=%v", f.HasVideo, f.HasAudio)
+	}
+	if f.VideoCodec != "avc1.640028" {
+		t.Errorf("itag 137 VideoCodec = %q", f.VideoCodec)
+	}
+	if f.AudioCodec != "" {
+		t.Errorf("itag 137 AudioCodec must be empty, got %q", f.AudioCodec)
+	}
+	if f.Quality != "1080p60" {
+		t.Errorf("itag 137 Quality = %q", f.Quality)
+	}
+	if f.Fps != 60 {
+		t.Errorf("itag 137 Fps = %d", f.Fps)
+	}
+}
+
+func TestResolveURL_FormatMappingAudioOnly(t *testing.T) {
+	withStubFetcher(t, &stubFetcher{video: makeFixtureVideo()})
+	rs := &RPCServer{}
+	res, _ := rs.resolveURL(context.Background(), &common.ResolveURLParams{URL: "x"})
+	f := findFormat(t, res.Formats, "251")
+	if f.HasVideo || !f.HasAudio {
+		t.Errorf("itag 251 should be audio-only, got video=%v audio=%v", f.HasVideo, f.HasAudio)
+	}
+	if f.AudioCodec != "opus" {
+		t.Errorf("itag 251 AudioCodec = %q", f.AudioCodec)
+	}
+	if f.AudioBitrate != 160 {
+		t.Errorf("itag 251 AudioBitrate = %d, want 160", f.AudioBitrate)
+	}
+	if f.Ext != "webm" {
+		t.Errorf("itag 251 Ext = %q", f.Ext)
+	}
+}
+
+func TestResolveURL_FormatMappingWebmContainer(t *testing.T) {
+	withStubFetcher(t, &stubFetcher{video: makeFixtureVideo()})
+	rs := &RPCServer{}
+	res, _ := rs.resolveURL(context.Background(), &common.ResolveURLParams{URL: "x"})
+	f := findFormat(t, res.Formats, "248")
+	if f.Ext != "webm" {
+		t.Errorf("itag 248 Ext = %q, want webm", f.Ext)
+	}
+	if f.VideoCodec != "vp9" {
+		t.Errorf("itag 248 VideoCodec = %q", f.VideoCodec)
+	}
+}
+
+func TestResolveURL_MissingURL(t *testing.T) {
+	rs := &RPCServer{}
+	_, err := rs.resolveURL(context.Background(), &common.ResolveURLParams{URL: ""})
+	if err == nil {
+		t.Fatal("expected error for empty URL")
+	}
+	var jerr *jrpc2.Error
+	if !errors.As(err, &jerr) || jerr.Code != codeInvalidParams {
+		t.Errorf("expected codeInvalidParams, got %v", err)
+	}
+}
+
+func TestResolveURL_NilParams(t *testing.T) {
+	rs := &RPCServer{}
+	_, err := rs.resolveURL(context.Background(), nil)
+	if err == nil {
+		t.Fatal("expected error for nil params")
+	}
+	var jerr *jrpc2.Error
+	if !errors.As(err, &jerr) || jerr.Code != codeInvalidParams {
+		t.Errorf("expected codeInvalidParams, got %v", err)
 	}
 }
 
 func TestResolveURL_Timeout(t *testing.T) {
-	// Stub exec with a command that sleeps longer than our timeout.
-	origLookPath := lookPath
-	origExecCommandContext := execCommandContext
-	origDefault := defaultResolverTimeout
-	t.Cleanup(func() {
-		lookPath = origLookPath
-		execCommandContext = origExecCommandContext
-		defaultResolverTimeout = origDefault
-	})
-	defaultResolverTimeout = 100 * time.Millisecond
+	prev := defaultResolverTimeout
+	defaultResolverTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { defaultResolverTimeout = prev })
 
-	lookPath = func(string) (string, error) { return "/usr/bin/yt-dlp-stub", nil }
-	execCommandContext = func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
-		return exec.CommandContext(ctx, "sh", "-c", "sleep 5")
-	}
-
+	withStubFetcher(t, &stubFetcher{delay: 200 * time.Millisecond})
 	rs := &RPCServer{}
-	_, err := rs.resolveURL(context.Background(), &common.ResolveURLParams{
-		URL: "https://youtube.com/watch?v=abc",
-	})
-	var je *jrpc2.Error
-	if !errors.As(err, &je) {
-		t.Fatalf("want jrpc2.Error, got %T: %v", err, err)
+	_, err := rs.resolveURL(context.Background(), &common.ResolveURLParams{URL: "https://youtube.com/watch?v=x"})
+	if err == nil {
+		t.Fatal("expected timeout error")
 	}
-	if je.Code != codeResolverTimeout {
-		t.Errorf("code=%v, want resolver_timeout", je.Code)
+	var jerr *jrpc2.Error
+	if !errors.As(err, &jerr) || jerr.Code != codeResolverTimeout {
+		t.Errorf("expected codeResolverTimeout, got %v", err)
 	}
 }
 
-func TestResolveURL_CookiesMutualExclusion(t *testing.T) {
+func TestResolveURL_TimeoutClamping(t *testing.T) {
+	withStubFetcher(t, &stubFetcher{video: makeFixtureVideo()})
 	rs := &RPCServer{}
-	_, err := rs.resolveURL(context.Background(), &common.ResolveURLParams{
-		URL:             "https://x/v",
-		CookiesFrom:     "firefox",
-		CookiesFromFile: "/x",
-	})
-	var je *jrpc2.Error
-	if !errors.As(err, &je) {
-		t.Fatalf("want jrpc2.Error, got %T: %v", err, err)
-	}
-	if je.Code != codeInvalidParams {
-		t.Errorf("code=%v, want invalid_params", je.Code)
-	}
-}
-
-func TestResolveURL_TimeoutCappedAtMax(t *testing.T) {
-	// Caller asks for 9999s — we should clamp to maxResolverTimeout.
-	// Use a stub that returns fast JSON; the test just verifies no error
-	// surfaces due to the huge input.
-	withStubbedExec(t, `{"title":"T","formats":[]}`, "", 0)
-
-	rs := &RPCServer{}
-	res, err := rs.resolveURL(context.Background(), &common.ResolveURLParams{
-		URL:     "https://x/v",
-		Timeout: 9999,
-	})
+	// 99999 → clamp to maxResolverTimeout (120s); test only that it doesn't error.
+	_, err := rs.resolveURL(context.Background(), &common.ResolveURLParams{URL: "x", Timeout: 99999})
 	if err != nil {
-		t.Fatalf("unexpected: %v", err)
-	}
-	if res.Title != "T" {
-		t.Errorf("Title=%q", res.Title)
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
-// withStubbedExec installs a fake yt-dlp that echoes stdout/stderr and exits
-// with the given code. Restored via t.Cleanup.
-func withStubbedExec(t *testing.T, stdout, stderr string, exitCode int) {
+func TestResolveURL_GenericFailure(t *testing.T) {
+	withStubFetcher(t, &stubFetcher{err: errors.New("status code: 403")})
+	rs := &RPCServer{}
+	_, err := rs.resolveURL(context.Background(), &common.ResolveURLParams{URL: "x"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	var jerr *jrpc2.Error
+	if !errors.As(err, &jerr) || jerr.Code != codeResolverFailed {
+		t.Errorf("expected codeResolverFailed, got %v", err)
+	}
+}
+
+func TestResolveURL_UnsupportedURL(t *testing.T) {
+	withStubFetcher(t, &stubFetcher{err: errors.New("invalid characters in video id")})
+	rs := &RPCServer{}
+	_, err := rs.resolveURL(context.Background(), &common.ResolveURLParams{URL: "https://example.com/notyoutube"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	var jerr *jrpc2.Error
+	if !errors.As(err, &jerr) || jerr.Code != codeResolverUnsupported {
+		t.Errorf("expected codeResolverUnsupported, got %v", err)
+	}
+}
+
+func TestSplitMimeType(t *testing.T) {
+	tests := []struct {
+		in       string
+		wantMain string
+		wantN    int
+	}{
+		{`video/mp4; codecs="avc1.640028, mp4a.40.2"`, "video/mp4", 2},
+		{`audio/webm; codecs="opus"`, "audio/webm", 1},
+		{`video/webm`, "video/webm", 0},
+		{``, "", 0},
+		{`video/mp4; codecs=""`, "video/mp4", 0},
+	}
+	for _, tt := range tests {
+		main, codecs := splitMimeType(tt.in)
+		if main != tt.wantMain {
+			t.Errorf("splitMimeType(%q) main = %q, want %q", tt.in, main, tt.wantMain)
+		}
+		if len(codecs) != tt.wantN {
+			t.Errorf("splitMimeType(%q) codecs count = %d, want %d", tt.in, len(codecs), tt.wantN)
+		}
+	}
+}
+
+func TestExtFromMime(t *testing.T) {
+	cases := map[string]string{
+		"video/mp4":  "mp4",
+		"video/webm": "webm",
+		"audio/mp4":  "m4a",
+		"audio/webm": "webm",
+		"audio/ogg":  "ogg", // fallback
+		"":           "",
+	}
+	for mt, want := range cases {
+		got := extFromMime(mt, mt)
+		if got != want {
+			t.Errorf("extFromMime(%q) = %q, want %q", mt, got, want)
+		}
+	}
+}
+
+func TestPickQualityLabel(t *testing.T) {
+	tests := []struct {
+		f    youtube.Format
+		want string
+	}{
+		{youtube.Format{QualityLabel: "1080p60"}, "1080p60"},
+		{youtube.Format{Quality: "medium"}, "medium"},
+		{youtube.Format{Height: 720}, "720p"},
+		{youtube.Format{Bitrate: 128000}, "128 kbps"},
+		{youtube.Format{}, ""},
+	}
+	for _, tt := range tests {
+		got := pickQualityLabel(&tt.f)
+		if got != tt.want {
+			t.Errorf("pickQualityLabel(%+v) = %q, want %q", tt.f, got, tt.want)
+		}
+	}
+}
+
+func TestBitrateKbps(t *testing.T) {
+	if bitrateKbps(&youtube.Format{Bitrate: 128000}, true) != 128 {
+		t.Error("audio-only 128k → 128")
+	}
+	if bitrateKbps(&youtube.Format{Bitrate: 4_500_000}, false) != 0 {
+		t.Error("video-only must report 0 bitrate (we use AudioBitrate field)")
+	}
+	if bitrateKbps(&youtube.Format{}, true) != 0 {
+		t.Error("zero bitrate → 0")
+	}
+}
+
+func TestIsUnsupportedURLError(t *testing.T) {
+	yes := []string{
+		"invalid characters in video id",
+		"URL format not supported",
+		"no video id found",
+		"extractVideoID failed",
+		"video id is empty",
+	}
+	for _, s := range yes {
+		if !isUnsupportedURLError(s) {
+			t.Errorf("expected unsupported for %q", s)
+		}
+	}
+	no := []string{"network error", "status code: 500", "json parse"}
+	for _, s := range no {
+		if isUnsupportedURLError(s) {
+			t.Errorf("expected NOT unsupported for %q", s)
+		}
+	}
+}
+
+// findFormat asserts a ResolvedFormat with the given itag exists.
+func findFormat(t *testing.T, formats []common.ResolvedFormat, itag string) common.ResolvedFormat {
 	t.Helper()
-	origLookPath := lookPath
-	origExecCommandContext := execCommandContext
-	t.Cleanup(func() {
-		lookPath = origLookPath
-		execCommandContext = origExecCommandContext
-	})
-
-	lookPath = func(string) (string, error) {
-		return "/usr/bin/yt-dlp-stub", nil
-	}
-	execCommandContext = func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
-		// Compose an sh -c script that writes stdout, writes stderr to &2, exits code.
-		// We intentionally build argv so there's no shell-injection surface in production;
-		// this stub only runs in tests.
-		script := ""
-		if stdout != "" {
-			script += "printf '%s' " + shellSingleQuote(stdout) + ";"
+	for _, f := range formats {
+		if f.FormatID == itag {
+			return f
 		}
-		if stderr != "" {
-			script += "printf '%s' " + shellSingleQuote(stderr) + " >&2;"
-		}
-		script += "exit " + itoa(exitCode)
-		return exec.CommandContext(ctx, "sh", "-c", script)
 	}
+	t.Fatalf("itag %s not found in formats; got: %v", itag, summarizeFormats(formats))
+	return common.ResolvedFormat{}
 }
 
-func shellSingleQuote(s string) string {
-	// Wrap in single quotes and escape embedded single quotes.
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
-}
-
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
+func summarizeFormats(formats []common.ResolvedFormat) string {
+	ids := make([]string, len(formats))
+	for i, f := range formats {
+		ids[i] = f.FormatID
 	}
-	neg := false
-	if n < 0 {
-		neg = true
-		n = -n
-	}
-	var buf []byte
-	for n > 0 {
-		buf = append([]byte{byte('0' + n%10)}, buf...)
-		n /= 10
-	}
-	if neg {
-		buf = append([]byte{'-'}, buf...)
-	}
-	return string(buf)
+	return strings.Join(ids, ",")
 }
