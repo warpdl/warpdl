@@ -1,5 +1,4 @@
 {
-  "$schema": "https://raw.githubusercontent.com/kucherenko/jscpd/master/packages/jscpd/src/config/schema.json",
   "threshold": 15,
   "reporters": ["console", "markdown"],
   "ignore": [
@@ -18,7 +17,7 @@
   "format": ["go"],
   "minLines": 5,
   "minTokens": 50,
-  "absolutePathToReport": true,
+  "absolute": true,
   "gitignore": true,
   "blame": false,
   "silent": false,
