@@ -22,7 +22,6 @@ const (
 
 // RPCConfig holds configuration for the JSON-RPC endpoint.
 type RPCConfig struct {
-	Secret    string // Auth token (required -- empty means RPC disabled)
 	ListenAll bool   // If true, bind to 0.0.0.0 instead of 127.0.0.1
 	Version   string // Daemon version
 	Commit    string // Git commit
@@ -30,9 +29,13 @@ type RPCConfig struct {
 }
 
 // RPCServer manages the JSON-RPC 2.0 bridge and method handlers.
+//
+// The /jsonrpc and /jsonrpc/ws routes are unauthenticated. The daemon
+// listens on 127.0.0.1 by default; --rpc-listen-all is the explicit
+// opt-in to bind on all interfaces, which the operator should only use
+// behind a separate authentication layer (reverse proxy, etc.).
 type RPCServer struct {
 	bridge       jhttp.Bridge
-	secret       string
 	version      string
 	commit       string
 	buildType    string
@@ -105,7 +108,6 @@ type EmptyResult struct{}
 // NewRPCServer creates a new RPCServer with method handlers and HTTP bridge.
 func NewRPCServer(cfg *RPCConfig, m *warplib.Manager, client *http.Client, pool *Pool, router *warplib.SchemeRouter, l *log.Logger) *RPCServer {
 	rs := &RPCServer{
-		secret:       cfg.Secret,
 		version:      cfg.Version,
 		commit:       cfg.Commit,
 		buildType:    cfg.BuildType,

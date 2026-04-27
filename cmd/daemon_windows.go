@@ -77,16 +77,11 @@ func getMaxConcurrentFromEnv() int {
 
 // getRPCConfigFromEnv reads RPC config from environment variables (used in Windows service mode).
 func getRPCConfigFromEnv() *server.RPCConfig {
-	secret := os.Getenv("WARPDL_RPC_SECRET")
-	if secret == "" {
-		return nil
-	}
 	listenAll := false
 	if val := os.Getenv("WARPDL_RPC_LISTEN_ALL"); val == "1" || val == "true" {
 		listenAll = true
 	}
 	return &server.RPCConfig{
-		Secret:    secret,
 		ListenAll: listenAll,
 		Version:   currentBuildArgs.Version,
 		Commit:    currentBuildArgs.Commit,

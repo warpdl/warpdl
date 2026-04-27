@@ -78,13 +78,12 @@ func newTestRPCHandler(t *testing.T) (http.Handler, string, func()) {
 	t.Helper()
 	secret := "test-rpc-secret"
 	cfg := &RPCConfig{
-		Secret:    secret,
 		Version:   "1.0.0",
 		Commit:    "abc123",
 		BuildType: "release",
 	}
 	rs := NewRPCServer(cfg, nil, nil, nil, nil, nil)
-	handler := requireToken(secret, rs.bridge)
+	handler := rs.bridge
 	return handler, secret, func() { rs.Close() }
 }
 
@@ -168,7 +167,6 @@ func TestRPCMethodNotFound(t *testing.T) {
 
 func TestRPCBridgeLifecycle(t *testing.T) {
 	cfg := &RPCConfig{
-		Secret:  "test",
 		Version: "1.0.0",
 	}
 	rs := NewRPCServer(cfg, nil, nil, nil, nil, nil)
@@ -176,34 +174,6 @@ func TestRPCBridgeLifecycle(t *testing.T) {
 	rs.Close()
 	// Double close should not panic
 	rs.Close()
-}
-
-func TestRPCAuthRequired(t *testing.T) {
-	handler, _, cleanup := newTestRPCHandler(t)
-	defer cleanup()
-
-	// Request without auth token
-	code, resp := rpcCall(t, handler, "system.getVersion", nil, "")
-	if code != http.StatusUnauthorized {
-		t.Fatalf("expected 401, got %d", code)
-	}
-	errObj, ok := resp["error"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected error object, got %v", resp)
-	}
-	if errObj["message"] != "Unauthorized" {
-		t.Fatalf("expected 'Unauthorized', got %v", errObj["message"])
-	}
-}
-
-func TestRPCWrongToken(t *testing.T) {
-	handler, _, cleanup := newTestRPCHandler(t)
-	defer cleanup()
-
-	code, _ := rpcCall(t, handler, "system.getVersion", nil, "wrong-token")
-	if code != http.StatusUnauthorized {
-		t.Fatalf("expected 401, got %d", code)
-	}
 }
 
 // newTestRPCHandlerWithManager creates an RPC handler backed by a real Manager.
@@ -232,13 +202,12 @@ func newTestRPCHandlerWithManager(t *testing.T) (http.Handler, string, func(), *
 		CheckRedirect: warplib.RedirectPolicy(warplib.DefaultMaxRedirects),
 	}
 	cfg := &RPCConfig{
-		Secret:    secret,
 		Version:   "1.0.0",
 		Commit:    "abc123",
 		BuildType: "release",
 	}
 	rs := NewRPCServer(cfg, m, client, pool, nil, nil)
-	handler := requireToken(secret, rs.bridge)
+	handler := rs.bridge
 	cleanup := func() {
 		rs.Close()
 		m.Close()
@@ -744,10 +713,10 @@ func TestRPCDownloadPause_NotActive_NoPool(t *testing.T) {
 	client := &http.Client{
 		CheckRedirect: warplib.RedirectPolicy(warplib.DefaultMaxRedirects),
 	}
-	cfg := &RPCConfig{Secret: secret, Version: "1.0.0"}
+	cfg := &RPCConfig{Version: "1.0.0"}
 	rs := NewRPCServer(cfg, m, client, pool, nil, nil)
 	defer rs.Close()
-	h := requireToken(secret, rs.bridge)
+	h := rs.bridge
 
 	_, addResp := rpcCall(t, h, "download.add", map[string]any{
 		"url": srv.URL + "/pause-test.bin",
