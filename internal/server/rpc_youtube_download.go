@@ -5,9 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
-	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -21,47 +18,69 @@ import (
 	"github.com/warpdl/warpdl/pkg/warplib"
 )
 
-// httpClientFactory is the http.Client used to fetch streams. Replaceable
-// in tests with a stub round-tripper.
-var httpClientFactory = func() *http.Client { return http.DefaultClient }
-
 // muxRunner runs the mux step. Tests override this to verify orchestration
 // without invoking ffmpeg.
 var muxRunner = muxFiles
 
-// downloadRunner downloads a URL into outPath using warplib's segmented
-// downloader. Replaced in tests with a stub that produces a fake file.
-var downloadRunner = defaultDownloadRunner
+// downloadLeg downloads one stream of an adaptive YouTube video. The
+// download is registered with the warplib Manager so it appears in
+// `warp list`, status, and pause/resume; this function blocks until
+// the leg completes (success or error). progressFn (if non-nil) is
+// called with cumulative bytes for each progress tick.
+//
+// Replaced in tests with a stub that produces a fake file without
+// touching warplib or the manager.
+var downloadLeg = defaultDownloadLeg
 
-// defaultDownloadRunner uses warplib.NewDownloader to fetch the stream into
-// outPath. It blocks until the download completes (or errors). Progress is
-// reported through the supplied progressFn (called with cumulative bytes).
-func defaultDownloadRunner(ctx context.Context, client *http.Client, streamURL, outPath string, connections int32, progressFn func(int64)) (int64, error) {
+func defaultDownloadLeg(rs *RPCServer, streamURL, outPath string, connections int32, progressFn func(int64)) error {
 	dir := filepath.Dir(outPath)
 	name := filepath.Base(outPath)
+
+	done := make(chan error, 1)
+	var seen int64
 
 	opts := &warplib.DownloaderOpts{
 		FileName:          name,
 		DownloadDirectory: dir,
 		MaxConnections:    connections,
-	}
-	if progressFn != nil {
-		var seen int64
-		opts.Handlers = &warplib.Handlers{
+		Handlers: &warplib.Handlers{
 			DownloadProgressHandler: func(_ string, n int) {
-				progressFn(atomic.AddInt64(&seen, int64(n)))
+				cum := atomic.AddInt64(&seen, int64(n))
+				if progressFn != nil {
+					progressFn(cum)
+				}
 			},
-		}
+			DownloadCompleteHandler: func(_ string, _ int64) {
+				select {
+				case done <- nil:
+				default:
+				}
+			},
+			ErrorHandler: func(_ string, err error) {
+				select {
+				case done <- err:
+				default:
+				}
+			},
+		},
 	}
 
-	d, err := warplib.NewDownloader(client, streamURL, opts)
+	d, err := warplib.NewDownloader(rs.client, streamURL, opts)
 	if err != nil {
-		return 0, err
+		return err
 	}
-	if err := d.Start(); err != nil {
-		return 0, err
+	if err := rs.manager.AddDownload(d, &warplib.AddDownloadOpts{
+		AbsoluteLocation: dir,
+	}); err != nil {
+		return err
 	}
-	return d.GetContentLengthAsInt(), nil
+	if rs.pool != nil {
+		rs.pool.AddDownload(d.GetHash(), nil)
+	}
+
+	go d.Start()
+
+	return <-done
 }
 
 // youtubeDownload is the handler for the JSON-RPC method "youtube.download".
@@ -292,11 +311,11 @@ func (rs *RPCServer) runAdaptive(job adaptiveJob) {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		_, videoErr = downloadRunner(context.Background(), rs.client, job.videoURL, job.videoTmp, job.connections, progress(&videoSeen))
+		videoErr = downloadLeg(rs, job.videoURL, job.videoTmp, job.connections, progress(&videoSeen))
 	}()
 	go func() {
 		defer wg.Done()
-		_, audioErr = downloadRunner(context.Background(), rs.client, job.audioURL, job.audioTmp, job.connections, progress(&audioSeen))
+		audioErr = downloadLeg(rs, job.audioURL, job.audioTmp, job.connections, progress(&audioSeen))
 	}()
 	wg.Wait()
 
@@ -424,10 +443,3 @@ func first(s []string) string {
 	}
 	return s[0]
 }
-
-// silence unused-import warnings for io / fmt when this file is the only
-// importer (kept for readability of helper signatures).
-var (
-	_ = io.Discard
-	_ = fmt.Sprintf
-)

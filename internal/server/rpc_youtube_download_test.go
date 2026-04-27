@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"errors"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -106,18 +105,21 @@ func TestYouTubeDownload_AdaptiveOrchestration(t *testing.T) {
 	muxLookPath = func(string) (string, error) { return "/usr/bin/ffmpeg", nil }
 	t.Cleanup(func() { muxLookPath = prevLP })
 
-	// Stub the download runner: write a placeholder file and report progress.
-	prevDR := downloadRunner
-	downloadRunner = func(_ context.Context, _ *http.Client, url, out string, _ int32, progress func(int64)) (int64, error) {
+	// Stub the leg downloader: write a placeholder file and report progress.
+	// Real implementation registers each leg with rs.manager so it appears
+	// in `warp list`; the test deliberately bypasses warplib/manager because
+	// neither is meaningful here (we're testing orchestration + cleanup).
+	prevDL := downloadLeg
+	downloadLeg = func(_ *RPCServer, url, out string, _ int32, progress func(int64)) error {
 		if err := os.WriteFile(out, []byte("dummy-"+url), 0o644); err != nil {
-			return 0, err
+			return err
 		}
 		if progress != nil {
 			progress(int64(len("dummy-" + url)))
 		}
-		return int64(len("dummy-" + url)), nil
+		return nil
 	}
-	t.Cleanup(func() { downloadRunner = prevDR })
+	t.Cleanup(func() { downloadLeg = prevDL })
 
 	// Stub mux: just touch the output path.
 	prevMux := muxRunner
@@ -188,15 +190,15 @@ func TestYouTubeDownload_AdaptiveDownloadFailureBroadcastsError(t *testing.T) {
 	muxLookPath = func(string) (string, error) { return "/usr/bin/ffmpeg", nil }
 	t.Cleanup(func() { muxLookPath = prevLP })
 
-	prevDR := downloadRunner
-	downloadRunner = func(_ context.Context, _ *http.Client, url, _ string, _ int32, _ func(int64)) (int64, error) {
+	prevDL := downloadLeg
+	downloadLeg = func(_ *RPCServer, url, _ string, _ int32, _ func(int64)) error {
 		// Audio leg fails; video leg succeeds (writes nothing).
 		if strings.Contains(url, "audio") {
-			return 0, errors.New("network reset")
+			return errors.New("network reset")
 		}
-		return 0, nil
+		return nil
 	}
-	t.Cleanup(func() { downloadRunner = prevDR })
+	t.Cleanup(func() { downloadLeg = prevDL })
 
 	// Replace the URL stub so we can distinguish video/audio in the
 	// download runner above.
