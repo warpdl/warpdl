@@ -50,7 +50,7 @@ func (m *MockClient) Close() error {
 func TestDownloadBatchFromFile_Background(t *testing.T) {
 	content := "https://example.com/a.zip\n"
 	tmpFile := createTempInputFile(t, content)
-	defer os.Remove(tmpFile)
+	defer func() { _ = os.Remove(tmpFile) }()
 
 	socketPath := getShortSocketPath(t)
 	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
@@ -89,7 +89,7 @@ func TestDownloadBatch_TwoURLsFromFile(t *testing.T) {
 	content := `https://example.com/file1.zip
 https://example.com/file2.tar.gz`
 	tmpFile := createTempInputFile(t, content)
-	defer os.Remove(tmpFile)
+	defer func() { _ = os.Remove(tmpFile) }()
 
 	mock := &MockClient{}
 
@@ -119,7 +119,7 @@ func TestDownloadBatch_MixFileAndDirectURLs(t *testing.T) {
 	// Create input file with 1 URL
 	content := `https://example.com/file1.zip`
 	tmpFile := createTempInputFile(t, content)
-	defer os.Remove(tmpFile)
+	defer func() { _ = os.Remove(tmpFile) }()
 
 	mock := &MockClient{}
 
@@ -152,7 +152,7 @@ func TestDownloadBatch_ContinueOnError(t *testing.T) {
 https://example.com/fail.zip
 https://example.com/file3.zip`
 	tmpFile := createTempInputFile(t, content)
-	defer os.Remove(tmpFile)
+	defer func() { _ = os.Remove(tmpFile) }()
 
 	// Mock client that fails on specific URL
 	mock := &MockClient{
@@ -198,7 +198,7 @@ func TestDownloadBatch_EmptyFile(t *testing.T) {
 	// Create empty input file
 	content := ``
 	tmpFile := createTempInputFile(t, content)
-	defer os.Remove(tmpFile)
+	defer func() { _ = os.Remove(tmpFile) }()
 
 	mock := &MockClient{}
 
@@ -498,7 +498,7 @@ ftp://example.com/invalid.zip
 https://example.com/file2.zip
 magnet:?xt=urn:btih:abc123`
 	tmpFile := createTempInputFile(t, content)
-	defer os.Remove(tmpFile)
+	defer func() { _ = os.Remove(tmpFile) }()
 
 	mock := &MockClient{}
 
@@ -556,7 +556,7 @@ func TestDownloadBatch_AllFail(t *testing.T) {
 https://example.com/fail2.zip
 https://example.com/fail3.zip`
 	tmpFile := createTempInputFile(t, content)
-	defer os.Remove(tmpFile)
+	defer func() { _ = os.Remove(tmpFile) }()
 
 	// Mock client that fails every download
 	mock := &MockClient{
@@ -609,7 +609,7 @@ https://example.com/fail3.zip`
 func TestDownloadBatch_AllSucceed_LargeFile(t *testing.T) {
 	content := "https://example.com/file0.zip\nhttps://example.com/file1.zip\nhttps://example.com/file2.zip\nhttps://example.com/file3.zip\nhttps://example.com/file4.zip\nhttps://example.com/file5.zip\nhttps://example.com/file6.zip\nhttps://example.com/file7.zip\nhttps://example.com/file8.zip\nhttps://example.com/file9.zip"
 	tmpFile := createTempInputFile(t, content)
-	defer os.Remove(tmpFile)
+	defer func() { _ = os.Remove(tmpFile) }()
 
 	mock := &MockClient{}
 
@@ -646,7 +646,7 @@ func TestDownloadBatch_MixedFailures_FileAndDirect(t *testing.T) {
 	content := `https://example.com/file-ok.zip
 https://example.com/file-fail.zip`
 	tmpFile := createTempInputFile(t, content)
-	defer os.Remove(tmpFile)
+	defer func() { _ = os.Remove(tmpFile) }()
 
 	// Direct URLs: one ok, one fail
 	directURLs := []string{
@@ -706,7 +706,7 @@ https://example.com/file-fail.zip`
 func TestDownloadBatch_DownloadOptsPassedThrough(t *testing.T) {
 	content := `https://example.com/file.zip`
 	tmpFile := createTempInputFile(t, content)
-	defer os.Remove(tmpFile)
+	defer func() { _ = os.Remove(tmpFile) }()
 
 	// Create download options with custom settings
 	downloadOpts := &warpcli.DownloadOpts{
@@ -808,7 +808,7 @@ https://example.com/notfound.zip
 https://example.com/forbidden.zip
 https://example.com/success.zip`
 	tmpFile := createTempInputFile(t, content)
-	defer os.Remove(tmpFile)
+	defer func() { _ = os.Remove(tmpFile) }()
 
 	// Mock different error types for different URLs
 	mock := &MockClient{
