@@ -134,6 +134,29 @@ func TestFlowRegistry_ResolvedFlowNotReusedByLaterStart(t *testing.T) {
 	}
 }
 
+func TestFlowRegistry_StartAfterShutdown(t *testing.T) {
+	fr := NewFlowRegistry(time.Minute)
+	fr.Shutdown()
+	_, _, err := fr.Start(types.TokenKey{PluginID: "p"}, FlowKindPKCE)
+	if !errors.Is(err, ErrRegistryShutDown) {
+		t.Fatalf("expected ErrRegistryShutDown, got %v", err)
+	}
+}
+
+func TestFlowRegistry_CancelNilError(t *testing.T) {
+	fr := NewFlowRegistry(time.Minute)
+	defer fr.Shutdown()
+	f, _, _ := fr.Start(types.TokenKey{PluginID: "p"}, FlowKindPKCE)
+	done := make(chan error, 1)
+	go func() { _, err := fr.Await(f.ID); done <- err }()
+	time.Sleep(10 * time.Millisecond)
+	fr.Cancel(f.ID, nil)
+	err := <-done
+	if err == nil || err.Error() != "cancelled" {
+		t.Fatalf("expected cancelled error, got %v", err)
+	}
+}
+
 func TestFlowRegistry_CancelReturnsError(t *testing.T) {
 	fr := NewFlowRegistry(time.Minute)
 	defer fr.Shutdown()

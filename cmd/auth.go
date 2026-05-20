@@ -87,11 +87,11 @@ func authLogin(ctx *cli.Context) error {
 	// that a caller may have passed through StringSlice.
 	scopes := append([]string(nil), ctx.StringSlice("scopes")...)
 
-	client, err := getClient()
+	client, close, err := authClientFactory()
 	if err != nil {
 		return fmt.Errorf("connect daemon: %w", err)
 	}
-	defer client.Close()
+	defer close()
 
 	if ctx.Bool("device") {
 		return runDeviceFlow(ctx.App.Writer, client, pluginID, account, scopes)
@@ -112,6 +112,16 @@ type authRPC interface {
 
 // compile-time check: the concrete client must satisfy the interface.
 var _ authRPC = (*warpcli.Client)(nil)
+
+// authClientFactory dials the daemon for auth subcommands. Tests replace it
+// to avoid a live daemon socket.
+var authClientFactory = func() (client authRPC, close func(), err error) {
+	c, err := getClient()
+	if err != nil {
+		return nil, nil, err
+	}
+	return c, func() { _ = c.Close() }, nil
+}
 
 // HandleAuthRequired runs the interactive auth orchestrator in response
 // to a daemon-pushed UPDATE_AUTH_REQUIRED event received while the CLI
@@ -495,11 +505,11 @@ func authListCmd() cli.Command {
 // credentials via the daemon and prints them; an empty store prints a
 // friendly "No stored credentials." message instead of an empty table.
 func authList(ctx *cli.Context) error {
-	client, err := getClient()
+	client, close, err := authClientFactory()
 	if err != nil {
 		return fmt.Errorf("connect daemon: %w", err)
 	}
-	defer client.Close()
+	defer close()
 	res, err := client.AuthList()
 	if err != nil {
 		return fmt.Errorf("auth.list: %w", err)
@@ -566,11 +576,11 @@ func authLogout(ctx *cli.Context) error {
 	if account == "" {
 		account = "default"
 	}
-	client, err := getClient()
+	client, close, err := authClientFactory()
 	if err != nil {
 		return fmt.Errorf("connect daemon: %w", err)
 	}
-	defer client.Close()
+	defer close()
 	if err := client.AuthLogout(&common.AuthLogoutParams{
 		PluginID: pluginID,
 		Account:  account,
@@ -615,11 +625,11 @@ func authStatus(ctx *cli.Context) error {
 	if account == "" {
 		account = "default"
 	}
-	client, err := getClient()
+	client, close, err := authClientFactory()
 	if err != nil {
 		return fmt.Errorf("connect daemon: %w", err)
 	}
-	defer client.Close()
+	defer close()
 	res, err := client.AuthList()
 	if err != nil {
 		return fmt.Errorf("auth.list: %w", err)

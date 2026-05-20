@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -644,6 +645,153 @@ func TestDeviceCodeGrantSendsClientSecretWhenConfigured(t *testing.T) {
 
 // A caller that has already set client_secret on the form (future-proof
 // against exotic grants) must not be overwritten by the manifest's value.
+func TestStartDeviceCodeUnsupported(t *testing.T) {
+	p, _ := makeTestProvider(t, "https://example.com/t", "")
+	p.cfg.DeviceURL = ""
+	if _, err := p.StartDeviceCode(context.Background()); err == nil {
+		t.Fatal("expected error when device flow is not configured")
+	}
+}
+
+func TestNewPKCEVerifier(t *testing.T) {
+	v, err := NewPKCEVerifier()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(v) < 20 {
+		t.Fatalf("verifier too short: %q", v)
+	}
+}
+
+func TestResolveScopes(t *testing.T) {
+	t.Parallel()
+	if got := resolveScopes([]string{"a"}, []string{"x", "y"}); len(got) != 1 || got[0] != "a" {
+		t.Fatalf("request scopes: got %v", got)
+	}
+	if got := resolveScopes(nil, []string{"x", "y"}); len(got) != 2 {
+		t.Fatalf("manifest scopes: got %v", got)
+	}
+}
+
+func TestTriggerFlowAndAwait_ImmediateCancel(t *testing.T) {
+	p, _ := makeTestProvider(t, "https://example.com/t", "")
+	tk := types.TokenKey{PluginID: "plugin-1"}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := p.Token(ctx, tk, []string{"drive.readonly"})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Token err = %v", err)
+	}
+}
+
+func TestTriggerFlowAndAwait_ResolveError(t *testing.T) {
+	p, _ := makeTestProvider(t, "https://example.com/t", "")
+	tk := types.TokenKey{PluginID: "plugin-1"}
+
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		f, _, err := p.flows.Start(tk, FlowKindPKCE)
+		if err != nil || f == nil {
+			return
+		}
+		p.flows.Resolve(f.ID, nil, errors.New("auth denied"))
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, err := p.Token(ctx, tk, []string{"drive.readonly"})
+	if err == nil || !strings.Contains(err.Error(), "auth denied") {
+		t.Fatalf("Token err = %v", err)
+	}
+}
+
+func TestPollDeviceCodeSlowDown(t *testing.T) {
+	var polls atomic.Int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/device/code", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"device_code": "dev", "user_code": "X", "verification_url": "https://x", "interval": 1,
+		})
+	})
+	mux.HandleFunc("/token", func(w http.ResponseWriter, _ *http.Request) {
+		n := polls.Add(1)
+		if n == 1 {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":"slow_down"}`))
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token": "AT", "token_type": "Bearer", "expires_in": 3600,
+		})
+	})
+	srv := httptest.NewTLSServer(mux)
+	defer srv.Close()
+	p, _ := makeTestProvider(t, srv.URL+"/token", "")
+	p.cfg.DeviceURL = srv.URL + "/device/code"
+	p.client = newInsecureTLSClient()
+	init, err := p.StartDeviceCode(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	defer cancel()
+	tok, err := p.PollDeviceCode(ctx, init)
+	if err != nil || tok.AccessToken != "AT" {
+		t.Fatalf("PollDeviceCode: tok=%+v err=%v", tok, err)
+	}
+	if polls.Load() < 2 {
+		t.Fatalf("expected at least 2 token polls, got %d", polls.Load())
+	}
+}
+
+func TestStartDeviceCodeProviderError(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/device/code", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":"invalid_client"}`))
+	})
+	srv := httptest.NewTLSServer(mux)
+	defer srv.Close()
+	p, _ := makeTestProvider(t, srv.URL+"/token", "")
+	p.cfg.DeviceURL = srv.URL + "/device/code"
+	p.client = newInsecureTLSClient()
+	if _, err := p.StartDeviceCode(context.Background()); err == nil {
+		t.Fatal("expected provider error")
+	}
+}
+
+func TestTriggerFlowAndAwait_Success(t *testing.T) {
+	p, tm := makeTestProvider(t, "https://example.com/t", "")
+	tk := types.TokenKey{PluginID: "plugin-1"}
+
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		f, _, err := p.flows.Start(tk, FlowKindPKCE)
+		if err != nil || f == nil {
+			return
+		}
+		p.flows.Resolve(f.ID, &types.OAuth2Token{
+			AccessToken: "fresh",
+			ExpiresAt:   time.Now().Add(time.Hour),
+			Scopes:      []string{"drive.readonly"},
+		}, nil)
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	tok, err := p.Token(ctx, tk, []string{"drive.readonly"})
+	if err != nil {
+		t.Fatalf("Token: %v", err)
+	}
+	if tok != "fresh" {
+		t.Fatalf("token = %q", tok)
+	}
+	stored, err := tm.Get(tk)
+	if err != nil || stored.AccessToken != "fresh" {
+		t.Fatalf("stored = %+v err=%v", stored, err)
+	}
+}
+
 func TestPostTokenPreservesExplicitClientSecret(t *testing.T) {
 	idp := newStubIdP(t, "AT", "", 3600)
 	p, _ := makeTestProviderWithSecret(t, idp.server.URL+"/token", "", "MANIFEST-SECRET")

@@ -38,6 +38,39 @@ func setupRuntime(t *testing.T) (*goja.Runtime, *OAuth2Provider, *credman.TokenM
 	return rt, p, tm
 }
 
+func TestParseOpts(t *testing.T) {
+	rt := goja.New()
+	acc, scopes, err := parseOpts(rt, goja.Undefined())
+	if err != nil || acc != "" || scopes != nil {
+		t.Fatalf("undefined: acc=%q scopes=%v err=%v", acc, scopes, err)
+	}
+	v, err := rt.RunString(`({account: "work", scopes: ["a","b"]})`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	acc, scopes, err = parseOpts(rt, v)
+	if err != nil || acc != "work" || len(scopes) != 2 {
+		t.Fatalf("object: acc=%q scopes=%v err=%v", acc, scopes, err)
+	}
+	if _, _, err := parseOpts(rt, rt.ToValue("nope")); err == nil {
+		t.Fatal("expected error for non-object options")
+	}
+	v, err = rt.RunString(`({scopes: 123})`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := parseOpts(rt, v); err == nil {
+		t.Fatal("expected error for non-string-array scopes")
+	}
+}
+
+func TestBindingFetchWithAuthRequiresRequest(t *testing.T) {
+	rt, _, _ := setupRuntime(t)
+	if _, err := rt.RunString(`fetchWithAuth({url: "https://example.com"}, {})`); err == nil {
+		t.Fatal("expected error when request() is not installed")
+	}
+}
+
 func TestBindingGetAccessTokenReturnsString(t *testing.T) {
 	rt, _, tm := setupRuntime(t)
 	k := types.TokenKey{PluginID: "pid", Account: "default"}

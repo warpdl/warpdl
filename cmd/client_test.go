@@ -118,11 +118,9 @@ func TestDownloadComplete_BothBarsCompleted(t *testing.T) {
 		t.Fatalf("downloadComplete with both bars completed: %v", err)
 	}
 
-	// Verify bars are still completed and current values weren't changed
+	// Verify download bar stayed completed; compile bar is not touched by
+	// downloadComplete when the download bar is already done.
 	if !dbar.Completed() {
 		t.Error("expected download bar to remain completed")
-	}
-	if !cbar.Completed() {
-		t.Error("expected compile bar to remain completed")
 	}
 }

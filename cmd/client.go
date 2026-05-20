@@ -61,11 +61,10 @@ func downloadComplete(client *warpcli.Client, dbar, cbar *mpb.Bar, sc *SpeedCoun
 			return nil
 		}
 		dbar.SetCurrent(dr.Value)
-		// fill compile bar
-		if cbar.Completed() {
-			return nil
-		}
-		cbar.SetCurrent(dr.Value)
+		// Do not touch the compile bar here: it may still be queued via
+		// BarQueueAfter and has no serving goroutine until the download bar
+		// finishes. compileProgress / compileComplete update it later.
+		_ = cbar
 		return nil
 	}
 }

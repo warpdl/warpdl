@@ -98,6 +98,10 @@ func newAuthLoginContext(args []string, flagVals map[string]string) *cli.Context
 	// Inject flag values first, then positional args.
 	rawArgs := []string{}
 	for k, v := range flagVals {
+		if v == "true" {
+			rawArgs = append(rawArgs, "--"+k)
+			continue
+		}
 		rawArgs = append(rawArgs, "--"+k, v)
 	}
 	rawArgs = append(rawArgs, args...)
@@ -192,6 +196,113 @@ func TestAuthCmdShape(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("subcommand \"login\" missing")
+	}
+}
+
+func withFakeAuthClient(t *testing.T, fake *fakeAuthRPC) {
+	t.Helper()
+	prev := authClientFactory
+	authClientFactory = func() (authRPC, func(), error) {
+		return fake, func() {}, nil
+	}
+	t.Cleanup(func() { authClientFactory = prev })
+}
+
+// TestAuthList prints stored credentials via authList.
+func TestAuthList(t *testing.T) {
+	fake := &fakeAuthRPC{
+		listRes: &common.AuthListResult{Accounts: []common.AuthAccount{
+			{PluginID: "gdrive", Account: "default", Scopes: []string{"read"}, ExpiresAt: time.Now().Add(time.Hour).Unix()},
+		}},
+	}
+	withFakeAuthClient(t, fake)
+	app := cli.NewApp()
+	app.Writer = io.Discard
+	ctx := cli.NewContext(app, flag.NewFlagSet("list", flag.ContinueOnError), nil)
+	ctx.Command = authListCmd()
+	var buf bytes.Buffer
+	ctx.App.Writer = &buf
+	if err := authList(ctx); err != nil {
+		t.Fatalf("authList: %v", err)
+	}
+	if !strings.Contains(buf.String(), "gdrive") {
+		t.Fatalf("output = %q", buf.String())
+	}
+}
+
+// TestAuthListEmpty prints the friendly empty-store message.
+func TestAuthListEmpty(t *testing.T) {
+	fake := &fakeAuthRPC{listRes: &common.AuthListResult{}}
+	withFakeAuthClient(t, fake)
+	app := cli.NewApp()
+	var buf bytes.Buffer
+	ctx := cli.NewContext(app, flag.NewFlagSet("list", flag.ContinueOnError), nil)
+	ctx.Command = authListCmd()
+	ctx.App.Writer = &buf
+	if err := authList(ctx); err != nil {
+		t.Fatalf("authList: %v", err)
+	}
+	if !strings.Contains(buf.String(), "No stored credentials") {
+		t.Fatalf("output = %q", buf.String())
+	}
+}
+
+// TestAuthLogoutSuccess issues auth.logout for the target plugin.
+func TestAuthLogoutSuccess(t *testing.T) {
+	fake := &fakeAuthRPC{}
+	withFakeAuthClient(t, fake)
+	ctx := newAuthActionContext(authLogoutCmd(), []string{"gdrive"}, nil)
+	var buf bytes.Buffer
+	ctx.App.Writer = &buf
+	if err := authLogout(ctx); err != nil {
+		t.Fatalf("authLogout: %v", err)
+	}
+	if len(fake.logoutCalls) != 1 || fake.logoutCalls[0].PluginID != "gdrive" {
+		t.Fatalf("logoutCalls = %+v", fake.logoutCalls)
+	}
+}
+
+// TestAuthStatusViaAction exercises authStatus exit code 0.
+func TestAuthStatusViaAction(t *testing.T) {
+	fake := &fakeAuthRPC{
+		listRes: &common.AuthListResult{Accounts: []common.AuthAccount{
+			{PluginID: "gdrive", Account: "default", ExpiresAt: time.Now().Add(time.Hour).Unix()},
+		}},
+	}
+	withFakeAuthClient(t, fake)
+	ctx := newAuthActionContext(authStatusCmd(), []string{"gdrive"}, nil)
+	var buf bytes.Buffer
+	ctx.App.Writer = &buf
+	if err := authStatus(ctx); err != nil {
+		t.Fatalf("authStatus: %v", err)
+	}
+	if !strings.Contains(buf.String(), "authenticated") {
+		t.Fatalf("output = %q", buf.String())
+	}
+}
+
+// TestAuthLoginDevice dispatches to the device flow when --device is set.
+func TestAuthLoginDevice(t *testing.T) {
+	fake := &fakeAuthRPC{
+		loginRes: &common.AuthLoginResult{
+			FlowID:          "f",
+			VerificationURL: "https://example.com/v",
+			UserCode:        "CODE",
+			Interval:        1,
+		},
+		listRes: &common.AuthListResult{Accounts: []common.AuthAccount{
+			{PluginID: "plug", Account: "acct"},
+		}},
+	}
+	withFakeAuthClient(t, fake)
+	ctx := newAuthLoginContext([]string{"plug"}, map[string]string{"device": "true", "as": "acct"})
+	var buf bytes.Buffer
+	ctx.App.Writer = &buf
+	if err := authLogin(ctx); err != nil {
+		t.Fatalf("authLogin: %v", err)
+	}
+	if len(fake.loginCalls) != 1 || fake.loginCalls[0].Flow != "device" {
+		t.Fatalf("loginCalls = %+v", fake.loginCalls)
 	}
 }
 
@@ -423,6 +534,84 @@ func TestRunPKCEFlow_LoginFailure(t *testing.T) {
 	}
 	if len(fake.loginCalls) != 1 {
 		t.Fatalf("login calls = %d", len(fake.loginCalls))
+	}
+}
+
+// TestRunPKCEFlow_Success drives the happy path: loopback server receives
+// the OAuth callback and runPKCEFlow returns without error.
+func TestRunPKCEFlow_Success(t *testing.T) {
+	fake := &fakeAuthRPC{
+		loginRes: &common.AuthLoginResult{
+			FlowID:       "flow-ok",
+			AuthorizeURL: "http://127.0.0.1:1/callback", // overwritten by printed URL
+		},
+		completeRes: &common.AuthCompleteResult{Account: "default"},
+	}
+	var buf bytes.Buffer
+	done := make(chan error, 1)
+	go func() {
+		done <- runPKCEFlow(&buf, fake, "plugin", "default", nil, true)
+	}()
+
+	var redirect string
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		fake.mu.Lock()
+		if len(fake.loginCalls) > 0 {
+			redirect = fake.loginCalls[0].RedirectURI
+		}
+		fake.mu.Unlock()
+		if redirect != "" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if redirect == "" {
+		t.Fatal("runPKCEFlow did not call AuthLogin")
+	}
+
+	resp, err := http.Get(redirect + "?code=abc&state=xyz")
+	if err != nil {
+		t.Fatalf("callback GET: %v", err)
+	}
+	_ = resp.Body.Close()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("runPKCEFlow: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("runPKCEFlow did not finish")
+	}
+	if !strings.Contains(buf.String(), "Logged in") {
+		t.Fatalf("output = %q", buf.String())
+	}
+	if len(fake.completeCalls) != 1 || fake.completeCalls[0].FlowID != "flow-ok" {
+		t.Fatalf("completeCalls = %+v", fake.completeCalls)
+	}
+}
+
+// TestRunDeviceFlow_Success exits when auth.list reports the target account.
+func TestRunDeviceFlow_Success(t *testing.T) {
+	fake := &fakeAuthRPC{
+		loginRes: &common.AuthLoginResult{
+			FlowID:          "flow-dev",
+			VerificationURL: "https://example.com/device",
+			UserCode:        "ABCD-1234",
+			Interval:        1,
+		},
+		listRes: &common.AuthListResult{Accounts: []common.AuthAccount{
+			{PluginID: "plug", Account: "acct"},
+		}},
+	}
+	var buf bytes.Buffer
+	err := runDeviceFlow(&buf, fake, "plug", "acct", []string{"read"})
+	if err != nil {
+		t.Fatalf("runDeviceFlow: %v", err)
+	}
+	if !strings.Contains(buf.String(), "Logged in") {
+		t.Fatalf("output = %q", buf.String())
 	}
 }
 

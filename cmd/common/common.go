@@ -51,7 +51,10 @@ func InitBars(p *mpb.Progress, prefix string, cLength int64) (dbar *mpb.Bar, cba
 
 	name := prefix + "Downloading"
 
-	dbar = p.New(0,
+	// Pass total in New so triggerComplete is enabled without SetTotal.
+	// Do not call SetTotal/EnableTriggerComplete on a BarQueueAfter bar before
+	// its wait bar finishes — the queued bar's serve goroutine is not running yet.
+	dbar = p.New(cLength,
 		barStyle,
 		mpb.PrependDecorators(
 			decor.Name(name, decor.WC{W: len(name) + 1, C: decor.DindentRight}),
@@ -63,11 +66,13 @@ func InitBars(p *mpb.Progress, prefix string, cLength int64) (dbar *mpb.Bar, cba
 			decor.EwmaSpeed(decor.SizeB1024(0), "% .2f", 30),
 		),
 	)
-	dbar.SetTotal(cLength, false)
-	dbar.EnableTriggerComplete()
+	if cLength <= 0 {
+		dbar.SetTotal(cLength, false)
+		dbar.EnableTriggerComplete()
+	}
 
 	name = prefix + "Compiling"
-	cbar = p.New(0,
+	cbar = p.New(cLength,
 		barStyle,
 		mpb.BarQueueAfter(dbar),
 		mpb.PrependDecorators(
@@ -80,8 +85,6 @@ func InitBars(p *mpb.Progress, prefix string, cLength int64) (dbar *mpb.Bar, cba
 			decor.AverageSpeed(decor.SizeB1024(0), "% .2f"),
 		),
 	)
-	cbar.SetTotal(cLength, false)
-	cbar.EnableTriggerComplete()
 	return
 }
 

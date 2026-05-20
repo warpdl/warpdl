@@ -2,9 +2,11 @@ package cmd
 
 import (
 	"errors"
+	"flag"
 	"os"
 	"testing"
 
+	"github.com/urfave/cli"
 	"github.com/warpdl/warpdl/common"
 	"github.com/warpdl/warpdl/pkg/warpcli"
 )
@@ -43,6 +45,43 @@ func (m *MockClient) Download(url, fileName, dir string, opts *warpcli.DownloadO
 
 func (m *MockClient) Close() error {
 	return nil
+}
+
+func TestDownloadBatchFromFile_Background(t *testing.T) {
+	content := "https://example.com/a.zip\n"
+	tmpFile := createTempInputFile(t, content)
+	defer os.Remove(tmpFile)
+
+	socketPath := getShortSocketPath(t)
+	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
+	srv := startFakeServer(t, socketPath)
+	defer srv.close()
+
+	app := cli.NewApp()
+	set := flag.NewFlagSet("download", flag.ContinueOnError)
+	for _, f := range dlFlags {
+		f.Apply(set)
+	}
+	_ = set.Parse([]string{"--background", "-input-file", tmpFile})
+	ctx := cli.NewContext(app, set, nil)
+	ctx.Command = cli.Command{Name: "download", Flags: dlFlags}
+	if !ctx.Bool("background") {
+		t.Fatal("expected --background flag to be set")
+	}
+
+	oldDlPath := dlPath
+	dlPath = t.TempDir()
+	defer func() { dlPath = oldDlPath }()
+
+	client, err := getClient()
+	if err != nil {
+		t.Fatalf("getClient: %v", err)
+	}
+
+	if err := downloadBatchFromFile(ctx, client, tmpFile); err != nil {
+		t.Fatalf("downloadBatchFromFile: %v", err)
+	}
+	_ = client.Close()
 }
 
 func TestDownloadBatch_TwoURLsFromFile(t *testing.T) {
