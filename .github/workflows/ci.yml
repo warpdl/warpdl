@@ -34,7 +34,7 @@ jobs:
 
       - name: "golangci-lint (PR: changed code only)"
         if: github.event_name == 'pull_request'
-        uses: golangci/golangci-lint-action@v7
+        uses: golangci/golangci-lint-action@v9
         with:
           version: latest
           args: --timeout=5m --new-from-rev=origin/${{ github.base_ref }}
@@ -52,7 +52,7 @@ jobs:
 
       - name: "golangci-lint (push/manual: changed code only)"
         if: github.event_name != 'pull_request'
-        uses: golangci/golangci-lint-action@v7
+        uses: golangci/golangci-lint-action@v9
         with:
           version: latest
           args: --timeout=5m --new-from-rev=${{ steps.lint_base.outputs.rev }}

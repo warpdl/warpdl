@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-docs-coverage.sh - Verify CLI commands are documented
+# check-docs-coverage.sh - Verify CLI commands and environment variables are documented
 set -e
 
 echo "Checking documentation coverage..."
@@ -55,6 +55,39 @@ if [ ! -f "$ENV_DOCS" ]; then
     exit 1
 fi
 
-echo "✅ Environment variables documented"
+echo "Checking environment variables coverage..."
+
+# Find all WARPDL_ and WARP_ env vars in the codebase (excluding vendor, docs, generated)
+# Exclude test files and the generator scripts themselves
+env_vars=$(grep -rh "WARPDL_\|WARP_" --include="*.go" . \
+    | grep -v "_test.go" \
+    | grep -v "docs/scripts" \
+    | grep -oE '(WARPDL_[A-Z_]+|WARP_[A-Z_]+)' \
+    | sort -u)
+
+env_missing=0
+for var in $env_vars; do
+    # Skip internal/test variables
+    case "$var" in
+        WARPDL_TEST_*)
+            continue
+            ;;
+        *)
+            # Check if documented
+            if ! grep -q "\`$var\`" "$ENV_DOCS" 2>/dev/null; then
+                echo "❌ Missing env var docs: $var"
+                env_missing=$((env_missing + 1))
+            fi
+            ;;
+    esac
+done
+
+if [ $env_missing -gt 0 ]; then
+    echo ""
+    echo "❌ $env_missing environment variable(s) missing documentation"
+    exit 1
+fi
+
+echo "✅ All environment variables documented"
 echo ""
 echo "Documentation coverage check passed!"
