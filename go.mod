@@ -17,9 +17,9 @@ require (
 	github.com/spf13/afero v1.15.0
 	github.com/urfave/cli v1.22.17
 	github.com/vbauerster/mpb/v8 v8.12.0
-	golang.org/x/crypto v0.50.0
-	golang.org/x/net v0.53.0
-	golang.org/x/sys v0.43.0
+	golang.org/x/crypto v0.52.0
+	golang.org/x/net v0.54.0
+	golang.org/x/sys v0.45.0
 	modernc.org/sqlite v1.49.1
 )
 
@@ -38,7 +38,6 @@ require (
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/tools v0.44.0 // indirect
 	modernc.org/libc v1.72.1 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
@@ -54,5 +53,5 @@ require (
 	github.com/mattn/go-runewidth v0.0.23 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/zalando/go-keyring v0.2.8
-	golang.org/x/text v0.36.0 // indirect
+	golang.org/x/text v0.37.0 // indirect
 )
