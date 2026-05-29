@@ -244,6 +244,23 @@ func (rs *RPCServer) startAdaptive(ctx context.Context, fetcher ytFetcher, video
 	// Combined expected size for progress reporting.
 	totalLen := vFmt.ContentLength + aFmt.ContentLength
 
+	if rs.manager != nil {
+		item := &warplib.Item{
+			Hash:             gid,
+			Name:             finalName,
+			Url:              "https://www.youtube.com/watch?v=" + p.VideoID,
+			TotalSize:        warplib.ContentLength(totalLen),
+			DownloadLocation: dir,
+			AbsoluteLocation: dir,
+			Resumable:        true,
+			Parts:            make(map[int64]*warplib.ItemPart),
+		}
+		rs.manager.UpdateItem(item)
+	}
+	if rs.pool != nil {
+		rs.pool.AddDownload(gid, nil)
+	}
+
 	if rs.notifier != nil {
 		rs.notifier.Broadcast("download.started", &DownloadStartedNotification{
 			GID:         gid,
