@@ -422,23 +422,46 @@ func (ts *testServer) errorURL(code int) string {
 // Assertion helpers
 // ---------------------------------------------------------------------------
 
-// assertFileExists checks that a file exists at the given path.
+// fileAssertTimeout bounds how long the file assertions below wait for the
+// daemon's compile step to assemble the final file. The CLI returns when the
+// download is byte-complete; the assembled file can land a moment later,
+// especially on slow CI runners (macOS), so asserting immediately is racy.
+const fileAssertTimeout = 10 * time.Second
+
+// assertFileExists checks that a file exists at the given path, polling
+// briefly to absorb the gap between download completion and file assembly.
 func assertFileExists(t *testing.T, path string) {
 	t.Helper()
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		t.Fatalf("expected file to exist at %s", path)
+	deadline := time.Now().Add(fileAssertTimeout)
+	for {
+		if _, err := os.Stat(path); err == nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected file to exist at %s (waited %s)", path, fileAssertTimeout)
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 }
 
-// assertFileSize checks that a file at the given path has the expected size.
+// assertFileSize checks that a file at the given path reaches the expected
+// size, polling briefly so a still-assembling file is not misread as a
+// mismatch.
 func assertFileSize(t *testing.T, path string, expectedSize int64) {
 	t.Helper()
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("failed to stat file %s: %v", path, err)
-	}
-	if info.Size() != expectedSize {
-		t.Fatalf("file size mismatch at %s: want %d, got %d", path, expectedSize, info.Size())
+	deadline := time.Now().Add(fileAssertTimeout)
+	for {
+		info, err := os.Stat(path)
+		if err == nil && info.Size() == expectedSize {
+			return
+		}
+		if time.Now().After(deadline) {
+			if err != nil {
+				t.Fatalf("failed to stat file %s after %s: %v", path, fileAssertTimeout, err)
+			}
+			t.Fatalf("file size mismatch at %s: want %d, got %d (waited %s)", path, expectedSize, info.Size(), fileAssertTimeout)
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 }
 
