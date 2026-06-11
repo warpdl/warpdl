@@ -46,3 +46,6 @@ specs/.current-spec
 
 # Code quality reports
 reports/
+
+# YouTube adaptive-download mux scratch dirs (daemon running from a checkout)
+.warpdl-mux-*/
