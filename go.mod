@@ -16,7 +16,7 @@ require (
 	github.com/pkg/sftp v1.13.10
 	github.com/spf13/afero v1.15.0
 	github.com/urfave/cli v1.22.17
-	github.com/vbauerster/mpb/v8 v8.12.0
+	github.com/vbauerster/mpb/v8 v8.11.3 // pinned: v8.12+ queued bars (BarQueueAfter) block SetTotal/Completed/IncrBy until dequeued, deadlocking CLI progress handlers (cmd/client.go)
 	golang.org/x/crypto v0.52.0
 	golang.org/x/net v0.54.0
 	golang.org/x/sys v0.45.0

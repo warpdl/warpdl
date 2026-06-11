@@ -46,12 +46,21 @@ func SetShowCommandHelp(fn func(*cli.Context, string) error) func(*cli.Context, 
 // cbar for tracking file compilation/assembly progress. The prefix parameter
 // is prepended to bar labels, and cLength specifies the total content length
 // for progress calculation. Both bars use a visual block-style display.
+//
+// The total is passed at construction time: since mpb v8.12.0 a bar
+// created with BarQueueAfter has no serve goroutine until it is dequeued,
+// so post-construction calls like SetTotal or EnableTriggerComplete on the
+// queued bar block forever. A positive construction total also enables the
+// complete trigger, so this works identically on v8.11.x. Note that mpb is
+// pinned to v8.11.3 in go.mod because the download handlers in cmd/client.go
+// also operate on the queued bar while it is still queued, which deadlocks
+// under v8.12.x semantics.
 func InitBars(p *mpb.Progress, prefix string, cLength int64) (dbar *mpb.Bar, cbar *mpb.Bar) {
 	barStyle := mpb.BarStyle().Lbound("╢").Filler("█").Tip("█").Padding("░").Rbound("╟")
 
 	name := prefix + "Downloading"
 
-	dbar = p.New(0,
+	dbar = p.New(cLength,
 		barStyle,
 		mpb.PrependDecorators(
 			decor.Name(name, decor.WC{W: len(name) + 1, C: decor.DindentRight}),
@@ -63,11 +72,9 @@ func InitBars(p *mpb.Progress, prefix string, cLength int64) (dbar *mpb.Bar, cba
 			decor.EwmaSpeed(decor.SizeB1024(0), "% .2f", 30),
 		),
 	)
-	dbar.SetTotal(cLength, false)
-	dbar.EnableTriggerComplete()
 
 	name = prefix + "Compiling"
-	cbar = p.New(0,
+	cbar = p.New(cLength,
 		barStyle,
 		mpb.BarQueueAfter(dbar),
 		mpb.PrependDecorators(
@@ -80,8 +87,6 @@ func InitBars(p *mpb.Progress, prefix string, cLength int64) (dbar *mpb.Bar, cba
 			decor.AverageSpeed(decor.SizeB1024(0), "% .2f"),
 		),
 	)
-	cbar.SetTotal(cLength, false)
-	cbar.EnableTriggerComplete()
 	return
 }
 
