@@ -74,7 +74,10 @@ jobs:
           node-version: 'lts/*'
 
       - name: Install jscpd
-        run: npm install -g jscpd
+        # Pinned to the v4 line: jscpd v5+ ships a Rust binary via optional
+        # platform packages (cpd-<platform>) that a bare global install does
+        # not pull in, so `jscpd` exits with "Platform package not installed".
+        run: npm install -g jscpd@4
 
       - name: Run duplicate code detection
         run: scripts/check_duplicates.sh

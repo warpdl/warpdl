@@ -9,7 +9,8 @@ set -e
 if ! command -v jscpd &> /dev/null; then
     echo "jscpd is not installed. Installing..."
     if command -v npm &> /dev/null; then
-        npm install -g jscpd
+        # jscpd v5+ requires separate cpd-<platform> binary packages; stay on v4.
+        npm install -g jscpd@4
     else
         echo "Error: npm is required to install jscpd"
         exit 1
