@@ -21,7 +21,18 @@ type Client struct {
 	d      *Dispatcher
 	conn   net.Conn
 	listen bool
+	// pending holds broadcast frames that arrived while a request was in
+	// flight (the daemon multiplexes broadcasts onto the same connection,
+	// so they can precede the request's reply). invoke stashes them here;
+	// Listen drains them before reading new frames. Guarded by mu: invoke
+	// appends under the write lock, Listen pops via takePending.
+	pending [][]byte
 }
+
+// maxInvokeSkew bounds how many interleaved broadcast frames invoke will
+// skip while waiting for its reply, so a misbehaving daemon cannot make it
+// spin (and accumulate memory) forever.
+const maxInvokeSkew = 1024
 
 var (
 	ensureDaemonFunc = ensureDaemon
@@ -101,6 +112,20 @@ func (c *Client) Listen() (err error) {
 	defer c.conn.Close()
 	c.listen = true
 	for c.listen {
+		// Replay broadcasts that overtook a reply during invoke before
+		// reading new frames, so handlers observe events in wire order.
+		if buf := c.takePending(); buf != nil {
+			err = c.d.process(buf)
+			if err != nil {
+				if err == ErrDisconnect {
+					err = nil
+					break
+				}
+				err = fmt.Errorf("error processing: %s", err.Error())
+				return
+			}
+			continue
+		}
 		c.mu.RLock()
 		var buf []byte
 		buf, err = read(c.conn)
@@ -153,6 +178,14 @@ func (c *Client) Close() error {
 // invoke sends a request to the daemon and waits for a response.
 // It blocks the update listener while waiting to ensure the response is received here
 // instead of being dispatched to handlers.
+//
+// The daemon multiplexes pool broadcasts onto the same connection, so the
+// next frame after a request is not necessarily its reply: with the download
+// queue enabled, progress events from an auto-started download can hit the
+// wire before the RPC response is written. The reply is identified as the
+// first frame whose update type matches the invoked method; error frames
+// (ok=false) carry no type and always belong to the in-flight request.
+// Broadcast frames read in the meantime are stashed for the Listen loop.
 func (c *Client) invoke(method common.UpdateType, message any) (json.RawMessage, error) {
 	// block updates listener while invoking a method
 	// to retrieve the message update here instead
@@ -169,17 +202,41 @@ func (c *Client) invoke(method common.UpdateType, message any) (json.RawMessage,
 	if err != nil {
 		return nil, fmt.Errorf("failed to invoke %s: %s", method, err.Error())
 	}
-	buf, err = read(c.conn)
-	if err != nil {
-		return nil, fmt.Errorf("failed to invoke %s: %s", method, err.Error())
+	for skipped := 0; skipped <= maxInvokeSkew; skipped++ {
+		buf, err = read(c.conn)
+		if err != nil {
+			return nil, fmt.Errorf("failed to invoke %s: %s", method, err.Error())
+		}
+		var res Response
+		err = json.Unmarshal(buf, &res)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read %s: %s", method, err.Error())
+		}
+		if !res.Ok {
+			return nil, errors.New(res.Error)
+		}
+		if res.Update == nil {
+			// Malformed success frame; not the reply and useless to
+			// handlers - drop it.
+			continue
+		}
+		if res.Update.Type == method {
+			return res.Update.Message, nil
+		}
+		// A broadcast overtook the reply: keep it for Listen's dispatcher.
+		c.pending = append(c.pending, buf)
 	}
-	var res Response
-	err = json.Unmarshal(buf, &res)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read %s: %s", method, err.Error())
+	return nil, fmt.Errorf("failed to invoke %s: no reply within %d frames", method, maxInvokeSkew)
+}
+
+// takePending pops the oldest frame stashed by invoke, or nil if none.
+func (c *Client) takePending() []byte {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.pending) == 0 {
+		return nil
 	}
-	if !res.Ok {
-		return nil, errors.New(res.Error)
-	}
-	return res.Update.Message, nil
+	buf := c.pending[0]
+	c.pending = c.pending[1:]
+	return buf
 }
