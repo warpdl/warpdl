@@ -498,11 +498,11 @@ func (m *Manager) UpdateItem(item *Item) {
 		return
 	}
 	// After Close or when the Manager was constructed without a
-	// persister - fall back to direct write only if the file is still
-	// open (during Close itself). Best-effort.
-	if m.f != nil {
-		_ = m.encodeLocked()
-	}
+	// persister - fall back to a best-effort direct write. The open-file
+	// check must happen under m.mu (Close sets m.f = nil while holding
+	// it), so it lives inside persistItems rather than here; a bare read
+	// of m.f at this point races shutdown.
+	_ = m.encodeLocked()
 }
 
 // UpdateItemAsync records that the given item is dirty but defers the
@@ -518,11 +518,11 @@ func (m *Manager) UpdateItemAsync(item *Item) {
 		p.markDirty()
 		return
 	}
-	// No persister available. Only attempt a direct encode if the
-	// underlying file is still open; otherwise quietly drop the update.
-	if m.f != nil {
-		_ = m.encodeLocked()
-	}
+	// No persister available - best-effort direct encode. persistItems
+	// quietly drops the write if the file is already closed; checking
+	// m.f here without the lock would race Close (which nils it under
+	// m.mu).
+	_ = m.encodeLocked()
 }
 
 // GetScheduledItems returns all items with ScheduleState == "scheduled".

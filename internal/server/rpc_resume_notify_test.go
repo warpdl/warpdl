@@ -103,14 +103,14 @@ func TestRPCDownloadResume_NilNotifier(t *testing.T) {
 	client := &http.Client{
 		CheckRedirect: warplib.RedirectPolicy(warplib.DefaultMaxRedirects),
 	}
-	cfg := &RPCConfig{Secret: secret, Version: "1.0.0"}
+	cfg := &RPCConfig{Version: "1.0.0"}
 
 	// Create RPCServer with nil logger -- notifier is always created by NewRPCServer
 	// but with no registered jrpc2 servers, Broadcast is a no-op.
 	rs := NewRPCServer(cfg, m, client, nil, nil, nil)
 	defer rs.Close()
 
-	h := requireToken(secret, rs.bridge)
+	h := rs.bridge
 
 	// Test that download.resume on a non-existent GID returns proper error
 	code, resp := rpcCall(t, h, "download.resume", map[string]any{

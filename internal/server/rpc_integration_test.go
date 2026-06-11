@@ -52,7 +52,6 @@ func startIntegrationServer(t *testing.T) (serverURL, targetURL, dlDir string, m
 	}
 
 	rpcCfg := &RPCConfig{
-		Secret:    integrationSecret,
 		Version:   "1.0.0-test",
 		Commit:    "abc123",
 		BuildType: "integration",
@@ -219,32 +218,19 @@ func TestIntegration_WebSocketEndpoint(t *testing.T) {
 	}
 }
 
-// --- RPC-03: Auth enforcement ---
+// --- RPC-03: Unauthenticated access (RPC routes are not protected) ---
 
-func TestIntegration_AuthEnforcement_HTTP(t *testing.T) {
+func TestIntegration_UnauthenticatedAccessAllowed_HTTP(t *testing.T) {
 	serverURL, _, _, _, cleanup := startIntegrationServer(t)
 	defer cleanup()
 
-	// No auth
 	code, _ := rpcPostRaw(t, serverURL, []byte(`{"jsonrpc":"2.0","method":"system.getVersion","id":1}`), "")
-	if code != http.StatusUnauthorized {
-		t.Fatalf("expected 401 without auth, got %d", code)
-	}
-
-	// Wrong token
-	code, _ = rpcPostRaw(t, serverURL, []byte(`{"jsonrpc":"2.0","method":"system.getVersion","id":1}`), "wrong-token")
-	if code != http.StatusUnauthorized {
-		t.Fatalf("expected 401 with wrong token, got %d", code)
-	}
-
-	// Correct token
-	code, _ = rpcPostRaw(t, serverURL, []byte(`{"jsonrpc":"2.0","method":"system.getVersion","id":1}`), integrationSecret)
 	if code != http.StatusOK {
-		t.Fatalf("expected 200 with correct token, got %d", code)
+		t.Fatalf("expected 200 without auth, got %d", code)
 	}
 }
 
-func TestIntegration_AuthEnforcement_WS(t *testing.T) {
+func TestIntegration_UnauthenticatedAccessAllowed_WS(t *testing.T) {
 	serverURL, _, _, _, cleanup := startIntegrationServer(t)
 	defer cleanup()
 
@@ -252,36 +238,9 @@ func TestIntegration_AuthEnforcement_WS(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	// No auth
-	_, resp, err := cws.Dial(ctx, wsURL, nil)
-	if err == nil {
-		t.Fatal("expected error for WS without auth")
-	}
-	if resp != nil && resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("expected 401, got %d", resp.StatusCode)
-	}
-
-	// Wrong auth
-	_, resp, err = cws.Dial(ctx, wsURL, &cws.DialOptions{
-		HTTPHeader: http.Header{
-			"Authorization": []string{"Bearer wrong"},
-		},
-	})
-	if err == nil {
-		t.Fatal("expected error for WS with wrong auth")
-	}
-	if resp != nil && resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("expected 401, got %d", resp.StatusCode)
-	}
-
-	// Correct auth
-	conn, _, err := cws.Dial(ctx, wsURL, &cws.DialOptions{
-		HTTPHeader: http.Header{
-			"Authorization": []string{"Bearer " + integrationSecret},
-		},
-	})
+	conn, _, err := cws.Dial(ctx, wsURL, nil)
 	if err != nil {
-		t.Fatalf("expected successful WS connection, got %v", err)
+		t.Fatalf("expected successful WS connection without auth, got %v", err)
 	}
 	conn.Close(cws.StatusNormalClosure, "")
 }

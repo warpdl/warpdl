@@ -125,13 +125,12 @@ func newTestRPCHandlerWithRouter(t *testing.T, router *warplib.SchemeRouter) (ht
 		CheckRedirect: warplib.RedirectPolicy(warplib.DefaultMaxRedirects),
 	}
 	cfg := &RPCConfig{
-		Secret:    secret,
 		Version:   "1.0.0",
 		Commit:    "abc123",
 		BuildType: "release",
 	}
 	rs := NewRPCServer(cfg, m, client, pool, router, log.New(io.Discard, "", 0))
-	handler := requireToken(secret, rs.bridge)
+	handler := rs.bridge
 	cleanup := func() {
 		rs.Close()
 		m.Close()

@@ -166,7 +166,7 @@ func TestWebServerAddr(t *testing.T) {
 
 func TestWebServerAddr_ListenAll(t *testing.T) {
 	pool := NewPool(log.New(io.Discard, "", 0))
-	rpcCfg := &RPCConfig{Secret: "test", ListenAll: true}
+	rpcCfg := &RPCConfig{ListenAll: true}
 	ws := NewWebServer(log.New(io.Discard, "", 0), nil, pool, 9999, nil, nil, rpcCfg)
 	addr := ws.addr()
 	if addr != ":9999" {
@@ -177,7 +177,6 @@ func TestWebServerAddr_ListenAll(t *testing.T) {
 func TestWebServerHandler_WithRPC(t *testing.T) {
 	pool := NewPool(log.New(io.Discard, "", 0))
 	rpcCfg := &RPCConfig{
-		Secret:  "test-secret",
 		Version: "1.0.0",
 	}
 	ws := NewWebServer(log.New(io.Discard, "", 0), nil, pool, 8080, nil, nil, rpcCfg)

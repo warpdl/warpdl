@@ -139,7 +139,7 @@ func (w *loggerWriter) Write(p []byte) (n int, err error) {
 	// Strip trailing newline if present (log.Logger adds one)
 	msg := strings.TrimSuffix(string(p), "\n")
 	if msg != "" {
-		w.l.Info(msg)
+		w.l.Info("%s", msg)
 	}
 	return len(p), nil
 }

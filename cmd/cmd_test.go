@@ -40,6 +40,15 @@ type fakeServer struct {
 var listOverride []*warplib.Item
 var queueStatusOverride *common.QueueStatusResponse
 
+// authListOverride lets auth tests script the AuthList response the fake
+// daemon returns for UPDATE_AUTH_LIST. nil means "empty store".
+var authListOverride *common.AuthListResult
+
+// authLoginOverride lets auth tests script the AuthLogin response the
+// fake daemon returns for UPDATE_AUTH_REQUIRED. nil means an empty
+// (zero-value) result.
+var authLoginOverride *common.AuthLoginResult
+
 func (s *fakeServer) close() {
 	_ = s.listener.Close()
 	s.wg.Wait()
@@ -180,6 +189,29 @@ func startFakeServer(t *testing.T, socketPath string, fail ...map[common.UpdateT
 					case common.UPDATE_STOP, common.UPDATE_FLUSH:
 						writeResponse(c, req.Method, nil)
 						return // One-shot command, exit loop
+					case common.UPDATE_AUTH_LIST:
+						var resp common.AuthListResult
+						if authListOverride != nil {
+							resp = *authListOverride
+						}
+						writeResponse(c, req.Method, resp)
+						return // One-shot RPC, exit loop
+					case common.UPDATE_AUTH_LOGGED_OUT:
+						// AuthLogout: daemon returns an empty payload on success.
+						writeResponse(c, req.Method, nil)
+						return
+					case common.UPDATE_AUTH_REQUIRED:
+						// AuthLogin: scripted login result (PKCE/device start).
+						var resp common.AuthLoginResult
+						if authLoginOverride != nil {
+							resp = *authLoginOverride
+						}
+						writeResponse(c, req.Method, resp)
+						return
+					case common.UPDATE_AUTH_FAILED:
+						// AuthCancel: empty payload on success.
+						writeResponse(c, req.Method, nil)
+						return
 					default:
 						writeError(c, "unknown method")
 						return // Exit loop on unknown method
@@ -988,7 +1020,10 @@ func TestGetUserAgent_Unknown(t *testing.T) {
 
 // newContextWithFlags creates a CLI context with registered string/bool flags.
 // flagArgs are key-value pairs: ["-flag", "value", "-bool-flag", "true", ...]
-func newContextWithFlags(app *cli.App, flagDefs []struct{ name string; val any }, flagArgs []string, args []string, name string) *cli.Context {
+func newContextWithFlags(app *cli.App, flagDefs []struct {
+	name string
+	val  any
+}, flagArgs []string, args []string, name string) *cli.Context {
 	set := flag.NewFlagSet(name, flag.ContinueOnError)
 	for _, fd := range flagDefs {
 		switch v := fd.val.(type) {
@@ -1016,7 +1051,10 @@ func TestDownloadWithStartAt(t *testing.T) {
 
 	app := cli.NewApp()
 	ctx := newContextWithFlags(app,
-		[]struct{ name string; val any }{
+		[]struct {
+			name string
+			val  any
+		}{
 			{"start-at", ""},
 		},
 		[]string{"-start-at", startAt},
@@ -1047,7 +1085,10 @@ func TestDownloadWithInvalidSchedule(t *testing.T) {
 
 	app := cli.NewApp()
 	ctx := newContextWithFlags(app,
-		[]struct{ name string; val any }{
+		[]struct {
+			name string
+			val  any
+		}{
 			{"schedule", ""},
 		},
 		[]string{"-schedule", "bad-cron"},

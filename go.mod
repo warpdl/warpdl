@@ -1,6 +1,6 @@
 module github.com/warpdl/warpdl
 
-go 1.25.0
+go 1.26
 
 require (
 	github.com/Microsoft/go-winio v0.6.2
@@ -11,19 +11,20 @@ require (
 	github.com/dop251/goja_nodejs v0.0.0-20260212111938-1f56ff5bcf14
 	github.com/fclairamb/ftpserverlib v0.30.0
 	github.com/jlaffaye/ftp v0.2.0
+	github.com/kkdai/youtube/v2 v2.10.6
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
 	github.com/pkg/sftp v1.13.10
 	github.com/spf13/afero v1.15.0
 	github.com/urfave/cli v1.22.17
-	github.com/vbauerster/mpb/v8 v8.12.0
-	golang.org/x/crypto v0.50.0
-	golang.org/x/net v0.53.0
-	golang.org/x/sys v0.43.0
+	github.com/vbauerster/mpb/v8 v8.11.3 // pinned: v8.12+ queued bars (BarQueueAfter) block SetTotal/Completed/IncrBy until dequeued, deadlocking CLI progress handlers (cmd/client.go)
+	golang.org/x/crypto v0.52.0
+	golang.org/x/net v0.54.0
+	golang.org/x/sys v0.45.0
 	modernc.org/sqlite v1.49.1
 )
 
 require (
-	al.essio.dev/pkg/shellescape v1.6.0 // indirect
+	github.com/bitly/go-simplejson v0.5.1 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
 	github.com/creachadair/mds v0.27.2 // indirect
 	github.com/danieljoos/wincred v1.2.3 // indirect
@@ -36,7 +37,6 @@ require (
 	github.com/mattn/go-isatty v0.0.21 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
-	golang.org/x/exp v0.0.0-20260410095643-746e56fc9e2f // indirect
 	golang.org/x/sync v0.20.0 // indirect
 	modernc.org/libc v1.72.1 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
@@ -53,5 +53,5 @@ require (
 	github.com/mattn/go-runewidth v0.0.23 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/zalando/go-keyring v0.2.8
-	golang.org/x/text v0.36.0 // indirect
+	golang.org/x/text v0.37.0 // indirect
 )

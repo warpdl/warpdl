@@ -21,7 +21,6 @@ func newTestWebServerWithRPC(t *testing.T) (string, string, func()) {
 	secret := "ws-test-secret"
 	pool := NewPool(log.New(io.Discard, "", 0))
 	rpcCfg := &RPCConfig{
-		Secret:  secret,
 		Version: "1.0.0",
 		Commit:  "abc123",
 	}
@@ -34,47 +33,6 @@ func newTestWebServerWithRPC(t *testing.T) (string, string, func()) {
 		}
 	}
 	return srv.URL, secret, cleanup
-}
-
-func TestWebSocketEndpoint_AuthRequired(t *testing.T) {
-	srvURL, _, cleanup := newTestWebServerWithRPC(t)
-	defer cleanup()
-
-	wsURL := "ws" + strings.TrimPrefix(srvURL, "http") + "/jsonrpc/ws"
-
-	// Connect without auth -- should get rejected
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	_, resp, err := cws.Dial(ctx, wsURL, nil)
-	if err == nil {
-		t.Fatal("expected error for unauthorized WebSocket connection")
-	}
-	if resp != nil && resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("expected 401, got %d", resp.StatusCode)
-	}
-}
-
-func TestWebSocketEndpoint_WrongToken(t *testing.T) {
-	srvURL, _, cleanup := newTestWebServerWithRPC(t)
-	defer cleanup()
-
-	wsURL := "ws" + strings.TrimPrefix(srvURL, "http") + "/jsonrpc/ws"
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	_, resp, err := cws.Dial(ctx, wsURL, &cws.DialOptions{
-		HTTPHeader: http.Header{
-			"Authorization": []string{"Bearer wrong-token"},
-		},
-	})
-	if err == nil {
-		t.Fatal("expected error for wrong token")
-	}
-	if resp != nil && resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("expected 401, got %d", resp.StatusCode)
-	}
 }
 
 func TestWebSocketEndpoint_Connect(t *testing.T) {
@@ -236,7 +194,6 @@ func TestWebSocketEndpoint_NotifierRegistration(t *testing.T) {
 	secret := "ws-notify-test"
 	pool := NewPool(log.New(io.Discard, "", 0))
 	rpcCfg := &RPCConfig{
-		Secret:  secret,
 		Version: "1.0.0",
 	}
 	l := log.New(io.Discard, "", 0)
@@ -291,7 +248,6 @@ func TestWebSocketEndpoint_PushNotification(t *testing.T) {
 	secret := "ws-push-test"
 	pool := NewPool(log.New(io.Discard, "", 0))
 	rpcCfg := &RPCConfig{
-		Secret:  secret,
 		Version: "1.0.0",
 	}
 	l := log.New(io.Discard, "", 0)
@@ -369,7 +325,6 @@ func TestWebSocketEndpoint_MultipleClients(t *testing.T) {
 	secret := "ws-multi-test"
 	pool := NewPool(log.New(io.Discard, "", 0))
 	rpcCfg := &RPCConfig{
-		Secret:  secret,
 		Version: "1.0.0",
 	}
 	l := log.New(io.Discard, "", 0)

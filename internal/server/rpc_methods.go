@@ -22,7 +22,6 @@ const (
 
 // RPCConfig holds configuration for the JSON-RPC endpoint.
 type RPCConfig struct {
-	Secret    string // Auth token (required -- empty means RPC disabled)
 	ListenAll bool   // If true, bind to 0.0.0.0 instead of 127.0.0.1
 	Version   string // Daemon version
 	Commit    string // Git commit
@@ -30,9 +29,13 @@ type RPCConfig struct {
 }
 
 // RPCServer manages the JSON-RPC 2.0 bridge and method handlers.
+//
+// The /jsonrpc and /jsonrpc/ws routes are unauthenticated. The daemon
+// listens on 127.0.0.1 by default; --rpc-listen-all is the explicit
+// opt-in to bind on all interfaces, which the operator should only use
+// behind a separate authentication layer (reverse proxy, etc.).
 type RPCServer struct {
 	bridge       jhttp.Bridge
-	secret       string
 	version      string
 	commit       string
 	buildType    string
@@ -41,6 +44,23 @@ type RPCServer struct {
 	pool         *Pool
 	schemeRouter *warplib.SchemeRouter
 	notifier     *RPCNotifier
+	log          *log.Logger
+
+	// Test seams for the adaptive YouTube download path. Nil in production;
+	// see (*RPCServer).legDownloaderFn and (*RPCServer).muxerFn for the
+	// defaults. Instance fields rather than package globals so stubbing in
+	// tests requires no global write-back (which would race with reads from
+	// the adaptive download goroutine).
+	legDownloader func(rs *RPCServer, streamURL, outPath string, connections int32, progressFn func(int64)) error
+	muxer         func(ctx context.Context, videoIn, audioIn, out string) error
+}
+
+// logf writes to the daemon log if one is configured. Safe on a zero-value
+// RPCServer (tests construct &RPCServer{} directly).
+func (rs *RPCServer) logf(format string, args ...any) {
+	if rs.log != nil {
+		rs.log.Printf(format, args...)
+	}
 }
 
 // VersionResult is the response for system.getVersion.
@@ -105,7 +125,6 @@ type EmptyResult struct{}
 // NewRPCServer creates a new RPCServer with method handlers and HTTP bridge.
 func NewRPCServer(cfg *RPCConfig, m *warplib.Manager, client *http.Client, pool *Pool, router *warplib.SchemeRouter, l *log.Logger) *RPCServer {
 	rs := &RPCServer{
-		secret:       cfg.Secret,
 		version:      cfg.Version,
 		commit:       cfg.Commit,
 		buildType:    cfg.BuildType,
@@ -114,6 +133,7 @@ func NewRPCServer(cfg *RPCConfig, m *warplib.Manager, client *http.Client, pool 
 		pool:         pool,
 		schemeRouter: router,
 		notifier:     NewRPCNotifier(l),
+		log:          l,
 	}
 
 	rs.bridge = jhttp.NewBridge(rs.methods(), nil)
@@ -130,6 +150,15 @@ func (rs *RPCServer) methods() handler.Map {
 		"download.remove":   handler.New(rs.downloadRemove),
 		"download.status":   handler.New(rs.downloadStatus),
 		"download.list":     handler.New(rs.downloadList),
+		// resolve.url uses github.com/kkdai/youtube/v2 to resolve YouTube
+		// page URLs into a list of downloadable formats. URLs are decoded
+		// lazily by youtube.download. See internal/server/rpc_resolve.go.
+		"resolve.url": handler.New(rs.resolveURL),
+		// youtube.download downloads a chosen format. Progressive itags
+		// (audio+video bundled) flow through the existing download manager.
+		// Adaptive (video-only + audio-only) downloads run a parallel-leg
+		// download then ffmpeg remux. See internal/server/rpc_youtube_download.go.
+		"youtube.download": handler.New(rs.youtubeDownload),
 	}
 }
 

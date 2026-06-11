@@ -37,16 +37,13 @@ func daemon(ctx *cli.Context) error {
 	// Get max concurrent downloads setting (flag or env var via urfave/cli)
 	maxConcurrent := ctx.Int("max-concurrent")
 
-	// Build RPC config from CLI flags (nil if --rpc-secret not set)
-	var rpcCfg *server.RPCConfig
-	if secret := ctx.String("rpc-secret"); secret != "" {
-		rpcCfg = &server.RPCConfig{
-			Secret:    secret,
-			ListenAll: ctx.Bool("rpc-listen-all"),
-			Version:   currentBuildArgs.Version,
-			Commit:    currentBuildArgs.Commit,
-			BuildType: currentBuildArgs.BuildType,
-		}
+	// RPC is always enabled. Default bind is 127.0.0.1; --rpc-listen-all
+	// is the explicit opt-in to bind on all interfaces.
+	rpcCfg := &server.RPCConfig{
+		ListenAll: ctx.Bool("rpc-listen-all"),
+		Version:   currentBuildArgs.Version,
+		Commit:    currentBuildArgs.Commit,
+		BuildType: currentBuildArgs.BuildType,
 	}
 
 	// Initialize all daemon components using shared initialization

@@ -37,7 +37,7 @@ type capturedDownload struct {
 
 func NewWebServer(l *log.Logger, m *warplib.Manager, pool *Pool, port int, client *http.Client, router *warplib.SchemeRouter, rpcCfg *RPCConfig) *WebServer {
 	ws := &WebServer{port: port, l: l, m: m, pool: pool}
-	if rpcCfg != nil && rpcCfg.Secret != "" {
+	if rpcCfg != nil {
 		ws.rpc = NewRPCServer(rpcCfg, m, client, pool, router, l)
 		ws.listenAll = rpcCfg.ListenAll
 	}
@@ -187,7 +187,7 @@ func (s *WebServer) handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/", websocket.Handler(s.handleConnection))
 	if s.rpc != nil {
-		mux.Handle("/jsonrpc", requireToken(s.rpc.secret, s.rpc.bridge))
+		mux.Handle("/jsonrpc", s.rpc.bridge)
 		mux.HandleFunc("/jsonrpc/ws", s.handleJSONRPCWebSocket)
 	}
 	return mux
@@ -196,12 +196,6 @@ func (s *WebServer) handler() http.Handler {
 // handleJSONRPCWebSocket handles WebSocket upgrade at /jsonrpc/ws.
 // Each connection gets its own jrpc2.Server with AllowPush for notifications.
 func (s *WebServer) handleJSONRPCWebSocket(w http.ResponseWriter, r *http.Request) {
-	// Auth check before WebSocket upgrade
-	if !validToken(s.rpc.secret, r.Header.Get("Authorization")) {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-
 	conn, err := cws.Accept(w, r, nil)
 	if err != nil {
 		s.l.Printf("WebSocket accept error: %v", err)
