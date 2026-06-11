@@ -18,19 +18,31 @@ import (
 	"github.com/warpdl/warpdl/pkg/warplib"
 )
 
-// muxRunner runs the mux step. Tests override this to verify orchestration
-// without invoking ffmpeg.
-var muxRunner = muxFiles
+// muxerFn returns the mux step implementation: the rs.muxer field when set
+// (tests inject a stub to verify orchestration without invoking ffmpeg),
+// muxFiles otherwise. Instance fields are used instead of package globals so
+// test stubs need no global write-back, which would race with the adaptive
+// goroutine's reads.
+func (rs *RPCServer) muxerFn() func(ctx context.Context, videoIn, audioIn, out string) error {
+	if rs.muxer != nil {
+		return rs.muxer
+	}
+	return muxFiles
+}
 
-// downloadLeg downloads one stream of an adaptive YouTube video. The
-// download is registered with the warplib Manager so it appears in
-// `warp list`, status, and pause/resume; this function blocks until
-// the leg completes (success or error). progressFn (if non-nil) is
-// called with cumulative bytes for each progress tick.
-//
-// Replaced in tests with a stub that produces a fake file without
-// touching warplib or the manager.
-var downloadLeg = defaultDownloadLeg
+// legDownloaderFn returns the per-leg download implementation: the
+// rs.legDownloader field when set (tests inject a stub that produces a fake
+// file without touching warplib or the manager), defaultDownloadLeg
+// otherwise. A leg downloads one stream of an adaptive YouTube video,
+// registered with the warplib Manager so it appears in `warp list`, status,
+// and pause/resume; it blocks until the leg completes (success or error).
+// progressFn (if non-nil) is called with cumulative bytes per progress tick.
+func (rs *RPCServer) legDownloaderFn() func(rs *RPCServer, streamURL, outPath string, connections int32, progressFn func(int64)) error {
+	if rs.legDownloader != nil {
+		return rs.legDownloader
+	}
+	return defaultDownloadLeg
+}
 
 func defaultDownloadLeg(rs *RPCServer, streamURL, outPath string, connections int32, progressFn func(int64)) error {
 	dir := filepath.Dir(outPath)
@@ -78,7 +90,17 @@ func defaultDownloadLeg(rs *RPCServer, streamURL, outPath string, connections in
 		rs.pool.AddDownload(d.GetHash(), nil)
 	}
 
-	go d.Start()
+	// Start returns synchronously for early failures (file open, disk
+	// space) without invoking ErrorHandler; routing it into done both
+	// surfaces the error and prevents this function from blocking forever.
+	go func() {
+		if err := d.Start(); err != nil {
+			select {
+			case done <- err:
+			default:
+			}
+		}
+	}()
 
 	return <-done
 }
@@ -186,7 +208,14 @@ func (rs *RPCServer) startProgressive(ctx context.Context, fetcher ytFetcher, vi
 			TotalLength: d.GetContentLengthAsInt(),
 		})
 	}
-	go d.Start()
+	// Early Start failures (file open, disk space) return synchronously
+	// without invoking ErrorHandler; broadcast them so clients are not
+	// left waiting on a download that never began.
+	go func() {
+		if err := d.Start(); err != nil {
+			rs.broadcastError(hash, "download start failed: "+err.Error())
+		}
+	}()
 
 	return &common.YouTubeDownloadResult{
 		GID:      hash,
@@ -269,7 +298,7 @@ func (rs *RPCServer) startAdaptive(ctx context.Context, fetcher ytFetcher, video
 		})
 	}
 
-	go rs.runAdaptive(adaptiveJob{
+	go rs.runAdaptive(&adaptiveJob{
 		gid:         gid,
 		videoURL:    videoURL,
 		audioURL:    audioURL,
@@ -300,8 +329,12 @@ type adaptiveJob struct {
 
 // runAdaptive is the goroutine body for the adaptive download path.
 // It downloads both legs in parallel, runs ffmpeg, and emits notifications.
-func (rs *RPCServer) runAdaptive(job adaptiveJob) {
-	defer os.RemoveAll(job.tmpDir)
+func (rs *RPCServer) runAdaptive(job *adaptiveJob) {
+	defer func() {
+		if err := os.RemoveAll(job.tmpDir); err != nil {
+			rs.logf("youtube: failed to clean up mux tmp dir %s: %v", job.tmpDir, err)
+		}
+	}()
 
 	var (
 		wg        sync.WaitGroup
@@ -325,14 +358,15 @@ func (rs *RPCServer) runAdaptive(job adaptiveJob) {
 		}
 	}
 
+	leg := rs.legDownloaderFn()
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		videoErr = downloadLeg(rs, job.videoURL, job.videoTmp, job.connections, progress(&videoSeen))
+		videoErr = leg(rs, job.videoURL, job.videoTmp, job.connections, progress(&videoSeen))
 	}()
 	go func() {
 		defer wg.Done()
-		audioErr = downloadLeg(rs, job.audioURL, job.audioTmp, job.connections, progress(&audioSeen))
+		audioErr = leg(rs, job.audioURL, job.audioTmp, job.connections, progress(&audioSeen))
 	}()
 	wg.Wait()
 
@@ -341,7 +375,7 @@ func (rs *RPCServer) runAdaptive(job adaptiveJob) {
 		return
 	}
 
-	if err := muxRunner(context.Background(), job.videoTmp, job.audioTmp, job.finalPath); err != nil {
+	if err := rs.muxerFn()(context.Background(), job.videoTmp, job.audioTmp, job.finalPath); err != nil {
 		rs.broadcastError(job.gid, err.Error())
 		return
 	}

@@ -44,6 +44,23 @@ type RPCServer struct {
 	pool         *Pool
 	schemeRouter *warplib.SchemeRouter
 	notifier     *RPCNotifier
+	log          *log.Logger
+
+	// Test seams for the adaptive YouTube download path. Nil in production;
+	// see (*RPCServer).legDownloaderFn and (*RPCServer).muxerFn for the
+	// defaults. Instance fields rather than package globals so stubbing in
+	// tests requires no global write-back (which would race with reads from
+	// the adaptive download goroutine).
+	legDownloader func(rs *RPCServer, streamURL, outPath string, connections int32, progressFn func(int64)) error
+	muxer         func(ctx context.Context, videoIn, audioIn, out string) error
+}
+
+// logf writes to the daemon log if one is configured. Safe on a zero-value
+// RPCServer (tests construct &RPCServer{} directly).
+func (rs *RPCServer) logf(format string, args ...any) {
+	if rs.log != nil {
+		rs.log.Printf(format, args...)
+	}
 }
 
 // VersionResult is the response for system.getVersion.
@@ -116,6 +133,7 @@ func NewRPCServer(cfg *RPCConfig, m *warplib.Manager, client *http.Client, pool 
 		pool:         pool,
 		schemeRouter: router,
 		notifier:     NewRPCNotifier(l),
+		log:          l,
 	}
 
 	rs.bridge = jhttp.NewBridge(rs.methods(), nil)

@@ -235,6 +235,22 @@ func rpcError(t *testing.T, resp map[string]any) map[string]any {
 	return errObj
 }
 
+// --- logf tests ---
+
+func TestRPCServerLogf_NilLoggerIsSafe(t *testing.T) {
+	rs := &RPCServer{}
+	rs.logf("should not panic: %v", 42) // zero-value RPCServer has no logger
+}
+
+func TestRPCServerLogf_WritesToLogger(t *testing.T) {
+	var buf bytes.Buffer
+	rs := &RPCServer{log: log.New(&buf, "", 0)}
+	rs.logf("cleanup failed: %s", "/tmp/x")
+	if got := buf.String(); got != "cleanup failed: /tmp/x\n" {
+		t.Errorf("unexpected log output: %q", got)
+	}
+}
+
 // --- download.add tests ---
 
 func TestRPCDownloadAdd_Success(t *testing.T) {

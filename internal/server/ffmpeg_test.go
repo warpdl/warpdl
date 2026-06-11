@@ -32,17 +32,17 @@ func TestPickContainer(t *testing.T) {
 
 func TestCodecFamily(t *testing.T) {
 	cases := map[string]string{
-		"":             "",
-		"avc1.640028":  "avc",
-		"avc3.42E0":    "avc",
-		"h264":         "avc",
-		"av01.0.05M":   "av1",
-		"vp09.00.50":   "vp9",
-		"vp9":          "vp9",
-		"mp4a.40.2":    "aac",
-		"aac":          "aac",
-		"opus":         "opus",
-		"vorbis":       "vorbis",
+		"":                 "",
+		"avc1.640028":      "avc",
+		"avc3.42E0":        "avc",
+		"h264":             "avc",
+		"av01.0.05M":       "av1",
+		"vp09.00.50":       "vp9",
+		"vp9":              "vp9",
+		"mp4a.40.2":        "aac",
+		"aac":              "aac",
+		"opus":             "opus",
+		"vorbis":           "vorbis",
 		"completely-novel": "completely-novel",
 	}
 	for in, want := range cases {
@@ -135,7 +135,7 @@ func TestMuxFiles_RunFailureIncludesStderr(t *testing.T) {
 	muxRun = func(cmd *exec.Cmd) error {
 		// Simulate ffmpeg writing to stderr then exiting non-zero.
 		if cmd.Stderr != nil {
-			cmd.Stderr.Write([]byte("Codec mismatch: cannot copy\n"))
+			_, _ = cmd.Stderr.Write([]byte("Codec mismatch: cannot copy\n"))
 		}
 		return errors.New("exit status 1")
 	}

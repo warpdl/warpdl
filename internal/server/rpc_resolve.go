@@ -25,8 +25,8 @@ const (
 
 // Resolver default/cap values. Exposed as vars (not consts) so tests can tweak.
 var (
-	defaultResolverTimeout       = 30 * time.Second
-	maxResolverTimeout           = 120 * time.Second
+	defaultResolverTimeout = 30 * time.Second
+	maxResolverTimeout     = 120 * time.Second
 )
 
 // ytClientFactory builds a kkdai client. Replaced in tests with a stub
@@ -149,9 +149,10 @@ func mapFormat(f *youtube.Format) common.ResolvedFormat {
 }
 
 // splitMimeType separates the type/subtype from codecs.
-//   `video/mp4; codecs="avc1.640028, mp4a.40.2"` →
-//   ("video/mp4", ["avc1.640028", "mp4a.40.2"])
-func splitMimeType(mt string) (string, []string) {
+//
+//	`video/mp4; codecs="avc1.640028, mp4a.40.2"` →
+//	("video/mp4", ["avc1.640028", "mp4a.40.2"])
+func splitMimeType(mt string) (mainType string, codecs []string) {
 	if mt == "" {
 		return "", nil
 	}

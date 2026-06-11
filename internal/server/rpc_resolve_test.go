@@ -385,9 +385,9 @@ func TestIsUnsupportedURLError(t *testing.T) {
 // findFormat asserts a ResolvedFormat with the given itag exists.
 func findFormat(t *testing.T, formats []common.ResolvedFormat, itag string) common.ResolvedFormat {
 	t.Helper()
-	for _, f := range formats {
-		if f.FormatID == itag {
-			return f
+	for i := range formats {
+		if formats[i].FormatID == itag {
+			return formats[i]
 		}
 	}
 	t.Fatalf("itag %s not found in formats; got: %v", itag, summarizeFormats(formats))
@@ -396,8 +396,8 @@ func findFormat(t *testing.T, formats []common.ResolvedFormat, itag string) comm
 
 func summarizeFormats(formats []common.ResolvedFormat) string {
 	ids := make([]string, len(formats))
-	for i, f := range formats {
-		ids[i] = f.FormatID
+	for i := range formats {
+		ids[i] = formats[i].FormatID
 	}
 	return strings.Join(ids, ",")
 }

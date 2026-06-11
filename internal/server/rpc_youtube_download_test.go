@@ -1,8 +1,10 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +15,7 @@ import (
 	"github.com/creachadair/jrpc2"
 	youtube "github.com/kkdai/youtube/v2"
 	"github.com/warpdl/warpdl/common"
+	"github.com/warpdl/warpdl/pkg/warplib"
 )
 
 func TestYouTubeDownload_MissingParams(t *testing.T) {
@@ -97,48 +100,87 @@ func TestYouTubeDownload_AdaptiveRequiresFFmpeg(t *testing.T) {
 	requireJrpcCode(t, err, codeMuxerUnavailable)
 }
 
-func TestYouTubeDownload_AdaptiveOrchestration(t *testing.T) {
-	withStubFetcher(t, &stubFetcher{video: makeFixtureVideo()})
+// newAdaptiveTestServer fakes ffmpeg discovery and returns an RPCServer
+// whose leg downloader and muxer are stubbed via the instance test seams
+// (no package globals, so nothing to restore and nothing for the adaptive
+// goroutine to race against). The leg stub writes a placeholder file and
+// reports progress; the real implementation registers each leg with
+// rs.manager so it appears in `warp list`, but neither warplib nor the
+// manager is meaningful here (we're testing orchestration + cleanup).
+// The returned flag is set to 1 once the muxer has run.
+func newAdaptiveTestServer(t *testing.T) (rs *RPCServer, muxCalled *int32) {
+	t.Helper()
 
-	// Pretend ffmpeg is on PATH.
 	prevLP := muxLookPath
 	muxLookPath = func(string) (string, error) { return "/usr/bin/ffmpeg", nil }
 	t.Cleanup(func() { muxLookPath = prevLP })
 
-	// Stub the leg downloader: write a placeholder file and report progress.
-	// Real implementation registers each leg with rs.manager so it appears
-	// in `warp list`; the test deliberately bypasses warplib/manager because
-	// neither is meaningful here (we're testing orchestration + cleanup).
-	prevDL := downloadLeg
-	downloadLeg = func(_ *RPCServer, url, out string, _ int32, progress func(int64)) error {
-		if err := os.WriteFile(out, []byte("dummy-"+url), 0o644); err != nil {
-			return err
-		}
-		if progress != nil {
-			progress(int64(len("dummy-" + url)))
-		}
-		return nil
+	muxCalled = new(int32)
+	rs = &RPCServer{
+		legDownloader: func(_ *RPCServer, url, out string, _ int32, progress func(int64)) error {
+			if err := os.WriteFile(out, []byte("dummy-"+url), 0o644); err != nil {
+				return err
+			}
+			if progress != nil {
+				progress(int64(len("dummy-" + url)))
+			}
+			return nil
+		},
+		// Stub mux: validate the fake downloader wrote both inputs, then
+		// touch the output path.
+		muxer: func(_ context.Context, vIn, aIn, out string) error {
+			atomic.StoreInt32(muxCalled, 1)
+			if _, err := os.Stat(vIn); err != nil {
+				t.Errorf("video tmp missing: %v", err)
+			}
+			if _, err := os.Stat(aIn); err != nil {
+				t.Errorf("audio tmp missing: %v", err)
+			}
+			return os.WriteFile(out, []byte("muxed"), 0o644)
+		},
 	}
-	t.Cleanup(func() { downloadLeg = prevDL })
+	return rs, muxCalled
+}
 
-	// Stub mux: just touch the output path.
-	prevMux := muxRunner
-	var muxCalled int32
-	muxRunner = func(_ context.Context, vIn, aIn, out string) error {
-		atomic.StoreInt32(&muxCalled, 1)
-		// Validate inputs exist (the fake downloader wrote them).
-		if _, err := os.Stat(vIn); err != nil {
-			t.Errorf("video tmp missing: %v", err)
+// waitFor polls cond every 20ms until it returns true or the deadline passes.
+func waitFor(cond func() bool, d time.Duration) bool {
+	deadline := time.Now().Add(d)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return true
 		}
-		if _, err := os.Stat(aIn); err != nil {
-			t.Errorf("audio tmp missing: %v", err)
-		}
-		return os.WriteFile(out, []byte("muxed"), 0o644)
+		time.Sleep(20 * time.Millisecond)
 	}
-	t.Cleanup(func() { muxRunner = prevMux })
+	return cond()
+}
+
+// muxTmpDirs lists leftover .warpdl-mux-* entries in dir.
+func muxTmpDirs(dir string) []string {
+	entries, _ := os.ReadDir(dir)
+	var out []string
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".warpdl-mux-") {
+			out = append(out, e.Name())
+		}
+	}
+	return out
+}
+
+// requireMuxTmpDirsCleaned polls until the adaptive goroutine's deferred
+// cleanup has removed all mux tmp dirs (cleanup runs after the mux flag is
+// set, so an immediate scan would race it).
+func requireMuxTmpDirsCleaned(t *testing.T, dir string) {
+	t.Helper()
+	if !waitFor(func() bool { return len(muxTmpDirs(dir)) == 0 }, 2*time.Second) {
+		t.Errorf("tmp dir not cleaned up: %v", muxTmpDirs(dir))
+	}
+}
+
+func TestYouTubeDownload_AdaptiveOrchestration(t *testing.T) {
+	withStubFetcher(t, &stubFetcher{video: makeFixtureVideo()})
+	rs, muxCalled := newAdaptiveTestServer(t)
 
 	dir := t.TempDir()
-	rs := &RPCServer{}
 	res, err := rs.youtubeDownload(context.Background(), &common.YouTubeDownloadParams{
 		VideoID:       "dQw4w9WgXcQ",
 		VideoFormatID: "137",
@@ -152,56 +194,31 @@ func TestYouTubeDownload_AdaptiveOrchestration(t *testing.T) {
 	if !res.Muxed {
 		t.Error("Muxed should be true for adaptive")
 	}
-	if res.GID == "" || len(res.GID) != 32 {
+	if len(res.GID) != 32 {
 		t.Errorf("GID should be 32-char hex, got %q", res.GID)
 	}
 	if !strings.HasSuffix(res.FileName, ".mp4") && !strings.HasSuffix(res.FileName, ".mkv") {
 		t.Errorf("FileName should have container ext, got %q", res.FileName)
 	}
 
-	// Wait for goroutine to finish (mux + cleanup).
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if atomic.LoadInt32(&muxCalled) == 1 {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	if atomic.LoadInt32(&muxCalled) != 1 {
+	// Wait for the adaptive goroutine to reach the mux step.
+	if !waitFor(func() bool { return atomic.LoadInt32(muxCalled) == 1 }, 2*time.Second) {
 		t.Fatal("muxRunner was not invoked")
 	}
 	// Final file must exist.
-	finalPath := filepath.Join(dir, res.FileName)
-	if _, err := os.Stat(finalPath); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, res.FileName)); err != nil {
 		t.Errorf("final file missing: %v", err)
 	}
-	// Tmp dir must be cleaned up.
-	entries, _ := os.ReadDir(dir)
-	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), ".warpdl-mux-") {
-			t.Errorf("tmp dir not cleaned up: %s", e.Name())
-		}
-	}
+	requireMuxTmpDirsCleaned(t, dir)
 }
 
 func TestYouTubeDownload_AdaptiveDownloadFailureBroadcastsError(t *testing.T) {
-	withStubFetcher(t, &stubFetcher{video: makeFixtureVideo()})
 	prevLP := muxLookPath
 	muxLookPath = func(string) (string, error) { return "/usr/bin/ffmpeg", nil }
 	t.Cleanup(func() { muxLookPath = prevLP })
 
-	prevDL := downloadLeg
-	downloadLeg = func(_ *RPCServer, url, _ string, _ int32, _ func(int64)) error {
-		// Audio leg fails; video leg succeeds (writes nothing).
-		if strings.Contains(url, "audio") {
-			return errors.New("network reset")
-		}
-		return nil
-	}
-	t.Cleanup(func() { downloadLeg = prevDL })
-
-	// Replace the URL stub so we can distinguish video/audio in the
-	// download runner above.
+	// The URL stub distinguishes video/audio so the leg stub below can fail
+	// just the audio leg.
 	withStubFetcher(t, &stubFetcher{
 		video: makeFixtureVideo(),
 		urlStub: func(_ *youtube.Video, f *youtube.Format) (string, error) {
@@ -212,16 +229,22 @@ func TestYouTubeDownload_AdaptiveDownloadFailureBroadcastsError(t *testing.T) {
 		},
 	})
 
-	prevMux := muxRunner
 	var muxCalled int32
-	muxRunner = func(_ context.Context, _, _, _ string) error {
-		atomic.StoreInt32(&muxCalled, 1)
-		return nil
+	rs := &RPCServer{
+		legDownloader: func(_ *RPCServer, url, _ string, _ int32, _ func(int64)) error {
+			// Audio leg fails; video leg succeeds (writes nothing).
+			if strings.Contains(url, "audio") {
+				return errors.New("network reset")
+			}
+			return nil
+		},
+		muxer: func(_ context.Context, _, _, _ string) error {
+			atomic.StoreInt32(&muxCalled, 1)
+			return nil
+		},
 	}
-	t.Cleanup(func() { muxRunner = prevMux })
 
 	dir := t.TempDir()
-	rs := &RPCServer{}
 	res, err := rs.youtubeDownload(context.Background(), &common.YouTubeDownloadParams{
 		VideoID:       "x",
 		VideoFormatID: "137",
@@ -235,18 +258,12 @@ func TestYouTubeDownload_AdaptiveDownloadFailureBroadcastsError(t *testing.T) {
 		t.Fatal("expected GID")
 	}
 
-	// Allow goroutine to run.
-	time.Sleep(120 * time.Millisecond)
-	// Mux should not have been called.
+	// Tmp dir must be cleaned up regardless; cleanup completing also means
+	// the adaptive goroutine has finished, so the mux check below is not
+	// racing it.
+	requireMuxTmpDirsCleaned(t, dir)
 	if atomic.LoadInt32(&muxCalled) == 1 {
 		t.Error("mux should not run when a download leg fails")
-	}
-	// Tmp dir must be cleaned up regardless.
-	entries, _ := os.ReadDir(dir)
-	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), ".warpdl-mux-") {
-			t.Errorf("tmp dir not cleaned up after error: %s", e.Name())
-		}
 	}
 }
 
@@ -302,6 +319,50 @@ func TestFirst(t *testing.T) {
 	}
 	if first([]string{"a", "b"}) != "a" {
 		t.Error("a,b → a")
+	}
+}
+
+// TestDefaultDownloadLeg_StartFailureSurfaces is a regression test for the
+// d.Start error routing: a synchronous Start failure (here a missing parent
+// directory for the output file, so openFile fails with ENOENT) must be
+// delivered to the leg's done channel. Before the fix, Start errors were
+// discarded and the leg blocked forever waiting for handlers that never fire.
+func TestDefaultDownloadLeg_StartFailureSurfaces(t *testing.T) {
+	if err := warplib.SetConfigDir(t.TempDir()); err != nil {
+		t.Fatalf("SetConfigDir: %v", err)
+	}
+	m, err := warplib.InitManager()
+	if err != nil {
+		t.Fatalf("InitManager: %v", err)
+	}
+	defer func() { _ = m.Close() }()
+
+	srv := newRangeServer(bytes.Repeat([]byte("leg"), 2048))
+	defer srv.Close()
+
+	// The leg assumes its tmp dir already exists; pointing it at a missing
+	// directory makes warplib's openFile fail synchronously inside Start.
+	outPath := filepath.Join(t.TempDir(), "missing-subdir", "video.mp4")
+
+	rs := &RPCServer{
+		manager: m,
+		client:  &http.Client{CheckRedirect: warplib.RedirectPolicy(warplib.DefaultMaxRedirects)},
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- defaultDownloadLeg(rs, srv.URL+"/video.bin", outPath, 1, nil)
+	}()
+	select {
+	case err := <-errCh:
+		if err == nil {
+			t.Fatal("expected an error for a missing output directory")
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("expected a not-exist error, got: %v", err)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("defaultDownloadLeg hung: Start error was not delivered to done channel")
 	}
 }
 
