@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/creachadair/jrpc2"
+	jsonrpc "github.com/gumeniukcom/golang-jsonrpc2/v2"
 	youtube "github.com/kkdai/youtube/v2"
 	"github.com/warpdl/warpdl/common"
 )
@@ -219,8 +219,8 @@ func TestResolveURL_MissingURL(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for empty URL")
 	}
-	var jerr *jrpc2.Error
-	if !errors.As(err, &jerr) || jerr.Code != codeInvalidParams {
+	var rerr *jsonrpc.RPCError
+	if !errors.As(err, &rerr) || rerr.Code != codeInvalidParams {
 		t.Errorf("expected codeInvalidParams, got %v", err)
 	}
 }
@@ -231,8 +231,8 @@ func TestResolveURL_NilParams(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for nil params")
 	}
-	var jerr *jrpc2.Error
-	if !errors.As(err, &jerr) || jerr.Code != codeInvalidParams {
+	var rerr *jsonrpc.RPCError
+	if !errors.As(err, &rerr) || rerr.Code != codeInvalidParams {
 		t.Errorf("expected codeInvalidParams, got %v", err)
 	}
 }
@@ -248,8 +248,8 @@ func TestResolveURL_Timeout(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected timeout error")
 	}
-	var jerr *jrpc2.Error
-	if !errors.As(err, &jerr) || jerr.Code != codeResolverTimeout {
+	var rerr *jsonrpc.RPCError
+	if !errors.As(err, &rerr) || rerr.Code != codeResolverTimeout {
 		t.Errorf("expected codeResolverTimeout, got %v", err)
 	}
 }
@@ -271,9 +271,14 @@ func TestResolveURL_GenericFailure(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	var jerr *jrpc2.Error
-	if !errors.As(err, &jerr) || jerr.Code != codeResolverFailed {
+	var rerr *jsonrpc.RPCError
+	if !errors.As(err, &rerr) || rerr.Code != codeResolverFailed {
 		t.Errorf("expected codeResolverFailed, got %v", err)
+	}
+	// The client-visible detail rides in error.data (the old protocol had
+	// it in error.message).
+	if rerr.Data != "status code: 403" {
+		t.Errorf("expected data %q, got %v", "status code: 403", rerr.Data)
 	}
 }
 
@@ -284,9 +289,12 @@ func TestResolveURL_UnsupportedURL(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	var jerr *jrpc2.Error
-	if !errors.As(err, &jerr) || jerr.Code != codeResolverUnsupported {
+	var rerr *jsonrpc.RPCError
+	if !errors.As(err, &rerr) || rerr.Code != codeResolverUnsupported {
 		t.Errorf("expected codeResolverUnsupported, got %v", err)
+	}
+	if want := "URL is not a recognized YouTube video: invalid characters in video id"; rerr.Data != want {
+		t.Errorf("expected data %q, got %v", want, rerr.Data)
 	}
 }
 

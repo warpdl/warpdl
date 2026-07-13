@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -12,7 +13,6 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/creachadair/jrpc2"
 	youtube "github.com/kkdai/youtube/v2"
 	"github.com/warpdl/warpdl/common"
 	"github.com/warpdl/warpdl/pkg/warplib"
@@ -116,13 +116,13 @@ func defaultDownloadLeg(rs *RPCServer, streamURL, outPath string, connections in
 //     notifications use the parent GID.
 func (rs *RPCServer) youtubeDownload(ctx context.Context, p *common.YouTubeDownloadParams) (*common.YouTubeDownloadResult, error) {
 	if p == nil {
-		return nil, &jrpc2.Error{Code: codeInvalidParams, Message: "missing params"}
+		return nil, rpcErrPublic(codeInvalidParams, "missing params")
 	}
 	if strings.TrimSpace(p.VideoID) == "" {
-		return nil, &jrpc2.Error{Code: codeInvalidParams, Message: "missing required param: videoId"}
+		return nil, rpcErrPublic(codeInvalidParams, "missing required param: videoId")
 	}
 	if strings.TrimSpace(p.VideoFormatID) == "" {
-		return nil, &jrpc2.Error{Code: codeInvalidParams, Message: "missing required param: videoFormatId"}
+		return nil, rpcErrPublic(codeInvalidParams, "missing required param: videoFormatId")
 	}
 
 	connections := p.Connections
@@ -133,7 +133,7 @@ func (rs *RPCServer) youtubeDownload(ctx context.Context, p *common.YouTubeDownl
 	fetcher := ytClientFactory()
 	video, err := fetcher.GetVideoContext(ctx, "https://www.youtube.com/watch?v="+p.VideoID)
 	if err != nil {
-		return nil, &jrpc2.Error{Code: codeResolverFailed, Message: err.Error()}
+		return nil, rpcErrWrap(codeResolverFailed, err)
 	}
 
 	videoFormat, err := findFormatByItag(video, p.VideoFormatID)
@@ -152,17 +152,15 @@ func (rs *RPCServer) youtubeDownload(ctx context.Context, p *common.YouTubeDownl
 	mainV, _ := splitMimeType(videoFormat.MimeType)
 	mainA, _ := splitMimeType(audioFormat.MimeType)
 	if !strings.HasPrefix(mainV, "video/") {
-		return nil, &jrpc2.Error{Code: codeFormatMismatch, Message: "videoFormatId does not refer to a video stream"}
+		return nil, rpcErrPublic(codeFormatMismatch, "videoFormatId does not refer to a video stream")
 	}
 	if !strings.HasPrefix(mainA, "audio/") {
-		return nil, &jrpc2.Error{Code: codeFormatMismatch, Message: "audioFormatId does not refer to an audio stream"}
+		return nil, rpcErrPublic(codeFormatMismatch, "audioFormatId does not refer to an audio stream")
 	}
 
 	if !muxAvailable() {
-		return nil, &jrpc2.Error{
-			Code:    codeMuxerUnavailable,
-			Message: "ffmpeg not found on PATH; install ffmpeg to download adaptive (HD) YouTube formats",
-		}
+		return nil, rpcErrPublic(codeMuxerUnavailable,
+			"ffmpeg not found on PATH; install ffmpeg to download adaptive (HD) YouTube formats")
 	}
 
 	return rs.startAdaptive(ctx, fetcher, video, videoFormat, audioFormat, p, connections)
@@ -174,7 +172,7 @@ func (rs *RPCServer) youtubeDownload(ctx context.Context, p *common.YouTubeDownl
 func (rs *RPCServer) startProgressive(ctx context.Context, fetcher ytFetcher, video *youtube.Video, format *youtube.Format, p *common.YouTubeDownloadParams, connections int32) (*common.YouTubeDownloadResult, error) {
 	streamURL, err := fetcher.GetStreamURLContext(ctx, video, format)
 	if err != nil {
-		return nil, &jrpc2.Error{Code: codeResolverFailed, Message: err.Error()}
+		return nil, rpcErrWrap(codeResolverFailed, err)
 	}
 
 	mainMime, _ := splitMimeType(format.MimeType)
@@ -190,12 +188,12 @@ func (rs *RPCServer) startProgressive(ctx context.Context, fetcher ytFetcher, vi
 	}
 	d, err := warplib.NewDownloader(rs.client, streamURL, opts)
 	if err != nil {
-		return nil, &jrpc2.Error{Code: codeInvalidParams, Message: err.Error()}
+		return nil, rpcErrWrap(codeInvalidParams, err)
 	}
 	if err := rs.manager.AddDownload(d, &warplib.AddDownloadOpts{
 		AbsoluteLocation: d.GetDownloadDirectory(),
 	}); err != nil {
-		return nil, &jrpc2.Error{Code: codeInvalidParams, Message: err.Error()}
+		return nil, rpcErrWrap(codeInvalidParams, err)
 	}
 	hash := d.GetHash()
 	if rs.pool != nil {
@@ -230,16 +228,16 @@ func (rs *RPCServer) startProgressive(ctx context.Context, fetcher ytFetcher, vi
 func (rs *RPCServer) startAdaptive(ctx context.Context, fetcher ytFetcher, video *youtube.Video, vFmt, aFmt *youtube.Format, p *common.YouTubeDownloadParams, connections int32) (*common.YouTubeDownloadResult, error) {
 	videoURL, err := fetcher.GetStreamURLContext(ctx, video, vFmt)
 	if err != nil {
-		return nil, &jrpc2.Error{Code: codeResolverFailed, Message: "video URL resolution failed: " + err.Error()}
+		return nil, rpcErrWrap(codeResolverFailed, fmt.Errorf("video URL resolution failed: %w", err))
 	}
 	audioURL, err := fetcher.GetStreamURLContext(ctx, video, aFmt)
 	if err != nil {
-		return nil, &jrpc2.Error{Code: codeResolverFailed, Message: "audio URL resolution failed: " + err.Error()}
+		return nil, rpcErrWrap(codeResolverFailed, fmt.Errorf("audio URL resolution failed: %w", err))
 	}
 
 	gid, err := genGID()
 	if err != nil {
-		return nil, &jrpc2.Error{Code: codeResolverFailed, Message: "gid: " + err.Error()}
+		return nil, rpcErrWrap(codeResolverFailed, fmt.Errorf("gid: %w", err))
 	}
 
 	mainV, vCodecList := splitMimeType(vFmt.MimeType)
@@ -255,12 +253,12 @@ func (rs *RPCServer) startAdaptive(ctx context.Context, fetcher ytFetcher, video
 		dir = "."
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, &jrpc2.Error{Code: codeResolverFailed, Message: "mkdir output: " + err.Error()}
+		return nil, rpcErrWrap(codeResolverFailed, fmt.Errorf("mkdir output: %w", err))
 	}
 
 	tmpDir, err := os.MkdirTemp(dir, ".warpdl-mux-*")
 	if err != nil {
-		return nil, &jrpc2.Error{Code: codeResolverFailed, Message: "tmpdir: " + err.Error()}
+		return nil, rpcErrWrap(codeResolverFailed, fmt.Errorf("tmpdir: %w", err))
 	}
 
 	videoExt := extFromMime(mainV, vFmt.MimeType)
@@ -423,19 +421,19 @@ func (rs *RPCServer) notifierHandlers() *warplib.Handlers {
 }
 
 // findFormatByItag looks up a kkdai Format by itag (string-encoded int).
-// Returns an invalid_params jrpc error if the itag does not parse, or
+// Returns an invalid_params RPC error if the itag does not parse, or
 // format_not_found if the format is not present in the video.
 func findFormatByItag(v *youtube.Video, itag string) (*youtube.Format, error) {
 	n, err := strconv.Atoi(itag)
 	if err != nil {
-		return nil, &jrpc2.Error{Code: codeInvalidParams, Message: "invalid format id (must be an integer itag): " + itag}
+		return nil, rpcErrPublic(codeInvalidParams, "invalid format id (must be an integer itag): "+itag)
 	}
 	for i := range v.Formats {
 		if v.Formats[i].ItagNo == n {
 			return &v.Formats[i], nil
 		}
 	}
-	return nil, &jrpc2.Error{Code: codeFormatNotFound, Message: "format id not found: " + itag}
+	return nil, rpcErrPublic(codeFormatNotFound, "format id not found: "+itag)
 }
 
 // outputFileName produces a sanitized "<base>.<ext>" filename.

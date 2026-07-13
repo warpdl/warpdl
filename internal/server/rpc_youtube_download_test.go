@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/creachadair/jrpc2"
+	jsonrpc "github.com/gumeniukcom/golang-jsonrpc2/v2"
 	youtube "github.com/kkdai/youtube/v2"
 	"github.com/warpdl/warpdl/common"
 	"github.com/warpdl/warpdl/pkg/warplib"
@@ -22,13 +22,13 @@ func TestYouTubeDownload_MissingParams(t *testing.T) {
 	rs := &RPCServer{}
 
 	_, err := rs.youtubeDownload(context.Background(), nil)
-	requireJrpcCode(t, err, codeInvalidParams)
+	requireRPCCode(t, err, codeInvalidParams)
 
 	_, err = rs.youtubeDownload(context.Background(), &common.YouTubeDownloadParams{})
-	requireJrpcCode(t, err, codeInvalidParams)
+	requireRPCCode(t, err, codeInvalidParams)
 
 	_, err = rs.youtubeDownload(context.Background(), &common.YouTubeDownloadParams{VideoID: "x"})
-	requireJrpcCode(t, err, codeInvalidParams)
+	requireRPCCode(t, err, codeInvalidParams)
 }
 
 func TestYouTubeDownload_FormatNotFound(t *testing.T) {
@@ -38,7 +38,7 @@ func TestYouTubeDownload_FormatNotFound(t *testing.T) {
 		VideoID:       "dQw4w9WgXcQ",
 		VideoFormatID: "9999",
 	})
-	requireJrpcCode(t, err, codeFormatNotFound)
+	requireRPCCode(t, err, codeFormatNotFound)
 }
 
 func TestYouTubeDownload_NonNumericFormat(t *testing.T) {
@@ -48,7 +48,7 @@ func TestYouTubeDownload_NonNumericFormat(t *testing.T) {
 		VideoID:       "x",
 		VideoFormatID: "abc",
 	})
-	requireJrpcCode(t, err, codeInvalidParams)
+	requireRPCCode(t, err, codeInvalidParams)
 }
 
 func TestYouTubeDownload_VideoIDMustNotBeBlank(t *testing.T) {
@@ -57,7 +57,7 @@ func TestYouTubeDownload_VideoIDMustNotBeBlank(t *testing.T) {
 		VideoID:       "   ",
 		VideoFormatID: "18",
 	})
-	requireJrpcCode(t, err, codeInvalidParams)
+	requireRPCCode(t, err, codeInvalidParams)
 }
 
 func TestYouTubeDownload_FormatMismatch_VideoFormatNotVideo(t *testing.T) {
@@ -70,7 +70,7 @@ func TestYouTubeDownload_FormatMismatch_VideoFormatNotVideo(t *testing.T) {
 		VideoFormatID: "251", // audio-only
 		AudioFormatID: "251",
 	})
-	requireJrpcCode(t, err, codeFormatMismatch)
+	requireRPCCode(t, err, codeFormatMismatch)
 }
 
 func TestYouTubeDownload_FormatMismatch_AudioFormatNotAudio(t *testing.T) {
@@ -82,7 +82,7 @@ func TestYouTubeDownload_FormatMismatch_AudioFormatNotAudio(t *testing.T) {
 		VideoFormatID: "137",
 		AudioFormatID: "137",
 	})
-	requireJrpcCode(t, err, codeFormatMismatch)
+	requireRPCCode(t, err, codeFormatMismatch)
 }
 
 func TestYouTubeDownload_AdaptiveRequiresFFmpeg(t *testing.T) {
@@ -97,7 +97,7 @@ func TestYouTubeDownload_AdaptiveRequiresFFmpeg(t *testing.T) {
 		VideoFormatID: "137",
 		AudioFormatID: "251",
 	})
-	requireJrpcCode(t, err, codeMuxerUnavailable)
+	requireRPCCode(t, err, codeMuxerUnavailable)
 }
 
 // newAdaptiveTestServer fakes ffmpeg discovery and returns an RPCServer
@@ -366,17 +366,17 @@ func TestDefaultDownloadLeg_StartFailureSurfaces(t *testing.T) {
 	}
 }
 
-// requireJrpcCode asserts err is a *jrpc2.Error with the given code.
-func requireJrpcCode(t *testing.T, err error, want jrpc2.Code) {
+// requireRPCCode asserts err is a *jsonrpc.RPCError with the given code.
+func requireRPCCode(t *testing.T, err error, want int) {
 	t.Helper()
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	var jerr *jrpc2.Error
-	if !errors.As(err, &jerr) {
-		t.Fatalf("expected *jrpc2.Error, got %T: %v", err, err)
+	var rerr *jsonrpc.RPCError
+	if !errors.As(err, &rerr) {
+		t.Fatalf("expected *jsonrpc.RPCError, got %T: %v", err, err)
 	}
-	if jerr.Code != want {
-		t.Errorf("error code = %d, want %d (msg: %s)", jerr.Code, want, jerr.Message)
+	if rerr.Code != want {
+		t.Errorf("error code = %d, want %d (err: %v)", rerr.Code, want, rerr)
 	}
 }

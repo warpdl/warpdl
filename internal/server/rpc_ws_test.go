@@ -12,6 +12,7 @@ import (
 	"time"
 
 	cws "github.com/coder/websocket"
+	jsonrpc "github.com/gumeniukcom/golang-jsonrpc2/v2"
 )
 
 // newTestWebServerWithRPC creates a WebServer with RPC enabled, starts an httptest
@@ -391,11 +392,10 @@ func TestWebSocketEndpoint_MultipleClients(t *testing.T) {
 	}
 }
 
-func TestWsChannel_Interface(t *testing.T) {
-	// Verify wsChannel satisfies the channel.Channel interface by creating one
-	// (we can't actually test send/recv without a real WebSocket connection,
+func TestWsPusher_Interface(t *testing.T) {
+	// Verify wsPusher satisfies the jsonrpc.Pusher interface by creating one
+	// (we can't actually test Notify without a real WebSocket connection,
 	// but we can verify it compiles as the correct type).
-	ctx := context.Background()
-	ch := &wsChannel{conn: nil, ctx: ctx}
-	_ = ch // just verify it compiles; actual I/O tested through integration
+	var p jsonrpc.Pusher = &wsPusher{}
+	_ = p // just verify it compiles; actual I/O tested through integration
 }

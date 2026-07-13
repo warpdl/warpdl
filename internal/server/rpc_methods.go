@@ -2,23 +2,55 @@ package server
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
-	"github.com/creachadair/jrpc2"
-	"github.com/creachadair/jrpc2/handler"
-	"github.com/creachadair/jrpc2/jhttp"
+	jsonrpc "github.com/gumeniukcom/golang-jsonrpc2/v2"
+	"github.com/gumeniukcom/golang-jsonrpc2/v2/jsonrpchttp"
+	"github.com/warpdl/warpdl/common"
 	"github.com/warpdl/warpdl/pkg/warplib"
 )
 
-// Custom JSON-RPC error codes for download operations.
+// Custom JSON-RPC error codes for download operations, unchanged from the
+// pre-migration jrpc2 wire protocol. -32000..-32099 is the JSON-RPC 2.0
+// implementation-defined server-error range; registering codes in the
+// spec-reserved range logs a server-side warning only (golang-jsonrpc2
+// v2.7.0+).
 const (
-	codeDownloadNotFound  = jrpc2.Code(-32001)
-	codeDownloadNotActive = jrpc2.Code(-32002)
-	codeInvalidParams     = jrpc2.Code(-32602)
+	codeDownloadNotFound  = -32001
+	codeDownloadNotActive = -32002
+	codeInvalidParams     = jsonrpc.InvalidParamsErrorCode
 )
+
+// Shared sentinel errors for download lookups. The registered message for
+// the code is what the client sees; the wrapped error is logged server-side.
+var (
+	errDownloadNotFound  = jsonrpc.NewRPCError(codeDownloadNotFound, errors.New("download not found"))
+	errDownloadNotActive = jsonrpc.NewRPCError(codeDownloadNotActive, errors.New("download not running"))
+)
+
+// rpcErrPublic builds an application RPC error whose detail is exposed to
+// the client via error.data (the error message itself stays the registered
+// per-code text). The pre-migration jrpc2 protocol carried this detail in
+// error.message, so every handler error that used to expose text keeps it
+// client-visible — uniformly in error.data.
+func rpcErrPublic(code int, detail string) *jsonrpc.RPCError {
+	return jsonrpc.NewRPCError(code, errors.New(detail)).WithData(detail)
+}
+
+// rpcErrWrap is rpcErrPublic for wrapped errors: err stays in the chain for
+// server-side logging and errors.Is/As, and err.Error() is mirrored into
+// client-visible error.data — the same string the old protocol put in
+// error.message.
+func rpcErrWrap(code int, err error) *jsonrpc.RPCError {
+	return jsonrpc.NewRPCError(code, err).WithData(err.Error())
+}
 
 // RPCConfig holds configuration for the JSON-RPC endpoint.
 type RPCConfig struct {
@@ -35,7 +67,8 @@ type RPCConfig struct {
 // opt-in to bind on all interfaces, which the operator should only use
 // behind a separate authentication layer (reverse proxy, etc.).
 type RPCServer struct {
-	bridge       jhttp.Bridge
+	rpc          *jsonrpc.JSONRPC
+	bridge       http.Handler
 	version      string
 	commit       string
 	buildType    string
@@ -136,30 +169,98 @@ func NewRPCServer(cfg *RPCConfig, m *warplib.Manager, client *http.Client, pool 
 		log:          l,
 	}
 
-	rs.bridge = jhttp.NewBridge(rs.methods(), nil)
+	rpc := jsonrpc.New()
+	if l != nil {
+		rpc.SetLogger(slog.New(slog.NewTextHandler(l.Writer(), nil)))
+	} else {
+		rpc.SetLogger(nil)
+	}
+	registerRPCErrors(rpc)
+	rs.registerMethods(rpc)
+	rs.rpc = rpc
+	rs.bridge = jsonrpchttp.Handler(rpc)
 	return rs
 }
 
-// methods returns the handler.Map used by both the HTTP bridge and WebSocket servers.
-func (rs *RPCServer) methods() handler.Map {
-	return handler.Map{
-		"system.getVersion": handler.New(rs.systemGetVersion),
-		"download.add":      handler.New(rs.downloadAdd),
-		"download.pause":    handler.New(rs.downloadPause),
-		"download.resume":   handler.New(rs.downloadResume),
-		"download.remove":   handler.New(rs.downloadRemove),
-		"download.status":   handler.New(rs.downloadStatus),
-		"download.list":     handler.New(rs.downloadList),
-		// resolve.url uses github.com/kkdai/youtube/v2 to resolve YouTube
-		// page URLs into a list of downloadable formats. URLs are decoded
-		// lazily by youtube.download. See internal/server/rpc_resolve.go.
-		"resolve.url": handler.New(rs.resolveURL),
-		// youtube.download downloads a chosen format. Progressive itags
-		// (audio+video bundled) flow through the existing download manager.
-		// Adaptive (video-only + audio-only) downloads run a parallel-leg
-		// download then ffmpeg remux. See internal/server/rpc_youtube_download.go.
-		"youtube.download": handler.New(rs.youtubeDownload),
+// registerRPCErrors registers the application error codes (and their
+// client-visible messages) on the dispatcher. Codes must be registered
+// before a handler returns them — an unregistered code degrades to
+// internal_error on the wire.
+func registerRPCErrors(rpc *jsonrpc.JSONRPC) {
+	for code, msg := range map[int]string{
+		codeDownloadNotFound:    "download not found",
+		codeDownloadNotActive:   "download not running",
+		codeResolverFailed:      "resolver_failed",
+		codeResolverTimeout:     "resolver_timeout",
+		codeResolverUnsupported: "resolver_unsupported",
+		codeMuxerUnavailable:    "muxer_unavailable",
+		codeFormatNotFound:      "format_not_found",
+		codeFormatMismatch:      "format_mismatch",
+	} {
+		if err := rpc.RegisterError(code, msg); err != nil {
+			panic(fmt.Sprintf("rpc: register error code %d: %v", code, err))
+		}
 	}
+}
+
+// registerMethods registers the JSON-RPC methods shared by the HTTP bridge
+// and the WebSocket endpoint. Typed wrappers adapt the pointer-taking
+// handlers: absent params decode to the zero value, matching the previous
+// jrpc2 wire behavior for object params.
+//
+// Methods that only touch local state keep the dispatcher's 30s default
+// timeout. Methods that talk to remote services get explicit per-method
+// timeouts (jrpc2 had no per-request timeout at all). The side-effecting
+// methods — download.add, download.resume, youtube.download — start
+// downloads and broadcast download.started BEFORE returning the GID: a
+// dispatcher timeout firing after that point would replace the success
+// response with -32605 and orphan work the client can no longer correlate,
+// so they get a practically-unreachable bound instead of a tight one.
+// resolve.url has no side effects and its inner client-tunable clamp
+// (maxResolverTimeout) fires first, so a modest dispatcher bound is safe.
+func (rs *RPCServer) registerMethods(rpc *jsonrpc.JSONRPC) {
+	must := func(err error) {
+		if err != nil {
+			panic(fmt.Sprintf("rpc: register method: %v", err))
+		}
+	}
+	sideEffectTimeout := jsonrpc.WithTimeout(15 * time.Minute)
+	resolverTimeout := jsonrpc.WithTimeout(maxResolverTimeout + 30*time.Second)
+
+	must(jsonrpc.RegisterTyped(rpc, "system.getVersion", func(ctx context.Context, _ struct{}) (*VersionResult, error) {
+		return rs.systemGetVersion(ctx)
+	}))
+	must(jsonrpc.RegisterTyped(rpc, "download.add", func(ctx context.Context, p AddParams) (*AddResult, error) {
+		return rs.downloadAdd(ctx, &p)
+	}, sideEffectTimeout))
+	must(jsonrpc.RegisterTyped(rpc, "download.pause", func(ctx context.Context, p GIDParam) (*EmptyResult, error) {
+		return rs.downloadPause(ctx, &p)
+	}))
+	must(jsonrpc.RegisterTyped(rpc, "download.resume", func(ctx context.Context, p GIDParam) (*EmptyResult, error) {
+		return rs.downloadResume(ctx, &p)
+	}, sideEffectTimeout))
+	must(jsonrpc.RegisterTyped(rpc, "download.remove", func(ctx context.Context, p GIDParam) (*EmptyResult, error) {
+		return rs.downloadRemove(ctx, &p)
+	}))
+	must(jsonrpc.RegisterTyped(rpc, "download.status", func(ctx context.Context, p GIDParam) (*StatusResult, error) {
+		return rs.downloadStatus(ctx, &p)
+	}))
+	must(jsonrpc.RegisterTyped(rpc, "download.list", func(ctx context.Context, p ListParams) (*ListResult, error) {
+		return rs.downloadList(ctx, &p)
+	}))
+	// resolve.url uses github.com/kkdai/youtube/v2 to resolve YouTube
+	// page URLs into a list of downloadable formats. URLs are decoded
+	// lazily by youtube.download. See internal/server/rpc_resolve.go.
+	must(jsonrpc.RegisterTyped(rpc, "resolve.url", func(ctx context.Context, p common.ResolveURLParams) (*common.ResolveURLResult, error) {
+		return rs.resolveURL(ctx, &p)
+	}, resolverTimeout))
+	// youtube.download downloads a chosen format. Progressive itags
+	// (audio+video bundled) flow through the existing download manager.
+	// Adaptive (video-only + audio-only) downloads run a parallel-leg
+	// download then ffmpeg remux. See internal/server/rpc_youtube_download.go.
+	must(jsonrpc.RegisterTyped(rpc, "youtube.download", func(ctx context.Context, p common.YouTubeDownloadParams) (*common.YouTubeDownloadResult, error) {
+		return rs.youtubeDownload(ctx, &p)
+	}, sideEffectTimeout))
 }
 
 func (rs *RPCServer) systemGetVersion(_ context.Context) (*VersionResult, error) {
@@ -173,12 +274,12 @@ func (rs *RPCServer) systemGetVersion(_ context.Context) (*VersionResult, error)
 // downloadAdd creates a new download from a URL.
 func (rs *RPCServer) downloadAdd(_ context.Context, p *AddParams) (*AddResult, error) {
 	if p.URL == "" {
-		return nil, &jrpc2.Error{Code: codeInvalidParams, Message: "missing required param: url"}
+		return nil, rpcErrPublic(codeInvalidParams, "missing required param: url")
 	}
 
 	parsed, err := url.Parse(p.URL)
 	if err != nil {
-		return nil, &jrpc2.Error{Code: codeInvalidParams, Message: "invalid url: " + err.Error()}
+		return nil, rpcErrPublic(codeInvalidParams, "invalid url: "+err.Error())
 	}
 
 	scheme := strings.ToLower(parsed.Scheme)
@@ -223,12 +324,12 @@ func (rs *RPCServer) downloadAdd(_ context.Context, p *AddParams) (*AddResult, e
 	case "http", "https":
 		d, err := warplib.NewDownloader(rs.client, p.URL, opts)
 		if err != nil {
-			return nil, &jrpc2.Error{Code: codeInvalidParams, Message: err.Error()}
+			return nil, rpcErrWrap(codeInvalidParams, err)
 		}
 		if err := rs.manager.AddDownload(d, &warplib.AddDownloadOpts{
 			AbsoluteLocation: d.GetDownloadDirectory(),
 		}); err != nil {
-			return nil, &jrpc2.Error{Code: codeInvalidParams, Message: err.Error()}
+			return nil, rpcErrWrap(codeInvalidParams, err)
 		}
 		hash := d.GetHash()
 		if rs.pool != nil {
@@ -247,16 +348,16 @@ func (rs *RPCServer) downloadAdd(_ context.Context, p *AddParams) (*AddResult, e
 	default:
 		// FTP, FTPS, SFTP -- use SchemeRouter
 		if rs.schemeRouter == nil {
-			return nil, &jrpc2.Error{Code: codeInvalidParams, Message: "unsupported scheme: " + scheme}
+			return nil, rpcErrPublic(codeInvalidParams, "unsupported scheme: "+scheme)
 		}
 		pd, err := rs.schemeRouter.NewDownloader(p.URL, opts)
 		if err != nil {
-			return nil, &jrpc2.Error{Code: codeInvalidParams, Message: err.Error()}
+			return nil, rpcErrWrap(codeInvalidParams, err)
 		}
 		probe, err := pd.Probe(context.Background())
 		if err != nil {
 			pd.Close()
-			return nil, &jrpc2.Error{Code: codeInvalidParams, Message: err.Error()}
+			return nil, rpcErrWrap(codeInvalidParams, err)
 		}
 		cleanURL := warplib.StripURLCredentials(p.URL)
 		var proto warplib.Protocol
@@ -272,7 +373,7 @@ func (rs *RPCServer) downloadAdd(_ context.Context, p *AddParams) (*AddResult, e
 			AbsoluteLocation: pd.GetDownloadDirectory(),
 			SSHKeyPath:       p.SSHKeyPath,
 		}); err != nil {
-			return nil, &jrpc2.Error{Code: codeInvalidParams, Message: err.Error()}
+			return nil, rpcErrWrap(codeInvalidParams, err)
 		}
 		hash := pd.GetHash()
 		if rs.pool != nil {
@@ -294,10 +395,10 @@ func (rs *RPCServer) downloadAdd(_ context.Context, p *AddParams) (*AddResult, e
 func (rs *RPCServer) downloadPause(_ context.Context, p *GIDParam) (*EmptyResult, error) {
 	item := rs.manager.GetItem(p.GID)
 	if item == nil {
-		return nil, &jrpc2.Error{Code: codeDownloadNotFound, Message: "download not found"}
+		return nil, errDownloadNotFound
 	}
 	if rs.pool != nil && !rs.pool.HasDownload(p.GID) {
-		return nil, &jrpc2.Error{Code: codeDownloadNotActive, Message: "download not running"}
+		return nil, errDownloadNotActive
 	}
 	item.StopDownload()
 	return &EmptyResult{}, nil
@@ -309,7 +410,7 @@ func (rs *RPCServer) downloadPause(_ context.Context, p *GIDParam) (*EmptyResult
 func (rs *RPCServer) downloadResume(_ context.Context, p *GIDParam) (*EmptyResult, error) {
 	item := rs.manager.GetItem(p.GID)
 	if item == nil {
-		return nil, &jrpc2.Error{Code: codeDownloadNotFound, Message: "download not found"}
+		return nil, errDownloadNotFound
 	}
 
 	var resumeOpts *warplib.ResumeDownloadOpts
@@ -340,7 +441,7 @@ func (rs *RPCServer) downloadResume(_ context.Context, p *GIDParam) (*EmptyResul
 
 	resumedItem, err := rs.manager.ResumeDownload(rs.client, p.GID, resumeOpts)
 	if err != nil {
-		return nil, &jrpc2.Error{Code: codeDownloadNotActive, Message: err.Error()}
+		return nil, rpcErrWrap(codeDownloadNotActive, err)
 	}
 	if rs.pool != nil {
 		rs.pool.AddDownload(p.GID, nil)
@@ -363,9 +464,9 @@ func (rs *RPCServer) downloadResume(_ context.Context, p *GIDParam) (*EmptyResul
 func (rs *RPCServer) downloadRemove(_ context.Context, p *GIDParam) (*EmptyResult, error) {
 	if err := rs.manager.FlushOne(p.GID); err != nil {
 		if err == warplib.ErrFlushHashNotFound {
-			return nil, &jrpc2.Error{Code: codeDownloadNotFound, Message: "download not found"}
+			return nil, errDownloadNotFound
 		}
-		return nil, &jrpc2.Error{Code: codeDownloadNotActive, Message: err.Error()}
+		return nil, rpcErrWrap(codeDownloadNotActive, err)
 	}
 	return &EmptyResult{}, nil
 }
@@ -374,7 +475,7 @@ func (rs *RPCServer) downloadRemove(_ context.Context, p *GIDParam) (*EmptyResul
 func (rs *RPCServer) downloadStatus(_ context.Context, p *GIDParam) (*StatusResult, error) {
 	item := rs.manager.GetItem(p.GID)
 	if item == nil {
-		return nil, &jrpc2.Error{Code: codeDownloadNotFound, Message: "download not found"}
+		return nil, errDownloadNotFound
 	}
 	return &StatusResult{
 		GID:             item.Hash,
@@ -446,7 +547,8 @@ func itemStatus(item *warplib.Item) string {
 	return "waiting"
 }
 
-// Close shuts down the jrpc2 bridge, releasing internal goroutines.
-func (rs *RPCServer) Close() {
-	rs.bridge.Close()
-}
+// Close releases RPC resources. The jsonrpchttp handler and the shared
+// dispatcher are stateless (no background goroutines), so this is a no-op
+// kept for lifecycle symmetry — WebServer.Shutdown and the tests call it,
+// and it must stay safe to call more than once.
+func (rs *RPCServer) Close() {}

@@ -106,7 +106,7 @@ func TestRPCDownloadResume_NilNotifier(t *testing.T) {
 	cfg := &RPCConfig{Version: "1.0.0"}
 
 	// Create RPCServer with nil logger -- notifier is always created by NewRPCServer
-	// but with no registered jrpc2 servers, Broadcast is a no-op.
+	// but with no registered pushers, Broadcast is a no-op.
 	rs := NewRPCServer(cfg, m, client, nil, nil, nil)
 	defer rs.Close()
 

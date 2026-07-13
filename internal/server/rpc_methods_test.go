@@ -121,16 +121,20 @@ func TestRPCParseError(t *testing.T) {
 	handler, secret, cleanup := newTestRPCHandler(t)
 	defer cleanup()
 
-	// Send invalid JSON -- jrpc2 bridge returns HTTP 500 for parse errors
-	// with no body, because the request cannot be parsed into a valid JSON-RPC
-	// request. This is expected behavior from the jhttp.Bridge.
-	code, _ := rpcCallRaw(t, handler, []byte("not valid json"), secret)
-	if code != http.StatusInternalServerError {
-		t.Fatalf("expected 500 for parse error, got %d", code)
+	// Send invalid JSON -- the jsonrpchttp handler answers HTTP 200 with a
+	// JSON-RPC parse error object (-32700, id:null), per JSON-RPC over HTTP
+	// conventions. (The old jrpc2 jhttp bridge returned a bodyless HTTP 500.)
+	code, resp := rpcCallRaw(t, handler, []byte("not valid json"), secret)
+	if code != http.StatusOK {
+		t.Fatalf("expected 200 for parse error, got %d", code)
+	}
+	errObj := rpcError(t, resp)
+	if errCode := errObj["code"].(float64); errCode != -32700 {
+		t.Fatalf("expected error code -32700 (Parse error), got %v", errCode)
 	}
 
 	// Also test with valid JSON but missing required fields (method).
-	// jrpc2 treats this as an invalid request.
+	// The dispatcher treats this as an invalid request.
 	invalidReq := []byte(`{"jsonrpc":"2.0","id":1}`)
 	code2, resp2 := rpcCallRaw(t, handler, invalidReq, secret)
 	if code2 != http.StatusOK {
@@ -139,7 +143,7 @@ func TestRPCParseError(t *testing.T) {
 	if resp2 != nil {
 		if errObj, ok := resp2["error"].(map[string]any); ok {
 			errCode := errObj["code"].(float64)
-			// jrpc2 treats missing method as invalid request (-32600) or method not found (-32601)
+			// A missing method is an invalid request (-32600) or method not found (-32601)
 			if errCode != -32600 && errCode != -32601 {
 				t.Fatalf("expected error code -32600 or -32601, got %v", errCode)
 			}
@@ -333,9 +337,11 @@ func TestRPCDownloadAdd_UnsupportedScheme(t *testing.T) {
 	if errCode != float64(codeInvalidParams) {
 		t.Fatalf("expected error code %d, got %v", codeInvalidParams, errCode)
 	}
-	msg := errObj["message"].(string)
-	if msg != "unsupported scheme: ftp" {
-		t.Fatalf("expected 'unsupported scheme: ftp', got %q", msg)
+	// The error message on the wire is the registered per-code text; the
+	// client-facing detail moved to error.data (error texts are private by
+	// default in golang-jsonrpc2).
+	if data, _ := errObj["data"].(string); data != "unsupported scheme: ftp" {
+		t.Fatalf("expected data 'unsupported scheme: ftp', got %q", data)
 	}
 }
 

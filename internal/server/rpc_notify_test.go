@@ -1,35 +1,65 @@
 package server
 
 import (
+	"context"
+	"errors"
 	"io"
 	"log"
 	"sync"
 	"testing"
 
-	"github.com/creachadair/jrpc2"
-	"github.com/creachadair/jrpc2/channel"
-	"github.com/creachadair/jrpc2/handler"
+	jsonrpc "github.com/gumeniukcom/golang-jsonrpc2/v2"
+	"github.com/gumeniukcom/golang-jsonrpc2/v2/structs"
 )
 
-// newTestServer creates a jrpc2 server with push support backed by an
-// io.Pipe-based channel. Returns the client channel (for draining), the
-// server, and a cleanup function. The client channel must be drained or
-// closed to avoid blocking the server's push operations.
-func newTestServer(t *testing.T) (channel.Channel, *jrpc2.Server, func()) {
+// testPusher is an in-memory jsonrpc.Pusher standing in for a live WebSocket
+// connection. Notify marshals the notification frame and delivers it on an
+// unbuffered channel — so, like the synchronous pipe channel it replaces, a
+// push blocks until the peer drains it. After Close, Notify fails like a
+// dead connection.
+type testPusher struct {
+	mu     sync.Mutex
+	closed bool
+	ch     chan []byte
+}
+
+func newTestPusher(t *testing.T) (*testPusher, func()) {
 	t.Helper()
-	cr, sw := io.Pipe()
-	sr, cw := io.Pipe()
-	cli := channel.Line(cr, cw)
-	srvCh := channel.Line(sr, sw)
+	p := &testPusher{ch: make(chan []byte)}
+	return p, p.Close
+}
 
-	srv := jrpc2.NewServer(handler.Map{}, &jrpc2.ServerOptions{AllowPush: true})
-	srv.Start(srvCh)
-
-	cleanup := func() {
-		cli.Close()
-		_ = srv.Wait()
+func (p *testPusher) Notify(_ context.Context, method string, params any) error {
+	p.mu.Lock()
+	closed := p.closed
+	p.mu.Unlock()
+	if closed {
+		return errors.New("connection closed")
 	}
-	return cli, srv, cleanup
+	rawParams, err := jsonrpc.MarshalParams(params)
+	if err != nil {
+		return err
+	}
+	frame, err := structs.Request{
+		Version: jsonrpc.Version,
+		Method:  method,
+		Params:  rawParams,
+	}.MarshalJSON()
+	if err != nil {
+		return err
+	}
+	p.ch <- frame
+	return nil
+}
+
+// Recv blocks until a pushed notification frame arrives.
+func (p *testPusher) Recv() []byte { return <-p.ch }
+
+// Close simulates the client disconnecting: subsequent Notify calls fail.
+func (p *testPusher) Close() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.closed = true
 }
 
 func TestNewRPCNotifier(t *testing.T) {
@@ -38,7 +68,7 @@ func TestNewRPCNotifier(t *testing.T) {
 		t.Fatal("expected non-nil notifier")
 	}
 	if n.Count() != 0 {
-		t.Fatalf("expected 0 servers, got %d", n.Count())
+		t.Fatalf("expected 0 pushers, got %d", n.Count())
 	}
 }
 
@@ -52,67 +82,63 @@ func TestNewRPCNotifier_WithLogger(t *testing.T) {
 
 func TestRPCNotifier_Register(t *testing.T) {
 	n := NewRPCNotifier(nil)
-	cli, srv, cleanup := newTestServer(t)
+	p, cleanup := newTestPusher(t)
 	defer cleanup()
-	_ = cli // prevent unused
 
-	n.Register(srv)
+	n.Register(p)
 	if n.Count() != 1 {
-		t.Fatalf("expected 1 server, got %d", n.Count())
+		t.Fatalf("expected 1 pusher, got %d", n.Count())
 	}
 }
 
 func TestRPCNotifier_Unregister(t *testing.T) {
 	n := NewRPCNotifier(nil)
-	cli, srv, cleanup := newTestServer(t)
+	p, cleanup := newTestPusher(t)
 	defer cleanup()
-	_ = cli
 
-	n.Register(srv)
+	n.Register(p)
 	if n.Count() != 1 {
-		t.Fatalf("expected 1 server after register, got %d", n.Count())
+		t.Fatalf("expected 1 pusher after register, got %d", n.Count())
 	}
 
-	n.Unregister(srv)
+	n.Unregister(p)
 	if n.Count() != 0 {
-		t.Fatalf("expected 0 servers after unregister, got %d", n.Count())
+		t.Fatalf("expected 0 pushers after unregister, got %d", n.Count())
 	}
 }
 
 func TestRPCNotifier_Unregister_NotRegistered(t *testing.T) {
 	n := NewRPCNotifier(nil)
-	cli, srv, cleanup := newTestServer(t)
+	p, cleanup := newTestPusher(t)
 	defer cleanup()
-	_ = cli
 
-	// Unregistering a server that was never registered should not panic
-	n.Unregister(srv)
+	// Unregistering a pusher that was never registered should not panic
+	n.Unregister(p)
 	if n.Count() != 0 {
-		t.Fatalf("expected 0 servers, got %d", n.Count())
+		t.Fatalf("expected 0 pushers, got %d", n.Count())
 	}
 }
 
 func TestRPCNotifier_Broadcast_NoServers(t *testing.T) {
 	n := NewRPCNotifier(nil)
-	// Broadcast with no servers should not panic
+	// Broadcast with no pushers should not panic
 	n.Broadcast("test.method", map[string]string{"key": "value"})
 }
 
 func TestRPCNotifier_Broadcast_Success(t *testing.T) {
 	n := NewRPCNotifier(nil)
-	cli, srv, cleanup := newTestServer(t)
+	p, cleanup := newTestPusher(t)
 	defer cleanup()
 
-	n.Register(srv)
+	n.Register(p)
 
 	// Drain the notification in a goroutine since the channel is synchronous
 	done := make(chan []byte, 1)
 	go func() {
-		data, _ := cli.Recv()
-		done <- data
+		done <- p.Recv()
 	}()
 
-	// Broadcast should succeed (server is connected)
+	// Broadcast should succeed (pusher is connected)
 	n.Broadcast("download.started", &DownloadStartedNotification{
 		GID:         "test-gid",
 		FileName:    "file.bin",
@@ -122,9 +148,9 @@ func TestRPCNotifier_Broadcast_Success(t *testing.T) {
 	// Wait for the notification to be received
 	<-done
 
-	// Server should still be registered
+	// Pusher should still be registered
 	if n.Count() != 1 {
-		t.Fatalf("expected 1 server after successful broadcast, got %d", n.Count())
+		t.Fatalf("expected 1 pusher after successful broadcast, got %d", n.Count())
 	}
 }
 
@@ -132,44 +158,43 @@ func TestRPCNotifier_Broadcast_DisconnectedServer(t *testing.T) {
 	l := log.New(io.Discard, "", 0)
 	n := NewRPCNotifier(l)
 
-	cli, srv, _ := newTestServer(t)
+	p, _ := newTestPusher(t)
 
-	n.Register(srv)
+	n.Register(p)
 
 	// Close the client side to simulate disconnect
-	cli.Close()
-	_ = srv.Wait()
+	p.Close()
 
-	// Broadcast should remove the failed server
+	// Broadcast should remove the failed pusher
 	n.Broadcast("download.error", &DownloadErrorNotification{
 		GID:   "test-gid",
 		Error: "connection lost",
 	})
 
 	if n.Count() != 0 {
-		t.Fatalf("expected 0 servers after disconnect, got %d", n.Count())
+		t.Fatalf("expected 0 pushers after disconnect, got %d", n.Count())
 	}
 }
 
 func TestRPCNotifier_Broadcast_MultipleServers(t *testing.T) {
 	n := NewRPCNotifier(nil)
 
-	cli1, srv1, cleanup1 := newTestServer(t)
+	p1, cleanup1 := newTestPusher(t)
 	defer cleanup1()
-	cli2, srv2, cleanup2 := newTestServer(t)
+	p2, cleanup2 := newTestPusher(t)
 	defer cleanup2()
 
-	n.Register(srv1)
-	n.Register(srv2)
+	n.Register(p1)
+	n.Register(p2)
 
 	if n.Count() != 2 {
-		t.Fatalf("expected 2 servers, got %d", n.Count())
+		t.Fatalf("expected 2 pushers, got %d", n.Count())
 	}
 
 	// Drain notifications concurrently
 	done := make(chan struct{}, 2)
-	go func() { _, _ = cli1.Recv(); done <- struct{}{} }()
-	go func() { _, _ = cli2.Recv(); done <- struct{}{} }()
+	go func() { p1.Recv(); done <- struct{}{} }()
+	go func() { p2.Recv(); done <- struct{}{} }()
 
 	n.Broadcast("download.progress", &DownloadProgressNotification{
 		GID:             "gid-123",
@@ -181,7 +206,7 @@ func TestRPCNotifier_Broadcast_MultipleServers(t *testing.T) {
 
 	// Both should still be registered
 	if n.Count() != 2 {
-		t.Fatalf("expected 2 servers after broadcast, got %d", n.Count())
+		t.Fatalf("expected 2 pushers after broadcast, got %d", n.Count())
 	}
 }
 
@@ -189,25 +214,24 @@ func TestRPCNotifier_Broadcast_PartialFailure(t *testing.T) {
 	l := log.New(io.Discard, "", 0)
 	n := NewRPCNotifier(l)
 
-	// Server 1: stays connected
-	cli1, srv1, cleanup1 := newTestServer(t)
+	// Pusher 1: stays connected
+	p1, cleanup1 := newTestPusher(t)
 	defer cleanup1()
 
-	// Server 2: will be disconnected
-	cli2, srv2, _ := newTestServer(t)
+	// Pusher 2: will be disconnected
+	p2, _ := newTestPusher(t)
 
-	n.Register(srv1)
-	n.Register(srv2)
+	n.Register(p1)
+	n.Register(p2)
 
-	// Disconnect server 2
-	cli2.Close()
-	_ = srv2.Wait()
+	// Disconnect pusher 2
+	p2.Close()
 
-	// Drain notification from server 1 concurrently
+	// Drain notification from pusher 1 concurrently
 	done := make(chan struct{}, 1)
-	go func() { _, _ = cli1.Recv(); done <- struct{}{} }()
+	go func() { p1.Recv(); done <- struct{}{} }()
 
-	// Broadcast should succeed for srv1 and remove srv2
+	// Broadcast should succeed for p1 and remove p2
 	n.Broadcast("download.complete", &DownloadCompleteNotification{
 		GID:         "gid-123",
 		TotalLength: 1024,
@@ -216,7 +240,7 @@ func TestRPCNotifier_Broadcast_PartialFailure(t *testing.T) {
 	<-done
 
 	if n.Count() != 1 {
-		t.Fatalf("expected 1 server after partial failure, got %d", n.Count())
+		t.Fatalf("expected 1 pusher after partial failure, got %d", n.Count())
 	}
 }
 
@@ -229,20 +253,19 @@ func TestRPCNotifier_ConcurrentRegisterUnregister(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			cli, srv, _ := newTestServer(t)
+			p, _ := newTestPusher(t)
 
-			n.Register(srv)
+			n.Register(p)
 			_ = n.Count()
-			n.Unregister(srv)
+			n.Unregister(p)
 
-			cli.Close()
-			_ = srv.Wait()
+			p.Close()
 		}()
 	}
 	wg.Wait()
 
 	if n.Count() != 0 {
-		t.Fatalf("expected 0 servers after concurrent register/unregister, got %d", n.Count())
+		t.Fatalf("expected 0 pushers after concurrent register/unregister, got %d", n.Count())
 	}
 }
 
@@ -253,14 +276,12 @@ func TestRPCNotifier_Count(t *testing.T) {
 		t.Fatalf("expected 0, got %d", n.Count())
 	}
 
-	servers := make([]*jrpc2.Server, 3)
-	clients := make([]channel.Channel, 3)
+	pushers := make([]*testPusher, 3)
 
 	for i := 0; i < 3; i++ {
-		cli, srv, _ := newTestServer(t)
-		servers[i] = srv
-		clients[i] = cli
-		n.Register(srv)
+		p, _ := newTestPusher(t)
+		pushers[i] = p
+		n.Register(p)
 	}
 
 	if n.Count() != 3 {
@@ -268,29 +289,27 @@ func TestRPCNotifier_Count(t *testing.T) {
 	}
 
 	// Unregister one
-	n.Unregister(servers[1])
+	n.Unregister(pushers[1])
 	if n.Count() != 2 {
 		t.Fatalf("expected 2, got %d", n.Count())
 	}
 
 	// Cleanup
 	for i := 0; i < 3; i++ {
-		clients[i].Close()
-		_ = servers[i].Wait()
+		pushers[i].Close()
 	}
 }
 
 func TestRPCNotifier_DoubleRegister(t *testing.T) {
 	n := NewRPCNotifier(nil)
-	cli, srv, cleanup := newTestServer(t)
+	p, cleanup := newTestPusher(t)
 	defer cleanup()
-	_ = cli
 
-	// Registering the same server twice should be idempotent (map key)
-	n.Register(srv)
-	n.Register(srv)
+	// Registering the same pusher twice should be idempotent (map key)
+	n.Register(p)
+	n.Register(p)
 	if n.Count() != 1 {
-		t.Fatalf("expected 1 server after double register, got %d", n.Count())
+		t.Fatalf("expected 1 pusher after double register, got %d", n.Count())
 	}
 }
 
@@ -298,10 +317,10 @@ func TestRPCNotifier_DoubleRegister(t *testing.T) {
 // with Broadcast without errors.
 func TestNotificationTypes(t *testing.T) {
 	n := NewRPCNotifier(nil)
-	cli, srv, cleanup := newTestServer(t)
+	p, cleanup := newTestPusher(t)
 	defer cleanup()
 
-	n.Register(srv)
+	n.Register(p)
 
 	tests := []struct {
 		method string
@@ -317,8 +336,7 @@ func TestNotificationTypes(t *testing.T) {
 		t.Run(tt.method, func(t *testing.T) {
 			done := make(chan []byte, 1)
 			go func() {
-				data, _ := cli.Recv()
-				done <- data
+				done <- p.Recv()
 			}()
 
 			n.Broadcast(tt.method, tt.params)

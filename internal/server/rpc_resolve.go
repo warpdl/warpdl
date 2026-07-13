@@ -8,19 +8,21 @@ import (
 	"strings"
 	"time"
 
-	"github.com/creachadair/jrpc2"
 	youtube "github.com/kkdai/youtube/v2"
 	"github.com/warpdl/warpdl/common"
 )
 
-// Custom JSON-RPC error codes for resolve.url and youtube.download.
+// Custom JSON-RPC error codes for resolve.url and youtube.download,
+// unchanged from the pre-migration jrpc2 wire protocol (registering codes
+// in the spec-reserved -32xxx range logs a server-side warning only,
+// golang-jsonrpc2 v2.7.0+).
 const (
-	codeResolverFailed      = jrpc2.Code(-32101)
-	codeResolverTimeout     = jrpc2.Code(-32102)
-	codeResolverUnsupported = jrpc2.Code(-32104)
-	codeMuxerUnavailable    = jrpc2.Code(-32105)
-	codeFormatNotFound      = jrpc2.Code(-32106)
-	codeFormatMismatch      = jrpc2.Code(-32107)
+	codeResolverFailed      = -32101
+	codeResolverTimeout     = -32102
+	codeResolverUnsupported = -32104
+	codeMuxerUnavailable    = -32105
+	codeFormatNotFound      = -32106
+	codeFormatMismatch      = -32107
 )
 
 // Resolver default/cap values. Exposed as vars (not consts) so tests can tweak.
@@ -57,7 +59,7 @@ func (k *kkdaiClient) GetStreamURLContext(ctx context.Context, v *youtube.Video,
 // per format to decode the signature cipher).
 func (rs *RPCServer) resolveURL(ctx context.Context, p *common.ResolveURLParams) (*common.ResolveURLResult, error) {
 	if p == nil || strings.TrimSpace(p.URL) == "" {
-		return nil, &jrpc2.Error{Code: codeInvalidParams, Message: "missing required param: url"}
+		return nil, rpcErrPublic(codeInvalidParams, "missing required param: url")
 	}
 
 	timeout := time.Duration(p.Timeout) * time.Second
@@ -73,16 +75,12 @@ func (rs *RPCServer) resolveURL(ctx context.Context, p *common.ResolveURLParams)
 	video, err := ytClientFactory().GetVideoContext(runCtx, p.URL)
 	if err != nil {
 		if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
-			return nil, &jrpc2.Error{
-				Code:    codeResolverTimeout,
-				Message: fmt.Sprintf("resolve timed out after %s", timeout),
-			}
+			return nil, rpcErrPublic(codeResolverTimeout, fmt.Sprintf("resolve timed out after %s", timeout))
 		}
-		msg := err.Error()
-		if isUnsupportedURLError(msg) {
-			return nil, &jrpc2.Error{Code: codeResolverUnsupported, Message: "URL is not a recognized YouTube video: " + msg}
+		if isUnsupportedURLError(err.Error()) {
+			return nil, rpcErrWrap(codeResolverUnsupported, fmt.Errorf("URL is not a recognized YouTube video: %w", err))
 		}
-		return nil, &jrpc2.Error{Code: codeResolverFailed, Message: msg}
+		return nil, rpcErrWrap(codeResolverFailed, err)
 	}
 
 	return mapVideo(video), nil

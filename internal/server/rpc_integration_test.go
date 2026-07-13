@@ -495,10 +495,14 @@ func TestIntegration_ErrorCodes(t *testing.T) {
 	serverURL, _, _, _, cleanup := startIntegrationServer(t)
 	defer cleanup()
 
-	// Invalid JSON -> -32700 (parse error) or HTTP 500 from jhttp bridge
-	code, _ := rpcPostRaw(t, serverURL, []byte("not valid json"), integrationSecret)
-	if code != http.StatusInternalServerError && code != http.StatusOK {
-		t.Fatalf("expected 500 or 200 for invalid JSON, got %d", code)
+	// Invalid JSON -> HTTP 200 with a JSON-RPC -32700 (parse error) body
+	code, parseResp := rpcPostRaw(t, serverURL, []byte("not valid json"), integrationSecret)
+	if code != http.StatusOK {
+		t.Fatalf("expected 200 for invalid JSON, got %d", code)
+	}
+	parseErr := parseResp["error"].(map[string]any)
+	if parseErr["code"].(float64) != -32700 {
+		t.Fatalf("expected -32700 for invalid JSON, got %v", parseErr["code"])
 	}
 
 	// Unknown method -> -32601
@@ -508,7 +512,7 @@ func TestIntegration_ErrorCodes(t *testing.T) {
 		t.Fatalf("expected -32601 for unknown method, got %v", errObj["code"])
 	}
 
-	// download.status with unknown GID -> -32001
+	// download.status with unknown GID -> codeDownloadNotFound
 	_, resp = rpcPost(t, serverURL, "download.status", map[string]any{"gid": "fake-gid"})
 	errObj = resp["error"].(map[string]any)
 	if errObj["code"].(float64) != float64(codeDownloadNotFound) {

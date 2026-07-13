@@ -5,73 +5,76 @@ import (
 	"log"
 	"sync"
 
-	"github.com/creachadair/jrpc2"
+	jsonrpc "github.com/gumeniukcom/golang-jsonrpc2/v2"
 )
 
-// RPCNotifier maintains a set of connected jrpc2 WebSocket servers
-// and broadcasts push notifications to all of them.
+// RPCNotifier maintains the set of per-connection pushers of the connected
+// JSON-RPC WebSocket clients and broadcasts push notifications to all of
+// them. Pushers are registered when a connection is accepted and
+// unregistered when it closes; a pusher whose connection died between those
+// two points is pruned on the first failed broadcast.
 type RPCNotifier struct {
 	mu      sync.RWMutex
-	servers map[*jrpc2.Server]struct{}
+	pushers map[jsonrpc.Pusher]struct{}
 	log     *log.Logger
 }
 
 // NewRPCNotifier creates a new notifier.
 func NewRPCNotifier(l *log.Logger) *RPCNotifier {
 	return &RPCNotifier{
-		servers: make(map[*jrpc2.Server]struct{}),
+		pushers: make(map[jsonrpc.Pusher]struct{}),
 		log:     l,
 	}
 }
 
-// Register adds a server to the broadcast set.
-func (n *RPCNotifier) Register(srv *jrpc2.Server) {
+// Register adds a connection's pusher to the broadcast set.
+func (n *RPCNotifier) Register(p jsonrpc.Pusher) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	n.servers[srv] = struct{}{}
+	n.pushers[p] = struct{}{}
 }
 
-// Unregister removes a server from the broadcast set.
-func (n *RPCNotifier) Unregister(srv *jrpc2.Server) {
+// Unregister removes a connection's pusher from the broadcast set.
+func (n *RPCNotifier) Unregister(p jsonrpc.Pusher) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	delete(n.servers, srv)
+	delete(n.pushers, p)
 }
 
-// Broadcast sends a push notification to all registered servers.
-// Servers that fail to receive (e.g., disconnected) are unregistered.
+// Broadcast sends a push notification to all registered pushers.
+// Pushers that fail to send (e.g., disconnected) are unregistered.
 func (n *RPCNotifier) Broadcast(method string, params any) {
 	n.mu.RLock()
-	servers := make([]*jrpc2.Server, 0, len(n.servers))
-	for srv := range n.servers {
-		servers = append(servers, srv)
+	pushers := make([]jsonrpc.Pusher, 0, len(n.pushers))
+	for p := range n.pushers {
+		pushers = append(pushers, p)
 	}
 	n.mu.RUnlock()
 
-	var failed []*jrpc2.Server
-	for _, srv := range servers {
-		if err := srv.Notify(context.Background(), method, params); err != nil {
+	var failed []jsonrpc.Pusher
+	for _, p := range pushers {
+		if err := p.Notify(context.Background(), method, params); err != nil {
 			if n.log != nil {
 				n.log.Printf("RPC push failed: %v", err)
 			}
-			failed = append(failed, srv)
+			failed = append(failed, p)
 		}
 	}
 
 	if len(failed) > 0 {
 		n.mu.Lock()
-		for _, srv := range failed {
-			delete(n.servers, srv)
+		for _, p := range failed {
+			delete(n.pushers, p)
 		}
 		n.mu.Unlock()
 	}
 }
 
-// Count returns the number of registered servers (for testing).
+// Count returns the number of registered pushers (for testing).
 func (n *RPCNotifier) Count() int {
 	n.mu.RLock()
 	defer n.mu.RUnlock()
-	return len(n.servers)
+	return len(n.pushers)
 }
 
 // Notification param types for download events.

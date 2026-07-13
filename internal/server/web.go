@@ -12,7 +12,6 @@ import (
 	"sync"
 
 	cws "github.com/coder/websocket"
-	"github.com/creachadair/jrpc2"
 	"github.com/warpdl/warpdl/common"
 	"github.com/warpdl/warpdl/pkg/warplib"
 	"golang.org/x/net/websocket"
@@ -194,31 +193,19 @@ func (s *WebServer) handler() http.Handler {
 }
 
 // handleJSONRPCWebSocket handles WebSocket upgrade at /jsonrpc/ws.
-// Each connection gets its own jrpc2.Server with AllowPush for notifications.
+// Each connection is served by the shared JSON-RPC dispatcher; its pusher is
+// registered with the notifier for the life of the connection so broadcasts
+// reach every connected client.
 func (s *WebServer) handleJSONRPCWebSocket(w http.ResponseWriter, r *http.Request) {
 	conn, err := cws.Accept(w, r, nil)
 	if err != nil {
 		s.l.Printf("WebSocket accept error: %v", err)
 		return
 	}
+	defer conn.CloseNow() //nolint:errcheck // final cleanup, error is moot
 
-	ctx := r.Context()
-	ch := &wsChannel{conn: conn, ctx: ctx}
-
-	// Create jrpc2 server for this connection with push support
-	srv := jrpc2.NewServer(s.rpc.methods(), &jrpc2.ServerOptions{
-		AllowPush: true,
-	})
-
-	// Register for notifications
-	if s.rpc.notifier != nil {
-		s.rpc.notifier.Register(srv)
-		defer s.rpc.notifier.Unregister(srv)
-	}
-
-	// Serve blocks until connection closes
-	srv.Start(ch)
-	_ = srv.Wait()
+	// Blocks until the connection closes.
+	serveJSONRPCWS(r.Context(), s.rpc.rpc, conn, s.rpc.notifier)
 }
 
 func (s *WebServer) addr() string {
