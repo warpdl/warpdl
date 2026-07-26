@@ -595,11 +595,7 @@ func TestOpenResumeFileSucceedsWhenFileExists(t *testing.T) {
 // TestNumBasePartsInitialization tests that numBaseParts is properly validated during initialization.
 // Since getPartSize() is now a pure getter, validation happens in NewDownloader().
 func TestNumBasePartsInitialization(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Length", "1000")
-		w.Header().Set("Content-Disposition", `attachment; filename="test.bin"`)
-		w.WriteHeader(http.StatusOK)
-	}))
+	srv := newRangeServer(t, bytes.Repeat([]byte("x"), 1000))
 	defer srv.Close()
 
 	tempDir := t.TempDir()
@@ -634,6 +630,7 @@ func TestNumBasePartsInitialization(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			opts := &DownloaderOpts{
 				DownloadDirectory: tempDir,
+				FileName:          "test.bin",
 				NumBaseParts:      tt.inputBaseParts,
 			}
 			if tt.maxConnections > 0 {

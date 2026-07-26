@@ -92,10 +92,7 @@ func TestQueueStatusClientError(t *testing.T) {
 	t.Setenv("WARPDL_SOCKET_PATH", "/nonexistent/socket.sock")
 	app := cli.NewApp()
 	ctx := newContext(app, nil, "queue")
-	// Should return nil (prints error, doesn't return it)
-	if err := queueStatusAction(ctx); err != nil {
-		t.Fatalf("queueStatusAction: %v", err)
-	}
+	assertExitError(t, queueStatusAction(ctx))
 }
 
 func TestQueueStatusServerError(t *testing.T) {
@@ -108,9 +105,7 @@ func TestQueueStatusServerError(t *testing.T) {
 
 	app := cli.NewApp()
 	ctx := newContext(app, nil, "queue")
-	if err := queueStatusAction(ctx); err != nil {
-		t.Fatalf("queueStatusAction: %v", err)
-	}
+	assertExitError(t, queueStatusAction(ctx))
 }
 
 func TestQueuePauseCommand(t *testing.T) {
@@ -139,9 +134,7 @@ func TestQueuePauseClientError(t *testing.T) {
 	t.Setenv("WARPDL_SOCKET_PATH", "/nonexistent/socket.sock")
 	app := cli.NewApp()
 	ctx := newContext(app, nil, "pause")
-	if err := queuePauseAction(ctx); err != nil {
-		t.Fatalf("queuePauseAction: %v", err)
-	}
+	assertExitError(t, queuePauseAction(ctx))
 }
 
 func TestQueuePauseServerError(t *testing.T) {
@@ -154,9 +147,7 @@ func TestQueuePauseServerError(t *testing.T) {
 
 	app := cli.NewApp()
 	ctx := newContext(app, nil, "pause")
-	if err := queuePauseAction(ctx); err != nil {
-		t.Fatalf("queuePauseAction: %v", err)
-	}
+	assertExitError(t, queuePauseAction(ctx))
 }
 
 func TestQueueResumeCommand(t *testing.T) {
@@ -185,9 +176,7 @@ func TestQueueResumeClientError(t *testing.T) {
 	t.Setenv("WARPDL_SOCKET_PATH", "/nonexistent/socket.sock")
 	app := cli.NewApp()
 	ctx := newContext(app, nil, "resume")
-	if err := queueResumeAction(ctx); err != nil {
-		t.Fatalf("queueResumeAction: %v", err)
-	}
+	assertExitError(t, queueResumeAction(ctx))
 }
 
 func TestQueueResumeServerError(t *testing.T) {
@@ -200,9 +189,7 @@ func TestQueueResumeServerError(t *testing.T) {
 
 	app := cli.NewApp()
 	ctx := newContext(app, nil, "resume")
-	if err := queueResumeAction(ctx); err != nil {
-		t.Fatalf("queueResumeAction: %v", err)
-	}
+	assertExitError(t, queueResumeAction(ctx))
 }
 
 func TestQueueMoveCommand(t *testing.T) {
@@ -252,9 +239,7 @@ func TestQueueMoveClientError(t *testing.T) {
 	t.Setenv("WARPDL_SOCKET_PATH", "/nonexistent/socket.sock")
 	app := cli.NewApp()
 	ctx := newContext(app, []string{"hash123", "1"}, "move")
-	if err := queueMoveAction(ctx); err != nil {
-		t.Fatalf("queueMoveAction: %v", err)
-	}
+	assertExitError(t, queueMoveAction(ctx))
 }
 
 func TestQueueMoveServerError(t *testing.T) {
@@ -267,9 +252,7 @@ func TestQueueMoveServerError(t *testing.T) {
 
 	app := cli.NewApp()
 	ctx := newContext(app, []string{"hash123", "1"}, "move")
-	if err := queueMoveAction(ctx); err != nil {
-		t.Fatalf("queueMoveAction: %v", err)
-	}
+	assertExitError(t, queueMoveAction(ctx))
 }
 
 func TestPriorityName(t *testing.T) {

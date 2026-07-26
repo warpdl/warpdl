@@ -78,14 +78,23 @@ func (h *Header) Add(header http.Header) {
 	header.Add(h.Key, h.Value)
 }
 
-// isSensitiveHeader returns true if the header key is Cookie or Set-Cookie.
+// isSensitiveHeader uses an allowlist for diagnostics. Arbitrary request
+// headers frequently carry API keys, signed URLs, or extension credentials
+// under application-specific names, so an unknown name is sensitive by
+// default.
 func isSensitiveHeader(key string) bool {
-	lower := strings.ToLower(key)
-	return lower == "cookie" || lower == "set-cookie"
+	lower := strings.ToLower(strings.TrimSpace(key))
+	switch lower {
+	case "user-agent", "accept", "accept-encoding", "accept-language", "range":
+		return false
+	default:
+		return true
+	}
 }
 
 // RedactedValue returns the header value for safe logging.
-// Cookie and Set-Cookie values are replaced with [REDACTED].
+// Values are exposed only for a small allowlist of non-secret transport
+// headers; every custom or credential-bearing header is replaced.
 func (h *Header) RedactedValue() string {
 	if isSensitiveHeader(h.Key) {
 		return "[REDACTED]"
@@ -94,7 +103,7 @@ func (h *Header) RedactedValue() string {
 }
 
 // LogSafe returns a slice of "Key: Value" strings with sensitive headers redacted.
-// This is safe for debug logging — Cookie and Set-Cookie values are replaced with [REDACTED].
+// This is safe for debug logging — credential-bearing values are redacted.
 func (h Headers) LogSafe() []string {
 	result := make([]string, len(h))
 	for i, hdr := range h {

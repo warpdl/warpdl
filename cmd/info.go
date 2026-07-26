@@ -44,8 +44,7 @@ func info(ctx *cli.Context) error {
 		var err error
 		httpClient, err = warplib.NewHTTPClientWithProxy(proxyURL)
 		if err != nil {
-			common.PrintRuntimeErr(ctx, "info", "invalid_proxy", err)
-			return nil
+			return common.PrintRuntimeErr(ctx, "info", "invalid_proxy", err)
 		}
 	} else {
 		httpClient = &http.Client{
@@ -61,9 +60,9 @@ func info(ctx *cli.Context) error {
 		},
 	)
 	if err != nil {
-		common.PrintRuntimeErr(ctx, "info", "new_downloader", err)
-		return nil
+		return common.PrintRuntimeErr(ctx, "info", "new_downloader", err)
 	}
+	defer d.Close()
 	fName := d.GetFileName()
 	if fName == "" {
 		fName = "not-defined"

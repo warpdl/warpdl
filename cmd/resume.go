@@ -81,6 +81,30 @@ var (
 	}
 )
 
+const maxInt32Value = int64(1<<31 - 1)
+
+func validateTransferLimits() error {
+	values := []struct {
+		name  string
+		value int
+	}{
+		{name: "max-connection", value: maxConns},
+		{name: "max-parts", value: maxParts},
+		{name: "timeout", value: timeout},
+		{name: "max-retries", value: maxRetries},
+		{name: "retry-delay", value: retryDelay},
+	}
+	for _, value := range values {
+		if value.value < 0 {
+			return fmt.Errorf("--%s cannot be negative", value.name)
+		}
+		if int64(value.value) > maxInt32Value {
+			return fmt.Errorf("--%s exceeds the maximum supported value %d", value.name, maxInt32Value)
+		}
+	}
+	return nil
+}
+
 func resume(ctx *cli.Context) (err error) {
 	hash := ctx.Args().First()
 	if hash == "" {
@@ -94,6 +118,9 @@ func resume(ctx *cli.Context) (err error) {
 	} else if hash == "help" {
 		return cli.ShowCommandHelp(ctx, ctx.Command.Name)
 	}
+	if err := validateTransferLimits(); err != nil {
+		return common.PrintErrWithCmdHelp(ctx, err)
+	}
 	var headers warplib.Headers
 	if userAgent != "" {
 		headers = warplib.Headers{{
@@ -104,21 +131,18 @@ func resume(ctx *cli.Context) (err error) {
 	cookies := ctx.StringSlice("cookie")
 	headers, err = AppendCookieHeader(headers, cookies)
 	if err != nil {
-		common.PrintRuntimeErr(ctx, "resume", "parse_cookies", err)
-		return nil
+		return common.PrintRuntimeErr(ctx, "resume", "parse_cookies", err)
 	}
 	client, err := getClient()
 	if err != nil {
-		common.PrintRuntimeErr(ctx, "resume", "new_client", err)
-		return
+		return common.PrintRuntimeErr(ctx, "resume", "new_client", err)
 	}
 	defer client.Close()
 	client.CheckVersionMismatch(currentBuildArgs.Version)
 	fmt.Println(">> Initiating a WARP download << ")
 	if proxyURL != "" {
 		if _, err := warplib.ParseProxyURL(proxyURL); err != nil {
-			common.PrintRuntimeErr(ctx, "resume", "invalid_proxy", err)
-			return nil
+			return common.PrintRuntimeErr(ctx, "resume", "invalid_proxy", err)
 		}
 	}
 	r, err := client.Resume(hash, &warpcli.ResumeOpts{
@@ -133,8 +157,7 @@ func resume(ctx *cli.Context) (err error) {
 		SpeedLimit:     ctx.String("speed-limit"),
 	})
 	if err != nil {
-		common.PrintRuntimeErr(ctx, "resume", "client-resume", err)
-		return nil
+		return common.PrintRuntimeErr(ctx, "resume", "client-resume", err)
 	}
 
 	txt := fmt.Sprintf(`
@@ -175,12 +198,17 @@ Max Connections`+"\t"+`: %d
 	}
 
 	RegisterHandlersWithProgress(client, int64(r.ContentLength), int64(r.Downloaded))
+	var terminalErr error
+	registerDownloadErrorHandler(client, &terminalErr)
 	listenErr := client.Listen()
+	if terminalErr != nil {
+		return terminalErr
+	}
+	if listenErr != nil {
+		return listenErr
+	}
 	waitErr := waitForBatchSubmission(submission)
 	if waitErr != nil {
-		if listenErr != nil {
-			return listenErr
-		}
 		return waitErr
 	}
 	return nil

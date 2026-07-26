@@ -6,6 +6,7 @@ package warplib
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"sync"
@@ -32,6 +33,42 @@ const (
 	ScheduleStateCancelled ScheduleState = "cancelled"
 )
 
+// TransferConfig is the non-secret operational contract required to recreate
+// a downloader after daemon restart. Secret-bearing proxy/protocol credentials
+// are never stored; the corresponding flags make an unreconstructable transfer
+// fail explicitly instead of silently changing authentication behavior.
+type TransferConfig struct {
+	ForceParts                  bool
+	NumBaseParts                int32
+	MaxConnections              int32
+	MaxSegments                 int32
+	Overwrite                   bool
+	LockFileName                bool
+	ProxyURL                    string
+	ProxyCredentialsRequired    bool
+	ProtocolUsername            string
+	ProtocolCredentialsRequired bool
+	RetryConfig                 *RetryConfig
+	RequestTimeout              time.Duration
+	MaxFileSize                 int64
+	ChecksumConfig              *ChecksumConfig
+	SpeedLimit                  int64
+	DisableWorkStealing         bool
+}
+
+func cloneTransferConfig(config TransferConfig) TransferConfig {
+	cloned := config
+	if config.RetryConfig != nil {
+		retryConfig := *config.RetryConfig
+		cloned.RetryConfig = &retryConfig
+	}
+	if config.ChecksumConfig != nil {
+		checksumConfig := *config.ChecksumConfig
+		cloned.ChecksumConfig = &checksumConfig
+	}
+	return cloned
+}
+
 // Item represents a download item with its associated metadata and state.
 // It includes information such as the item's unique identifier, name, URL,
 // headers, size, download progress, and storage location.
@@ -44,6 +81,13 @@ type Item struct {
 	Url string `json:"url"`
 	// Headers used for the download
 	Headers Headers `json:"headers"`
+	// PluginHeaderNames records which persisted request headers originated
+	// from extension code. Values remain in Headers for authenticated resume,
+	// while provenance preserves cross-origin stripping and log redaction.
+	PluginHeaderNames []string `json:"-"`
+	// ResourceETag is the strong HTTP representation validator captured when
+	// the download was created. It binds resumed segments to the same bytes.
+	ResourceETag string `json:"-"`
 	// DateAdded is the time when the download item was added.
 	DateAdded time.Time `json:"date_added"`
 	// TotalSize is the total size of the download item.
@@ -88,13 +132,37 @@ type Item struct {
 	// Cookie VALUES are never persisted (FR-023). Empty means no cookies.
 	// GOB backward-compatible: missing field decodes as empty string (zero value).
 	CookieSourcePath string `json:"cookie_source_path,omitempty"`
+	// DestinationClaimed records that this manager successfully opened the
+	// final HTTP destination before any part metadata was persisted. It lets a
+	// crash-recovered fresh start reuse only its own empty stub, while an
+	// unrelated pre-existing destination still follows strict collision rules.
+	// GOB backward-compatible: older snapshots decode false.
+	DestinationClaimed bool `json:"-"`
+	// TransferConfig contains restart-critical, non-secret downloader options.
+	// It is persisted by GOB but excluded from public JSON/list responses.
+	TransferConfig TransferConfig `json:"-"`
 	// mu is a mutex for synchronizing access to the item's fields.
 	mu *sync.RWMutex
 	// dAllocMu protects access to dAlloc field (value type, not pointer, for GOB serialization)
 	dAllocMu sync.RWMutex
 	// dAlloc is the ProtocolDownloader managing this item.
 	// Type is ProtocolDownloader to allow HTTP, FTP, SFTP backends.
-	dAlloc ProtocolDownloader
+	dAlloc      ProtocolDownloader
+	dAllocOwner *allocationOwner
+	// reconstructionMu serializes short begin/commit/close transitions without
+	// being held across network probing. reconstructionGeneration invalidates
+	// older probes; dAllocGeneration identifies the exact allocation committed
+	// by a ReconstructionLease.
+	reconstructionMu         sync.Mutex
+	reconstructionTransition sync.Mutex
+	reconstructionGeneration uint64
+	dAllocGeneration         uint64
+	// activeRuns and runsDrained form the invocation side of the reconstruction
+	// lease. A run claim is acquired while reconstructionMu still proves the
+	// allocation identity, then retained across Download/Resume. Replacement
+	// waits for runsDrained before it may return a new reconstruction lease.
+	activeRuns  int
+	runsDrained chan struct{}
 	// memPart is an internal map for managing memory allocation of parts.
 	memPart map[string]int64
 	// resumeHandlers holds patched handler callbacks for the protocol resume path.
@@ -102,6 +170,168 @@ type Item struct {
 	// Unexported to prevent GOB serialization (func values cannot be GOB-encoded).
 	// nil for HTTP items — HTTP uses patchHandlers on *Downloader struct field.
 	resumeHandlers *Handlers
+}
+
+// ItemSnapshot is an immutable copy of the mutable metadata required by API
+// and scheduler callers. Slice fields are cloned by Snapshot.
+type ItemSnapshot struct {
+	Hash               string
+	Name               string
+	URL                string
+	Headers            Headers
+	PluginHeaderNames  []string
+	ResourceETag       string
+	DateAdded          time.Time
+	TotalSize          ContentLength
+	Downloaded         ContentLength
+	DownloadLocation   string
+	AbsoluteLocation   string
+	ChildHash          string
+	Hidden             bool
+	Children           bool
+	Parts              map[int64]*ItemPart
+	Resumable          bool
+	Protocol           Protocol
+	SSHKeyPath         string
+	ScheduledAt        time.Time
+	CronExpr           string
+	ScheduleState      ScheduleState
+	CookieSourcePath   string
+	DestinationClaimed bool
+	TransferConfig     TransferConfig
+}
+
+// Snapshot returns a race-free copy of the item's mutable metadata.
+func (i *Item) Snapshot() ItemSnapshot {
+	if i == nil {
+		return ItemSnapshot{}
+	}
+	if i.mu != nil {
+		i.mu.RLock()
+		defer i.mu.RUnlock()
+	}
+	headers := append(Headers(nil), i.Headers...)
+	pluginHeaderNames := append([]string(nil), i.PluginHeaderNames...)
+	parts := make(map[int64]*ItemPart, len(i.Parts))
+	for offset, part := range i.Parts {
+		if part == nil {
+			parts[offset] = nil
+			continue
+		}
+		partCopy := *part
+		parts[offset] = &partCopy
+	}
+	return ItemSnapshot{
+		Hash:               i.Hash,
+		Name:               i.Name,
+		URL:                i.Url,
+		Headers:            headers,
+		PluginHeaderNames:  pluginHeaderNames,
+		ResourceETag:       i.ResourceETag,
+		DateAdded:          i.DateAdded,
+		TotalSize:          i.TotalSize,
+		Downloaded:         i.Downloaded,
+		DownloadLocation:   i.DownloadLocation,
+		AbsoluteLocation:   i.AbsoluteLocation,
+		ChildHash:          i.ChildHash,
+		Hidden:             i.Hidden,
+		Children:           i.Children,
+		Parts:              parts,
+		Resumable:          i.Resumable,
+		Protocol:           i.Protocol,
+		SSHKeyPath:         i.SSHKeyPath,
+		ScheduledAt:        i.ScheduledAt,
+		CronExpr:           i.CronExpr,
+		ScheduleState:      i.ScheduleState,
+		CookieSourcePath:   i.CookieSourcePath,
+		DestinationClaimed: i.DestinationClaimed,
+		TransferConfig:     cloneTransferConfig(i.TransferConfig),
+	}
+}
+
+// UpdateHeader updates a persisted request header under the item lock.
+func (i *Item) UpdateHeader(key, value string) {
+	if i.mu != nil {
+		i.mu.Lock()
+		defer i.mu.Unlock()
+	}
+	i.Headers.Update(key, value)
+}
+
+// AddTotalSize atomically adds size to the item's aggregate total.
+func (i *Item) AddTotalSize(size ContentLength) {
+	if i.mu != nil {
+		i.mu.Lock()
+		defer i.mu.Unlock()
+	}
+	i.TotalSize += size
+}
+
+// MarkComplete records a terminal successful download using the final on-disk
+// size. The caller must pass the item back to Manager.UpdateItem to persist the
+// mutation.
+func (i *Item) MarkComplete(finalSize ContentLength) {
+	if i.mu != nil {
+		i.mu.Lock()
+		defer i.mu.Unlock()
+	}
+	i.TotalSize = finalSize
+	i.Downloaded = finalSize
+	i.Parts = nil
+	i.DestinationClaimed = false
+}
+
+// MarshalJSON returns a race-free public representation of an Item. Request
+// headers and local credential/key source paths are deliberately excluded:
+// callers need lifecycle metadata, not reusable authentication material.
+func (i *Item) MarshalJSON() ([]byte, error) {
+	if i == nil {
+		return []byte("null"), nil
+	}
+	if i.mu != nil {
+		i.mu.RLock()
+		defer i.mu.RUnlock()
+	}
+	type publicItem struct {
+		Hash             string              `json:"hash"`
+		Name             string              `json:"name"`
+		URL              string              `json:"url"`
+		Headers          Headers             `json:"headers"`
+		DateAdded        time.Time           `json:"date_added"`
+		TotalSize        ContentLength       `json:"total_size"`
+		Downloaded       ContentLength       `json:"downloaded"`
+		DownloadLocation string              `json:"download_location"`
+		AbsoluteLocation string              `json:"absolute_location"`
+		ChildHash        string              `json:"child_hash"`
+		Hidden           bool                `json:"hidden"`
+		Children         bool                `json:"children"`
+		Parts            map[int64]*ItemPart `json:"parts"`
+		Resumable        bool                `json:"resumable"`
+		Protocol         Protocol            `json:"protocol"`
+		ScheduledAt      time.Time           `json:"scheduled_at,omitempty"`
+		CronExpr         string              `json:"cron_expr,omitempty"`
+		ScheduleState    ScheduleState       `json:"schedule_state,omitempty"`
+	}
+	return json.Marshal(publicItem{
+		Hash:             i.Hash,
+		Name:             i.Name,
+		URL:              logSafeURL(i.Url),
+		Headers:          nil,
+		DateAdded:        i.DateAdded,
+		TotalSize:        i.TotalSize,
+		Downloaded:       i.Downloaded,
+		DownloadLocation: i.DownloadLocation,
+		AbsoluteLocation: i.AbsoluteLocation,
+		ChildHash:        i.ChildHash,
+		Hidden:           i.Hidden,
+		Children:         i.Children,
+		Parts:            i.Parts,
+		Resumable:        i.Resumable,
+		Protocol:         i.Protocol,
+		ScheduledAt:      i.ScheduledAt,
+		CronExpr:         i.CronExpr,
+		ScheduleState:    i.ScheduleState,
+	})
 }
 
 // ItemPart represents a part of a download item.
@@ -116,13 +346,14 @@ type ItemPart struct {
 	Compiled bool `json:"compiled"`
 }
 
-// ValidateItemParts validates a map of ItemParts for nil values and invalid ranges.
+// ValidateItemParts validates a map of ItemParts for nil values and invalid
+// inclusive ranges. FinalOffset == start is a valid one-byte segment.
 func ValidateItemParts(parts map[int64]*ItemPart) error {
 	for ioff, part := range parts {
 		if part == nil {
 			return fmt.Errorf("%w: nil part at offset %d", ErrItemPartNil, ioff)
 		}
-		if part.FinalOffset <= ioff {
+		if part.FinalOffset < ioff {
 			return fmt.Errorf("%w: part %q at offset %d has FinalOffset %d",
 				ErrItemPartInvalidRange, part.Hash, ioff, part.FinalOffset)
 		}
@@ -134,10 +365,13 @@ func ValidateItemParts(parts map[int64]*ItemPart) error {
 type ItemsMap map[string]*Item
 
 type itemOpts struct {
-	Hide, Child      bool
-	ChildHash        string
-	AbsoluteLocation string
-	Headers          []Header
+	Hide, Child       bool
+	ChildHash         string
+	AbsoluteLocation  string
+	Headers           []Header
+	PluginHeaderNames []string
+	ResourceETag      string
+	TransferConfig    TransferConfig
 }
 
 func newItem(mu *sync.RWMutex, name, url, dlloc, hash string, totalSize ContentLength, resumable bool, opts *itemOpts) (i *Item, err error) {
@@ -151,21 +385,24 @@ func newItem(mu *sync.RWMutex, name, url, dlloc, hash string, totalSize ContentL
 		return
 	}
 	i = &Item{
-		Hash:             hash,
-		Name:             name,
-		Url:              url,
-		Headers:          opts.Headers,
-		DateAdded:        time.Now(),
-		TotalSize:        totalSize,
-		DownloadLocation: dlloc,
-		AbsoluteLocation: opts.AbsoluteLocation,
-		ChildHash:        opts.ChildHash,
-		Hidden:           opts.Hide,
-		Children:         opts.Child,
-		Resumable:        resumable,
-		Parts:            make(map[int64]*ItemPart),
-		memPart:          make(map[string]int64),
-		mu:               mu,
+		Hash:              hash,
+		Name:              name,
+		Url:               url,
+		Headers:           opts.Headers,
+		PluginHeaderNames: append([]string(nil), opts.PluginHeaderNames...),
+		ResourceETag:      opts.ResourceETag,
+		TransferConfig:    cloneTransferConfig(opts.TransferConfig),
+		DateAdded:         time.Now(),
+		TotalSize:         totalSize,
+		DownloadLocation:  dlloc,
+		AbsoluteLocation:  opts.AbsoluteLocation,
+		ChildHash:         opts.ChildHash,
+		Hidden:            opts.Hide,
+		Children:          opts.Child,
+		Resumable:         resumable,
+		Parts:             make(map[int64]*ItemPart),
+		memPart:           make(map[string]int64),
+		mu:                mu,
 	}
 	return
 }
@@ -217,11 +454,75 @@ func (i *Item) getDAlloc() ProtocolDownloader {
 	return i.dAlloc
 }
 
+func (i *Item) claimDAllocLocked(
+	generation uint64,
+	exact bool,
+) (ProtocolDownloader, *Handlers, func(), error) {
+	if exact && (i.reconstructionGeneration != generation ||
+		i.dAllocGeneration != generation) {
+		return nil, nil, nil, ErrReconstructionSuperseded
+	}
+	i.dAllocMu.RLock()
+	d := i.dAlloc
+	h := i.resumeHandlers
+	i.dAllocMu.RUnlock()
+	if d == nil {
+		if exact {
+			return nil, nil, nil, ErrReconstructionSuperseded
+		}
+		return nil, nil, nil, ErrItemDownloaderNotFound
+	}
+	return d, h, i.claimRunLocked(), nil
+}
+
+func (i *Item) claimRunLocked() func() {
+	if i.activeRuns == 0 {
+		i.runsDrained = make(chan struct{})
+	}
+	i.activeRuns++
+	var once sync.Once
+	release := func() {
+		once.Do(func() {
+			i.reconstructionMu.Lock()
+			i.activeRuns--
+			if i.activeRuns == 0 {
+				close(i.runsDrained)
+			}
+			i.reconstructionMu.Unlock()
+		})
+	}
+	return release
+}
+
+func (i *Item) claimDAlloc() (ProtocolDownloader, *Handlers, func(), error) {
+	i.reconstructionMu.Lock()
+	defer i.reconstructionMu.Unlock()
+	return i.claimDAllocLocked(0, false)
+}
+
+// runsDrainedLocked returns a signal for all Download/Resume calls that
+// already claimed an allocation. The caller must hold reconstructionMu.
+func (i *Item) runsDrainedLocked() <-chan struct{} {
+	if i.activeRuns != 0 {
+		return i.runsDrained
+	}
+	drained := make(chan struct{})
+	close(drained)
+	return drained
+}
+
 // setDAlloc sets the downloader with proper synchronization.
 func (i *Item) setDAlloc(d ProtocolDownloader) {
+	i.reconstructionTransition.Lock()
+	defer i.reconstructionTransition.Unlock()
+	i.reconstructionMu.Lock()
+	defer i.reconstructionMu.Unlock()
 	i.dAllocMu.Lock()
 	defer i.dAllocMu.Unlock()
+	i.reconstructionGeneration++
+	i.dAllocGeneration = i.reconstructionGeneration
 	i.dAlloc = d
+	i.dAllocOwner = newAllocationOwner(d)
 }
 
 // setResumeHandlers stores patched handlers for use during Item.Resume().
@@ -234,9 +535,15 @@ func (i *Item) setResumeHandlers(h *Handlers) {
 
 // clearDAlloc clears the downloader with proper synchronization.
 func (i *Item) clearDAlloc() {
+	i.reconstructionMu.Lock()
+	defer i.reconstructionMu.Unlock()
 	i.dAllocMu.Lock()
 	defer i.dAllocMu.Unlock()
+	i.reconstructionGeneration++
+	i.dAllocGeneration = 0
 	i.dAlloc = nil
+	i.dAllocOwner = nil
+	i.resumeHandlers = nil
 }
 
 // GetDownloaded returns the downloaded byte count with proper synchronization.
@@ -276,12 +583,20 @@ func (i *Item) GetPercentage() int64 {
 
 // GetSavePath returns the save path for the download item.
 func (i *Item) GetSavePath() (svPath string) {
+	if i.mu != nil {
+		i.mu.RLock()
+		defer i.mu.RUnlock()
+	}
 	svPath = GetPath(i.DownloadLocation, i.Name)
 	return
 }
 
 // GetAbsolutePath returns the absolute path for the download item.
 func (i *Item) GetAbsolutePath() (aPath string) {
+	if i.mu != nil {
+		i.mu.RLock()
+		defer i.mu.RUnlock()
+	}
 	aPath = GetPath(i.AbsoluteLocation, i.Name)
 	return
 }
@@ -311,39 +626,66 @@ func (i *Item) GetMaxParts() (int32, error) {
 // For FTP/SFTP: passes stored resumeHandlers to ProtocolDownloader.Resume().
 // For HTTP: resumeHandlers is nil, preserving patchHandlers-installed struct field handlers.
 func (i *Item) Resume() error {
-	// Take snapshot of Parts under Item lock first
+	return i.ResumeContext(context.Background())
+}
+
+// ResumeContext resumes the current allocation within ctx while retaining its
+// exact run claim until the protocol call returns.
+func (i *Item) ResumeContext(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	d, h, release, err := i.claimDAlloc()
+	if err != nil {
+		return err
+	}
+	defer release()
+	if d.IsStopped() {
+		return nil
+	}
+
+	// Take a snapshot while the run claim prevents a replacement allocation
+	// from being published until this Resume call returns.
 	i.mu.RLock()
 	partsCopy := make(map[int64]*ItemPart, len(i.Parts))
 	for k, v := range i.Parts {
-		partsCopy[k] = v
+		if v == nil {
+			partsCopy[k] = nil
+			continue
+		}
+		partCopy := *v
+		partsCopy[k] = &partCopy
 	}
 	i.mu.RUnlock()
-
-	// Then get downloader and resume handlers under dAllocMu lock
-	i.dAllocMu.RLock()
-	d := i.dAlloc
-	h := i.resumeHandlers
-	i.dAllocMu.RUnlock()
-
-	if d == nil {
-		return ErrItemDownloaderNotFound
-	}
 	// h is non-nil for FTP/SFTP (set by Manager.ResumeDownload), nil for HTTP.
 	// FTP/SFTP Resume uses h parameter directly for callbacks.
 	// HTTP Resume: nil preserves patchHandlers-installed struct field (non-nil would replace it).
-	return d.Resume(context.Background(), partsCopy, h)
+	return d.Resume(ctx, partsCopy, h)
 }
 
 // Start begins a fresh download using the currently assigned downloader.
 func (i *Item) Start() error {
-	i.dAllocMu.RLock()
-	d := i.dAlloc
-	i.dAllocMu.RUnlock()
+	return i.StartContext(context.Background())
+}
 
-	if d == nil {
-		return ErrItemDownloaderNotFound
+// StartContext starts the current allocation within ctx while retaining its
+// exact run claim until the protocol call returns.
+func (i *Item) StartContext(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	return d.Download(context.Background(), nil)
+	d, h, release, err := i.claimDAlloc()
+	if err != nil {
+		return err
+	}
+	defer release()
+	if d.IsStopped() {
+		return nil
+	}
+	// Protocol downloaders receive their manager-patched handlers here.
+	// HTTP adapters ignore this argument and retain the handlers installed
+	// directly on their concrete Downloader by Manager.patchHandlers.
+	return d.Download(ctx, h)
 }
 
 // HasParts reports whether the item has any persisted part state.
@@ -355,34 +697,58 @@ func (i *Item) HasParts() bool {
 
 // StopDownload pauses the download of the item.
 func (i *Item) StopDownload() error {
+	i.reconstructionMu.Lock()
 	i.dAllocMu.Lock()
-	defer i.dAllocMu.Unlock()
-	if i.dAlloc == nil {
+	allocation := i.dAlloc
+	owner := i.allocationOwnerLocked()
+	if allocation == nil {
+		// No published allocation means a reconstruction may be probing
+		// outside the locks. Invalidate that exact generation.
+		i.reconstructionGeneration++
+	}
+	i.dAllocMu.Unlock()
+	i.reconstructionMu.Unlock()
+	if allocation == nil {
 		return ErrItemDownloaderNotFound
 	}
-	i.dAlloc.Stop()
-	i.dAlloc = nil
+	// Keep the stopped allocation attached until exact cleanup. This preserves
+	// ownership when Stop races an asynchronously admitted Start: a later
+	// reconstruction can drain the pending run claim and close this allocation
+	// exactly once instead of leaking it after detachment.
+	owner.stop()
 	return nil
 }
 
 // CloseDownloader closes the downloader and releases all file handles.
 // Use this when a download is aborted before Start()/Resume() completes.
 func (i *Item) CloseDownloader() error {
+	i.reconstructionTransition.Lock()
+	defer i.reconstructionTransition.Unlock()
+	i.reconstructionMu.Lock()
 	i.dAllocMu.Lock()
-	defer i.dAllocMu.Unlock()
-	if i.dAlloc == nil {
+	i.reconstructionGeneration++
+	allocation := i.dAlloc
+	owner := i.allocationOwnerLocked()
+	i.dAlloc = nil
+	i.dAllocOwner = nil
+	i.resumeHandlers = nil
+	i.dAllocGeneration = 0
+	i.dAllocMu.Unlock()
+	drained := i.runsDrainedLocked()
+	i.reconstructionMu.Unlock()
+	if allocation == nil {
 		return nil
 	}
-	err := i.dAlloc.Close()
-	i.dAlloc = nil
-	return err
+	owner.stop()
+	<-drained
+	return owner.close()
 }
 
 // IsDownloading returns true if the item is currently being downloaded.
 func (i *Item) IsDownloading() bool {
 	i.dAllocMu.RLock()
 	defer i.dAllocMu.RUnlock()
-	return i.dAlloc != nil
+	return i.dAlloc != nil && !i.dAlloc.IsStopped()
 }
 
 // IsStopped returns true if the download was intentionally stopped.

@@ -158,9 +158,16 @@ func TestStopDownloadConcurrent(t *testing.T) {
 	}
 	wg.Wait()
 
-	// Verify downloader is nil
-	if item.getDAlloc() != nil {
-		t.Fatal("expected downloader to be nil after stop")
+	// Stop retains exact ownership until CloseDownloader so an asynchronously
+	// admitted run lease cannot leak the detached allocation.
+	if item.getDAlloc() == nil {
+		t.Fatal("expected stopped downloader ownership to remain attached")
+	}
+	if item.IsDownloading() {
+		t.Fatal("stopped downloader reported as downloading")
+	}
+	if err := item.CloseDownloader(); err != nil {
+		t.Fatalf("CloseDownloader: %v", err)
 	}
 }
 

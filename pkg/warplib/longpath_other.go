@@ -45,6 +45,11 @@ func WarpStat(path string) (os.FileInfo, error) {
 	return os.Stat(path)
 }
 
+// WarpLstat returns file info without following symbolic links.
+func WarpLstat(path string) (os.FileInfo, error) {
+	return os.Lstat(path)
+}
+
 // WarpRename renames a file or directory (pass-through on non-Windows)
 func WarpRename(src, dst string) error {
 	return os.Rename(src, dst)

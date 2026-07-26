@@ -311,14 +311,14 @@ https://example.com/file6.zip`
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Should only accept http/https URLs
-	if len(result.URLs) != 3 {
-		t.Errorf("expected 3 valid URLs (http/https only), got %d: %v", len(result.URLs), result.URLs)
+	// The batch parser accepts every protocol supported by the daemon.
+	if len(result.URLs) != 4 {
+		t.Errorf("expected 4 supported URLs, got %d: %v", len(result.URLs), result.URLs)
 	}
 
 	// Should track invalid lines with line numbers
-	if len(result.InvalidLines) != 3 {
-		t.Errorf("expected 3 invalid lines, got %d", len(result.InvalidLines))
+	if len(result.InvalidLines) != 2 {
+		t.Errorf("expected 2 invalid lines, got %d", len(result.InvalidLines))
 	}
 
 	// Verify invalid lines have correct line numbers (1-indexed)
@@ -326,7 +326,6 @@ https://example.com/file6.zip`
 		line    int
 		content string
 	}{
-		{3, "ftp://example.com/file3.zip"},
 		{4, "example.com/file4.zip"},
 		{5, "/local/path/file5.zip"},
 	}
@@ -347,8 +346,8 @@ https://example.com/file6.zip`
 }
 
 func TestParseInputFile_ValidateURLScheme_AllInvalid(t *testing.T) {
-	content := `ftp://example.com/file1.zip
-magnet:?xt=urn:btih:abc123
+	content := `magnet:?xt=urn:btih:abc123
+example.com/file1.zip
 /local/path/file.zip`
 
 	tmpFile := createTempInputFile(t, content)
@@ -395,35 +394,27 @@ no-scheme.com/file.zip`
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Should have 2 valid http/https URLs
-	if len(result.URLs) != 2 {
-		t.Errorf("expected 2 valid URLs, got %d: %v", len(result.URLs), result.URLs)
+	// HTTP and FTP entries are both runnable.
+	if len(result.URLs) != 3 {
+		t.Errorf("expected 3 valid URLs, got %d: %v", len(result.URLs), result.URLs)
 	}
 
-	// Should have 2 comments and 2 invalid URLs
+	// Should have 2 comments and 1 invalid URL
 	if result.SkippedLines != 2 {
 		t.Errorf("expected 2 skipped comment lines, got %d", result.SkippedLines)
 	}
 
-	if len(result.InvalidLines) != 2 {
-		t.Errorf("expected 2 invalid lines, got %d", len(result.InvalidLines))
+	if len(result.InvalidLines) != 1 {
+		t.Errorf("expected 1 invalid line, got %d", len(result.InvalidLines))
 	}
 
 	// Check invalid URLs are tracked with correct line numbers
-	// Line 4: ftp://invalid.com/file.zip
 	// Line 7: no-scheme.com/file.zip
-	foundFTP := false
 	foundNoScheme := false
 	for _, inv := range result.InvalidLines {
-		if inv.LineNumber == 4 && inv.Content == "ftp://invalid.com/file.zip" {
-			foundFTP = true
-		}
 		if inv.LineNumber == 7 && inv.Content == "no-scheme.com/file.zip" {
 			foundNoScheme = true
 		}
-	}
-	if !foundFTP {
-		t.Error("did not find expected invalid line for ftp://invalid.com/file.zip at line 4")
 	}
 	if !foundNoScheme {
 		t.Error("did not find expected invalid line for no-scheme.com/file.zip at line 7")

@@ -75,7 +75,7 @@ func TestDownload_UserAgentHeader(t *testing.T) {
 
 // TestDownload_CookiesFromInvalid covers the validateCookiesFrom error
 // branch: a --cookies-from pointing at a nonexistent file aborts the
-// download with a cookies_from runtime error (returns nil).
+// download with a non-zero cookies_from runtime error.
 func TestDownload_CookiesFromInvalid(t *testing.T) {
 	socketPath := getShortSocketPath(t)
 	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
@@ -90,11 +90,9 @@ func TestDownload_CookiesFromInvalid(t *testing.T) {
 	restore := withDownloadDefaults(t)
 	defer restore()
 
-	stdout, stderr := captureOutput(func() {
-		if err := download(ctx); err != nil {
-			t.Errorf("download: unexpected error: %v", err)
-		}
-	})
+	var gotErr error
+	stdout, stderr := captureOutput(func() { gotErr = download(ctx) })
+	assertExitError(t, gotErr)
 	if !strings.Contains(stdout+stderr, "cookies_from") {
 		t.Fatalf("expected cookies_from error, got:\nstdout=%s\nstderr=%s", stdout, stderr)
 	}
@@ -117,19 +115,17 @@ func TestDownload_StartAtStartInExclusion(t *testing.T) {
 	restore := withDownloadDefaults(t)
 	defer restore()
 
-	stdout, _ := captureOutput(func() {
-		if err := download(ctx); err != nil {
-			t.Errorf("download: unexpected error: %v", err)
-		}
-	})
+	var gotErr error
+	stdout, _ := captureOutput(func() { gotErr = download(ctx) })
+	assertExitError(t, gotErr)
 	if !strings.Contains(stdout, "mutually exclusive") {
 		t.Fatalf("expected mutual-exclusion message, got:\n%s", stdout)
 	}
 }
 
 // TestDownload_StartInValid covers the --start-in success branch: a valid
-// duration resolves to an absolute start time and the download proceeds
-// (background) to completion.
+// duration resolves to an absolute start time and the CLI returns after
+// registering the schedule instead of attaching to a nonexistent live stream.
 func TestDownload_StartInValid(t *testing.T) {
 	socketPath := getShortSocketPath(t)
 	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
@@ -149,8 +145,8 @@ func TestDownload_StartInValid(t *testing.T) {
 			t.Errorf("download: %v", err)
 		}
 	})
-	if !strings.Contains(stdout, "Started download") {
-		t.Fatalf("expected background success with start-in, got:\n%s", stdout)
+	if !strings.Contains(stdout, "Scheduled download") {
+		t.Fatalf("expected scheduled success with start-in, got:\n%s", stdout)
 	}
 }
 
@@ -169,11 +165,9 @@ func TestDownload_StartInInvalid(t *testing.T) {
 	restore := withDownloadDefaults(t)
 	defer restore()
 
-	stdout, _ := captureOutput(func() {
-		if err := download(ctx); err != nil {
-			t.Errorf("download: unexpected error: %v", err)
-		}
-	})
+	var gotErr error
+	stdout, _ := captureOutput(func() { gotErr = download(ctx) })
+	assertExitError(t, gotErr)
 	if !strings.Contains(stdout, "invalid --start-in") {
 		t.Fatalf("expected start-in parse error, got:\n%s", stdout)
 	}
@@ -182,7 +176,7 @@ func TestDownload_StartInInvalid(t *testing.T) {
 // TestDownload_ScheduleValid covers the valid --schedule branch:
 // validateSchedule accepts the expression and hasOccurrenceWithinYear
 // returns true (a daily cron recurs well within a year), so no warning
-// is printed and the download proceeds in the background.
+// is printed and the CLI reports the scheduled registration.
 func TestDownload_ScheduleValid(t *testing.T) {
 	socketPath := getShortSocketPath(t)
 	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
@@ -203,8 +197,8 @@ func TestDownload_ScheduleValid(t *testing.T) {
 			t.Errorf("download: %v", err)
 		}
 	})
-	if !strings.Contains(stdout, "Started download") {
-		t.Fatalf("expected background success with schedule, got:\n%s", stdout)
+	if !strings.Contains(stdout, "Scheduled download") {
+		t.Fatalf("expected scheduled success with schedule, got:\n%s", stdout)
 	}
 	// A daily cron has occurrences within a year — no warning expected.
 	if strings.Contains(stdout, "no occurrence in the next year") {
@@ -213,8 +207,8 @@ func TestDownload_ScheduleValid(t *testing.T) {
 }
 
 // TestDownload_ScheduleInvalid covers the validateSchedule error branch:
-// a malformed cron expression aborts the download (prints the validation
-// error and returns nil) before any daemon download is initiated.
+// a malformed cron expression aborts the download with a non-zero status
+// before any daemon download is initiated.
 func TestDownload_ScheduleInvalid(t *testing.T) {
 	socketPath := getShortSocketPath(t)
 	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
@@ -229,11 +223,9 @@ func TestDownload_ScheduleInvalid(t *testing.T) {
 	restore := withDownloadDefaults(t)
 	defer restore()
 
-	stdout, _ := captureOutput(func() {
-		if err := download(ctx); err != nil {
-			t.Errorf("download: unexpected error: %v", err)
-		}
-	})
+	var gotErr error
+	stdout, _ := captureOutput(func() { gotErr = download(ctx) })
+	assertExitError(t, gotErr)
 	if !strings.Contains(stdout, "invalid cron expression") {
 		t.Fatalf("expected cron validation error, got:\n%s", stdout)
 	}
@@ -257,11 +249,9 @@ func TestDownload_AuthRequiredHint(t *testing.T) {
 	restore := withDownloadDefaults(t)
 	defer restore()
 
-	stdout, stderr := captureOutput(func() {
-		if err := download(ctx); err != nil {
-			t.Errorf("download: unexpected error: %v", err)
-		}
-	})
+	var gotErr error
+	stdout, stderr := captureOutput(func() { gotErr = download(ctx) })
+	assertExitError(t, gotErr)
 	combined := stdout + stderr
 	if !strings.Contains(combined, "requires authentication") {
 		t.Fatalf("expected auth-required hint, got:\nstdout=%s\nstderr=%s", stdout, stderr)
@@ -273,7 +263,7 @@ func TestDownload_AuthRequiredHint(t *testing.T) {
 
 // TestDownload_StartAtPastWarning covers the validateStartAt warning
 // branch: a start time in the past yields a warning string (printed) and
-// the download proceeds in the background.
+// the download starts immediately.
 func TestDownload_StartAtPastWarning(t *testing.T) {
 	socketPath := getShortSocketPath(t)
 	t.Setenv("WARPDL_SOCKET_PATH", socketPath)

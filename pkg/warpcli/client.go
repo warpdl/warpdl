@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/warpdl/warpdl/common"
 )
@@ -17,10 +18,15 @@ import (
 // - Unix/Linux: Unix socket with TCP fallback
 // - Windows: Named pipe with TCP fallback
 type Client struct {
-	mu     *sync.RWMutex
-	d      *Dispatcher
-	conn   net.Conn
-	listen bool
+	// mu serializes reads and writes on conn. A daemon connection has no
+	// request IDs, so only one goroutine may consume frames at a time.
+	mu *sync.RWMutex
+	d  *Dispatcher
+
+	conn net.Conn
+
+	stateMu sync.RWMutex
+	listen  bool
 	// pending holds broadcast frames that arrived while a request was in
 	// flight (the daemon multiplexes broadcasts onto the same connection,
 	// so they can precede the request's reply). invoke stashes them here;
@@ -33,6 +39,11 @@ type Client struct {
 // skip while waiting for its reply, so a misbehaving daemon cannot make it
 // spin (and accumulate memory) forever.
 const maxInvokeSkew = 1024
+
+// listenPollInterval bounds how long Listen owns the connection while no
+// frame is available. This lets invoke take ownership without waiting behind
+// an indefinitely blocked read.
+const listenPollInterval = 50 * time.Millisecond
 
 var (
 	ensureDaemonFunc = ensureDaemon
@@ -109,9 +120,13 @@ func newClientWithConn(conn net.Conn) *Client {
 // are dispatched to registered handlers based on their update type.
 // Returns an error if reading from the connection or processing updates fails.
 func (c *Client) Listen() (err error) {
-	defer c.conn.Close()
-	c.listen = true
-	for c.listen {
+	if c.conn == nil {
+		return errors.New("client connection is nil")
+	}
+	defer c.Close()
+	c.setListening(true)
+	defer c.setListening(false)
+	for c.isListening() {
 		// Replay broadcasts that overtook a reply during invoke before
 		// reading new frames, so handlers observe events in wire order.
 		if buf := c.takePending(); buf != nil {
@@ -126,17 +141,28 @@ func (c *Client) Listen() (err error) {
 			}
 			continue
 		}
-		c.mu.RLock()
+
+		// Poll only for the first byte of a frame. Once a frame has begun,
+		// readAvailable clears the deadline and consumes it in full, so a
+		// timeout can never discard a partial frame and desynchronize the
+		// stream.
+		c.mu.Lock()
 		var buf []byte
-		buf, err = read(c.conn)
+		var available bool
+		buf, available, err = readAvailable(c.conn, listenPollInterval)
+		c.mu.Unlock()
 		if err != nil {
-			c.mu.RUnlock()
+			if !c.isListening() {
+				return nil
+			}
 			err = fmt.Errorf("error reading: %s", err.Error())
 			return
 		}
+		if !available {
+			continue
+		}
 		err = c.d.process(buf)
 		if err != nil {
-			c.mu.RUnlock()
 			if err == ErrDisconnect {
 				err = nil
 				break
@@ -144,7 +170,6 @@ func (c *Client) Listen() (err error) {
 			err = fmt.Errorf("error processing: %s", err.Error())
 			return
 		}
-		c.mu.RUnlock()
 	}
 	return
 }
@@ -164,7 +189,10 @@ func (c *Client) RemoveHandler(t common.UpdateType) {
 // Disconnect signals the client to stop listening for updates.
 // The Listen method will return after the current update is processed.
 func (c *Client) Disconnect() {
-	c.listen = false
+	c.setListening(false)
+	// Closing the connection unblocks Listen immediately, including when it
+	// is part-way through receiving a frame.
+	_ = c.Close()
 }
 
 // Close closes the client's connection to the daemon.
@@ -172,6 +200,9 @@ func (c *Client) Disconnect() {
 // especially if Listen() will not be called.
 // Safe to call multiple times (subsequent calls return an error but have no effect).
 func (c *Client) Close() error {
+	if c.conn == nil {
+		return nil
+	}
 	return c.conn.Close()
 }
 
@@ -191,6 +222,9 @@ func (c *Client) invoke(method common.UpdateType, message any) (json.RawMessage,
 	// to retrieve the message update here instead
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if err := c.conn.SetReadDeadline(time.Time{}); err != nil {
+		return nil, fmt.Errorf("failed to invoke %s: clear read deadline: %w", method, err)
+	}
 	buf, err := json.Marshal(&Request{
 		Method:  method,
 		Message: message,
@@ -227,6 +261,18 @@ func (c *Client) invoke(method common.UpdateType, message any) (json.RawMessage,
 		c.pending = append(c.pending, buf)
 	}
 	return nil, fmt.Errorf("failed to invoke %s: no reply within %d frames", method, maxInvokeSkew)
+}
+
+func (c *Client) isListening() bool {
+	c.stateMu.RLock()
+	defer c.stateMu.RUnlock()
+	return c.listen
+}
+
+func (c *Client) setListening(listen bool) {
+	c.stateMu.Lock()
+	c.listen = listen
+	c.stateMu.Unlock()
 }
 
 // takePending pops the oldest frame stashed by invoke, or nil if none.

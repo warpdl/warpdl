@@ -173,7 +173,7 @@ func startFakeServer(t *testing.T, socketPath string, fail ...map[common.UpdateT
 								Children:   false,
 								DateAdded:  time.Now(),
 								Resumable:  true,
-								Parts:      make(map[int64]*warplib.ItemPart),
+								Parts:      nil,
 							}}
 						}
 						resp := common.ListResponse{Items: items}
@@ -185,6 +185,9 @@ func startFakeServer(t *testing.T, socketPath string, fail ...map[common.UpdateT
 							qsResp = *queueStatusOverride
 						}
 						writeResponse(c, req.Method, qsResp)
+						return
+					case common.UPDATE_QUEUE_PAUSE, common.UPDATE_QUEUE_RESUME, common.UPDATE_QUEUE_MOVE:
+						writeResponse(c, req.Method, nil)
 						return
 					case common.UPDATE_STOP, common.UPDATE_FLUSH:
 						writeResponse(c, req.Method, nil)
@@ -396,6 +399,44 @@ func TestInfoCommand(t *testing.T) {
 	}
 }
 
+func TestInfoCommandClosesRetainedResponseBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Validator-less metadata responses are retained by NewDownloader so
+		// Start can consume that exact representation. The info command never
+		// starts a transfer, so it must close the downloader before returning.
+		w.Header().Set("Content-Length", "1048576")
+		w.WriteHeader(http.StatusOK)
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}))
+
+	app := cli.NewApp()
+	ctx := newContext(app, []string{srv.URL + "/file.bin"}, "info")
+	oldUA, oldProxy := userAgent, proxyURL
+	userAgent, proxyURL = "warp", ""
+	defer func() {
+		userAgent, proxyURL = oldUA, oldProxy
+	}()
+	if err := info(ctx); err != nil {
+		srv.CloseClientConnections()
+		srv.Close()
+		t.Fatalf("info: %v", err)
+	}
+
+	closed := make(chan struct{})
+	go func() {
+		srv.Close()
+		close(closed)
+	}()
+	select {
+	case <-closed:
+	case <-time.After(time.Second):
+		srv.CloseClientConnections()
+		<-closed
+		t.Fatal("info left its retained HTTP response body open")
+	}
+}
+
 func TestInfoNoFileName(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Accept-Ranges", "bytes")
@@ -409,17 +450,13 @@ func TestInfoNoFileName(t *testing.T) {
 	oldUA := userAgent
 	userAgent = "warp"
 	defer func() { userAgent = oldUA }()
-	if err := info(ctx); err != nil {
-		t.Fatalf("info: %v", err)
-	}
+	assertExitError(t, info(ctx))
 }
 
 func TestInfoInvalidURL(t *testing.T) {
 	app := cli.NewApp()
 	ctx := newContext(app, []string{"://bad"}, "info")
-	if err := info(ctx); err != nil {
-		t.Fatalf("info: %v", err)
-	}
+	assertExitError(t, info(ctx))
 }
 
 func TestSpeedCounter(t *testing.T) {
@@ -605,9 +642,7 @@ func TestDownloadGetwdError(t *testing.T) {
 
 	app := cli.NewApp()
 	ctx := newContext(app, []string{"http://example.com"}, "download")
-	if err := download(ctx); err != nil {
-		t.Fatalf("download: %v", err)
-	}
+	assertExitError(t, download(ctx))
 }
 
 func TestDownloadErrorResponse(t *testing.T) {
@@ -620,9 +655,7 @@ func TestDownloadErrorResponse(t *testing.T) {
 
 	app := cli.NewApp()
 	ctx := newContext(app, []string{"http://example.com"}, "download")
-	if err := download(ctx); err != nil {
-		t.Fatalf("download: %v", err)
-	}
+	assertExitError(t, download(ctx))
 }
 
 func TestDownloadInvalidProxyURL(t *testing.T) {
@@ -642,9 +675,7 @@ func TestDownloadInvalidProxyURL(t *testing.T) {
 		fileName = oldFileName
 		proxyURL = oldProxy
 	}()
-	if err := download(ctx); err != nil {
-		t.Fatalf("download with invalid proxy: %v", err)
-	}
+	assertExitError(t, download(ctx))
 }
 
 func TestResumeInvalidProxy(t *testing.T) {
@@ -658,9 +689,7 @@ func TestResumeInvalidProxy(t *testing.T) {
 	oldProxy := proxyURL
 	proxyURL = "://invalid"
 	defer func() { proxyURL = oldProxy }()
-	if err := resume(ctx); err != nil {
-		t.Fatalf("resume with invalid proxy: %v", err)
-	}
+	assertExitError(t, resume(ctx))
 }
 
 func TestListWithHidden(t *testing.T) {
@@ -720,9 +749,7 @@ func TestStopErrorResponse(t *testing.T) {
 
 	app := cli.NewApp()
 	ctx := newContext(app, []string{"id"}, "stop")
-	if err := stop(ctx); err != nil {
-		t.Fatalf("stop: %v", err)
-	}
+	assertExitError(t, stop(ctx))
 }
 
 func TestListOutputFormatting(t *testing.T) {
@@ -755,9 +782,7 @@ func TestAttachErrorResponse(t *testing.T) {
 
 	app := cli.NewApp()
 	ctx := newContext(app, []string{"id"}, "attach")
-	if err := attach(ctx); err != nil {
-		t.Fatalf("attach: %v", err)
-	}
+	assertExitError(t, attach(ctx))
 }
 
 func TestResumeCommand(t *testing.T) {
@@ -788,9 +813,7 @@ func TestResumeErrorResponse(t *testing.T) {
 
 	app := cli.NewApp()
 	ctx := newContext(app, []string{"id"}, "resume")
-	if err := resume(ctx); err != nil {
-		t.Fatalf("resume: %v", err)
-	}
+	assertExitError(t, resume(ctx))
 }
 
 func TestFlushInvalidArgs(t *testing.T) {
@@ -843,9 +866,7 @@ func TestFlushErrorResponse(t *testing.T) {
 		forceFlush = oldForce
 		hashToFlush = oldHash
 	}()
-	if err := flush(ctx); err != nil {
-		t.Fatalf("flush: %v", err)
-	}
+	assertExitError(t, flush(ctx))
 }
 
 func TestFlushAll(t *testing.T) {
@@ -1104,10 +1125,7 @@ func TestDownloadWithInvalidSchedule(t *testing.T) {
 		fileName = oldFileName
 	}()
 
-	// Invalid schedule causes download() to print error and return nil.
-	if err := download(ctx); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	assertExitError(t, download(ctx))
 }
 
 // TestGetClientWithCustomURI covers the daemonURI != "" branch in getClient().
@@ -1123,8 +1141,13 @@ func TestGetClientWithCustomURI(t *testing.T) {
 }
 
 // TestWaitForBatchSubmissions_AlreadyComplete covers waitForBatchSubmissions
-// and the early-return path in waitForBatchSubmission when the file is already complete.
+// when the daemon reports an authoritative completed manager state.
 func TestWaitForBatchSubmissions_AlreadyComplete(t *testing.T) {
+	socketPath := getShortSocketPath(t)
+	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
+	srv := startFakeServer(t, socketPath)
+	defer srv.close()
+
 	f, err := os.CreateTemp("", "batch-complete-*.bin")
 	if err != nil {
 		t.Fatalf("CreateTemp: %v", err)
@@ -1147,8 +1170,6 @@ func TestWaitForBatchSubmissions_AlreadyComplete(t *testing.T) {
 		},
 	}
 
-	// isBatchSubmissionComplete returns true, so waitForBatchSubmission
-	// returns nil without dialing the daemon.
 	waitForBatchSubmissions(result)
 
 	// Submission should remain a success (no error).
@@ -1354,9 +1375,7 @@ func TestListErrorResponse(t *testing.T) {
 
 	app := cli.NewApp()
 	ctx := newContext(app, nil, "list")
-	if err := list(ctx); err != nil {
-		t.Fatalf("list: %v", err)
-	}
+	assertExitError(t, list(ctx))
 }
 
 // TestDownloadInputFileFlag verifies that the download command has the -i/--input-file flag.

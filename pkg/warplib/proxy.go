@@ -79,6 +79,25 @@ func ParseProxyURL(proxyURL string) (*ProxyConfig, error) {
 	return config, nil
 }
 
+// SanitizeProxyURLForPersistence validates a proxy URL and removes userinfo.
+// The boolean result reports whether credentials were present so callers can
+// reject schedules or mark restart reconstruction as requiring fresh secrets.
+func SanitizeProxyURLForPersistence(proxyURL string) (safeURL string, credentialsRequired bool, err error) {
+	if proxyURL == "" {
+		return "", false, nil
+	}
+	if _, err = ParseProxyURL(proxyURL); err != nil {
+		return "", false, err
+	}
+	parsed, err := url.Parse(proxyURL)
+	if err != nil {
+		return "", false, ErrInvalidProxyURL
+	}
+	credentialsRequired = parsed.User != nil
+	parsed.User = nil
+	return parsed.String(), credentialsRequired, nil
+}
+
 // NewHTTPClientWithProxy creates an HTTP client configured to use the specified proxy.
 // If proxyURL is empty, returns a default HTTP client without proxy.
 // The returned client always has CheckRedirect set to enforce redirect policy.

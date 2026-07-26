@@ -4,6 +4,8 @@ import (
 	"errors"
 	"os"
 	"testing"
+
+	"github.com/urfave/cli"
 )
 
 func TestMainVersion(t *testing.T) {
@@ -33,5 +35,14 @@ func TestRunMainSuccess(t *testing.T) {
 	code := runMain([]string{"warpdl"}, func([]string) error { return nil })
 	if code != 0 {
 		t.Fatalf("expected exit code 0, got %d", code)
+	}
+}
+
+func TestRunMainPreservesCLIExitCode(t *testing.T) {
+	code := runMain([]string{"warpdl"}, func([]string) error {
+		return cli.NewExitError("", 7)
+	})
+	if code != 7 {
+		t.Fatalf("expected exit code 7, got %d", code)
 	}
 }

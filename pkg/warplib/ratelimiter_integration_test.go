@@ -2,6 +2,7 @@ package warplib
 
 import (
 	"bytes"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -18,6 +19,7 @@ func newDelayedRangeServer(t *testing.T, content []byte, chunkDelay time.Duratio
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Accept-Ranges", "bytes")
 		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("ETag", `"rate-limit-v1"`)
 
 		if r.Header.Get("Range") == "" {
 			w.Header().Set("Content-Length", strconv.Itoa(len(content)))
@@ -41,6 +43,8 @@ func newDelayedRangeServer(t *testing.T, content []byte, chunkDelay time.Duratio
 		}
 		chunk := content[start : end+1]
 		w.Header().Set("Content-Length", strconv.Itoa(len(chunk)))
+		w.Header().Set("Content-Range",
+			fmt.Sprintf("bytes %d-%d/%d", start, end, len(content)))
 		w.WriteHeader(http.StatusPartialContent)
 
 		// Write in small chunks with optional delay

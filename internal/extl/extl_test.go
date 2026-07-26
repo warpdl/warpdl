@@ -426,9 +426,13 @@ func TestModuleExtractErrors(t *testing.T) {
 func TestRequestCallbackErrors(t *testing.T) {
 	runtime := goja.New()
 	cb := _requestCallback(runtime, &http.Client{})
-	cb(goja.FunctionCall{})
+	assertPanics(t, func() {
+		cb(goja.FunctionCall{})
+	})
 	val := runtime.ToValue(Request{Method: "GET", URL: "://bad"})
-	cb(goja.FunctionCall{Arguments: []goja.Value{val}})
+	assertPanics(t, func() {
+		cb(goja.FunctionCall{Arguments: []goja.Value{val}})
+	})
 }
 
 func TestSetEngineStoreInvalid(t *testing.T) {
@@ -558,7 +562,9 @@ func TestRequestCallbackErrorsAdditional(t *testing.T) {
 	}
 	cb := _requestCallback(runtime, clientErr)
 	val := runtime.ToValue(Request{Method: http.MethodGet, URL: "http://example.com"})
-	_ = cb(goja.FunctionCall{Arguments: []goja.Value{val}})
+	assertPanics(t, func() {
+		_ = cb(goja.FunctionCall{Arguments: []goja.Value{val}})
+	})
 
 	readerErr := &http.Client{
 		Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
@@ -570,8 +576,12 @@ func TestRequestCallbackErrorsAdditional(t *testing.T) {
 		}),
 	}
 	cb = _requestCallback(runtime, readerErr)
-	_ = cb(goja.FunctionCall{Arguments: []goja.Value{val}})
+	assertPanics(t, func() {
+		_ = cb(goja.FunctionCall{Arguments: []goja.Value{val}})
+	})
 
 	cb = _requestCallback(runtime, &http.Client{})
-	_ = cb(goja.FunctionCall{Arguments: []goja.Value{runtime.ToValue("bad")}})
+	assertPanics(t, func() {
+		_ = cb(goja.FunctionCall{Arguments: []goja.Value{runtime.ToValue("bad")}})
+	})
 }

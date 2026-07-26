@@ -102,6 +102,15 @@ type DownloadingResponse struct {
 	Value int64 `json:"value,omitempty"`
 }
 
+// DownloadErrorResponse reports an asynchronous failure for a download.
+// RPC request failures use the response envelope's error field instead.
+type DownloadErrorResponse struct {
+	// DownloadId is the unique identifier of the failed download.
+	DownloadId string `json:"download_id"`
+	// Error is the failure reported by the downloader.
+	Error string `json:"error"`
+}
+
 // ResumeParams contains parameters for resuming a paused or interrupted download.
 type ResumeParams struct {
 	// DownloadId is the unique identifier of the download to resume.

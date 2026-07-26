@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/dop251/goja"
@@ -33,9 +34,25 @@ func parseOpts(rt *goja.Runtime, v goja.Value) (account string, scopes []string,
 	return account, scopes, nil
 }
 
-// RegisterBindings installs getAccessToken, fetchWithAuth,
-// invalidateToken, listAccounts on runtime, wired to provider.
+// RegisterBindings installs getAccessToken, fetchWithAuth, invalidateToken,
+// and listAccounts on runtime, wired to provider. Calls use a background
+// context for compatibility with standalone runtimes.
 func RegisterBindings(rt *goja.Runtime, p AuthProvider) error {
+	return RegisterBindingsWithContext(rt, p, context.Background)
+}
+
+// RegisterBindingsWithContext installs the auth bindings and obtains the
+// context for each token request from executionContext. Engine-managed
+// runtimes use this to propagate their execution deadline into blocking
+// authentication flows.
+func RegisterBindingsWithContext(
+	rt *goja.Runtime,
+	p AuthProvider,
+	executionContext func() context.Context,
+) error {
+	if executionContext == nil {
+		executionContext = context.Background
+	}
 	getToken := func(call goja.FunctionCall) goja.Value {
 		var arg goja.Value
 		if len(call.Arguments) > 0 {
@@ -46,8 +63,17 @@ func RegisterBindings(rt *goja.Runtime, p AuthProvider) error {
 			panic(rt.NewTypeError("getAccessToken: " + err.Error()))
 		}
 		key := types.TokenKey{Account: account}
-		tok, err := p.Token(context.Background(), key, scopes)
+		ctx := executionContext()
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		tok, err := p.Token(ctx, key, scopes)
 		if err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil && errors.Is(err, ctxErr) {
+				if cause := context.Cause(ctx); cause != nil {
+					err = cause
+				}
+			}
 			panic(rt.NewGoError(err))
 		}
 		return rt.ToValue(tok)

@@ -19,10 +19,11 @@ func TestStopDaemon_NoPidFile(t *testing.T) {
 		t.Fatalf("SetConfigDir: %v", err)
 	}
 
-	// No PID file should succeed with message
+	// A missing PID file is an operational failure and must produce a
+	// non-zero CLI status.
 	ctx := newContext(cli.NewApp(), nil, "stop-daemon")
-	if err := stopDaemon(ctx); err != nil {
-		t.Fatalf("stopDaemon: %v", err)
+	if err := stopDaemon(ctx); err == nil {
+		t.Fatal("stopDaemon unexpectedly reported success for an invalid PID file")
 	}
 }
 
@@ -38,8 +39,8 @@ func TestStopDaemon_InvalidPidFile(t *testing.T) {
 	}
 
 	ctx := newContext(cli.NewApp(), nil, "stop-daemon")
-	if err := stopDaemon(ctx); err != nil {
-		t.Fatalf("stopDaemon: %v", err)
+	if err := stopDaemon(ctx); err == nil {
+		t.Fatal("stopDaemon unexpectedly reported success for a missing process")
 	}
 }
 
@@ -55,8 +56,8 @@ func TestStopDaemon_ProcessNotRunning(t *testing.T) {
 	}
 
 	ctx := newContext(cli.NewApp(), nil, "stop-daemon")
-	if err := stopDaemon(ctx); err != nil {
-		t.Fatalf("stopDaemon: %v", err)
+	if err := stopDaemon(ctx); err == nil {
+		t.Fatal("stopDaemon unexpectedly reported success for a missing process")
 	}
 }
 

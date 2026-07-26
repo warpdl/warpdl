@@ -81,7 +81,8 @@ func TestOpenFilePermissions(t *testing.T) {
 	}
 }
 
-// TestSetupLoggerPermissions verifies that setupLogger() creates logs.txt with 0644 permissions.
+// TestSetupLoggerPermissions verifies that setupLogger() creates logs.txt as
+// owner-only because request URLs and headers may contain secrets.
 func TestSetupLoggerPermissions(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("File permission tests are not applicable on Windows")
@@ -120,10 +121,40 @@ func TestSetupLoggerPermissions(t *testing.T) {
 	}
 
 	gotPerm := info.Mode().Perm()
-	wantPerm := os.FileMode(0644)
+	wantPerm := os.FileMode(0600)
 
 	if gotPerm != wantPerm {
 		t.Errorf("logs.txt permissions = %o, want %o", gotPerm, wantPerm)
+	}
+}
+
+func TestSetupLoggerTightensExistingPermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("File permission tests are not applicable on Windows")
+	}
+
+	oldMask := syscall.Umask(0)
+	defer syscall.Umask(oldMask)
+
+	dlPath := t.TempDir()
+	logPath := filepath.Join(dlPath, "logs.txt")
+	if err := os.WriteFile(logPath, []byte("legacy log\n"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	d := &Downloader{dlPath: dlPath}
+	if err := d.setupLogger(); err != nil {
+		t.Fatalf("setupLogger: %v", err)
+	}
+	if err := d.lw.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	info, err := os.Stat(logPath)
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+	if got := info.Mode().Perm(); got != PrivateFileMode {
+		t.Fatalf("existing logs.txt permissions = %o, want %o", got, PrivateFileMode)
 	}
 }
 
@@ -327,7 +358,8 @@ func TestOverwriteFilePermissions(t *testing.T) {
 	}
 }
 
-// TestInitManagerPermissions verifies that InitManager() creates userdata.warp with 0644 permissions.
+// TestInitManagerPermissions verifies that InitManager() creates userdata.warp
+// as an owner-only file because it contains download URLs and request metadata.
 func TestInitManagerPermissions(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("File permission tests are not applicable on Windows")
@@ -355,7 +387,7 @@ func TestInitManagerPermissions(t *testing.T) {
 	}
 
 	gotPerm := info.Mode().Perm()
-	wantPerm := os.FileMode(0644)
+	wantPerm := os.FileMode(0600)
 
 	if gotPerm != wantPerm {
 		t.Errorf("userdata.warp permissions = %o, want %o", gotPerm, wantPerm)

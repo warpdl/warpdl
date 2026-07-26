@@ -21,11 +21,10 @@ func TestValidateItemParts_InvalidRange(t *testing.T) {
 	}
 }
 
-func TestValidateItemParts_ZeroRange(t *testing.T) {
+func TestValidateItemParts_OneByteRange(t *testing.T) {
 	parts := map[int64]*ItemPart{100: {Hash: "p1", FinalOffset: 100}}
-	err := ValidateItemParts(parts)
-	if !errors.Is(err, ErrItemPartInvalidRange) {
-		t.Fatalf("expected ErrItemPartInvalidRange for zero range, got %v", err)
+	if err := ValidateItemParts(parts); err != nil {
+		t.Fatalf("valid one-byte inclusive range rejected: %v", err)
 	}
 }
 

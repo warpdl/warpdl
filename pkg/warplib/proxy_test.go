@@ -290,6 +290,24 @@ func TestParseProxyURL(t *testing.T) {
 	}
 }
 
+func TestSanitizeProxyURLForPersistence(t *testing.T) {
+	safeURL, credentialsRequired, err := SanitizeProxyURLForPersistence(
+		"http://proxy-user:proxy-secret@proxy.example:8080",
+	)
+	if err != nil {
+		t.Fatalf("SanitizeProxyURLForPersistence: %v", err)
+	}
+	if safeURL != "http://proxy.example:8080" {
+		t.Fatalf("safe URL = %q", safeURL)
+	}
+	if !credentialsRequired {
+		t.Fatal("authenticated proxy was not marked as requiring credentials")
+	}
+	if strings.Contains(safeURL, "proxy-user") || strings.Contains(safeURL, "proxy-secret") {
+		t.Fatalf("safe URL retained proxy userinfo: %q", safeURL)
+	}
+}
+
 // TestNewHTTPClientWithProxy tests creating an HTTP client configured with a proxy.
 func TestNewHTTPClientWithProxy(t *testing.T) {
 	tests := []struct {
@@ -356,13 +374,7 @@ func TestDownloadThroughProxy(t *testing.T) {
 
 	// Create a content server
 	content := bytes.Repeat([]byte("proxy-test-content"), 1000)
-	contentServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Accept-Ranges", "bytes")
-		w.Header().Set("Content-Type", "application/octet-stream")
-		w.Header().Set("Content-Length", strconv.Itoa(len(content)))
-		w.WriteHeader(http.StatusOK)
-		w.Write(content)
-	}))
+	contentServer := newRangeServer(t, content)
 	defer contentServer.Close()
 
 	// Create a proxy server
@@ -718,6 +730,7 @@ func TestDownloadMultiPartThroughProxy(t *testing.T) {
 	contentServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Accept-Ranges", "bytes")
 		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("ETag", `"proxy-multipart-v1"`)
 
 		if r.Header.Get("Range") == "" {
 			w.Header().Set("Content-Length", strconv.Itoa(len(content)))

@@ -33,6 +33,10 @@ const (
 	UPDATE_DOWNLOAD UpdateType = "download"
 	// UPDATE_DOWNLOADING indicates an ongoing download progress update.
 	UPDATE_DOWNLOADING UpdateType = "downloading"
+	// UPDATE_DOWNLOAD_ERROR reports a failure from a download that is running
+	// asynchronously. Unlike an RPC error response, this update is not tied to
+	// the request currently in flight.
+	UPDATE_DOWNLOAD_ERROR UpdateType = "download_error"
 	// UPDATE_ATTACH attaches the client to an existing download session.
 	UPDATE_ATTACH UpdateType = "attach"
 	// UPDATE_RESUME resumes a previously paused or interrupted download.

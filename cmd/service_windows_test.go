@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/urfave/cli"
@@ -342,7 +343,7 @@ func TestGetServiceManager_OpenError(t *testing.T) {
 	}
 	if err != nil {
 		errMsg := err.Error()
-		if !contains(errMsg, "service control manager") {
+		if !strings.Contains(errMsg, "service control manager") {
 			t.Errorf("getServiceManager() error message = %q, should contain 'service control manager'", errMsg)
 		}
 	}
@@ -491,25 +492,6 @@ func (m *mockSCManagerInterface) Close() error {
 	return nil
 }
 
-// contains checks if a string contains a substring (case-sensitive).
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(substr) == 0 || indexOfSubstring(s, substr) >= 0)
-}
-
-// indexOfSubstring returns the index of substr in s, or -1 if not found.
-func indexOfSubstring(s, substr string) int {
-	n := len(substr)
-	if n == 0 {
-		return 0
-	}
-	for i := 0; i+n <= len(s); i++ {
-		if s[i:i+n] == substr {
-			return i
-		}
-	}
-	return -1
-}
-
 func TestServiceStart_Success(t *testing.T) {
 	fakeSCM := newFakeSCManagerWithService(service.StatusStopped)
 	overrideAdmin(t, true)
@@ -536,7 +518,7 @@ func TestServiceStart_AlreadyRunning(t *testing.T) {
 	if err == nil {
 		t.Fatal("serviceStart() expected already running error")
 	}
-	if !contains(err.Error(), "already running") {
+	if !strings.Contains(err.Error(), "already running") {
 		t.Fatalf("serviceStart() error = %v, want already running", err)
 	}
 }
@@ -567,7 +549,7 @@ func TestServiceStop_NotRunning(t *testing.T) {
 	if err == nil {
 		t.Fatal("serviceStop() expected not running error")
 	}
-	if !contains(err.Error(), "not running") {
+	if !strings.Contains(err.Error(), "not running") {
 		t.Fatalf("serviceStop() error = %v, want not running", err)
 	}
 }

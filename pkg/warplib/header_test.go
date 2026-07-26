@@ -68,6 +68,28 @@ func TestHeaders_SetAndAdd(t *testing.T) {
 	}
 }
 
+func TestHeadersLogSafeRedactsCredentialVariants(t *testing.T) {
+	headers := Headers{
+		{Key: "Cookie", Value: "session=secret"},
+		{Key: "Authorization", Value: "Bearer secret"},
+		{Key: "Proxy-Authorization", Value: "Basic secret"},
+		{Key: "X-API-Key", Value: "api-secret"},
+		{Key: "X-Custom-Token", Value: "token-secret"},
+		{Key: "X-Key", Value: "custom-credential"},
+		{Key: "Referer", Value: "https://example.test/?signature=secret"},
+		{Key: "User-Agent", Value: "visible"},
+	}
+	got := headers.LogSafe()
+	for i := 0; i < len(got)-1; i++ {
+		if got[i] == "" || got[i][len(got[i])-len("[REDACTED]"):] != "[REDACTED]" {
+			t.Fatalf("sensitive header was not redacted: %q", got[i])
+		}
+	}
+	if got[len(got)-1] != "User-Agent: visible" {
+		t.Fatalf("allowlisted header unexpectedly changed: %q", got[len(got)-1])
+	}
+}
+
 // TestHeaders_Update_Cookie tests Update with Cookie header specifically
 // to ensure cookie persistence works correctly.
 func TestHeaders_Update_Cookie(t *testing.T) {

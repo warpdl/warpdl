@@ -1,7 +1,9 @@
 package credman
 
 import (
+	"bytes"
 	"crypto/rand"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -99,6 +101,163 @@ func TestCookieManagerPersistence(t *testing.T) {
 		t.Fatalf("GetCookie after reload: %v", err)
 	}
 	compareCookies(t, &c, got)
+}
+
+func TestCookieManagerDirectorySyncFailureKeepsCommittedState(t *testing.T) {
+	dir := t.TempDir()
+	key := bytes.Repeat([]byte{0x37}, 32)
+	path := filepath.Join(dir, "cookies.warp")
+	cm, err := NewCookieManager(path, key)
+	if err != nil {
+		t.Fatalf("NewCookieManager: %v", err)
+	}
+
+	originalSync := syncCookieParentDirectory
+	t.Cleanup(func() {
+		syncCookieParentDirectory = originalSync
+	})
+	syncFailure := errors.New("simulated directory sync failure")
+	syncCookieParentDirectory = func(string) error {
+		return syncFailure
+	}
+
+	cookie := types.Cookie{Name: "session", Value: "committed-secret"}
+	err = cm.SetCookie(cookie)
+	if !errors.Is(err, syncFailure) {
+		t.Fatalf("SetCookie error = %v, want directory sync failure", err)
+	}
+	if !cookieStoreCommitSucceeded(err) {
+		t.Fatalf("SetCookie error does not report a committed replacement: %v", err)
+	}
+
+	got, err := cm.GetCookie(cookie.Name)
+	if err != nil {
+		t.Fatalf("GetCookie after committed error: %v", err)
+	}
+	compareCookies(t, &cookie, got)
+
+	// Restore normal syncing before Close writes another snapshot. A fresh
+	// manager must observe the state that was already renamed into place.
+	syncCookieParentDirectory = originalSync
+	if err := cm.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	reopened, err := NewCookieManager(path, key)
+	if err != nil {
+		t.Fatalf("NewCookieManager after committed error: %v", err)
+	}
+	defer reopened.Close()
+	got, err = reopened.GetCookie(cookie.Name)
+	if err != nil {
+		t.Fatalf("GetCookie after reload: %v", err)
+	}
+	compareCookies(t, &cookie, got)
+}
+
+func TestCookieManagerMutationsRollBackBeforeCommit(t *testing.T) {
+	cm, _, cleanup := newTestManager(t)
+	defer cleanup()
+
+	original := types.Cookie{Name: "session", Value: "original-secret"}
+	if err := cm.SetCookie(original); err != nil {
+		t.Fatalf("seed cookie: %v", err)
+	}
+
+	// A missing live handle makes saveCookiesLocked fail before the atomic
+	// rename. Every mutation must therefore restore the prior in-memory
+	// state so it remains consistent with the unchanged on-disk snapshot.
+	if err := cm.f.Close(); err != nil {
+		t.Fatalf("close store: %v", err)
+	}
+	cm.f = nil
+
+	overwrite := original
+	overwrite.Value = "uncommitted-overwrite"
+	if err := cm.SetCookie(overwrite); err == nil {
+		t.Fatal("SetCookie overwrite unexpectedly succeeded")
+	}
+	got, err := cm.GetCookie(original.Name)
+	if err != nil {
+		t.Fatalf("GetCookie after failed overwrite: %v", err)
+	}
+	compareCookies(t, &original, got)
+
+	added := types.Cookie{Name: "new-session", Value: "uncommitted-add"}
+	if err := cm.SetCookie(added); err == nil {
+		t.Fatal("SetCookie add unexpectedly succeeded")
+	}
+	if _, err := cm.GetCookie(added.Name); err == nil {
+		t.Fatal("failed SetCookie left a new in-memory cookie")
+	}
+
+	if err := cm.DeleteCookie(original.Name); err == nil {
+		t.Fatal("DeleteCookie unexpectedly succeeded")
+	}
+	got, err = cm.GetCookie(original.Name)
+	if err != nil {
+		t.Fatalf("GetCookie after failed delete: %v", err)
+	}
+	compareCookies(t, &original, got)
+
+	update := original
+	update.Value = "uncommitted-update"
+	if err := cm.UpdateCookie(&update); err == nil {
+		t.Fatal("UpdateCookie existing entry unexpectedly succeeded")
+	}
+	got, err = cm.GetCookie(original.Name)
+	if err != nil {
+		t.Fatalf("GetCookie after failed update: %v", err)
+	}
+	compareCookies(t, &original, got)
+
+	newUpdate := types.Cookie{Name: "new-update", Value: "uncommitted-update"}
+	if err := cm.UpdateCookie(&newUpdate); err == nil {
+		t.Fatal("UpdateCookie new entry unexpectedly succeeded")
+	}
+	if _, err := cm.GetCookie(newUpdate.Name); err == nil {
+		t.Fatal("failed UpdateCookie left a new in-memory cookie")
+	}
+}
+
+func TestCookieManagerUsesPrivateFileMode(t *testing.T) {
+	key := bytes.Repeat([]byte{0x42}, 32)
+	path := filepath.Join(t.TempDir(), "cookies.warp")
+
+	cm, err := NewCookieManager(path, key)
+	if err != nil {
+		t.Fatalf("NewCookieManager: %v", err)
+	}
+	if err := cm.SetCookie(types.Cookie{Name: "session", Value: "secret"}); err != nil {
+		t.Fatalf("SetCookie: %v", err)
+	}
+	if err := cm.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0600 {
+		t.Fatalf("cookie store mode = %04o, want 0600", got)
+	}
+
+	// Existing stores created by older versions are tightened on open.
+	if err := os.Chmod(path, 0666); err != nil {
+		t.Fatalf("Chmod: %v", err)
+	}
+	cm, err = NewCookieManager(path, key)
+	if err != nil {
+		t.Fatalf("reopen CookieManager: %v", err)
+	}
+	defer cm.Close()
+	info, err = os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat reopened store: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0600 {
+		t.Fatalf("reopened cookie store mode = %04o, want 0600", got)
+	}
 }
 
 func TestCookieManagerGetDoesNotMutate(t *testing.T) {

@@ -42,6 +42,8 @@ func newRangeServer(content []byte) *httptest.Server {
 		}
 		chunk := content[start : end+1]
 		w.Header().Set("Content-Length", strconv.Itoa(len(chunk)))
+		w.Header().Set("Content-Range",
+			"bytes "+strconv.Itoa(start)+"-"+strconv.Itoa(end)+"/"+strconv.Itoa(len(content)))
 		w.WriteHeader(http.StatusPartialContent)
 		_, _ = w.Write(chunk)
 	}))
@@ -101,6 +103,132 @@ func TestWebServerProcessDownload(t *testing.T) {
 	}
 	if info.Size() != int64(len(content)) {
 		t.Fatalf("downloaded size mismatch")
+	}
+}
+
+func TestWebServerProcessDownloadCancellationIsTrackedAndNonCritical(t *testing.T) {
+	base := t.TempDir()
+	t.Chdir(base)
+	if err := warplib.SetConfigDir(base); err != nil {
+		t.Fatalf("SetConfigDir: %v", err)
+	}
+	manager, err := warplib.InitManager()
+	if err != nil {
+		t.Fatalf("InitManager: %v", err)
+	}
+	t.Cleanup(func() { _ = manager.Close() })
+
+	requestDone := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer close(requestDone)
+		w.Header().Set("Content-Length", "1024")
+		w.WriteHeader(http.StatusOK)
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	pool := NewPool(log.New(io.Discard, "", 0))
+	webServer := NewWebServer(log.New(io.Discard, "", 0), manager, pool, 0, nil, nil, nil)
+	if err := webServer.processDownload(&capturedDownload{Url: server.URL + "/cancel.bin"}); err != nil {
+		t.Fatalf("processDownload: %v", err)
+	}
+	items := manager.GetItems()
+	if len(items) != 1 {
+		t.Fatalf("managed items = %d, want 1", len(items))
+	}
+	hash := items[0].Hash
+
+	manager.CancelTransfers()
+	waitCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := manager.WaitTransfers(waitCtx); err != nil {
+		t.Fatalf("WaitTransfers: %v", err)
+	}
+	select {
+	case <-requestDone:
+	case <-time.After(time.Second):
+		t.Fatal("manager cancellation did not cancel retained HTTP response")
+	}
+	if pool.HasDownload(hash) {
+		t.Fatal("cancelled captured download remained active")
+	}
+	if critical := pool.GetError(hash); critical != nil {
+		t.Fatalf("cancelled captured download recorded a critical error: %+v", critical)
+	}
+	if item := manager.GetItem(hash); item == nil {
+		t.Fatal("shutdown cancellation purged captured download history")
+	}
+}
+
+func TestWebServerProcessDownloadHonorsPausedQueue(t *testing.T) {
+	base := t.TempDir()
+	t.Chdir(base)
+	if err := warplib.SetConfigDir(base); err != nil {
+		t.Fatalf("SetConfigDir: %v", err)
+	}
+	manager, err := warplib.InitManager()
+	if err != nil {
+		t.Fatalf("InitManager: %v", err)
+	}
+	defer manager.Close()
+	manager.SetMaxConcurrentDownloads(1, nil)
+	manager.GetQueue().Pause()
+
+	server := newRangeServer(bytes.Repeat([]byte("queued-web"), 64))
+	defer server.Close()
+	pool := NewPool(log.New(io.Discard, "", 0))
+	webServer := NewWebServer(log.New(io.Discard, "", 0), manager, pool, 0, nil, nil, nil)
+	if err := webServer.processDownload(&capturedDownload{Url: server.URL + "/queued.bin"}); err != nil {
+		t.Fatalf("processDownload: %v", err)
+	}
+	items := manager.GetItems()
+	if len(items) != 1 {
+		t.Fatalf("items = %d, want 1", len(items))
+	}
+	item := items[0]
+	if !manager.GetQueue().IsWaiting(item.Hash) || item.IsDownloading() {
+		t.Fatalf("waiting=%v downloading=%v",
+			manager.GetQueue().IsWaiting(item.Hash), item.IsDownloading())
+	}
+	if !pool.HasDownload(item.Hash) {
+		t.Fatal("waiting WebSocket capture was not registered in the pool")
+	}
+}
+
+func TestWebServerRejectsCookieCaptureThatWouldWait(t *testing.T) {
+	base := t.TempDir()
+	t.Chdir(base)
+	if err := warplib.SetConfigDir(base); err != nil {
+		t.Fatalf("SetConfigDir: %v", err)
+	}
+	manager, err := warplib.InitManager()
+	if err != nil {
+		t.Fatalf("InitManager: %v", err)
+	}
+	defer manager.Close()
+	manager.SetMaxConcurrentDownloads(1, nil)
+	manager.GetQueue().Pause()
+
+	server := newRangeServer([]byte("protected"))
+	defer server.Close()
+	pool := NewPool(log.New(io.Discard, "", 0))
+	webServer := NewWebServer(log.New(io.Discard, "", 0), manager, pool, 0, nil, nil, nil)
+	err = webServer.processDownload(&capturedDownload{
+		Url: server.URL + "/protected.bin",
+		Cookies: []*http.Cookie{{
+			Name:  "session",
+			Value: "secret",
+			Path:  "/",
+		}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "cookie secrets are not persisted") {
+		t.Fatalf("cookie queue error = %v", err)
+	}
+	if len(manager.GetItems()) != 0 ||
+		manager.GetQueue().ActiveCount() != 0 ||
+		manager.GetQueue().WaitingCount() != 0 {
+		t.Fatal("rejected cookie capture left manager or queue state")
 	}
 }
 
@@ -301,9 +429,15 @@ func TestWebServerProcessDownloadInvalidURL(t *testing.T) {
 	pool := NewPool(log.New(io.Discard, "", 0))
 	ws := NewWebServer(log.New(io.Discard, "", 0), m, pool, 0, nil, nil, nil)
 	// Test with malformed URL
-	err = ws.processDownload(&capturedDownload{Url: "://invalid"})
+	const secret = "web-url-password"
+	err = ws.processDownload(&capturedDownload{
+		Url: "http://user:" + secret + "@example.invalid/%zz",
+	})
 	if err == nil {
 		t.Fatalf("expected error for invalid URL")
+	}
+	if strings.Contains(err.Error(), secret) {
+		t.Fatalf("invalid URL error exposed userinfo secret: %q", err)
 	}
 }
 

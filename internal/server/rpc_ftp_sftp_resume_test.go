@@ -142,7 +142,10 @@ func TestRPCDownloadResume_SFTP_HandlersFired(t *testing.T) {
 
 	// Phase 1: Add an SFTP download and wait for it to complete.
 	code, resp := rpcCall(t, handler, "download.add", map[string]any{
-		"url": "sftp://user:pass@example.com/resume-sftp.bin",
+		// Username-only identity is safe to persist and reconstruct. A
+		// password-bearing URL intentionally requires credentials to be
+		// supplied again instead of silently persisting the secret.
+		"url": "sftp://user@example.com/resume-sftp.bin",
 		"dir": dlDir,
 	}, secret)
 	if code != http.StatusOK {

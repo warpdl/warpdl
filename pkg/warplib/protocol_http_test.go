@@ -1,6 +1,7 @@
 package warplib
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net/http"
@@ -12,13 +13,9 @@ import (
 // Test 11: httpProtocolDownloader.Capabilities() returns SupportsParallel=true after Probe
 // when Accept-Ranges header is present
 func TestHTTPAdapter_Capabilities_AfterProbe(t *testing.T) {
-	// Create test server that returns Accept-Ranges header
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Accept-Ranges", "bytes")
-		w.Header().Set("Content-Disposition", "attachment; filename=\"test.bin\"")
-		w.Header().Set("Content-Length", "1024")
-		w.WriteHeader(http.StatusOK)
-	}))
+	// A ranged resource is resumable only when each response carries the same
+	// strong representation validator.
+	srv := newRangeServer(t, bytes.Repeat([]byte("x"), 1024))
 	defer srv.Close()
 
 	// Set a writable temp dir for downloads
@@ -27,6 +24,7 @@ func TestHTTPAdapter_Capabilities_AfterProbe(t *testing.T) {
 
 	pd, err := newHTTPProtocolDownloader(srv.URL, &DownloaderOpts{
 		DownloadDirectory: tmpDir,
+		FileName:          "test.bin",
 		SkipSetup:         true,
 	}, http.DefaultClient)
 	if err != nil {

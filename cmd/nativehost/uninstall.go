@@ -90,6 +90,7 @@ func uninstall(c *cli.Context) error {
 		for _, e := range errors {
 			fmt.Printf("  %s\n", e)
 		}
+		return cli.NewExitError("one or more manifest removals failed", 1)
 	}
 
 	return nil

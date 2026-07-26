@@ -272,7 +272,52 @@ func TestDownloaderCompleteClosesAllHandles(t *testing.T) {
 
 	// Test that Close() is safe to call after successful download
 	if err := d.Close(); err != nil {
-		t.Logf("Close after complete returned: %v (may be expected)", err)
+		t.Fatalf("Close after complete: %v", err)
+	}
+	if err := d.Close(); err != nil {
+		t.Fatalf("second Close after complete: %v", err)
+	}
+}
+
+func TestDownloaderCloseAfterSuccessfulResumeIsIdempotent(t *testing.T) {
+	base := t.TempDir()
+	if err := SetConfigDir(base); err != nil {
+		t.Fatalf("SetConfigDir: %v", err)
+	}
+	const hash = "resume-close"
+	if err := WarpMkdirAll(filepath.Join(DlDataDir, hash), PrivateDirMode); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	content := []byte("done")
+	if err := os.WriteFile(filepath.Join(base, "resume.bin"), content, DefaultFileMode); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	d, err := initDownloader(
+		&http.Client{},
+		hash,
+		"http://example.test/resume.bin",
+		ContentLength(len(content)),
+		&DownloaderOpts{
+			FileName:          "resume.bin",
+			DownloadDirectory: base,
+		},
+	)
+	if err != nil {
+		t.Fatalf("initDownloader: %v", err)
+	}
+	if err := d.Resume(map[int64]*ItemPart{
+		0: {Hash: "compiled", FinalOffset: int64(len(content) - 1), Compiled: true},
+	}); err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+	if d.lw != nil {
+		t.Fatal("Resume left a closed logger handle attached")
+	}
+	if err := d.Close(); err != nil {
+		t.Fatalf("Close after Resume: %v", err)
+	}
+	if err := d.Close(); err != nil {
+		t.Fatalf("second Close after Resume: %v", err)
 	}
 }
 

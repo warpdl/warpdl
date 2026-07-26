@@ -437,8 +437,9 @@ func TestRunPartSlowRespawn(t *testing.T) {
 	d.ctx = ctx
 	d.cancel = cancel
 	d.contentLength = ContentLength(dataSize)
-	d.maxParts = 100 // High limit - won't trigger
-	d.maxConn = 100  // High limit - won't trigger
+	d.resumable = true // This test exercises ranged slow-part splitting.
+	d.maxParts = 100   // High limit - won't trigger
+	d.maxConn = 100    // High limit - won't trigger
 	d.numParts = 0
 	d.numConn = 0
 	d.chunk = int(64 * KB) // Larger chunk for faster test execution

@@ -2,6 +2,7 @@ package extl
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -9,8 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"errors"
-
+	"github.com/dop251/goja"
 	"github.com/warpdl/warpdl/internal/extl/auth"
 )
 
@@ -80,6 +80,14 @@ func OpenModule(l *log.Logger, path string) (*Module, error) {
 	if m.Entrypoint == "" {
 		m.Entrypoint = DEF_MODULE_ENTRY
 	}
+	if _, err := cleanModuleRelativePath(m.Entrypoint); err != nil {
+		return nil, fmt.Errorf("invalid entrypoint: %w", err)
+	}
+	for _, asset := range m.Assets {
+		if _, err := cleanModuleRelativePath(asset); err != nil {
+			return nil, fmt.Errorf("invalid asset %q: %w", asset, err)
+		}
+	}
 	if m.Auth != nil {
 		normalized, err := auth.NormalizeOAuth2Config(*m.Auth)
 		if err != nil {
@@ -102,8 +110,12 @@ func (m *Module) Load() error {
 		return err
 	}
 	// main.js file for the module
-	entryPath := filepath.Join(m.modulePath, m.Entrypoint)
-	file, err := os.Open(entryPath)
+	root, err := os.OpenRoot(m.modulePath)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	file, err := root.Open(m.Entrypoint)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return ErrEntrypointNotFound
@@ -115,19 +127,23 @@ func (m *Module) Load() error {
 	if err != nil {
 		return err
 	}
-	// run the main.js code in the newly made runtime
-	// to load symbols
-	_, err = m.runtime.RunString(string(b))
-	if err != nil {
-		return err
-	}
-	// try to get the extract function symbol from it
-	// extract() function is the main function that returns
-	// the final download link.
-	if m.runtime.Get(EXTRACT_CALLBACK) == nil {
-		return ErrExtractNotDefined
-	}
-	return nil
+	return m.loadEntrypoint(string(b))
+}
+
+// loadEntrypoint evaluates the module and verifies its callback in one timed,
+// serialized runtime operation. Runtime.Get can invoke a plugin-defined global
+// getter, so the symbol check must remain inside Runtime.run as well.
+func (m *Module) loadEntrypoint(source string) error {
+	_, err := m.runtime.run(func() (goja.Value, error) {
+		if _, err := m.runtime.RunString(source); err != nil {
+			return nil, err
+		}
+		if _, ok := goja.AssertFunction(m.runtime.Get(EXTRACT_CALLBACK)); !ok {
+			return nil, ErrExtractNotDefined
+		}
+		return nil, nil
+	})
+	return err
 }
 
 // ExtractResult is the structured return value of a plugin's extract()
@@ -157,12 +173,26 @@ type ExtractResult struct {
 // the interaction, ErrInvalidReturnType if the return value doesn't
 // match either expected shape.
 func (m *Module) Extract(url string) (ExtractResult, error) {
-	// call the extract function in js runtime
-	v, err := m.runtime.RunString(EXTRACT_CALLBACK + `(` + jsQuote(url) + `)`)
+	// Call and fully export the result while holding the runtime's timed lock.
+	// Exporting an object can execute arbitrary property getters.
+	var exported any
+	_, err := m.runtime.run(func() (goja.Value, error) {
+		fn, ok := goja.AssertFunction(m.runtime.Get(EXTRACT_CALLBACK))
+		if !ok {
+			return nil, ErrExtractNotDefined
+		}
+		value, err := fn(goja.Undefined(), m.runtime.ToValue(url))
+		if err != nil {
+			return nil, err
+		}
+		if value != nil {
+			exported = value.Export()
+		}
+		return nil, nil
+	})
 	if err != nil {
 		return ExtractResult{}, err
 	}
-	exported := v.Export()
 	switch x := exported.(type) {
 	case string:
 		// return ErrInteractionEnded in case the user interaction
@@ -203,14 +233,4 @@ func (m *Module) Extract(url string) (ExtractResult, error) {
 	default:
 		return ExtractResult{}, ErrInvalidReturnType
 	}
-}
-
-// jsQuote wraps s in a JSON string literal so it is safe to splice into
-// a JavaScript expression. The prior implementation concatenated the
-// URL with bare double-quotes, which broke on URLs containing quotes,
-// backslashes, or newlines — and opened a minor injection surface.
-// json.Marshal on a string always yields a valid JS string literal.
-func jsQuote(s string) string {
-	b, _ := json.Marshal(s)
-	return string(b)
 }

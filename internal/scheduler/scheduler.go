@@ -18,6 +18,7 @@ type Scheduler struct {
 	addChan    chan ScheduleEvent
 	removeChan chan string
 	ctx        context.Context
+	done       chan struct{}
 }
 
 // New creates and starts a new Scheduler.
@@ -28,9 +29,16 @@ func New(ctx context.Context, onTrigger func(string)) *Scheduler {
 		addChan:    make(chan ScheduleEvent, 64),
 		removeChan: make(chan string, 64),
 		ctx:        ctx,
+		done:       make(chan struct{}),
 	}
 	go s.run(onTrigger)
 	return s
+}
+
+// Done is closed after the scheduler loop and any in-flight trigger callback
+// have returned.
+func (s *Scheduler) Done() <-chan struct{} {
+	return s.done
 }
 
 // Add enqueues a new schedule event.
@@ -54,6 +62,7 @@ func (s *Scheduler) Remove(itemHash string) {
 // For recurring events (CronExpr != ""), after firing it computes the next
 // occurrence and re-adds it to the heap automatically.
 func (s *Scheduler) run(onTrigger func(string)) {
+	defer close(s.done)
 	h := &scheduleHeap{}
 	heap.Init(h)
 
@@ -122,10 +131,15 @@ func (s *Scheduler) run(onTrigger func(string)) {
 	}
 }
 
-// nextCronOccurrence returns the next time the cron expression fires strictly
-// after start. Uses gronx.NextTickAfter with inclRefTime=false.
-func nextCronOccurrence(expr string, start time.Time) (time.Time, error) {
+// NextOccurrence returns the next time the cron expression fires strictly
+// after start. Daemon orchestration uses this to persist the same occurrence
+// that the in-memory scheduler will enqueue.
+func NextOccurrence(expr string, start time.Time) (time.Time, error) {
 	return gronx.NextTickAfter(expr, start, false)
+}
+
+func nextCronOccurrence(expr string, start time.Time) (time.Time, error) {
+	return NextOccurrence(expr, start)
 }
 
 // hasOccurrenceWithinYear checks if a cron expression has any occurrence
@@ -140,44 +154,48 @@ func hasOccurrenceWithinYear(expr string, from time.Time) bool {
 }
 
 // LoadSchedules scans an ItemsMap at daemon startup to detect missed schedules
-// and identify future scheduled events to add to the scheduler heap.
+// and identify future scheduled events to add to the scheduler heap. It is
+// read-only: manager-owned Items are snapshotted and all state transitions are
+// left to Manager methods in daemon orchestration.
 //
-// Items with ScheduleState="scheduled" and ScheduledAt before now are marked
-// ScheduleStateMissed and returned in missed for immediate enqueueing.
+// Items with ScheduleState="scheduled" and ScheduledAt before now are returned
+// in missed for immediate enqueueing.
 // Items with ScheduleState="scheduled" and ScheduledAt after now are returned
 // in future as ScheduleEvents ready to push into the heap.
 // Items without ScheduledAt set or with other ScheduleStates are skipped.
 //
 // T072: For missed recurring items (CronExpr != ""), the next cron occurrence
 // is computed and added to future so the recurring schedule continues.
-func LoadSchedules(items warplib.ItemsMap, now time.Time) (missed []*warplib.Item, future []ScheduleEvent) {
+func LoadSchedules(items warplib.ItemsMap, now time.Time) (missed []ScheduleEvent, future []ScheduleEvent) {
 	for _, item := range items {
-		if item.ScheduleState != warplib.ScheduleStateScheduled {
+		snapshot := item.Snapshot()
+		if snapshot.ScheduleState != warplib.ScheduleStateScheduled {
 			continue
 		}
-		if item.ScheduledAt.IsZero() {
+		if snapshot.ScheduledAt.IsZero() {
 			continue
 		}
-		if item.ScheduledAt.Before(now) {
-			item.ScheduleState = warplib.ScheduleStateMissed
-			missed = append(missed, item)
-			// T072: For recurring items, also compute the next occurrence and add to future.
-			if item.CronExpr != "" {
-				next, err := nextCronOccurrence(item.CronExpr, now)
+		event := ScheduleEvent{
+			ItemHash:  snapshot.Hash,
+			TriggerAt: snapshot.ScheduledAt,
+			CronExpr:  snapshot.CronExpr,
+		}
+		if !snapshot.ScheduledAt.After(now) {
+			missed = append(missed, event)
+			// Return a future event for recurring schedules, but do not
+			// mutate the Item. Daemon persistence owns that transition.
+			if snapshot.CronExpr != "" {
+				next, err := nextCronOccurrence(snapshot.CronExpr, now)
 				if err == nil {
 					future = append(future, ScheduleEvent{
-						ItemHash:  item.Hash,
+						ItemHash:  snapshot.Hash,
 						TriggerAt: next,
-						CronExpr:  item.CronExpr,
+						CronExpr:  snapshot.CronExpr,
 					})
 				}
 			}
 		} else {
-			future = append(future, ScheduleEvent{
-				ItemHash:  item.Hash,
-				TriggerAt: item.ScheduledAt,
-				CronExpr:  item.CronExpr,
-			})
+			future = append(future, event)
 		}
 	}
 	return missed, future

@@ -37,21 +37,21 @@ func (rs *RPCServer) muxerFn() func(ctx context.Context, videoIn, audioIn, out s
 // registered with the warplib Manager so it appears in `warp list`, status,
 // and pause/resume; it blocks until the leg completes (success or error).
 // progressFn (if non-nil) is called with cumulative bytes per progress tick.
-func (rs *RPCServer) legDownloaderFn() func(rs *RPCServer, streamURL, outPath string, connections int32, progressFn func(int64)) error {
+func (rs *RPCServer) legDownloaderFn() func(ctx context.Context, rs *RPCServer, streamURL, outPath string, connections int32, progressFn func(int64)) error {
 	if rs.legDownloader != nil {
 		return rs.legDownloader
 	}
 	return defaultDownloadLeg
 }
 
-func defaultDownloadLeg(rs *RPCServer, streamURL, outPath string, connections int32, progressFn func(int64)) error {
+func defaultDownloadLeg(ctx context.Context, rs *RPCServer, streamURL, outPath string, connections int32, progressFn func(int64)) error {
 	dir := filepath.Dir(outPath)
 	name := filepath.Base(outPath)
 
-	done := make(chan error, 1)
 	var seen int64
 
 	opts := &warplib.DownloaderOpts{
+		Context:           ctx,
 		FileName:          name,
 		DownloadDirectory: dir,
 		MaxConnections:    connections,
@@ -62,18 +62,6 @@ func defaultDownloadLeg(rs *RPCServer, streamURL, outPath string, connections in
 					progressFn(cum)
 				}
 			},
-			DownloadCompleteHandler: func(_ string, _ int64) {
-				select {
-				case done <- nil:
-				default:
-				}
-			},
-			ErrorHandler: func(_ string, err error) {
-				select {
-				case done <- err:
-				default:
-				}
-			},
 		},
 	}
 
@@ -81,28 +69,62 @@ func defaultDownloadLeg(rs *RPCServer, streamURL, outPath string, connections in
 	if err != nil {
 		return err
 	}
+	hash := d.GetHash()
+	var poolGeneration *TransferGeneration
+	if rs.pool != nil {
+		var reserved bool
+		poolGeneration, reserved = rs.pool.beginLegacyDownload(hash, nil)
+		if !reserved {
+			return errors.Join(
+				errors.New("download is already running or still stopping"),
+				d.Close(),
+			)
+		}
+	}
 	if err := rs.manager.AddDownload(d, &warplib.AddDownloadOpts{
 		AbsoluteLocation: dir,
+		// Adaptive video/audio legs are internal children of one coordinated
+		// mux job. They must not independently enter the daemon queue (which
+		// would both auto-start and deadlock the parent waiting for two slots).
+		SkipQueue: true,
 	}); err != nil {
+		if poolGeneration != nil {
+			poolGeneration.Abort()
+		}
+		return errors.Join(err, d.Close())
+	}
+	runLease, err := rs.manager.AcquireDownloadRunLease(hash, d)
+	if err != nil {
+		if poolGeneration != nil {
+			poolGeneration.Abort()
+		}
 		return err
 	}
-	if rs.pool != nil {
-		rs.pool.AddDownload(d.GetHash(), nil)
-	}
 
-	// Start returns synchronously for early failures (file open, disk
-	// space) without invoking ErrorHandler; routing it into done both
-	// surfaces the error and prevents this function from blocking forever.
-	go func() {
-		if err := d.Start(); err != nil {
-			select {
-			case done <- err:
-			default:
-			}
+	// runAdaptive already invokes each leg in its own goroutine. Blocking on
+	// Start here guarantees worker errors and early open/disk failures are
+	// observed before the mux job tears down its temporary directory.
+	err = normalizeServerTransferError(ctx, runLease.StartContext(ctx))
+	if err != nil || ctx.Err() != nil {
+		cleanupErr := errors.Join(
+			runLease.Close(),
+			rs.cleanupExactDownloadRegistration(
+				hash,
+				d,
+				nil,
+				poolGeneration,
+			),
+		)
+		runErr := normalizeServerTransferError(ctx, errors.Join(err, cleanupErr))
+		if runErr != nil {
+			return runErr
 		}
-	}()
-
-	return <-done
+		return ctx.Err()
+	}
+	if poolGeneration != nil {
+		poolGeneration.Finish(nil)
+	}
+	return nil
 }
 
 // youtubeDownload is the handler for the JSON-RPC method "youtube.download".
@@ -182,24 +204,105 @@ func (rs *RPCServer) startProgressive(ctx context.Context, fetcher ytFetcher, vi
 	fileName := outputFileName(p.FileName, video.Title, ext)
 	dir := p.Dir
 
+	var (
+		hash           string
+		errorReported  atomic.Bool
+		poolGeneration atomic.Pointer[TransferGeneration]
+	)
 	opts := &warplib.DownloaderOpts{
+		Context:           rs.manager.TransferContext(),
 		FileName:          fileName,
 		DownloadDirectory: dir,
 		MaxConnections:    connections,
-		Handlers:          rs.notifierHandlers(),
+		Handlers:          rs.rpcTransferHandlers(&hash, &errorReported, &poolGeneration),
 	}
 	d, err := warplib.NewDownloader(rs.client, streamURL, opts)
 	if err != nil {
 		return nil, &jrpc2.Error{Code: codeInvalidParams, Message: err.Error()}
 	}
+	queue := rs.manager.GetQueue()
+	hash = d.GetHash()
+	if rs.pool != nil {
+		generation, reserved := rs.pool.beginLegacyDownload(hash, nil)
+		if !reserved {
+			return nil, &jrpc2.Error{
+				Code: codeDownloadNotActive,
+				Message: errors.Join(
+					errors.New("download is already running or still stopping"),
+					d.Close(),
+				).Error(),
+			}
+		}
+		poolGeneration.Store(generation)
+	}
 	if err := rs.manager.AddDownload(d, &warplib.AddDownloadOpts{
 		AbsoluteLocation: d.GetDownloadDirectory(),
+		SkipQueue:        queue != nil,
 	}); err != nil {
-		return nil, &jrpc2.Error{Code: codeInvalidParams, Message: err.Error()}
+		if generation := poolGeneration.Load(); generation != nil {
+			generation.Abort()
+		}
+		return nil, &jrpc2.Error{
+			Code:    codeInvalidParams,
+			Message: errors.Join(err, d.Close()).Error(),
+		}
 	}
-	hash := d.GetHash()
-	if rs.pool != nil {
-		rs.pool.AddDownload(hash, nil)
+	var runLease *warplib.RunLease
+	if queue == nil {
+		runLease, err = rs.manager.AcquireDownloadRunLease(hash, d)
+		if err != nil {
+			if generation := poolGeneration.Load(); generation != nil {
+				generation.Abort()
+			}
+			return nil, &jrpc2.Error{
+				Code:    codeDownloadNotActive,
+				Message: err.Error(),
+			}
+		}
+	}
+	rs.registerTransferTerminal(hash, &errorReported)
+	if queue != nil {
+		queue.Add(hash, warplib.PriorityNormal)
+		if _, closeErr := rs.manager.CloseWaitingDownloader(hash); closeErr != nil {
+			cleanupErr := rs.cleanupExactDownloadRegistration(
+				hash,
+				d,
+				&errorReported,
+				poolGeneration.Load(),
+			)
+			return nil, &jrpc2.Error{
+				Code:    codeDownloadNotActive,
+				Message: errors.Join(closeErr, cleanupErr).Error(),
+			}
+		}
+	}
+	if queue == nil {
+		if !rs.launchTransfer(func(ctx context.Context) {
+			runErr := normalizeServerTransferError(ctx, runLease.StartContext(ctx))
+			rs.finishAsyncTransfer(
+				hash,
+				poolGeneration.Load(),
+				runLease,
+				runErr,
+				&errorReported,
+			)
+		}) {
+			closeErr := runLease.Close()
+			cleanupErr := rs.cleanupExactDownloadRegistration(
+				hash,
+				d,
+				&errorReported,
+				poolGeneration.Load(),
+			)
+			return nil, &jrpc2.Error{
+				Code: codeDownloadNotActive,
+				Message: errors.Join(
+					warplib.ErrManagerShuttingDown,
+					closeErr,
+					cleanupErr,
+				).Error(),
+			}
+		}
 	}
 	if rs.notifier != nil {
 		rs.notifier.Broadcast("download.started", &DownloadStartedNotification{
@@ -208,14 +311,6 @@ func (rs *RPCServer) startProgressive(ctx context.Context, fetcher ytFetcher, vi
 			TotalLength: d.GetContentLengthAsInt(),
 		})
 	}
-	// Early Start failures (file open, disk space) return synchronously
-	// without invoking ErrorHandler; broadcast them so clients are not
-	// left waiting on a download that never began.
-	go func() {
-		if err := d.Start(); err != nil {
-			rs.broadcastError(hash, "download start failed: "+err.Error())
-		}
-	}()
 
 	return &common.YouTubeDownloadResult{
 		GID:      hash,
@@ -273,6 +368,19 @@ func (rs *RPCServer) startAdaptive(ctx context.Context, fetcher ytFetcher, video
 	// Combined expected size for progress reporting.
 	totalLen := vFmt.ContentLength + aFmt.ContentLength
 
+	var poolGeneration *TransferGeneration
+	if rs.pool != nil {
+		var reserved bool
+		poolGeneration, reserved = rs.pool.beginLegacyDownload(gid, nil)
+		if !reserved {
+			_ = os.RemoveAll(tmpDir)
+			return nil, &jrpc2.Error{
+				Code:    codeDownloadNotActive,
+				Message: "download is already running or still stopping",
+			}
+		}
+	}
+
 	if rs.manager != nil {
 		item := &warplib.Item{
 			Hash:             gid,
@@ -286,8 +394,37 @@ func (rs *RPCServer) startAdaptive(ctx context.Context, fetcher ytFetcher, video
 		}
 		rs.manager.UpdateItem(item)
 	}
-	if rs.pool != nil {
-		rs.pool.AddDownload(gid, nil)
+
+	job := &adaptiveJob{
+		gid:         gid,
+		videoURL:    videoURL,
+		audioURL:    audioURL,
+		videoTmp:    videoTmp,
+		audioTmp:    audioTmp,
+		finalPath:   finalPath,
+		tmpDir:      tmpDir,
+		connections: connections,
+		generation:  poolGeneration,
+	}
+	start := make(chan struct{})
+	if !rs.launchTransfer(func(transferCtx context.Context) {
+		<-start
+		rs.runAdaptive(transferCtx, job)
+	}) {
+		cleanupErr := errors.Join(
+			rs.cleanupAdaptiveState(gid, poolGeneration),
+			os.RemoveAll(tmpDir),
+		)
+		if poolGeneration != nil {
+			poolGeneration.Abort()
+		}
+		return nil, &jrpc2.Error{
+			Code: codeDownloadNotActive,
+			Message: errors.Join(
+				warplib.ErrManagerShuttingDown,
+				cleanupErr,
+			).Error(),
+		}
 	}
 
 	if rs.notifier != nil {
@@ -297,17 +434,7 @@ func (rs *RPCServer) startAdaptive(ctx context.Context, fetcher ytFetcher, video
 			TotalLength: totalLen,
 		})
 	}
-
-	go rs.runAdaptive(&adaptiveJob{
-		gid:         gid,
-		videoURL:    videoURL,
-		audioURL:    audioURL,
-		videoTmp:    videoTmp,
-		audioTmp:    audioTmp,
-		finalPath:   finalPath,
-		tmpDir:      tmpDir,
-		connections: connections,
-	})
+	close(start)
 
 	return &common.YouTubeDownloadResult{
 		GID:      gid,
@@ -325,16 +452,36 @@ type adaptiveJob struct {
 	finalPath   string
 	tmpDir      string
 	connections int32
+	generation  *TransferGeneration
 }
 
 // runAdaptive is the goroutine body for the adaptive download path.
 // It downloads both legs in parallel, runs ffmpeg, and emits notifications.
-func (rs *RPCServer) runAdaptive(job *adaptiveJob) {
+func (rs *RPCServer) runAdaptive(ctx context.Context, job *adaptiveJob) {
+	var terminalFrame []byte
 	defer func() {
 		if err := os.RemoveAll(job.tmpDir); err != nil {
 			rs.logf("youtube: failed to clean up mux tmp dir %s: %v", job.tmpDir, err)
 		}
+		// Publish terminal pool removal last. At this point the parent item is
+		// either durably complete or has been atomically purged.
+		if job.generation != nil {
+			job.generation.Finish(terminalFrame)
+		} else if rs.pool != nil {
+			if terminalFrame != nil {
+				rs.pool.BroadcastTerminal(job.gid, terminalFrame)
+			} else {
+				rs.pool.StopDownload(job.gid)
+			}
+		}
 	}()
+
+	if ctx.Err() != nil {
+		if err := rs.cleanupAdaptiveState(job.gid, job.generation); err != nil {
+			rs.logf("youtube: failed to clean cancelled adaptive parent %s: %v", job.gid, err)
+		}
+		return
+	}
 
 	var (
 		wg        sync.WaitGroup
@@ -346,6 +493,9 @@ func (rs *RPCServer) runAdaptive(job *adaptiveJob) {
 
 	progress := func(which *int64) func(int64) {
 		return func(cumulative int64) {
+			if job.generation != nil && !job.generation.IsRunnable() {
+				return
+			}
 			atomic.StoreInt64(which, cumulative)
 			if rs.notifier == nil {
 				return
@@ -362,34 +512,111 @@ func (rs *RPCServer) runAdaptive(job *adaptiveJob) {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		videoErr = leg(rs, job.videoURL, job.videoTmp, job.connections, progress(&videoSeen))
+		videoErr = leg(ctx, rs, job.videoURL, job.videoTmp, job.connections, progress(&videoSeen))
 	}()
 	go func() {
 		defer wg.Done()
-		audioErr = leg(rs, job.audioURL, job.audioTmp, job.connections, progress(&audioSeen))
+		audioErr = leg(ctx, rs, job.audioURL, job.audioTmp, job.connections, progress(&audioSeen))
 	}()
 	wg.Wait()
 
-	if err := errors.Join(videoErr, audioErr); err != nil {
-		rs.broadcastError(job.gid, "download leg failed: "+err.Error())
+	if err := normalizeServerTransferError(ctx, errors.Join(videoErr, audioErr)); err != nil {
+		message := "download leg failed: " + err.Error()
+		terminalFrame = MakeDownloadError(job.gid, errors.New(message))
+		rs.failAdaptive(job.gid, job.generation, message)
+		return
+	}
+	if ctx.Err() != nil {
+		if err := rs.cleanupAdaptiveState(job.gid, job.generation); err != nil {
+			rs.logf("youtube: failed to clean cancelled adaptive parent %s: %v", job.gid, err)
+		}
 		return
 	}
 
-	if err := rs.muxerFn()(context.Background(), job.videoTmp, job.audioTmp, job.finalPath); err != nil {
-		rs.broadcastError(job.gid, err.Error())
+	if err := normalizeServerTransferError(
+		ctx,
+		rs.muxerFn()(ctx, job.videoTmp, job.audioTmp, job.finalPath),
+	); err != nil {
+		message := "mux failed: " + err.Error()
+		terminalFrame = MakeDownloadError(job.gid, errors.New(message))
+		rs.failAdaptive(job.gid, job.generation, message)
 		return
+	}
+	if ctx.Err() != nil {
+		if err := rs.cleanupAdaptiveState(job.gid, job.generation); err != nil {
+			rs.logf("youtube: failed to clean cancelled adaptive parent %s: %v", job.gid, err)
+		}
+		return
+	}
+
+	fi, err := os.Stat(job.finalPath)
+	if err != nil {
+		message := "stat muxed output: " + err.Error()
+		terminalFrame = MakeDownloadError(job.gid, errors.New(message))
+		rs.failAdaptive(job.gid, job.generation, message)
+		return
+	}
+	if ctx.Err() != nil {
+		if err := rs.cleanupAdaptiveState(job.gid, job.generation); err != nil {
+			rs.logf("youtube: failed to clean cancelled adaptive parent %s: %v", job.gid, err)
+		}
+		return
+	}
+	if job.generation != nil && !job.generation.IsRunnable() {
+		return
+	}
+	size := fi.Size()
+	if rs.manager != nil {
+		if item := rs.manager.GetItem(job.gid); item != nil {
+			item.MarkComplete(warplib.ContentLength(size))
+			rs.manager.UpdateItem(item)
+		}
+		rs.manager.ReleaseQueueSlot(job.gid)
 	}
 
 	if rs.notifier != nil {
-		fi, statErr := os.Stat(job.finalPath)
-		var size int64
-		if statErr == nil {
-			size = fi.Size()
-		}
 		rs.notifier.Broadcast("download.complete", &DownloadCompleteNotification{
 			GID:         job.gid,
 			TotalLength: size,
 		})
+	}
+	terminalFrame = MakeResult(common.UPDATE_DOWNLOADING, &common.DownloadingResponse{
+		DownloadId: job.gid,
+		Action:     common.DownloadComplete,
+		Value:      size,
+		Hash:       warplib.MAIN_HASH,
+	})
+}
+
+func (rs *RPCServer) cleanupAdaptiveState(gid string, generation *TransferGeneration) error {
+	if rs.manager == nil {
+		return nil
+	}
+	if generation != nil && !generation.IsRunnable() {
+		return nil
+	}
+	rs.manager.ReleaseQueueSlot(gid)
+	return rs.manager.PurgeFailedDownload(gid)
+}
+
+func (rs *RPCServer) failAdaptive(gid string, generation *TransferGeneration, message string) {
+	if generation != nil && !generation.IsCurrent() {
+		return
+	}
+	rs.broadcastError(gid, message)
+	if generation != nil {
+		generation.WriteError(ErrorTypeCritical, message)
+	} else if rs.pool != nil {
+		rs.pool.WriteError(gid, ErrorTypeCritical, message)
+	}
+	if rs.manager != nil {
+		rs.manager.ReleaseQueueSlot(gid)
+		item := rs.manager.GetItem(gid)
+		if item != nil && item.GetDownloaded() == 0 {
+			if err := rs.manager.PurgeFailedDownload(gid); err != nil {
+				rs.logf("youtube: failed to purge adaptive parent %s: %v", gid, err)
+			}
+		}
 	}
 }
 
@@ -401,25 +628,6 @@ func (rs *RPCServer) broadcastError(gid, msg string) {
 		GID:   gid,
 		Error: msg,
 	})
-}
-
-// notifierHandlers returns a Handlers struct that re-broadcasts events to
-// the rpc notifier. Mirrors the pattern in downloadAdd.
-func (rs *RPCServer) notifierHandlers() *warplib.Handlers {
-	if rs.notifier == nil {
-		return nil
-	}
-	return &warplib.Handlers{
-		ErrorHandler: func(hash string, err error) {
-			rs.notifier.Broadcast("download.error", &DownloadErrorNotification{GID: hash, Error: err.Error()})
-		},
-		DownloadProgressHandler: func(hash string, nread int) {
-			rs.notifier.Broadcast("download.progress", &DownloadProgressNotification{GID: hash, CompletedLength: int64(nread)})
-		},
-		DownloadCompleteHandler: func(hash string, tread int64) {
-			rs.notifier.Broadcast("download.complete", &DownloadCompleteNotification{GID: hash, TotalLength: tread})
-		},
-	}
 }
 
 // findFormatByItag looks up a kkdai Format by itag (string-encoded int).

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -153,7 +154,13 @@ func (s *Api) authStartDevice(prov *auth.OAuth2Provider, key types.TokenKey) (co
 	flow.Interval = init.Interval
 	flow.DeviceExpiresIn = init.ExpiresIn
 
-	go s.runDeviceFlow(prov, flow, init)
+	if !s.goBackground(func(ctx context.Context) {
+		s.runDeviceFlow(ctx, prov, flow, init)
+	}) {
+		err := context.Canceled
+		prov.FlowRegistry().Cancel(flow.ID, err)
+		return common.UPDATE_AUTH_REQUIRED, nil, err
+	}
 
 	return common.UPDATE_AUTH_REQUIRED, &common.AuthLoginResult{
 		FlowID:          flow.ID,
@@ -170,8 +177,8 @@ func (s *Api) authStartDevice(prov *auth.OAuth2Provider, key types.TokenKey) (co
 // authStartDevice so there is a single owner of the polling
 // goroutine (avoids a subtle duplicate-goroutine bug when Start
 // returns joined=true).
-func (s *Api) runDeviceFlow(prov *auth.OAuth2Provider, flow *auth.Flow, init *auth.DeviceAuthorization) {
-	tok, err := prov.PollDeviceCode(s.daemonCtx(), init)
+func (s *Api) runDeviceFlow(ctx context.Context, prov *auth.OAuth2Provider, flow *auth.Flow, init *auth.DeviceAuthorization) {
+	tok, err := prov.PollDeviceCode(ctx, init)
 	if err != nil {
 		prov.FlowRegistry().Cancel(flow.ID, err)
 		return

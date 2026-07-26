@@ -11,8 +11,11 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
@@ -42,6 +45,7 @@ type sftpProtocolDownloader struct {
 	cleanURL   string // URL with credentials stripped — safe to persist
 	ctx        context.Context
 	cancel     context.CancelFunc
+	stopOnce   sync.Once
 }
 
 // newSFTPProtocolDownloader creates an sftpProtocolDownloader for sftp:// URLs.
@@ -54,7 +58,7 @@ func newSFTPProtocolDownloader(rawURL string, opts *DownloaderOpts) (ProtocolDow
 
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
-		return nil, NewPermanentError("sftp", "factory:parse", err)
+		return nil, NewPermanentError("sftp", "factory:parse", sanitizeHTTPError(err))
 	}
 
 	scheme := strings.ToLower(parsed.Scheme)
@@ -78,6 +82,9 @@ func newSFTPProtocolDownloader(rawURL string, opts *DownloaderOpts) (ProtocolDow
 	// Use explicit FileName from opts if provided
 	if opts.FileName != "" {
 		fileName = opts.FileName
+	}
+	if err := validateDownloadFileName(fileName); err != nil {
+		return nil, NewPermanentError("sftp", "factory:filename", err)
 	}
 
 	// Extract credentials
@@ -105,11 +112,19 @@ func newSFTPProtocolDownloader(rawURL string, opts *DownloaderOpts) (ProtocolDow
 	if dlDir == "" {
 		dlDir = "."
 	}
+	dlDir, err = filepath.Abs(dlDir)
+	if err != nil {
+		return nil, NewPermanentError("sftp", "factory:directory", err)
+	}
+	savePath, err := confinedDownloadPath(dlDir, fileName)
+	if err != nil {
+		return nil, NewPermanentError("sftp", "factory:filename", err)
+	}
 
 	// Strip credentials from URL for safe persistence
 	cleanURL := StripURLCredentials(rawURL)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(downloaderParentContext(opts))
 
 	return &sftpProtocolDownloader{
 		rawURL:     rawURL,
@@ -122,7 +137,7 @@ func newSFTPProtocolDownloader(rawURL string, opts *DownloaderOpts) (ProtocolDow
 		fileName:   fileName,
 		hash:       hash,
 		dlDir:      dlDir,
-		savePath:   GetPath(dlDir, fileName),
+		savePath:   savePath,
 		cleanURL:   cleanURL,
 		ctx:        ctx,
 		cancel:     cancel,
@@ -145,16 +160,39 @@ func (d *sftpProtocolDownloader) connect(ctx context.Context) (*ssh.Client, *sft
 		HostKeyCallback: callback,
 	}
 
-	sshConn, err := ssh.Dial("tcp", d.host, config)
+	netConn, err := (&net.Dialer{Timeout: 30 * time.Second}).DialContext(ctx, "tcp", d.host)
 	if err != nil {
 		return nil, nil, err
 	}
+	stopNetClose := context.AfterFunc(ctx, func() { _ = netConn.Close() })
+	clientConn, chans, reqs, err := ssh.NewClientConn(netConn, d.host, config)
+	if err != nil {
+		stopNetClose()
+		_ = netConn.Close()
+		if ctx.Err() != nil {
+			return nil, nil, ctx.Err()
+		}
+		return nil, nil, err
+	}
+	sshConn := ssh.NewClient(clientConn, chans, reqs)
 
+	stopSSHClose := context.AfterFunc(ctx, func() { _ = sshConn.Close() })
 	sftpClient, err := sftp.NewClient(sshConn)
 	if err != nil {
+		stopSSHClose()
 		sshConn.Close()
+		if ctx.Err() != nil {
+			return nil, nil, ctx.Err()
+		}
 		return nil, nil, err
 	}
+	stopSSHClose()
+	if ctx.Err() != nil {
+		_ = sftpClient.Close()
+		_ = sshConn.Close()
+		return nil, nil, ctx.Err()
+	}
+	stopNetClose()
 
 	return sshConn, sftpClient, nil
 }
@@ -162,12 +200,16 @@ func (d *sftpProtocolDownloader) connect(ctx context.Context) (*ssh.Client, *sft
 // Probe fetches file metadata from the SFTP server without downloading content.
 // Must be called before Download or Resume.
 func (d *sftpProtocolDownloader) Probe(ctx context.Context) (ProbeResult, error) {
-	sshConn, sftpClient, err := d.connect(ctx)
+	opCtx, release := protocolOperationContext(ctx, d.ctx)
+	defer release()
+	sshConn, sftpClient, err := d.connect(opCtx)
 	if err != nil {
 		return ProbeResult{}, classifySFTPError("sftp", "probe:connect", err)
 	}
 	defer sshConn.Close()
 	defer sftpClient.Close()
+	stopConn := context.AfterFunc(opCtx, func() { _ = sshConn.Close() })
+	defer stopConn()
 
 	info, err := sftpClient.Stat(d.remotePath)
 	if err != nil {
@@ -187,21 +229,33 @@ func (d *sftpProtocolDownloader) Probe(ctx context.Context) (ProbeResult, error)
 
 // Download starts a fresh SFTP download. Probe must have been called first.
 // ALL handler calls are nil-guarded to prevent panics with nil/partial Handlers.
-func (d *sftpProtocolDownloader) Download(ctx context.Context, handlers *Handlers) error {
+func (d *sftpProtocolDownloader) Download(ctx context.Context, handlers *Handlers) (err error) {
 	if !d.probed {
 		return ErrProbeRequired
 	}
 
 	if atomic.LoadInt32(&d.stopped) == 1 {
+		notifyProtocolStopped(&d.stopOnce, handlers)
 		return nil
 	}
+	opCtx, release := protocolOperationContext(ctx, d.ctx)
+	defer release()
+	completed := false
+	defer func() {
+		err = finishProtocolOperation(
+			completed, atomic.LoadInt32(&d.stopped) == 1,
+			err, &d.stopOnce, handlers,
+		)
+	}()
 
-	sshConn, sftpClient, err := d.connect(ctx)
+	sshConn, sftpClient, err := d.connect(opCtx)
 	if err != nil {
 		return classifySFTPError("sftp", "download:connect", err)
 	}
 	defer sshConn.Close()
 	defer sftpClient.Close()
+	stopConn := context.AfterFunc(opCtx, func() { _ = sshConn.Close() })
+	defer stopConn()
 
 	// Notify single-part spawn: SFTP uses one stream [0, fileSize-1]
 	if handlers != nil && handlers.SpawnPartHandler != nil {
@@ -212,23 +266,53 @@ func (d *sftpProtocolDownloader) Download(ctx context.Context, handlers *Handler
 	if err != nil {
 		return classifySFTPError("sftp", "download:open", err)
 	}
-	defer remoteFile.Close()
+	remoteFinalized := false
+	defer func() {
+		if !remoteFinalized {
+			_ = remoteFile.Close()
+		}
+	}()
 
 	// Create destination file
-	f, err := WarpOpenFile(d.savePath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, DefaultFileMode)
+	f, err := openFreshDownloadFile(d.savePath, d.opts.Overwrite)
 	if err != nil {
 		return NewPermanentError("sftp", "download:create", err)
 	}
-	defer f.Close()
+	localFinalized := false
+	defer func() {
+		if !localFinalized {
+			_ = f.Close()
+		}
+	}()
 
 	// Progress-tracking copy
 	pw := &sftpProgressWriter{handlers: handlers, hash: d.hash}
-	_, err = io.Copy(io.MultiWriter(f, pw), remoteFile)
+	written, err := io.Copy(io.MultiWriter(f, pw), &contextReadCloser{
+		Context:    opCtx,
+		ReadCloser: remoteFile,
+	})
 	if err != nil {
 		return classifySFTPError("sftp", "download:copy", err)
 	}
+	if written != d.fileSize {
+		return NewPermanentError("sftp", "download:size",
+			fmt.Errorf("%w: expected %d bytes, received %d", ErrDownloadSizeMismatch, d.fileSize, written))
+	}
+	if err := validatePhysicalFileSize(f, d.fileSize); err != nil {
+		return NewPermanentError("sftp", "download:size", err)
+	}
+	finalizeErr := finalizeProtocolTransfer(f, remoteFile)
+	localFinalized = true
+	remoteFinalized = true
+	if finalizeErr != nil {
+		return NewPermanentError("sftp", "download:finalize", finalizeErr)
+	}
+	if atomic.LoadInt32(&d.stopped) == 1 {
+		return nil
+	}
 
 	// Signal download completion
+	completed = true
 	if handlers != nil && handlers.DownloadCompleteHandler != nil {
 		handlers.DownloadCompleteHandler(MAIN_HASH, d.fileSize)
 	}
@@ -236,17 +320,32 @@ func (d *sftpProtocolDownloader) Download(ctx context.Context, handlers *Handler
 	return nil
 }
 
-// Resume continues a previously interrupted SFTP download.
+// Resume restarts a previously interrupted SFTP download from byte zero.
 // Probe must have been called first.
-// The resume offset is derived from the destination file size on disk.
-func (d *sftpProtocolDownloader) Resume(ctx context.Context, parts map[int64]*ItemPart, handlers *Handlers) error {
+//
+// SFTP file size alone does not identify a representation. Reusing a local
+// prefix after only comparing sizes could therefore combine bytes from an old
+// remote object with bytes from a same-size replacement. Until a strong remote
+// identity can be persisted and revalidated, a resumed SFTP transfer
+// deliberately redownloads the complete object.
+func (d *sftpProtocolDownloader) Resume(ctx context.Context, parts map[int64]*ItemPart, handlers *Handlers) (err error) {
 	if !d.probed {
 		return ErrProbeRequired
 	}
 
 	if atomic.LoadInt32(&d.stopped) == 1 {
+		notifyProtocolStopped(&d.stopOnce, handlers)
 		return nil
 	}
+	opCtx, release := protocolOperationContext(ctx, d.ctx)
+	defer release()
+	completed := false
+	defer func() {
+		err = finishProtocolOperation(
+			completed, atomic.LoadInt32(&d.stopped) == 1,
+			err, &d.stopOnce, handlers,
+		)
+	}()
 
 	// Check if all parts are compiled (download complete)
 	allCompiled := true
@@ -257,69 +356,81 @@ func (d *sftpProtocolDownloader) Resume(ctx context.Context, parts map[int64]*It
 		}
 	}
 	if allCompiled && len(parts) > 0 {
+		completed = true
 		return nil // Nothing to resume
 	}
 
-	// Determine resume offset from destination file size
-	var startOffset int64
-	info, err := WarpStat(d.savePath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			startOffset = 0
-		} else {
-			return NewPermanentError("sftp", "resume:stat", err)
-		}
-	} else {
-		startOffset = info.Size()
-	}
-
-	// If offset >= fileSize, download is complete
-	if startOffset >= d.fileSize {
-		if handlers != nil && handlers.DownloadCompleteHandler != nil {
-			handlers.DownloadCompleteHandler(MAIN_HASH, d.fileSize)
-		}
-		return nil
-	}
-
-	sshConn, sftpClient, err := d.connect(ctx)
+	sshConn, sftpClient, err := d.connect(opCtx)
 	if err != nil {
 		return classifySFTPError("sftp", "resume:connect", err)
 	}
 	defer sshConn.Close()
 	defer sftpClient.Close()
+	stopConn := context.AfterFunc(opCtx, func() { _ = sshConn.Close() })
+	defer stopConn()
 
 	remoteFile, err := sftpClient.Open(d.remotePath)
 	if err != nil {
 		return classifySFTPError("sftp", "resume:open", err)
 	}
-	defer remoteFile.Close()
-
-	if startOffset > 0 {
-		if _, err := remoteFile.Seek(startOffset, io.SeekStart); err != nil {
-			return NewPermanentError("sftp", "resume:seek", err)
+	remoteFinalized := false
+	defer func() {
+		if !remoteFinalized {
+			_ = remoteFile.Close()
 		}
-	}
+	}()
 
-	// Open local file for writing at offset — uses WarpOpenFile for cross-platform support
-	f, err := WarpOpenFile(d.savePath, os.O_WRONLY|os.O_CREATE, DefaultFileMode)
+	// Establish the remote stream before discarding recoverable local data.
+	// The confined resume opener rejects symlinks and non-regular targets.
+	f, err := openDownloadFileForResume(d.savePath)
 	if err != nil {
 		return NewPermanentError("sftp", "resume:localopen", err)
 	}
-	defer f.Close()
-
-	if startOffset > 0 {
-		if _, err := f.Seek(startOffset, io.SeekStart); err != nil {
-			return NewPermanentError("sftp", "resume:localseek", err)
+	localFinalized := false
+	defer func() {
+		if !localFinalized {
+			_ = f.Close()
 		}
+	}()
+	if err := f.Truncate(0); err != nil {
+		return NewPermanentError("sftp", "resume:truncate", err)
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return NewPermanentError("sftp", "resume:localseek", err)
+	}
+
+	if handlers != nil && handlers.SpawnPartHandler != nil {
+		handlers.SpawnPartHandler(d.hash, 0, d.fileSize-1)
 	}
 
 	// Progress-tracking copy
 	pw := &sftpProgressWriter{handlers: handlers, hash: d.hash}
-	_, err = io.Copy(io.MultiWriter(f, pw), remoteFile)
+	written, err := io.Copy(io.MultiWriter(f, pw), &contextReadCloser{
+		Context:    opCtx,
+		ReadCloser: remoteFile,
+	})
 	if err != nil {
 		return classifySFTPError("sftp", "resume:copy", err)
 	}
+	if written != d.fileSize {
+		return NewPermanentError("sftp", "resume:size",
+			fmt.Errorf("%w: expected %d bytes, received %d",
+				ErrDownloadSizeMismatch, d.fileSize, written))
+	}
+	if err := validatePhysicalFileSize(f, d.fileSize); err != nil {
+		return NewPermanentError("sftp", "resume:size", err)
+	}
+	finalizeErr := finalizeProtocolTransfer(f, remoteFile)
+	localFinalized = true
+	remoteFinalized = true
+	if finalizeErr != nil {
+		return NewPermanentError("sftp", "resume:finalize", finalizeErr)
+	}
+	if atomic.LoadInt32(&d.stopped) == 1 {
+		return nil
+	}
 
+	completed = true
 	if handlers != nil && handlers.DownloadCompleteHandler != nil {
 		handlers.DownloadCompleteHandler(MAIN_HASH, d.fileSize)
 	}

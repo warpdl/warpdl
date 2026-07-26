@@ -3,6 +3,7 @@ package warplib
 import (
 	"context"
 	"net/http"
+	"sync"
 )
 
 // Compile-time interface check: httpProtocolDownloader must implement ProtocolDownloader.
@@ -16,6 +17,46 @@ type httpProtocolDownloader struct {
 	rawURL string
 	opts   *DownloaderOpts
 	probed bool
+}
+
+// bindTransferContext links a single Download/Resume invocation to the
+// caller's context without replacing the downloader's configured lifetime.
+// The mutex is a completion barrier: once release returns, a late caller
+// cancellation cannot stop an already-returned transfer.
+func (h *httpProtocolDownloader) bindTransferContext(ctx context.Context) (func(), error) {
+	if ctx == nil {
+		return func() {}, nil
+	}
+	if err := ctx.Err(); err != nil {
+		h.inner.Stop()
+		return func() {}, err
+	}
+
+	var mu sync.Mutex
+	active := true
+	stopCancellation := context.AfterFunc(ctx, func() {
+		mu.Lock()
+		defer mu.Unlock()
+		if active {
+			h.inner.Stop()
+		}
+	})
+	release := func() {
+		mu.Lock()
+		active = false
+		mu.Unlock()
+		stopCancellation()
+	}
+
+	// Close the registration race between the first Err check and AfterFunc.
+	// Stop synchronously so a context cancelled in that window cannot let
+	// Start/Resume create files or initiate network work.
+	if err := ctx.Err(); err != nil {
+		release()
+		h.inner.Stop()
+		return func() {}, err
+	}
+	return release, nil
 }
 
 // newHTTPProtocolDownloader creates an httpProtocolDownloader ready for Probe.
@@ -37,8 +78,12 @@ func newHTTPProtocolDownloader(rawURL string, opts *DownloaderOpts, client *http
 // Probe fetches metadata from the HTTP server.
 // It creates the inner *Downloader (which calls fetchInfo internally via NewDownloader).
 // Sets probed=true on success.
-func (h *httpProtocolDownloader) Probe(_ context.Context) (ProbeResult, error) {
-	d, err := NewDownloader(h.client, h.rawURL, h.opts)
+func (h *httpProtocolDownloader) Probe(ctx context.Context) (ProbeResult, error) {
+	opts := DownloaderOpts{}
+	if h.opts != nil {
+		opts = *h.opts
+	}
+	d, err := NewDownloader(h.client, h.rawURL, &opts, withProbeContext(ctx))
 	if err != nil {
 		return ProbeResult{}, NewPermanentError("http", "probe", err)
 	}
@@ -54,10 +99,20 @@ func (h *httpProtocolDownloader) Probe(_ context.Context) (ProbeResult, error) {
 
 // Download starts a fresh download.
 // Probe must have been called first.
-func (h *httpProtocolDownloader) Download(_ context.Context, handlers *Handlers) error {
+func (h *httpProtocolDownloader) Download(ctx context.Context, handlers *Handlers) (err error) {
 	if !h.probed || h.inner == nil {
 		return ErrProbeRequired
 	}
+	release, err := h.bindTransferContext(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		release()
+		if err == nil && ctx != nil && ctx.Err() != nil {
+			err = ctx.Err()
+		}
+	}()
 	if handlers != nil {
 		h.inner.handlers = handlers
 	}
@@ -66,10 +121,20 @@ func (h *httpProtocolDownloader) Download(_ context.Context, handlers *Handlers)
 
 // Resume continues an interrupted download.
 // Probe must have been called first.
-func (h *httpProtocolDownloader) Resume(_ context.Context, parts map[int64]*ItemPart, handlers *Handlers) error {
+func (h *httpProtocolDownloader) Resume(ctx context.Context, parts map[int64]*ItemPart, handlers *Handlers) (err error) {
 	if !h.probed || h.inner == nil {
 		return ErrProbeRequired
 	}
+	release, err := h.bindTransferContext(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		release()
+		if err == nil && ctx != nil && ctx.Err() != nil {
+			err = ctx.Err()
+		}
+	}()
 	if handlers != nil {
 		h.inner.handlers = handlers
 	}

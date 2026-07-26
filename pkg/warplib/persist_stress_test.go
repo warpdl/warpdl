@@ -204,6 +204,30 @@ func TestPersisterStress_WriteFnReturnsError(t *testing.T) {
 	})
 }
 
+func TestPersister_RetriesFailedWriteWithoutNewMutation(t *testing.T) {
+	sentinel := errors.New("temporary disk error")
+	var calls atomic.Int32
+	p := newPersister(func() error {
+		if calls.Add(1) == 1 {
+			return sentinel
+		}
+		return nil
+	}, time.Hour, nil)
+	defer p.shutdown()
+
+	p.markDirty()
+	if err := p.flush(); !errors.Is(err, sentinel) {
+		t.Fatalf("first flush error = %v, want %v", err, sentinel)
+	}
+	// No markDirty call here: the failed flush itself must restore dirty.
+	if err := p.flush(); err != nil {
+		t.Fatalf("retry flush: %v", err)
+	}
+	if got := calls.Load(); got != 2 {
+		t.Fatalf("write calls = %d, want 2", got)
+	}
+}
+
 // TestPersisterStress_ZeroIntervalIsSafe ensures calling newPersister
 // with interval=0 falls back to the default and doesn't hot-loop.
 func TestPersisterStress_ZeroIntervalIsSafe(t *testing.T) {

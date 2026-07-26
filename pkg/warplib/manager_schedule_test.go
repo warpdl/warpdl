@@ -3,6 +3,7 @@ package warplib
 import (
 	"bytes"
 	"encoding/gob"
+	"sync"
 	"testing"
 	"time"
 )
@@ -92,6 +93,53 @@ func TestGetScheduledItems_EmptyManager(t *testing.T) {
 	scheduled := m.GetScheduledItems()
 	if len(scheduled) != 0 {
 		t.Fatalf("expected 0 scheduled items, got %d", len(scheduled))
+	}
+}
+
+func TestSetScheduleStateIfCancellationWinsTriggerRace(t *testing.T) {
+	m := newTestManager(t)
+	defer m.Close()
+
+	const hash = "trigger-cancel-race"
+	m.UpdateItem(&Item{
+		Hash:          hash,
+		Name:          "scheduled.bin",
+		Url:           "http://example.com/scheduled.bin",
+		TotalSize:     100,
+		ScheduleState: ScheduleStateScheduled,
+		Parts:         make(map[int64]*ItemPart),
+	})
+
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		<-start
+		_, _ = m.SetScheduleStateIf(
+			hash,
+			ScheduleStateTriggered,
+			ScheduleStateScheduled,
+			ScheduleStateMissed,
+		)
+	}()
+	go func() {
+		defer wg.Done()
+		<-start
+		_, _ = m.SetScheduleStateIf(
+			hash,
+			ScheduleStateCancelled,
+			ScheduleStateScheduled,
+			ScheduleStateMissed,
+			ScheduleStateTriggered,
+		)
+	}()
+	close(start)
+	wg.Wait()
+
+	info, ok := m.GetScheduleInfo(hash)
+	if !ok || info.State != ScheduleStateCancelled {
+		t.Fatalf("final schedule = (%+v, %v), want cancelled", info, ok)
 	}
 }
 

@@ -29,6 +29,13 @@ func TestSafeCopy_CopiesSQLiteFile(t *testing.T) {
 	if string(copiedContent) != string(content) {
 		t.Error("copied file content does not match source")
 	}
+	info, err := os.Stat(copiedPath)
+	if err != nil {
+		t.Fatalf("failed to stat copied file: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0600 {
+		t.Fatalf("copied cookie mode = %o, want 600", got)
+	}
 }
 
 func TestSafeCopy_CopiesWALAndSHM(t *testing.T) {

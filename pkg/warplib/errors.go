@@ -19,6 +19,21 @@ var (
 	ErrDownloadNotFound = errors.New("item you are trying to download is not found")
 	// ErrDownloadNotResumable is returned when attempting to resume a download that does not support resumption.
 	ErrDownloadNotResumable = errors.New("item you are trying to download is not resumable")
+	// ErrProxyCredentialsRequired reports that authenticated proxy userinfo
+	// was deliberately omitted from persistent state.
+	ErrProxyCredentialsRequired = errors.New("proxy credentials are required but are not persisted; provide the proxy again")
+	// ErrProtocolCredentialsRequired reports that FTP/SFTP userinfo was
+	// deliberately omitted from persistent state.
+	ErrProtocolCredentialsRequired = errors.New("protocol credentials are required but are not persisted")
+	// ErrReconstructionSuperseded reports that a newer reconstruction or
+	// cancellation invalidated a downloader while it was being probed.
+	ErrReconstructionSuperseded = errors.New("download reconstruction was superseded")
+	// ErrManagerShuttingDown reports that transfer admission has closed and no
+	// new probe, reconstruction, or transfer goroutine may be started.
+	ErrManagerShuttingDown = errors.New("download manager is shutting down")
+	// ErrRunLeaseUsed reports that a one-shot RunLease was already started or
+	// closed and therefore cannot admit another invocation.
+	ErrRunLeaseUsed = errors.New("download run lease was already used")
 
 	// ErrFlushHashNotFound is returned when attempting to flush a download item that does not exist.
 	ErrFlushHashNotFound = errors.New("item you are trying to flush is not found")
@@ -48,6 +63,14 @@ var (
 
 	// ErrFileTooLarge is returned when the file size exceeds the maximum allowed file size.
 	ErrFileTooLarge = errors.New("file size exceeds maximum allowed limit")
+
+	// ErrInvalidMaxConnections is returned when a caller supplies a negative
+	// HTTP connection limit. Zero retains the package default.
+	ErrInvalidMaxConnections = errors.New("maximum connections cannot be negative")
+
+	// ErrInvalidMaxSegments is returned when a caller supplies a negative
+	// segment limit. Zero retains the package default/unlimited behavior.
+	ErrInvalidMaxSegments = errors.New("maximum segments cannot be negative")
 
 	// ErrItemPartNil is returned when an ItemPart in the parts map is nil.
 	ErrItemPartNil = errors.New("item part is nil")

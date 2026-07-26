@@ -29,10 +29,24 @@ func (d *Dispatcher) process(buf []byte) error {
 	if !res.Ok {
 		return errors.New(res.Error)
 	}
+	if res.Update == nil {
+		return errors.New("success response is missing update")
+	}
 	d.mu.RLock()
-	handlers, ok := d.Handlers[res.Update.Type]
+	registered, ok := d.Handlers[res.Update.Type]
+	handlers := append([]Handler(nil), registered...)
 	d.mu.RUnlock()
 	if !ok {
+		if res.Update.Type == common.UPDATE_DOWNLOAD_ERROR {
+			var downloadErr common.DownloadErrorResponse
+			if err := json.Unmarshal(res.Update.Message, &downloadErr); err != nil {
+				return fmt.Errorf("failed to parse download error: %w", err)
+			}
+			if downloadErr.Error == "" {
+				return errors.New("download failed")
+			}
+			return errors.New(downloadErr.Error)
+		}
 		return fmt.Errorf("no handler for update (type=%s): %s", res.Update.Type, string(res.Update.Message))
 	}
 	for _, h := range handlers {

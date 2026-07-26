@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -304,8 +305,9 @@ func TestRPCDownloadAdd_InvalidURL(t *testing.T) {
 	handler, secret, cleanup, _, _ := newTestRPCHandlerWithManager(t)
 	defer cleanup()
 
+	const urlSecret = "rpc-url-password"
 	code, resp := rpcCall(t, handler, "download.add", map[string]any{
-		"url": "://invalid",
+		"url": "http://user:" + urlSecret + "@example.invalid/%zz",
 	}, secret)
 	if code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", code)
@@ -314,6 +316,10 @@ func TestRPCDownloadAdd_InvalidURL(t *testing.T) {
 	errCode := errObj["code"].(float64)
 	if errCode != float64(codeInvalidParams) {
 		t.Fatalf("expected error code %d, got %v", codeInvalidParams, errCode)
+	}
+	message, _ := errObj["message"].(string)
+	if strings.Contains(message, urlSecret) {
+		t.Fatalf("invalid URL response exposed userinfo secret: %q", message)
 	}
 }
 

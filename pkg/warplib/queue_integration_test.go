@@ -2,14 +2,29 @@ package warplib
 
 import (
 	"bytes"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 )
+
+func addPersistedRunnableQueueItem(manager *Manager, hash string) {
+	manager.UpdateItem(&Item{
+		Hash:       hash,
+		Name:       hash + ".bin",
+		Url:        "http://example.invalid/" + hash + ".bin",
+		TotalSize:  100,
+		Downloaded: 1,
+		Parts:      make(map[int64]*ItemPart),
+	})
+}
 
 // TestQueue_E2E verifies end-to-end queue behavior:
 // 1. Manager with maxConcurrent=2 correctly queues downloads
@@ -453,13 +468,16 @@ func newE2ETestServer(t *testing.T, content []byte) *httptest.Server {
 		}
 		chunk := content[start : end+1]
 		w.Header().Set("Content-Length", strconv.Itoa(len(chunk)))
+		w.Header().Set("Content-Range",
+			fmt.Sprintf("bytes %d-%d/%d", start, end, len(content)))
 		w.WriteHeader(http.StatusPartialContent)
 		_, _ = w.Write(chunk)
 	}))
 }
 
 // TestQueue_Persistence verifies queue state survives Manager restart.
-// Waiting items should be restored when Manager is reopened and queue is re-enabled.
+// Prior active and waiting items are restored and available slots are
+// restarted after the queue callback is installed.
 func TestQueue_Persistence(t *testing.T) {
 	base := t.TempDir()
 	if err := SetConfigDir(base); err != nil {
@@ -483,6 +501,15 @@ func TestQueue_Persistence(t *testing.T) {
 	}
 
 	// Add items directly to queue (simulating downloads added)
+	for _, hash := range []string{
+		"active-1",
+		"active-2",
+		"waiting-low",
+		"waiting-high",
+		"waiting-normal",
+	} {
+		addPersistedRunnableQueueItem(m1, hash)
+	}
 	queue1.Add("active-1", PriorityNormal)       // becomes active (slot 1)
 	queue1.Add("active-2", PriorityNormal)       // becomes active (slot 2)
 	queue1.Add("waiting-low", PriorityLow)       // waiting (low priority)
@@ -526,6 +553,9 @@ func TestQueue_Persistence(t *testing.T) {
 	if len(m2.queueState.Waiting) != 3 {
 		t.Fatalf("phase 2: expected 3 waiting in state, got %d", len(m2.queueState.Waiting))
 	}
+	if len(m2.queueState.Active) != 2 {
+		t.Fatalf("phase 2: expected 2 active in state, got %d", len(m2.queueState.Active))
+	}
 
 	// Verify priority order preserved: high, normal, low
 	expectedOrder := []struct {
@@ -555,27 +585,111 @@ func TestQueue_Persistence(t *testing.T) {
 		t.Fatal("queue2 should be initialized")
 	}
 
-	// Verify restored queue state
-	// Active should be 0 (active items not persisted, need to be re-queued)
-	if got := queue2.ActiveCount(); got != 0 {
-		t.Fatalf("phase 2: expected 0 active (restored), got %d", got)
+	// Restored work starts immediately because the persisted queue was not
+	// paused and SetMaxConcurrentDownloads has now installed its callback.
+	if got := queue2.ActiveCount(); got != 2 {
+		t.Fatalf("phase 2: expected 2 active (restored), got %d", got)
 	}
-	// Waiting should be restored
 	if got := queue2.WaitingCount(); got != 3 {
 		t.Fatalf("phase 2: expected 3 waiting (restored), got %d", got)
 	}
 
-	// Verify priority order works after restore
-	// Simulate completion to trigger auto-start
-	queue2.mu.Lock()
-	queue2.active["dummy"] = struct{}{}
-	queue2.mu.Unlock()
-	queue2.OnComplete("dummy")
-
-	// High priority should start first
-	if len(startedHashes2) != 1 || startedHashes2[0] != "waiting-high" {
-		t.Fatalf("phase 2: expected waiting-high to start first, got %v", startedHashes2)
+	// High priority should start first during restoration.
+	if len(startedHashes2) != 2 || startedHashes2[0] != "waiting-high" {
+		t.Fatalf("phase 2: expected two starts with waiting-high first, got %v", startedHashes2)
 	}
+}
+
+func TestQueuePersistenceRestoresUnlimitedAndPausedState(t *testing.T) {
+	t.Run("changed to unlimited starts every persisted entry", func(t *testing.T) {
+		base := t.TempDir()
+		if err := SetConfigDir(base); err != nil {
+			t.Fatalf("SetConfigDir: %v", err)
+		}
+		first, err := InitManager()
+		if err != nil {
+			t.Fatalf("InitManager first: %v", err)
+		}
+		first.SetMaxConcurrentDownloads(1, nil)
+		addPersistedRunnableQueueItem(first, "previously-active")
+		addPersistedRunnableQueueItem(first, "previously-waiting")
+		first.GetQueue().Add("previously-active", PriorityNormal)
+		first.GetQueue().Add("previously-waiting", PriorityHigh)
+		if err := first.Close(); err != nil {
+			t.Fatalf("close first: %v", err)
+		}
+
+		second, err := InitManager()
+		if err != nil {
+			t.Fatalf("InitManager second: %v", err)
+		}
+		defer second.Close()
+		var mu sync.Mutex
+		var started []string
+		second.SetMaxConcurrentDownloads(0, func(hash string) {
+			mu.Lock()
+			started = append(started, hash)
+			mu.Unlock()
+		})
+		if second.GetQueue() == nil || second.GetQueue().MaxConcurrent() != 0 {
+			t.Fatal("maxConcurrent=0 did not retain an unlimited durable queue")
+		}
+		mu.Lock()
+		got := append([]string(nil), started...)
+		mu.Unlock()
+		sort.Strings(got)
+		if !reflect.DeepEqual(got, []string{"previously-active", "previously-waiting"}) {
+			t.Fatalf("unlimited restart started %v", got)
+		}
+		if second.GetQueue().WaitingCount() != 0 || second.GetQueue().ActiveCount() != 2 {
+			t.Fatalf("unlimited queue state: active=%d waiting=%d",
+				second.GetQueue().ActiveCount(), second.GetQueue().WaitingCount())
+		}
+	})
+
+	t.Run("paused unlimited queue waits for resume", func(t *testing.T) {
+		base := t.TempDir()
+		if err := SetConfigDir(base); err != nil {
+			t.Fatalf("SetConfigDir: %v", err)
+		}
+		first, err := InitManager()
+		if err != nil {
+			t.Fatalf("InitManager first: %v", err)
+		}
+		first.SetMaxConcurrentDownloads(1, nil)
+		first.GetQueue().Pause()
+		addPersistedRunnableQueueItem(first, "one")
+		addPersistedRunnableQueueItem(first, "two")
+		first.GetQueue().Add("one", PriorityNormal)
+		first.GetQueue().Add("two", PriorityNormal)
+		if err := first.Close(); err != nil {
+			t.Fatalf("close first: %v", err)
+		}
+
+		second, err := InitManager()
+		if err != nil {
+			t.Fatalf("InitManager second: %v", err)
+		}
+		defer second.Close()
+		started := make(chan string, 2)
+		second.SetMaxConcurrentDownloads(0, func(hash string) { started <- hash })
+		if !second.GetQueue().IsPaused() {
+			t.Fatal("paused state was lost when changing to unlimited")
+		}
+		select {
+		case hash := <-started:
+			t.Fatalf("paused queue started %s", hash)
+		default:
+		}
+		second.GetQueue().Resume()
+		for range 2 {
+			select {
+			case <-started:
+			case <-time.After(time.Second):
+				t.Fatal("unlimited queue did not drain after resume")
+			}
+		}
+	})
 }
 
 // TestQueue_Persistence_BackwardCompat verifies old format (no queue) can still be loaded.

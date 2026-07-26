@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
@@ -599,6 +600,46 @@ func TestSFTPDownloadIntegration(t *testing.T) {
 	}
 }
 
+func TestSFTPDownloadRejectsPhysicalSizeMutation(t *testing.T) {
+	testContent := bytes.Repeat([]byte{0xAA}, 4096)
+	mock := startMockSFTPServer(t,
+		[]testFileEntry{{path: "files/mutated.bin", content: testContent}},
+		withPasswordAuth("intuser", "intpass"),
+	)
+	restoreKH := setupTestKnownHosts(t, mock)
+	defer restoreKH()
+
+	pd, err := newSFTPProtocolDownloader(
+		mock.sftpURL("intuser", "intpass", "files/mutated.bin"),
+		&DownloaderOpts{DownloadDirectory: t.TempDir()},
+	)
+	if err != nil {
+		t.Fatalf("factory: %v", err)
+	}
+	probe, err := pd.Probe(context.Background())
+	if err != nil {
+		t.Fatalf("probe: %v", err)
+	}
+
+	progress, appendErr := appendTailOnFinalProgress(pd.GetSavePath(), probe.ContentLength)
+	var completeCalls atomic.Int32
+	err = pd.Download(context.Background(), &Handlers{
+		DownloadProgressHandler: progress,
+		DownloadCompleteHandler: func(string, int64) {
+			completeCalls.Add(1)
+		},
+	})
+	if callbackErr := appendErr(); callbackErr != nil {
+		t.Fatalf("append corrupting tail: %v", callbackErr)
+	}
+	if !errors.Is(err, ErrDownloadSizeMismatch) {
+		t.Fatalf("Download error = %v, want %v", err, ErrDownloadSizeMismatch)
+	}
+	if got := completeCalls.Load(); got != 0 {
+		t.Fatalf("DownloadComplete calls = %d, want 0", got)
+	}
+}
+
 func TestSFTPPortParsing(t *testing.T) {
 	t.Run("custom port in URL", func(t *testing.T) {
 		pd, err := newSFTPProtocolDownloader("sftp://user@host:2222/file.iso", nil)
@@ -893,9 +934,84 @@ func TestSFTPStopLifecycle(t *testing.T) {
 	if !pd.IsStopped() {
 		t.Error("should be stopped after Stop()")
 	}
+	d := pd.(*sftpProtocolDownloader)
+	d.probed = true
+	var stoppedCalls atomic.Int32
+	handlers := &Handlers{
+		DownloadStoppedHandler: func() { stoppedCalls.Add(1) },
+	}
+	if err := d.Download(context.Background(), handlers); err != nil {
+		t.Fatalf("Download when stopped: %v", err)
+	}
+	if err := d.Resume(context.Background(), nil, handlers); err != nil {
+		t.Fatalf("Resume when stopped: %v", err)
+	}
+	if got := stoppedCalls.Load(); got != 1 {
+		t.Fatalf("DownloadStopped calls = %d, want exactly 1", got)
+	}
 
 	if err := pd.Close(); err != nil {
 		t.Errorf("Close should not error: %v", err)
+	}
+}
+
+func TestSFTPStopCancelsBlockedDownload(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen: %v", err)
+	}
+	defer listener.Close()
+	accepted := make(chan struct{})
+	releaseServer := make(chan struct{})
+	defer close(releaseServer)
+	go func() {
+		conn, acceptErr := listener.Accept()
+		if acceptErr != nil {
+			return
+		}
+		defer conn.Close()
+		close(accepted)
+		<-releaseServer
+	}()
+
+	pd, err := newSFTPProtocolDownloader(
+		fmt.Sprintf("sftp://user:pass@%s/file.bin", listener.Addr()),
+		&DownloaderOpts{DownloadDirectory: t.TempDir()},
+	)
+	if err != nil {
+		t.Fatalf("factory: %v", err)
+	}
+	d := pd.(*sftpProtocolDownloader)
+	d.probed = true
+	d.fileSize = 10
+	var stoppedCalls, completeCalls atomic.Int32
+	handlers := &Handlers{
+		DownloadStoppedHandler:  func() { stoppedCalls.Add(1) },
+		DownloadCompleteHandler: func(string, int64) { completeCalls.Add(1) },
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- d.Download(context.Background(), handlers)
+	}()
+	select {
+	case <-accepted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("SFTP connection was not established")
+	}
+	d.Stop()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Download after Stop = %v, want nil", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Stop did not unblock SFTP download")
+	}
+	if got := stoppedCalls.Load(); got != 1 {
+		t.Fatalf("DownloadStopped calls = %d, want 1", got)
+	}
+	if got := completeCalls.Load(); got != 0 {
+		t.Fatalf("DownloadComplete calls = %d, want 0", got)
 	}
 }
 
@@ -930,7 +1046,7 @@ func TestSFTPResumeFlow(t *testing.T) {
 	restoreKH := setupTestKnownHosts(t, mock)
 	defer restoreKH()
 
-	t.Run("resume from partial file", func(t *testing.T) {
+	t.Run("same-size replacement restarts from zero", func(t *testing.T) {
 		dlDir := t.TempDir()
 		rawURL := mock.sftpURL("resuser", "respass", "data/resume.bin")
 		pd, err := newSFTPProtocolDownloader(rawURL, &DownloaderOpts{
@@ -945,8 +1061,9 @@ func TestSFTPResumeFlow(t *testing.T) {
 			t.Fatalf("probe: %v", err)
 		}
 
-		// Write partial file (first 512 bytes)
-		partialContent := testContent[:512]
+		// This prefix belongs to an older remote object with the same total
+		// size. A seek-based resume would silently create a mixed file.
+		partialContent := bytes.Repeat([]byte{0xEE}, 512)
 		if err := os.WriteFile(d.savePath, partialContent, 0644); err != nil {
 			t.Fatalf("write partial: %v", err)
 		}
@@ -975,6 +1092,76 @@ func TestSFTPResumeFlow(t *testing.T) {
 
 		if atomic.LoadInt32(&completeCalls) != 1 {
 			t.Errorf("completeCalls = %d, want 1", completeCalls)
+		}
+	})
+
+	t.Run("incomplete state never trusts an exact local size", func(t *testing.T) {
+		dlDir := t.TempDir()
+		rawURL := mock.sftpURL("resuser", "respass", "data/resume.bin")
+		pd, err := newSFTPProtocolDownloader(rawURL, &DownloaderOpts{
+			DownloadDirectory: dlDir,
+		})
+		if err != nil {
+			t.Fatalf("factory: %v", err)
+		}
+		d := pd.(*sftpProtocolDownloader)
+		if _, err := d.Probe(context.Background()); err != nil {
+			t.Fatalf("probe: %v", err)
+		}
+		if err := os.WriteFile(d.savePath, bytes.Repeat([]byte{0xEE}, 1024), DefaultFileMode); err != nil {
+			t.Fatalf("write old representation: %v", err)
+		}
+
+		parts := map[int64]*ItemPart{
+			0: {Hash: "part0", FinalOffset: 1023, Compiled: false},
+		}
+		if err := d.Resume(context.Background(), parts, nil); err != nil {
+			t.Fatalf("resume: %v", err)
+		}
+		got, err := os.ReadFile(d.savePath)
+		if err != nil {
+			t.Fatalf("read resumed file: %v", err)
+		}
+		if !bytes.Equal(got, testContent) {
+			t.Fatal("exact-size local file was trusted instead of redownloaded")
+		}
+	})
+
+	t.Run("rejects physical size mutation", func(t *testing.T) {
+		dlDir := t.TempDir()
+		rawURL := mock.sftpURL("resuser", "respass", "data/resume.bin")
+		pd, err := newSFTPProtocolDownloader(rawURL, &DownloaderOpts{
+			DownloadDirectory: dlDir,
+		})
+		if err != nil {
+			t.Fatalf("factory: %v", err)
+		}
+		probe, err := pd.Probe(context.Background())
+		if err != nil {
+			t.Fatalf("probe: %v", err)
+		}
+		if err := os.WriteFile(pd.GetSavePath(), []byte("partial"), DefaultFileMode); err != nil {
+			t.Fatalf("write partial file: %v", err)
+		}
+
+		progress, appendErr := appendTailOnFinalProgress(pd.GetSavePath(), probe.ContentLength)
+		var completeCalls atomic.Int32
+		err = pd.Resume(context.Background(), map[int64]*ItemPart{
+			0: {Hash: "part0", FinalOffset: probe.ContentLength - 1},
+		}, &Handlers{
+			DownloadProgressHandler: progress,
+			DownloadCompleteHandler: func(string, int64) {
+				completeCalls.Add(1)
+			},
+		})
+		if callbackErr := appendErr(); callbackErr != nil {
+			t.Fatalf("append corrupting tail: %v", callbackErr)
+		}
+		if !errors.Is(err, ErrDownloadSizeMismatch) {
+			t.Fatalf("Resume error = %v, want %v", err, ErrDownloadSizeMismatch)
+		}
+		if got := completeCalls.Load(); got != 0 {
+			t.Fatalf("DownloadComplete calls = %d, want 0", got)
 		}
 	})
 
@@ -1257,6 +1444,14 @@ func TestResumeDownloadSFTP(t *testing.T) {
 		// Verify it's an SFTP downloader (not HTTP adapter)
 		if _, ok := dAlloc.(*sftpProtocolDownloader); !ok {
 			t.Errorf("expected *sftpProtocolDownloader, got %T", dAlloc)
+		}
+		restartSnapshot := resumedItem.Snapshot()
+		if restartSnapshot.Downloaded != 0 {
+			t.Errorf("Downloaded after conservative reconstruction = %d, want 0", restartSnapshot.Downloaded)
+		}
+		if len(restartSnapshot.Parts) != 1 || restartSnapshot.Parts[0] == nil ||
+			restartSnapshot.Parts[0].Compiled {
+			t.Errorf("restart part state = %#v, want one noncompiled marker", restartSnapshot.Parts)
 		}
 	})
 

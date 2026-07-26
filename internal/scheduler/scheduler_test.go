@@ -223,9 +223,9 @@ func TestLoadSchedules_MissedItems(t *testing.T) {
 	if len(future) != 0 {
 		t.Fatalf("expected 0 future events, got %d", len(future))
 	}
-	for _, item := range missed {
-		if item.ScheduleState != "missed" {
-			t.Errorf("expected ScheduleState 'missed', got %q for item %s", item.ScheduleState, item.Hash)
+	for hash, item := range items {
+		if item.ScheduleState != warplib.ScheduleStateScheduled {
+			t.Errorf("LoadSchedules mutated state to %q for item %s", item.ScheduleState, hash)
 		}
 	}
 }
@@ -262,8 +262,8 @@ func TestLoadSchedules_MixedItems(t *testing.T) {
 	if len(missed) != 1 {
 		t.Fatalf("expected 1 missed item, got %d", len(missed))
 	}
-	if missed[0].Hash != "past1" {
-		t.Errorf("expected missed item to be 'past1', got %q", missed[0].Hash)
+	if missed[0].ItemHash != "past1" {
+		t.Errorf("expected missed item to be 'past1', got %q", missed[0].ItemHash)
 	}
 	if len(future) != 1 {
 		t.Fatalf("expected 1 future event, got %d", len(future))
@@ -352,15 +352,19 @@ func TestLoadSchedules_MissedRecurring_ComputesNextOccurrence(t *testing.T) {
 
 	missed, future := LoadSchedules(items, now)
 
-	// Should be marked missed for immediate trigger
+	// It is returned for an immediate catch-up trigger without mutating the
+	// manager-owned Item; daemon orchestration persists the next recurrence.
 	if len(missed) != 1 {
 		t.Fatalf("expected 1 missed item, got %d", len(missed))
 	}
-	if missed[0].Hash != "recurring1" {
-		t.Errorf("expected missed item 'recurring1', got %q", missed[0].Hash)
+	if missed[0].ItemHash != "recurring1" {
+		t.Errorf("expected missed item 'recurring1', got %q", missed[0].ItemHash)
 	}
-	if missed[0].ScheduleState != "missed" {
-		t.Errorf("expected ScheduleState 'missed', got %q", missed[0].ScheduleState)
+	originalScheduledAt := now.Add(-1 * time.Hour)
+	original := items["recurring1"]
+	if original.ScheduleState != warplib.ScheduleStateScheduled ||
+		!original.ScheduledAt.Equal(originalScheduledAt) {
+		t.Fatalf("LoadSchedules mutated recurring item: %+v", original)
 	}
 
 	// AND a future event computed from the cron expression
@@ -376,6 +380,9 @@ func TestLoadSchedules_MissedRecurring_ComputesNextOccurrence(t *testing.T) {
 	// Next occurrence must be after now
 	if !future[0].TriggerAt.After(now) {
 		t.Errorf("expected future TriggerAt to be after now (%v), got %v", now, future[0].TriggerAt)
+	}
+	if !missed[0].TriggerAt.Equal(originalScheduledAt) {
+		t.Errorf("missed TriggerAt = %v, want original %v", missed[0].TriggerAt, originalScheduledAt)
 	}
 }
 

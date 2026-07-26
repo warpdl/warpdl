@@ -22,18 +22,18 @@ func withInvalidDaemonURI(t *testing.T) func() {
 }
 
 // TestList_NewClientError covers list()'s new_client error branch: an
-// invalid daemon URI makes getClient() fail, list() reports it and
-// returns nil.
+// invalid daemon URI makes getClient() fail and list propagates a non-zero
+// CLI status.
 func TestList_NewClientError(t *testing.T) {
 	defer withInvalidDaemonURI(t)()
 
 	app := cli.NewApp()
 	ctx := newContext(app, nil, "list")
+	var gotErr error
 	stdout, stderr := captureOutput(func() {
-		if err := list(ctx); err != nil {
-			t.Errorf("list: unexpected error: %v", err)
-		}
+		gotErr = list(ctx)
 	})
+	assertExitError(t, gotErr)
 	if !strings.Contains(stdout+stderr, "new_client") {
 		t.Fatalf("expected new_client error, got:\nstdout=%s\nstderr=%s", stdout, stderr)
 	}
@@ -46,11 +46,11 @@ func TestQueuePause_NewClientError(t *testing.T) {
 
 	app := cli.NewApp()
 	ctx := newContext(app, nil, "pause")
+	var gotErr error
 	stdout, stderr := captureOutput(func() {
-		if err := queuePauseAction(ctx); err != nil {
-			t.Errorf("queuePauseAction: unexpected error: %v", err)
-		}
+		gotErr = queuePauseAction(ctx)
 	})
+	assertExitError(t, gotErr)
 	if !strings.Contains(stdout+stderr, "new_client") {
 		t.Fatalf("expected new_client error, got:\nstdout=%s\nstderr=%s", stdout, stderr)
 	}
@@ -63,11 +63,11 @@ func TestQueueResume_NewClientError(t *testing.T) {
 
 	app := cli.NewApp()
 	ctx := newContext(app, nil, "resume")
+	var gotErr error
 	stdout, stderr := captureOutput(func() {
-		if err := queueResumeAction(ctx); err != nil {
-			t.Errorf("queueResumeAction: unexpected error: %v", err)
-		}
+		gotErr = queueResumeAction(ctx)
 	})
+	assertExitError(t, gotErr)
 	if !strings.Contains(stdout+stderr, "new_client") {
 		t.Fatalf("expected new_client error, got:\nstdout=%s\nstderr=%s", stdout, stderr)
 	}
@@ -80,12 +80,12 @@ func TestQueueMove_NewClientError(t *testing.T) {
 	defer withInvalidDaemonURI(t)()
 
 	app := cli.NewApp()
-	ctx := newContext(app, []string{"somehash", "0"}, "move")
+	ctx := newContext(app, []string{"somehash", "1"}, "move")
+	var gotErr error
 	stdout, stderr := captureOutput(func() {
-		if err := queueMoveAction(ctx); err != nil {
-			t.Errorf("queueMoveAction: unexpected error: %v", err)
-		}
+		gotErr = queueMoveAction(ctx)
 	})
+	assertExitError(t, gotErr)
 	if !strings.Contains(stdout+stderr, "new_client") {
 		t.Fatalf("expected new_client error, got:\nstdout=%s\nstderr=%s", stdout, stderr)
 	}
@@ -97,11 +97,11 @@ func TestAttach_NewClientError(t *testing.T) {
 
 	app := cli.NewApp()
 	ctx := newContext(app, []string{"somehash"}, "attach")
+	var gotErr error
 	stdout, stderr := captureOutput(func() {
-		if err := attach(ctx); err != nil {
-			t.Errorf("attach: unexpected error: %v", err)
-		}
+		gotErr = attach(ctx)
 	})
+	assertExitError(t, gotErr)
 	if !strings.Contains(stdout+stderr, "new_client") {
 		t.Fatalf("expected new_client error, got:\nstdout=%s\nstderr=%s", stdout, stderr)
 	}
@@ -113,11 +113,11 @@ func TestStop_NewClientError(t *testing.T) {
 
 	app := cli.NewApp()
 	ctx := newContext(app, []string{"somehash"}, "stop")
+	var gotErr error
 	stdout, stderr := captureOutput(func() {
-		if err := stop(ctx); err != nil {
-			t.Errorf("stop: unexpected error: %v", err)
-		}
+		gotErr = stop(ctx)
 	})
+	assertExitError(t, gotErr)
 	if !strings.Contains(stdout+stderr, "new_client") {
 		t.Fatalf("expected new_client error, got:\nstdout=%s\nstderr=%s", stdout, stderr)
 	}
@@ -153,6 +153,34 @@ func TestResume_NewClientError(t *testing.T) {
 	}
 }
 
+func TestValidateTransferLimitsRejectsNegativeAndOverflow(t *testing.T) {
+	oldMaxParts, oldMaxConns := maxParts, maxConns
+	oldTimeout, oldMaxRetries, oldRetryDelay := timeout, maxRetries, retryDelay
+	defer func() {
+		maxParts, maxConns = oldMaxParts, oldMaxConns
+		timeout, maxRetries, retryDelay = oldTimeout, oldMaxRetries, oldRetryDelay
+	}()
+
+	maxParts, maxConns = 1, 1
+	timeout, maxRetries, retryDelay = 1, 1, 1
+	if err := validateTransferLimits(); err != nil {
+		t.Fatalf("valid limits rejected: %v", err)
+	}
+
+	maxConns = -1
+	if err := validateTransferLimits(); err == nil {
+		t.Fatal("expected negative connection count to be rejected")
+	}
+
+	overflow := maxInt32Value + 1
+	if int64(int(overflow)) == overflow {
+		maxConns = int(overflow)
+		if err := validateTransferLimits(); err == nil {
+			t.Fatal("expected overflowing connection count to be rejected")
+		}
+	}
+}
+
 // TestIsBatchSubmissionCompleteInManager_ZeroTotal covers the total <= 0
 // guard in isBatchSubmissionCompleteInManager. The daemon's list reports
 // the matching download with TotalSize 0 (unknown size), which the
@@ -176,6 +204,29 @@ func TestIsBatchSubmissionCompleteInManager_ZeroTotal(t *testing.T) {
 	sub := BatchSubmission{DownloadID: "zero-total", SavePath: filepath.Join(t.TempDir(), "absent.bin")}
 	if isBatchSubmissionCompleteInManager(sub) {
 		t.Fatal("expected false for zero-total manager item")
+	}
+}
+
+func TestIsBatchSubmissionCompleteInManager_RejectsByteCountWithoutTerminalState(t *testing.T) {
+	socketPath := getShortSocketPath(t)
+	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
+	listOverride = []*warplib.Item{{
+		Hash:       "integrity-failed",
+		Name:       "f.bin",
+		TotalSize:  10,
+		Downloaded: 10,
+		DateAdded:  time.Now(),
+		Parts: map[int64]*warplib.ItemPart{
+			0: {Hash: "part", FinalOffset: 9, Compiled: true},
+		},
+	}}
+	defer func() { listOverride = nil }()
+	srv := startFakeServer(t, socketPath)
+	defer srv.close()
+
+	sub := BatchSubmission{DownloadID: "integrity-failed"}
+	if isBatchSubmissionCompleteInManager(sub) {
+		t.Fatal("matching byte count with live part state was treated as successful")
 	}
 }
 

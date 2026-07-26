@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"sync"
 	"time"
 
 	"github.com/warpdl/warpdl/common"
@@ -14,109 +15,70 @@ import (
 	"github.com/warpdl/warpdl/pkg/warplib"
 )
 
-func getHandler(pool *server.Pool, uidPtr *string, stopDownloadPtr *func() error, isStoppedPtr *func() bool) *warplib.Handlers {
-	return &warplib.Handlers{
-		ErrorHandler: func(_ string, err error) {
-			if errors.Is(err, context.Canceled) && *isStoppedPtr != nil && (*isStoppedPtr)() {
-				return
-			}
-			uid := *uidPtr
-			pool.Broadcast(uid, server.InitError(err))
-			pool.WriteError(uid, server.ErrorTypeCritical, err.Error())
-			pool.StopDownload(uid)
-			(*stopDownloadPtr)()
-		},
-		ResumeProgressHandler: func(hash string, nread int) {
-			uid := *uidPtr
-			pool.Broadcast(uid, server.MakeResult(common.UPDATE_DOWNLOADING, &common.DownloadingResponse{
-				DownloadId: uid,
-				Action:     common.ResumeProgress,
-				Value:      int64(nread),
-				Hash:       hash,
-			}))
-		},
-		DownloadProgressHandler: func(hash string, nread int) {
-			uid := *uidPtr
-			pool.Broadcast(uid, server.MakeResult(common.UPDATE_DOWNLOADING, &common.DownloadingResponse{
-				DownloadId: uid,
-				Action:     common.DownloadProgress,
-				Value:      int64(nread),
-				Hash:       hash,
-			}))
-		},
-		DownloadCompleteHandler: func(hash string, tread int64) {
-			uid := *uidPtr
-			pool.Broadcast(uid, server.MakeResult(common.UPDATE_DOWNLOADING, &common.DownloadingResponse{
-				DownloadId: uid,
-				Action:     common.DownloadComplete,
-				Value:      tread,
-				Hash:       hash,
-			}))
-			pool.StopDownload(uid)
-		},
-		DownloadStoppedHandler: func() {
-			uid := *uidPtr
-			pool.Broadcast(uid, server.MakeResult(common.UPDATE_DOWNLOADING, &common.DownloadingResponse{
-				DownloadId: uid,
-				Action:     common.DownloadStopped,
-			}))
-			pool.StopDownload(uid)
-		},
-		CompileStartHandler: func(hash string) {
-			uid := *uidPtr
-			pool.Broadcast(uid, server.MakeResult(common.UPDATE_DOWNLOADING, &common.DownloadingResponse{
-				DownloadId: uid,
-				Action:     common.CompileStart,
-				Hash:       hash,
-			}))
-		},
-		CompileProgressHandler: func(hash string, nread int) {
-			uid := *uidPtr
-			pool.Broadcast(uid, server.MakeResult(common.UPDATE_DOWNLOADING, &common.DownloadingResponse{
-				DownloadId: uid,
-				Action:     common.CompileProgress,
-				Value:      int64(nread),
-				Hash:       hash,
-			}))
-		},
-		CompileCompleteHandler: func(hash string, tread int64) {
-			uid := *uidPtr
-			pool.Broadcast(uid, server.MakeResult(common.UPDATE_DOWNLOADING, &common.DownloadingResponse{
-				DownloadId: uid,
-				Action:     common.CompileComplete,
-				Value:      tread,
-				Hash:       hash,
-			}))
-		},
-	}
-}
-
-func resumeItem(i *warplib.Item) error {
-	if i.Downloaded >= i.TotalSize {
+func resumeLease(
+	ctx context.Context,
+	i *warplib.Item,
+	lease *warplib.ReconstructionLease,
+) error {
+	snapshot := i.Snapshot()
+	if snapshot.Downloaded >= snapshot.TotalSize {
 		return nil
 	}
-	return i.Resume()
+	return lease.ResumeContext(ctx)
 }
 
-func reportAsyncResumeError(pool *server.Pool, item *warplib.Item, err error) {
-	if err == nil || item == nil {
-		return
+func closeReconstructionLease(lease *warplib.ReconstructionLease) error {
+	if lease == nil {
+		return nil
 	}
-	uid := item.Hash
-	pool.Broadcast(uid, server.InitError(err))
-	pool.WriteError(uid, server.ErrorTypeCritical, err.Error())
-	pool.StopDownload(uid)
-	_ = item.CloseDownloader()
+	_, err := lease.Close()
+	return err
 }
 
-var __stop = func() error { return nil }
+func (s *Api) reimportCookieHeader(snapshot warplib.ItemSnapshot, operation string) warplib.Headers {
+	if snapshot.CookieSourcePath == "" {
+		return nil
+	}
+	parsedURL, err := url.Parse(snapshot.URL)
+	if err != nil {
+		s.log.Printf("warning: failed to parse URL for cookie re-import on %s: %s\n", operation, err.Error())
+		return nil
+	}
+
+	domain := parsedURL.Hostname()
+	var (
+		importedCookies []cookies.Cookie
+		source          *cookies.CookieSource
+	)
+	if snapshot.CookieSourcePath == "auto" {
+		importedCookies, source, err = cookies.DetectBrowserCookies(domain)
+	} else {
+		importedCookies, source, err = cookies.ImportCookies(snapshot.CookieSourcePath, domain)
+	}
+	if err != nil {
+		s.log.Printf("warning: failed to re-import cookies on %s: %s\n", operation, err.Error())
+		return nil
+	}
+	if len(importedCookies) == 0 {
+		return nil
+	}
+
+	sourceName := snapshot.CookieSourcePath
+	if source != nil {
+		sourceName = source.Browser
+	}
+	s.log.Printf("Re-imported %d cookies for %s from %s\n", len(importedCookies), domain, sourceName)
+	return warplib.Headers{{
+		Key:   "Cookie",
+		Value: cookies.BuildCookieHeader(importedCookies),
+	}}
+}
 
 func (s *Api) resumeHandler(sconn *server.SyncConn, pool *server.Pool, body json.RawMessage) (common.UpdateType, any, error) {
 	var m common.ResumeParams
 	if err := json.Unmarshal(body, &m); err != nil {
 		return common.UPDATE_RESUME, nil, err
 	}
-
 	// Determine which client to use based on proxy setting
 	rsClient := s.client
 	if m.Proxy != "" {
@@ -160,96 +122,145 @@ func (s *Api) resumeHandler(sconn *server.SyncConn, pool *server.Pool, body json
 		}
 	}
 
-	var (
-		item         *warplib.Item
-		hash         = &m.DownloadId
-		stopDownload = &__stop
-		isStopped    = func() bool { return false }
+	transferCtx := s.manager.TransferContext()
+	generation, reserved := pool.BeginDownload(m.DownloadId, sconn)
+	if !reserved {
+		return common.UPDATE_RESUME, nil, errors.New("download is already running or still stopping")
+	}
+	admitted := false
+	var childGeneration *server.TransferGeneration
+	defer func() {
+		if !admitted {
+			generation.Abort()
+			if childGeneration != nil {
+				childGeneration.Abort()
+			}
+		}
+	}()
+
+	var item *warplib.Item
+	var parentLease *warplib.ReconstructionLease
+	var transientHeaders warplib.Headers
+	if existing := s.manager.GetItem(m.DownloadId); existing != nil {
+		transientHeaders = s.reimportCookieHeader(existing.Snapshot(), "resume")
+	}
+	parentHandlers := managedTransferHandlers(
+		func() *server.TransferGeneration { return generation },
+		func() bool { return item != nil && item.IsStopped() },
+		transferCtx,
 	)
-	item, err = s.manager.ResumeDownload(rsClient, m.DownloadId, &warplib.ResumeDownloadOpts{
-		Headers:        m.Headers,
-		ForceParts:     m.ForceParts,
-		MaxConnections: m.MaxConnections,
-		MaxSegments:    m.MaxSegments,
-		Handlers:       getHandler(pool, hash, stopDownload, &isStopped),
-		RetryConfig:    retryConfig,
-		RequestTimeout: requestTimeout,
-		SpeedLimit:     speedLimit,
+	item, parentLease, err = s.manager.ResumeDownloadWithLease(rsClient, m.DownloadId, &warplib.ResumeDownloadOpts{
+		Headers:          m.Headers,
+		TransientHeaders: transientHeaders,
+		ForceParts:       m.ForceParts,
+		MaxConnections:   m.MaxConnections,
+		MaxSegments:      m.MaxSegments,
+		Handlers:         parentHandlers,
+		RetryConfig:      retryConfig,
+		RequestTimeout:   requestTimeout,
+		SpeedLimit:       speedLimit,
+		ProxyURL:         m.Proxy,
 	})
 	if err != nil {
-		return common.UPDATE_RESUME, nil, err
+		return common.UPDATE_RESUME, nil, errors.Join(
+			err,
+			closeReconstructionLease(parentLease),
+		)
 	}
-	// Re-import cookies on resume if CookieSourcePath is set
-	if item.CookieSourcePath != "" {
-		parsedURL, urlErr := url.Parse(item.Url)
-		if urlErr == nil {
-			domain := parsedURL.Hostname()
-			var importedCookies []cookies.Cookie
-			var source *cookies.CookieSource
-			var cookieErr error
-			if item.CookieSourcePath == "auto" {
-				importedCookies, source, cookieErr = cookies.DetectBrowserCookies(domain)
-			} else {
-				importedCookies, source, cookieErr = cookies.ImportCookies(item.CookieSourcePath, domain)
-			}
-			if cookieErr != nil {
-				s.log.Printf("warning: failed to re-import cookies on resume: %s\n", cookieErr.Error())
-			} else if len(importedCookies) > 0 {
-				cookieHeader := cookies.BuildCookieHeader(importedCookies)
-				item.Headers.Update("Cookie", cookieHeader)
-				s.manager.UpdateItem(item)
-				s.log.Printf("Re-imported %d cookies for %s from %s\n", len(importedCookies), domain, source.Browser)
-			}
-		}
-	}
+	itemSnapshot := item.Snapshot()
 
-	pool.AddDownload(m.DownloadId, sconn)
-	*hash = item.Hash
-	*stopDownload = item.StopDownload
-	isStopped = item.IsStopped
 	var cItem *warplib.Item
-	if item.ChildHash != "" {
-		var cStopDownload = &__stop
-		cIsStopped := func() bool { return false }
-		cItem, err = s.manager.ResumeDownload(rsClient, item.ChildHash, &warplib.ResumeDownloadOpts{
-			Headers:        m.Headers,
-			ForceParts:     m.ForceParts,
-			MaxConnections: m.MaxConnections,
-			MaxSegments:    m.MaxSegments,
-			Handlers:       getHandler(pool, &item.ChildHash, cStopDownload, &cIsStopped),
-			RetryConfig:    retryConfig,
-			RequestTimeout: requestTimeout,
-			SpeedLimit:     speedLimit,
+	var childLease *warplib.ReconstructionLease
+	var childTotal warplib.ContentLength
+	childHash := itemSnapshot.ChildHash
+	if childHash != "" {
+		childGeneration, reserved = pool.BeginDownload(childHash, sconn)
+		if !reserved {
+			return common.UPDATE_RESUME, nil, errors.Join(
+				errors.New("child download is already running or still stopping"),
+				closeReconstructionLease(parentLease),
+			)
+		}
+		var childTransientHeaders warplib.Headers
+		if existingChild := s.manager.GetItem(childHash); existingChild != nil {
+			childTransientHeaders = s.reimportCookieHeader(existingChild.Snapshot(), "child resume")
+		}
+		childHandlers := managedTransferHandlers(
+			func() *server.TransferGeneration { return childGeneration },
+			func() bool { return cItem != nil && cItem.IsStopped() },
+			transferCtx,
+		)
+		cItem, childLease, err = s.manager.ResumeDownloadWithLease(rsClient, childHash, &warplib.ResumeDownloadOpts{
+			Headers:          m.Headers,
+			TransientHeaders: childTransientHeaders,
+			ForceParts:       m.ForceParts,
+			MaxConnections:   m.MaxConnections,
+			MaxSegments:      m.MaxSegments,
+			Handlers:         childHandlers,
+			RetryConfig:      retryConfig,
+			RequestTimeout:   requestTimeout,
+			SpeedLimit:       speedLimit,
+			ProxyURL:         m.Proxy,
 		})
 		if err != nil {
-			// Clean up parent's downloader before returning
-			_ = item.CloseDownloader()
-			return common.UPDATE_RESUME, nil, err
+			return common.UPDATE_RESUME, nil, errors.Join(
+				err,
+				closeReconstructionLease(childLease),
+				closeReconstructionLease(parentLease),
+			)
 		}
-		pool.AddDownload(item.ChildHash, sconn)
-		*cStopDownload = cItem.StopDownload
-		cIsStopped = cItem.IsStopped
-		// need more opinions on this one:
-		item.TotalSize += cItem.TotalSize
+		childTotal = cItem.Snapshot().TotalSize
+		item.AddTotalSize(childTotal)
 	}
-	go func() {
-		reportAsyncResumeError(pool, item, resumeItem(item))
-	}()
-	if cItem != nil {
+
+	if !s.manager.GoTransfer(func(ctx context.Context) {
+		var transfers sync.WaitGroup
+		transfers.Add(1)
 		go func() {
-			reportAsyncResumeError(pool, cItem, resumeItem(cItem))
+			defer transfers.Done()
+			finishLeaseManagedTransfer(
+				ctx,
+				generation,
+				parentLease,
+				resumeLease(ctx, item, parentLease),
+			)
 		}()
+		if cItem != nil {
+			transfers.Add(1)
+			go func() {
+				defer transfers.Done()
+				finishLeaseManagedTransfer(
+					ctx,
+					childGeneration,
+					childLease,
+					resumeLease(ctx, cItem, childLease),
+				)
+			}()
+		}
+		transfers.Wait()
+	}) {
+		if cItem != nil {
+			item.AddTotalSize(-childTotal)
+		}
+		return common.UPDATE_RESUME, nil, errors.Join(
+			warplib.ErrManagerShuttingDown,
+			closeReconstructionLease(childLease),
+			closeReconstructionLease(parentLease),
+		)
 	}
+	admitted = true
+
 	maxConn, _ := item.GetMaxConnections()
 	maxParts, _ := item.GetMaxParts()
+	itemSnapshot = item.Snapshot()
 	return common.UPDATE_RESUME, &common.ResumeResponse{
-		ChildHash:         item.ChildHash,
-		ContentLength:     item.TotalSize,
-		Downloaded:        item.Downloaded,
-		FileName:          item.Name,
+		ChildHash:         itemSnapshot.ChildHash,
+		ContentLength:     itemSnapshot.TotalSize,
+		Downloaded:        itemSnapshot.Downloaded,
+		FileName:          itemSnapshot.Name,
 		SavePath:          item.GetSavePath(),
-		DownloadDirectory: item.DownloadLocation,
-		AbsoluteLocation:  item.AbsoluteLocation,
+		DownloadDirectory: itemSnapshot.DownloadLocation,
+		AbsoluteLocation:  itemSnapshot.AbsoluteLocation,
 		MaxConnections:    maxConn,
 		MaxSegments:       maxParts,
 	}, nil

@@ -5,6 +5,7 @@ import (
 	"log"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/channel"
@@ -146,6 +147,7 @@ func TestRPCNotifier_Broadcast_DisconnectedServer(t *testing.T) {
 		Error: "connection lost",
 	})
 
+	waitForCondition(t, time.Second, func() bool { return n.Count() == 0 })
 	if n.Count() != 0 {
 		t.Fatalf("expected 0 servers after disconnect, got %d", n.Count())
 	}
@@ -214,6 +216,7 @@ func TestRPCNotifier_Broadcast_PartialFailure(t *testing.T) {
 	})
 
 	<-done
+	waitForCondition(t, time.Second, func() bool { return n.Count() == 1 })
 
 	if n.Count() != 1 {
 		t.Fatalf("expected 1 server after partial failure, got %d", n.Count())

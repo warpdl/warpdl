@@ -65,7 +65,7 @@ func copyFile(src, dst string) (err error) {
 		}
 	}()
 
-	out, err := os.Create(dst)
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 	if err != nil {
 		return fmt.Errorf("cannot create destination file %s: %w", dst, err)
 	}

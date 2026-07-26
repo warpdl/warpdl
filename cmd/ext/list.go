@@ -1,6 +1,7 @@
 package ext
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 
@@ -26,14 +27,15 @@ func list(ctx *cli.Context) error {
 	}
 	client, err := newClient()
 	if err != nil {
-		common.PrintRuntimeErr(ctx, "list-ext", "new_client", err)
-		return nil
+		return common.PrintRuntimeErr(ctx, "list-ext", "new_client", err)
 	}
 	defer client.Close()
 	exts, err := client.ListExtension(showAll)
-	if err != nil || exts == nil {
-		common.PrintRuntimeErr(ctx, "list-ext", "new_client", err)
-		return nil
+	if err != nil {
+		return common.PrintRuntimeErr(ctx, "list-ext", "list", err)
+	}
+	if exts == nil {
+		return common.PrintRuntimeErr(ctx, "list-ext", "list", errors.New("daemon returned an empty extension list response"))
 	}
 	txt := "-----------------------------------------------------------------"
 	txt += "\n|Num|\t       Name           |     Unique Hash     | Activated |"

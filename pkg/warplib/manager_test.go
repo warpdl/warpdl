@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -70,6 +71,160 @@ func TestManagerAddAndGet(t *testing.T) {
 	d.handlers.DownloadCompleteHandler(MAIN_HASH, 10)
 	if item.Downloaded != item.TotalSize {
 		t.Fatalf("expected item to be completed")
+	}
+}
+
+func TestManagerPersistsHTTPRepresentationAndPluginProvenance(t *testing.T) {
+	m := newTestManager(t)
+	defer m.Close()
+
+	d := newTestDownloader()
+	d.dlLoc = t.TempDir()
+	d.resourceETag = `"version-1"`
+	d.pluginHeaderNames = map[string]struct{}{
+		"X-Plugin-Token": {},
+	}
+	if err := m.AddDownload(d, &AddDownloadOpts{AbsoluteLocation: d.dlLoc}); err != nil {
+		t.Fatalf("AddDownload: %v", err)
+	}
+	snapshot := m.GetItem(d.hash).Snapshot()
+	if snapshot.ResourceETag != d.resourceETag {
+		t.Fatalf("ResourceETag = %q, want %q", snapshot.ResourceETag, d.resourceETag)
+	}
+	if len(snapshot.PluginHeaderNames) != 1 || snapshot.PluginHeaderNames[0] != "X-Plugin-Token" {
+		t.Fatalf("PluginHeaderNames = %#v", snapshot.PluginHeaderNames)
+	}
+	if err := m.Close(); err != nil {
+		t.Fatalf("Close first manager: %v", err)
+	}
+	reloaded, err := InitManager()
+	if err != nil {
+		t.Fatalf("InitManager reload: %v", err)
+	}
+	defer reloaded.Close()
+	reloadedSnapshot := reloaded.GetItem(d.hash).Snapshot()
+	if reloadedSnapshot.ResourceETag != d.resourceETag {
+		t.Fatalf("reloaded ResourceETag = %q, want %q", reloadedSnapshot.ResourceETag, d.resourceETag)
+	}
+	if len(reloadedSnapshot.PluginHeaderNames) != 1 ||
+		reloadedSnapshot.PluginHeaderNames[0] != "X-Plugin-Token" {
+		t.Fatalf("reloaded PluginHeaderNames = %#v", reloadedSnapshot.PluginHeaderNames)
+	}
+}
+
+func TestManagerPersistsSourceURLNotSignedRedirectTarget(t *testing.T) {
+	base := t.TempDir()
+	if err := SetConfigDir(base); err != nil {
+		t.Fatalf("SetConfigDir: %v", err)
+	}
+	final := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Content-Length", "1")
+		_, _ = w.Write([]byte("x"))
+	}))
+	defer final.Close()
+	const signedQuery = "cdn-signature=ephemeral-secret"
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, final.URL+"/asset.bin?"+signedQuery, http.StatusFound)
+	}))
+	defer source.Close()
+
+	d, err := NewDownloader(source.Client(), source.URL+"/stable-download", &DownloaderOpts{
+		DownloadDirectory: base,
+		FileName:          "asset.bin",
+		Headers: Headers{
+			{Key: "Authorization", Value: "Bearer source-credential"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewDownloader: %v", err)
+	}
+	defer d.Close()
+	if !strings.Contains(d.url, signedQuery) {
+		t.Fatalf("effective URL = %q, want signed redirect target", d.url)
+	}
+	m, err := InitManager()
+	if err != nil {
+		t.Fatalf("InitManager: %v", err)
+	}
+	if err := m.AddDownload(d, &AddDownloadOpts{AbsoluteLocation: base}); err != nil {
+		t.Fatalf("AddDownload: %v", err)
+	}
+	snapshot := m.GetItem(d.hash).Snapshot()
+	itemURL := snapshot.URL
+	if itemURL != source.URL+"/stable-download" {
+		t.Fatalf("persisted URL = %q, want stable source URL", itemURL)
+	}
+	if strings.Contains(itemURL, signedQuery) || strings.Contains(itemURL, final.URL) {
+		t.Fatalf("persisted URL leaked ephemeral redirect target: %q", itemURL)
+	}
+	headerIndex, ok := snapshot.Headers.Get("Authorization")
+	if !ok || snapshot.Headers[headerIndex].Value != "Bearer source-credential" {
+		t.Fatalf("source authentication headers were not preserved: %#v", snapshot.Headers)
+	}
+	if _, liveHasAuth := d.headers.Get("Authorization"); liveHasAuth {
+		t.Fatalf("effective-target headers retained source Authorization: %#v", d.headers)
+	}
+	if err := m.Close(); err != nil {
+		t.Fatalf("Close first manager: %v", err)
+	}
+
+	reloaded, err := InitManager()
+	if err != nil {
+		t.Fatalf("InitManager reload: %v", err)
+	}
+	defer reloaded.Close()
+	reloadedSnapshot := reloaded.GetItem(d.hash).Snapshot()
+	if reloadedSnapshot.URL != source.URL+"/stable-download" {
+		t.Fatalf("reloaded URL = %q, want stable source URL", reloadedSnapshot.URL)
+	}
+	if strings.Contains(reloadedSnapshot.URL, signedQuery) ||
+		strings.Contains(reloadedSnapshot.URL, final.URL) {
+		t.Fatalf("reloaded URL leaked ephemeral redirect target: %q", reloadedSnapshot.URL)
+	}
+	headerIndex, ok = reloadedSnapshot.Headers.Get("Authorization")
+	if !ok || reloadedSnapshot.Headers[headerIndex].Value != "Bearer source-credential" {
+		t.Fatalf("reloaded source authentication headers were not preserved: %#v",
+			reloadedSnapshot.Headers)
+	}
+}
+
+func TestManagerUnknownSizeCompletionPublishesActualSize(t *testing.T) {
+	base := t.TempDir()
+	if err := SetConfigDir(base); err != nil {
+		t.Fatalf("SetConfigDir: %v", err)
+	}
+	content := []byte("unknown-length-content")
+	srv := newChunkedServer(t, content, 0)
+	defer srv.Close()
+
+	d, err := NewDownloader(srv.Client(), srv.URL+"/file.bin", &DownloaderOpts{
+		DownloadDirectory: base,
+	})
+	if err != nil {
+		t.Fatalf("NewDownloader: %v", err)
+	}
+	m, err := InitManager()
+	if err != nil {
+		t.Fatalf("InitManager: %v", err)
+	}
+	defer m.Close()
+	if err := m.AddDownload(d, &AddDownloadOpts{AbsoluteLocation: base}); err != nil {
+		t.Fatalf("AddDownload: %v", err)
+	}
+	item := m.GetItem(d.hash)
+	if item.GetTotalSize() != -1 {
+		t.Fatalf("initial total size = %d, want -1", item.GetTotalSize())
+	}
+	if err := item.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	snapshot := item.Snapshot()
+	if snapshot.TotalSize != ContentLength(len(content)) {
+		t.Fatalf("final total size = %d, want %d", snapshot.TotalSize, len(content))
+	}
+	if snapshot.Downloaded != ContentLength(len(content)) {
+		t.Fatalf("final downloaded = %d, want %d", snapshot.Downloaded, len(content))
 	}
 }
 
@@ -420,7 +575,7 @@ func TestManagerResumeEarlyCompile(t *testing.T) {
 		Parts: map[int64]*ItemPart{
 			0: {
 				Hash:        partHash,
-				FinalOffset: int64(len(testData)),
+				FinalOffset: int64(len(testData) - 1),
 				Compiled:    false, // Not compiled yet
 			},
 		},
@@ -457,7 +612,7 @@ func TestManagerResumeEarlyCompile(t *testing.T) {
 	defer d.Close()
 
 	d.wg.Add(1)
-	d.resumePartDownload(partHash, 0, int64(len(testData)), MB)
+	d.resumePartDownload(partHash, 0, int64(len(testData)-1), MB)
 	d.wg.Wait()
 
 	// Verify CompileCompleteHandler was called

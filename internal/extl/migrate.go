@@ -1,7 +1,6 @@
 package extl
 
 import (
-	"io"
 	"os"
 	"path/filepath"
 )
@@ -12,22 +11,29 @@ type moduleMigrator struct {
 }
 
 func (m *moduleMigrator) moduleMigratorHard(fileName string) error {
-	iPath := filepath.Join(m.initialBasePath, fileName)
-	file, err := os.Open(iPath)
+	clean, err := cleanModuleRelativePath(fileName)
 	if err != nil {
 		return err
 	}
-	defer file.Close()
-	buf, err := io.ReadAll(file)
+	source, err := os.OpenRoot(m.initialBasePath)
 	if err != nil {
 		return err
 	}
-	fPath := filepath.Join(m.finalBasePath, fileName)
-	err = os.MkdirAll(filepath.Dir(fPath), 0755)
+	defer func() { _ = source.Close() }()
+	buf, err := source.ReadFile(clean)
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(fPath, buf, 0644)
+
+	destination, err := os.OpenRoot(m.finalBasePath)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = destination.Close() }()
+	if err := destination.MkdirAll(filepath.Dir(clean), 0o755); err != nil {
+		return err
+	}
+	return destination.WriteFile(clean, buf, 0o644)
 }
 
 // func (m *moduleMigrator) moduleMigratorSoft(fileName string) error {
@@ -56,6 +62,9 @@ func migrateModule(m *Module, hash, path string) error {
 	if hash == "" {
 		hash = generateHash(DEF_MODULE_HASH)
 	}
+	if !validModuleID(hash) {
+		return ErrPathOutsideModule
+	}
 
 	// Create a migrator instance
 	migrator := moduleMigrator{
@@ -63,7 +72,7 @@ func migrateModule(m *Module, hash, path string) error {
 		finalBasePath:   filepath.Join(path, hash),
 	}
 
-	err := os.MkdirAll(migrator.finalBasePath, 0755)
+	err := os.MkdirAll(migrator.finalBasePath, 0o755)
 	if err != nil {
 		return err
 	}

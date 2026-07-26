@@ -105,9 +105,7 @@ func install(c *cli.Context) error {
 		for _, e := range errors {
 			fmt.Printf("  %s\n", e)
 		}
-		if len(installed) == 0 {
-			return cli.NewExitError("installation failed", 1)
-		}
+		return cli.NewExitError("one or more manifest installations failed", 1)
 	}
 
 	return nil

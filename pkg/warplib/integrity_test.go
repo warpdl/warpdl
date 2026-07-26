@@ -72,6 +72,28 @@ func TestValidateDownloadIntegrity_MissingPartFile(t *testing.T) {
 	}
 }
 
+func TestValidateDownloadIntegrity_RejectsOversizedPartFile(t *testing.T) {
+	base := t.TempDir()
+	if err := SetConfigDir(base); err != nil {
+		t.Fatalf("SetConfigDir: %v", err)
+	}
+	item := newTestItem(t, "oversized-part")
+	item.TotalSize = 10
+	item.Parts[0] = &ItemPart{Hash: "part1", FinalOffset: 9}
+	dlPath := filepath.Join(DlDataDir, item.Hash)
+	if err := os.MkdirAll(dlPath, PrivateDirMode); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(getFileName(dlPath, "part1"), []byte("eleven-byte"), PrivateFileMode); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	err := validateDownloadIntegrity(item)
+	if !errors.Is(err, ErrDownloadDataMissing) {
+		t.Fatalf("error = %v, want ErrDownloadDataMissing", err)
+	}
+}
+
 func TestValidateDownloadIntegrity_MissingMainFile_CompiledPart(t *testing.T) {
 	base := t.TempDir()
 	if err := SetConfigDir(base); err != nil {
@@ -191,6 +213,100 @@ func TestValidateDownloadIntegrity_EmptyMainFile(t *testing.T) {
 	}
 }
 
+func TestValidateDownloadIntegrity_TruncatedCompiledRange(t *testing.T) {
+	base := t.TempDir()
+	if err := SetConfigDir(base); err != nil {
+		t.Fatalf("SetConfigDir: %v", err)
+	}
+
+	item := newTestItem(t, "truncated-compiled-range")
+	dlPath := filepath.Join(DlDataDir, item.Hash)
+	if err := os.MkdirAll(dlPath, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	item.Parts[0] = &ItemPart{
+		Hash:        "compiled",
+		FinalOffset: 49,
+		Compiled:    true,
+	}
+	item.Parts[50] = &ItemPart{
+		Hash:        "pending",
+		FinalOffset: 99,
+		Compiled:    false,
+	}
+	if err := os.WriteFile(getFileName(dlPath, "pending"), []byte("partial"), 0644); err != nil {
+		t.Fatalf("WriteFile part: %v", err)
+	}
+	// Non-empty is insufficient: the compiled range claims bytes 0-49.
+	if err := os.WriteFile(item.GetAbsolutePath(), make([]byte, 10), 0644); err != nil {
+		t.Fatalf("WriteFile main: %v", err)
+	}
+
+	err := validateDownloadIntegrity(item)
+	if !errors.Is(err, ErrDownloadDataMissing) {
+		t.Fatalf("error = %v, want ErrDownloadDataMissing", err)
+	}
+}
+
+func TestValidateDownloadIntegrity_FullyCompiledRequiresExactSize(t *testing.T) {
+	base := t.TempDir()
+	if err := SetConfigDir(base); err != nil {
+		t.Fatalf("SetConfigDir: %v", err)
+	}
+
+	for _, tt := range []struct {
+		name string
+		size int
+	}{
+		{name: "truncated", size: 99},
+		{name: "oversized", size: 101},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			item := newTestItem(t, "fully-compiled-size")
+			dlPath := filepath.Join(DlDataDir, item.Hash)
+			if err := os.MkdirAll(dlPath, 0755); err != nil {
+				t.Fatalf("MkdirAll: %v", err)
+			}
+			item.Parts[0] = &ItemPart{Hash: "first", FinalOffset: 49, Compiled: true}
+			item.Parts[50] = &ItemPart{Hash: "second", FinalOffset: 99, Compiled: true}
+			if err := os.WriteFile(item.GetAbsolutePath(), make([]byte, tt.size), 0644); err != nil {
+				t.Fatalf("WriteFile main: %v", err)
+			}
+
+			err := validateDownloadIntegrity(item)
+			if !errors.Is(err, ErrDownloadDataMissing) {
+				t.Fatalf("size %d error = %v, want ErrDownloadDataMissing", tt.size, err)
+			}
+		})
+	}
+}
+
+func TestValidateDownloadIntegrity_PartiallyCompiledRejectsOversizedMainFile(t *testing.T) {
+	base := t.TempDir()
+	if err := SetConfigDir(base); err != nil {
+		t.Fatalf("SetConfigDir: %v", err)
+	}
+
+	item := newTestItem(t, "partially-compiled-oversized")
+	dlPath := filepath.Join(DlDataDir, item.Hash)
+	if err := os.MkdirAll(dlPath, PrivateDirMode); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	item.Parts[0] = &ItemPart{Hash: "compiled", FinalOffset: 49, Compiled: true}
+	item.Parts[50] = &ItemPart{Hash: "pending", FinalOffset: 99}
+	if err := os.WriteFile(getFileName(dlPath, "pending"), nil, PrivateFileMode); err != nil {
+		t.Fatalf("WriteFile pending part: %v", err)
+	}
+	if err := os.WriteFile(item.GetAbsolutePath(), make([]byte, 101), PrivateFileMode); err != nil {
+		t.Fatalf("WriteFile main: %v", err)
+	}
+
+	err := validateDownloadIntegrity(item)
+	if !errors.Is(err, ErrDownloadDataMissing) {
+		t.Fatalf("error = %v, want ErrDownloadDataMissing", err)
+	}
+}
+
 func TestValidateDownloadIntegrity_ValidState_NoDownloaded(t *testing.T) {
 	base := t.TempDir()
 	if err := SetConfigDir(base); err != nil {
@@ -276,16 +392,16 @@ func TestValidateDownloadIntegrity_ValidState_CompiledWithMainFile(t *testing.T)
 		t.Fatalf("MkdirAll: %v", err)
 	}
 
-	// Add a compiled part (no part file needed)
+	// Add a fully compiled part (no part file needed)
 	item.Parts[0] = &ItemPart{
 		Hash:        "part1",
-		FinalOffset: 50,
+		FinalOffset: 99,
 		Compiled:    true,
 	}
 
-	// Create main file with content
+	// A fully compiled main file must match TotalSize exactly.
 	mainFile := item.GetAbsolutePath()
-	if err := os.WriteFile(mainFile, []byte("compiled content"), 0644); err != nil {
+	if err := os.WriteFile(mainFile, make([]byte, 100), 0644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 

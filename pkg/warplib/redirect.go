@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sort"
+	"strings"
 )
 
 // pluginHeaderCtxKey is the request context key used to carry the set
@@ -49,23 +51,83 @@ var (
 	// ErrCrossProtocolRedirect is returned when a redirect crosses from HTTP/HTTPS
 	// to a non-HTTP protocol (e.g., FTP).
 	ErrCrossProtocolRedirect = errors.New("cross-protocol redirect not supported")
+
+	// ErrInsecureRedirect is returned when an HTTPS request is redirected to
+	// plaintext HTTP. Following the downgrade could disclose request data and
+	// makes a previously authenticated resource identity untrustworthy.
+	ErrInsecureRedirect = errors.New("insecure HTTPS redirect downgrade")
 )
 
 // isHTTPScheme returns true if the scheme is http or https.
 func isHTTPScheme(scheme string) bool {
-	return scheme == "http" || scheme == "https"
+	switch strings.ToLower(scheme) {
+	case "http", "https":
+		return true
+	default:
+		return false
+	}
 }
 
-// isCrossOrigin returns true if two URLs have different hosts.
-// Host includes port if specified (e.g., "example.com:8080").
+func effectivePort(u *url.URL) string {
+	if port := u.Port(); port != "" {
+		return port
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "http":
+		return "80"
+	case "https":
+		return "443"
+	default:
+		return ""
+	}
+}
+
+// isCrossOrigin compares the complete RFC origin tuple: scheme, hostname and
+// effective port. Hostname comparison is case-insensitive and explicit
+// default ports are treated the same as their implicit forms.
 func isCrossOrigin(a, b *url.URL) bool {
-	return a.Host != b.Host
+	if a == nil || b == nil {
+		return true
+	}
+	return !strings.EqualFold(a.Scheme, b.Scheme) ||
+		!strings.EqualFold(a.Hostname(), b.Hostname()) ||
+		effectivePort(a) != effectivePort(b)
+}
+
+// clientWithRedirectPolicy enforces WarpDL's policy without mutating a
+// caller-owned http.Client. A shallow clone is sufficient: the policy is a
+// client field while transports and cookie jars are designed for sharing.
+// Caller policy remains authoritative for redirects WarpDL considers safe.
+func clientWithRedirectPolicy(client *http.Client) *http.Client {
+	if client == nil {
+		client = http.DefaultClient
+	}
+	clone := *client
+	securityPolicy := RedirectPolicy(DefaultMaxRedirects)
+	callerPolicy := client.CheckRedirect
+	clone.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if err := securityPolicy(req, via); err != nil {
+			return err
+		}
+		if callerPolicy != nil {
+			if err := callerPolicy(req, via); err != nil {
+				return err
+			}
+			// The caller callback may mutate req. Reapply the mandatory
+			// policy so it cannot restore stripped credentials or change the
+			// target to an otherwise forbidden scheme/downgrade.
+			return securityPolicy(req, via)
+		}
+		return nil
+	}
+	return &clone
 }
 
 // RedirectPolicy returns a CheckRedirect function that:
 // 1. Enforces a maximum number of redirect hops
 // 2. Rejects cross-protocol redirects (HTTP/HTTPS -> non-HTTP)
-// 3. Strips sensitive/custom headers on cross-origin redirects
+// 3. Rejects HTTPS-to-HTTP downgrades
+// 4. Strips sensitive/custom headers on cross-origin redirects
 //
 // For cross-origin header stripping, Go 1.24+ already strips the Authorization
 // header automatically (CVE-2024-45336 fix). This function additionally strips
@@ -73,18 +135,31 @@ func isCrossOrigin(a, b *url.URL) bool {
 func RedirectPolicy(maxRedirects int) func(*http.Request, []*http.Request) error {
 	return func(req *http.Request, via []*http.Request) error {
 		if len(via) >= maxRedirects {
-			lastURL := via[len(via)-1].URL.String()
+			lastURL := ""
+			if len(via) > 0 && via[len(via)-1] != nil && via[len(via)-1].URL != nil {
+				lastURL = logSafeURL(via[len(via)-1].URL.String())
+			} else if req != nil && req.URL != nil {
+				lastURL = logSafeURL(req.URL.String())
+			}
 			return fmt.Errorf("%w: exceeded %d hops (last URL: %s)",
 				ErrTooManyRedirects, maxRedirects, lastURL)
 		}
 
-		if len(via) > 0 {
+		if req != nil && req.URL != nil && len(via) > 0 {
 			prev := via[len(via)-1]
+			if prev == nil || prev.URL == nil {
+				return nil
+			}
 
 			// Reject cross-protocol redirects
 			if isHTTPScheme(prev.URL.Scheme) && !isHTTPScheme(req.URL.Scheme) {
 				return fmt.Errorf("%w: %s -> %s",
 					ErrCrossProtocolRedirect, prev.URL.Scheme, req.URL.Scheme)
+			}
+			if strings.EqualFold(prev.URL.Scheme, "https") &&
+				strings.EqualFold(req.URL.Scheme, "http") {
+				return fmt.Errorf("%w: %w: https -> http",
+					ErrCrossProtocolRedirect, ErrInsecureRedirect)
 			}
 
 			// Strip custom headers on cross-origin redirects
@@ -196,6 +271,34 @@ func buildPluginHeaderSet(hdrs Headers) map[string]struct{} {
 		return nil
 	}
 	return set
+}
+
+// addPluginHeaderNames restores persisted provenance without requiring the
+// secret header values to be passed through PluginHeaders again.
+func addPluginHeaderNames(set map[string]struct{}, names []string) map[string]struct{} {
+	for _, name := range names {
+		name = http.CanonicalHeaderKey(strings.TrimSpace(name))
+		if name == "" {
+			continue
+		}
+		if set == nil {
+			set = make(map[string]struct{}, len(names))
+		}
+		set[name] = struct{}{}
+	}
+	return set
+}
+
+func sortedPluginHeaderNames(set map[string]struct{}) []string {
+	if len(set) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(set))
+	for name := range set {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // mergePluginHeaders appends plugin-supplied headers into target, using

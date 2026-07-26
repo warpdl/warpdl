@@ -211,7 +211,9 @@ func isBatchSubmissionComplete(sub BatchSubmission) bool {
 		return false
 	}
 	if sub.ContentLength <= 0 {
-		return info.Size() >= 0
+		// Existence alone says nothing about completion for an unknown-size
+		// transfer. The caller must wait for the daemon's terminal state.
+		return false
 	}
 	return info.Size() == sub.ContentLength
 }

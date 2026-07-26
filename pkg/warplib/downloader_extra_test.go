@@ -84,6 +84,10 @@ func TestDownloaderResumeCompiledPart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("initDownloader: %v", err)
 	}
+	defer d.Close()
+	if err := os.WriteFile(filepath.Join(base, "file.bin"), []byte("12345"), PrivateFileMode); err != nil {
+		t.Fatalf("WriteFile compiled destination: %v", err)
+	}
 	parts := map[int64]*ItemPart{
 		0: {Hash: "p1", FinalOffset: 4, Compiled: true},
 	}
@@ -142,7 +146,7 @@ func TestResumePartDownloadCompilePath(t *testing.T) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	d.wg.Add(1)
-	d.resumePartDownload(partHash, 0, 2, MB)
+	d.resumePartDownload(partHash, 0, int64(len(testData))-1, MB)
 	d.wg.Wait()
 
 	info, err := d.f.Stat()

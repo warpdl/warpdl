@@ -47,6 +47,8 @@ func newRangeServer(content []byte) *httptest.Server {
 		}
 		chunk := content[start : end+1]
 		w.Header().Set("Content-Length", strconv.Itoa(len(chunk)))
+		w.Header().Set("Content-Range",
+			"bytes "+strconv.Itoa(start)+"-"+strconv.Itoa(end)+"/"+strconv.Itoa(len(content)))
 		w.WriteHeader(http.StatusPartialContent)
 		_, _ = w.Write(chunk)
 	}))
@@ -312,17 +314,42 @@ func TestAttachAndStopHandler(t *testing.T) {
 	api, pool, cleanup := newTestApi(t)
 	defer cleanup()
 
-	content := bytes.Repeat([]byte("x"), 128)
-	srv := newRangeServer(content)
+	progressStarted := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "128")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("x"))
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		<-r.Context().Done()
+	}))
 	defer srv.Close()
+	var uid string
 	d, err := warplib.NewDownloader(&http.Client{}, srv.URL+"/file.bin", &warplib.DownloaderOpts{
 		DownloadDirectory: warplib.ConfigDir,
-		MaxConnections:    2,
-		MaxSegments:       2,
+		MaxConnections:    1,
+		MaxSegments:       1,
+		Handlers: &warplib.Handlers{
+			DownloadProgressHandler: func(string, int) {
+				select {
+				case <-progressStarted:
+				default:
+					close(progressStarted)
+				}
+			},
+			DownloadStoppedHandler: func() {
+				pool.BroadcastTerminal(uid, server.MakeResult(common.UPDATE_DOWNLOADING, &common.DownloadingResponse{
+					DownloadId: uid,
+					Action:     common.DownloadStopped,
+				}))
+			},
+		},
 	})
 	if err != nil {
 		t.Fatalf("NewDownloader: %v", err)
 	}
+	uid = d.GetHash()
 	defer d.Close()
 	if err := api.manager.AddDownload(d, &warplib.AddDownloadOpts{AbsoluteLocation: d.GetDownloadDirectory()}); err != nil {
 		t.Fatalf("AddDownload: %v", err)
@@ -337,6 +364,15 @@ func TestAttachAndStopHandler(t *testing.T) {
 	defer c2.Close()
 	sconn := server.NewSyncConn(c1)
 	pool.AddDownload(item.Hash, sconn)
+	startDone := make(chan error, 1)
+	go func() {
+		startDone <- item.Start()
+	}()
+	select {
+	case <-progressStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("download did not begin")
+	}
 
 	body, _ := json.Marshal(common.InputDownloadId{DownloadId: item.Hash})
 	_, msg, err := api.attachHandler(sconn, pool, body)
@@ -349,6 +385,14 @@ func TestAttachAndStopHandler(t *testing.T) {
 
 	if _, _, err := api.stopHandler(sconn, pool, body); err != nil {
 		t.Fatalf("stopHandler: %v", err)
+	}
+	select {
+	case err := <-startDone:
+		if err != nil {
+			t.Fatalf("Start after stop: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("stopped download did not drain")
 	}
 }
 
@@ -377,6 +421,30 @@ func TestResumeHandlerSuccess(t *testing.T) {
 	}
 	if msg.(*common.ResumeResponse).FileName != item.Name {
 		t.Fatalf("unexpected resume response")
+	}
+}
+
+func TestResumeHandlerRejectsLivePoolGeneration(t *testing.T) {
+	api, pool, cleanup := newTestApi(t)
+	defer cleanup()
+
+	item := &warplib.Item{
+		Hash:             "still-stopping",
+		Name:             "a",
+		Url:              "u",
+		TotalSize:        10,
+		DownloadLocation: warplib.ConfigDir,
+		AbsoluteLocation: warplib.ConfigDir,
+		Resumable:        true,
+		Parts:            make(map[int64]*warplib.ItemPart),
+	}
+	api.manager.UpdateItem(item)
+	pool.AddDownload(item.Hash, nil)
+
+	body, _ := json.Marshal(common.ResumeParams{DownloadId: item.Hash})
+	if _, _, err := api.resumeHandler(nil, pool, body); err == nil ||
+		!strings.Contains(err.Error(), "already running or still stopping") {
+		t.Fatalf("resumeHandler error = %v, want live-generation rejection", err)
 	}
 }
 
@@ -501,13 +569,18 @@ func TestExtensionHandlers(t *testing.T) {
 	}
 }
 
-func TestGetHandler(t *testing.T) {
+func TestManagedTransferHandlers(t *testing.T) {
 	pool := server.NewPool(log.New(io.Discard, "", 0))
 	uid := "id"
-	stopCalled := false
-	stopFn := func() error { stopCalled = true; return nil }
 	isStopped := func() bool { return false }
-	handlers := getHandler(pool, &uid, &stopFn, &isStopped)
+	generation, ok := pool.BeginDownload(uid, nil)
+	if !ok {
+		t.Fatal("failed to reserve transfer generation")
+	}
+	handlers := managedTransferHandlers(
+		func() *server.TransferGeneration { return generation },
+		isStopped,
+	)
 	handlers.ErrorHandler("hash", errors.New("boom"))
 	handlers.DownloadProgressHandler("hash", 1)
 	handlers.ResumeProgressHandler("hash", 1)
@@ -515,8 +588,14 @@ func TestGetHandler(t *testing.T) {
 	handlers.CompileStartHandler("hash")
 	handlers.CompileCompleteHandler("hash", 1)
 	handlers.DownloadStoppedHandler()
-	if !stopCalled {
-		t.Fatalf("expected stop handler to be called")
+	if !pool.HasDownload(uid) {
+		t.Fatal("worker callback removed the generation before the outer return")
+	}
+	if !generation.Finish(nil) {
+		t.Fatal("outer finalizer did not remove the generation")
+	}
+	if pool.HasDownload(uid) {
+		t.Fatal("finished generation remains registered")
 	}
 }
 
@@ -656,9 +735,17 @@ func TestDownloadHandlerInvalidURL(t *testing.T) {
 	api, pool, cleanup := newTestApi(t)
 	defer cleanup()
 
-	body, _ := json.Marshal(common.DownloadParams{Url: "://bad"})
-	if _, _, err := api.downloadHandler(nil, pool, body); err == nil {
+	body, _ := json.Marshal(common.DownloadParams{
+		Url: "http://user:api-secret@example.invalid/%zz?token=query-secret",
+	})
+	_, _, err := api.downloadHandler(nil, pool, body)
+	if err == nil {
 		t.Fatalf("expected error for invalid url")
+	}
+	for _, secret := range []string{"api-secret", "query-secret"} {
+		if strings.Contains(err.Error(), secret) {
+			t.Fatalf("invalid URL error exposed secret %q: %v", secret, err)
+		}
 	}
 }
 
@@ -736,10 +823,10 @@ func TestExtensionHandlerErrors(t *testing.T) {
 	}
 }
 
-func TestResumeItemComplete(t *testing.T) {
+func TestResumeLeaseComplete(t *testing.T) {
 	item := &warplib.Item{Downloaded: 10, TotalSize: 10}
-	if err := resumeItem(item); err != nil {
-		t.Fatalf("resumeItem: %v", err)
+	if err := resumeLease(nil, item, nil); err != nil {
+		t.Fatalf("resumeLease: %v", err)
 	}
 }
 
@@ -1593,6 +1680,45 @@ func TestStopHandlerCancelsScheduledItem(t *testing.T) {
 	updated := api.manager.GetItem(item.Hash)
 	if updated.ScheduleState != warplib.ScheduleStateCancelled {
 		t.Errorf("expected ScheduleStateCancelled, got %q", updated.ScheduleState)
+	}
+}
+
+func TestStopHandlerCancelsTriggeredOneShotAcrossRestart(t *testing.T) {
+	api, pool, cleanup := newTestApi(t)
+	defer cleanup()
+
+	const hash = "triggered-stop-restart"
+	api.manager.UpdateItem(&warplib.Item{
+		Hash:          hash,
+		Name:          "triggered.bin",
+		Url:           "http://example.com/triggered.bin",
+		TotalSize:     1024,
+		Downloaded:    128,
+		ScheduleState: warplib.ScheduleStateTriggered,
+		ScheduledAt:   time.Now().Add(-time.Minute),
+		Parts:         make(map[int64]*warplib.ItemPart),
+	})
+
+	body, _ := json.Marshal(common.InputDownloadId{DownloadId: hash})
+	if _, _, err := api.stopHandler(nil, pool, body); err != nil {
+		t.Fatalf("stop triggered one-shot: %v", err)
+	}
+	if info, ok := api.manager.GetScheduleInfo(hash); !ok ||
+		info.State != warplib.ScheduleStateCancelled {
+		t.Fatalf("schedule after stop = (%+v, %v), want cancelled", info, ok)
+	}
+
+	if err := api.manager.Close(); err != nil {
+		t.Fatalf("close manager: %v", err)
+	}
+	reopened, err := warplib.InitManager()
+	if err != nil {
+		t.Fatalf("restart manager: %v", err)
+	}
+	defer reopened.Close()
+	info, ok := reopened.GetScheduleInfo(hash)
+	if !ok || info.State != warplib.ScheduleStateCancelled {
+		t.Fatalf("schedule after restart = (%+v, %v), want cancelled", info, ok)
 	}
 }
 

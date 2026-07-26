@@ -41,14 +41,12 @@ func flush(ctx *cli.Context) error {
 	}
 	client, err := getClient()
 	if err != nil {
-		common.PrintRuntimeErr(ctx, "flush", "new_client", err)
-		return nil
+		return common.PrintRuntimeErr(ctx, "flush", "new_client", err)
 	}
 	defer client.Close()
 	_, err = client.Flush(hashToFlush)
 	if err != nil {
-		common.PrintRuntimeErr(ctx, "flush", "flush", err)
-		return nil
+		return common.PrintRuntimeErr(ctx, "flush", "flush", err)
 	}
 	if hashToFlush == "" {
 		fmt.Println("Flushed all download history!")

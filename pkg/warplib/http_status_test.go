@@ -2,8 +2,10 @@ package warplib
 
 import (
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,10 +13,7 @@ import (
 )
 
 // TestNewDownloaderRejectsForbidden exercises the regression that prompted
-// this guard: Google Drive API returned 403 JSON ("Drive API not enabled"),
-// warpdl treated it as a 2KB file, and saved the error body to disk under
-// a URL-derived filename. After the fix, fetchInfo must surface the status
-// and body snippet as an *HTTPStatusError and must not create any file.
+// this guard: an HTTP error body must not be saved as the requested file.
 func TestNewDownloaderRejectsForbidden(t *testing.T) {
 	const errBody = `{"error":{"code":403,"message":"Google Drive API has not been used in project 12345 before or it is disabled."}}`
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -42,8 +41,11 @@ func TestNewDownloaderRejectsForbidden(t *testing.T) {
 	if httpErr.StatusCode != http.StatusForbidden {
 		t.Errorf("StatusCode = %d, want 403", httpErr.StatusCode)
 	}
-	if !strings.Contains(httpErr.Snippet, "Drive API has not been used") {
-		t.Errorf("Snippet missing server message: %q", httpErr.Snippet)
+	if httpErr.Snippet != "" {
+		t.Errorf("arbitrary response body was exposed: %q", httpErr.Snippet)
+	}
+	if strings.Contains(err.Error(), "project 12345") {
+		t.Errorf("HTTP status error leaked response body: %v", err)
 	}
 
 	// Most important assertion: nothing was saved to disk.
@@ -53,11 +55,11 @@ func TestNewDownloaderRejectsForbidden(t *testing.T) {
 	}
 }
 
-// A 4xx body longer than the peek limit must be truncated (and marked
-// with an ellipsis) so the error message stays bounded even when the
-// server streams a giant HTML error page.
-func TestHTTPStatusErrorTruncatesLongBody(t *testing.T) {
-	huge := strings.Repeat("x", httpErrorBodyPeek*4)
+// Arbitrary 4xx/5xx bodies may echo tokens and signed URLs, so they are not
+// copied into public errors.
+func TestHTTPStatusErrorOmitsBody(t *testing.T) {
+	const secret = "signed-url-token-that-must-not-escape"
+	huge := strings.Repeat(secret, 512)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)
 		_, _ = w.Write([]byte(huge))
@@ -78,12 +80,11 @@ func TestHTTPStatusErrorTruncatesLongBody(t *testing.T) {
 	if !errors.As(err, &httpErr) {
 		t.Fatalf("expected *HTTPStatusError, got %T", err)
 	}
-	// Snippet must be capped: original body + ellipsis byte.
-	if ln := len(httpErr.Snippet); ln > httpErrorBodyPeek+10 {
-		t.Errorf("snippet too long: %d bytes", ln)
+	if httpErr.Snippet != "" {
+		t.Errorf("response snippet = %q, want empty", httpErr.Snippet)
 	}
-	if !strings.HasSuffix(httpErr.Snippet, "…") {
-		t.Errorf("expected ellipsis to mark truncation, got tail %q", tail(httpErr.Snippet, 8))
+	if strings.Contains(err.Error(), secret) {
+		t.Errorf("HTTP status error leaked response body: %v", err)
 	}
 }
 
@@ -116,8 +117,29 @@ func TestHTTPStatusErrorEmptyBody(t *testing.T) {
 	}
 }
 
-// Regression guard: 2xx responses must behave exactly as before — no
-// early return, normal download path.
+func TestHTTPStatusErrorRedactsRequestURLSecrets(t *testing.T) {
+	requestURL, err := url.Parse("https://api-user:api-password@example.test/file?token=signed-secret#private")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	httpErr := newHTTPStatusError(&http.Response{
+		StatusCode: http.StatusForbidden,
+		Status:     "403 Forbidden",
+		Body:       io.NopCloser(strings.NewReader("denied")),
+		Request:    &http.Request{URL: requestURL},
+	})
+
+	if httpErr.URL != "https://example.test/file" {
+		t.Fatalf("redacted URL = %q, want host and path only", httpErr.URL)
+	}
+	for _, secret := range []string{"api-user", "api-password", "signed-secret", "token=", "private"} {
+		if strings.Contains(httpErr.Error(), secret) {
+			t.Fatalf("HTTP status error leaked %q: %s", secret, httpErr)
+		}
+	}
+}
+
+// Regression guard: a complete 200 response follows the normal download path.
 func TestNewDownloaderAcceptsSuccessStatus(t *testing.T) {
 	body := []byte("hello")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -137,6 +159,32 @@ func TestNewDownloaderAcceptsSuccessStatus(t *testing.T) {
 	defer d.Close()
 	if d.GetFileName() != "hi.txt" {
 		t.Errorf("filename = %q, want hi.txt", d.GetFileName())
+	}
+}
+
+func TestNewDownloaderRejectsUnsolicitedPartialResponse(t *testing.T) {
+	body := []byte("first-half")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", "10")
+		w.Header().Set("Content-Range", "bytes 0-9/20")
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = w.Write(body)
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	d, err := NewDownloader(srv.Client(), srv.URL, &DownloaderOpts{
+		DownloadDirectory: dir,
+		FileName:          "partial.bin",
+	})
+	if d != nil {
+		defer d.Close()
+	}
+	if !errors.Is(err, ErrInvalidRangeResponse) {
+		t.Fatalf("error = %v, want ErrInvalidRangeResponse", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, "partial.bin")); !os.IsNotExist(statErr) {
+		t.Fatalf("partial response created destination: %v", statErr)
 	}
 }
 
@@ -168,6 +216,41 @@ func TestNewDownloaderRejects4xxAfterRedirect(t *testing.T) {
 	}
 	if httpErr.StatusCode != http.StatusNotFound {
 		t.Errorf("StatusCode = %d, want 404", httpErr.StatusCode)
+	}
+}
+
+func TestNewDownloaderRejectsUnfollowedRedirectResponse(t *testing.T) {
+	const targetSecret = "signed-cdn-token"
+	final := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", "1")
+		_, _ = w.Write([]byte("x"))
+	}))
+	defer final.Close()
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, final.URL+"/file.bin?token="+targetSecret, http.StatusFound)
+	}))
+	defer source.Close()
+
+	client := source.Client()
+	client.CheckRedirect = func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+	d, err := NewDownloader(client, source.URL+"/source", &DownloaderOpts{
+		DownloadDirectory: t.TempDir(),
+		FileName:          "file.bin",
+	})
+	if d != nil {
+		defer d.Close()
+	}
+	var statusErr *HTTPStatusError
+	if !errors.As(err, &statusErr) {
+		t.Fatalf("error = %T %v, want HTTPStatusError", err, err)
+	}
+	if statusErr.StatusCode != http.StatusFound {
+		t.Fatalf("status = %d, want %d", statusErr.StatusCode, http.StatusFound)
+	}
+	if strings.Contains(err.Error(), targetSecret) {
+		t.Fatalf("redirect response error leaked target query: %v", err)
 	}
 }
 

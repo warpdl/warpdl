@@ -7,6 +7,7 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"sync"
 
 	"github.com/warpdl/warpdl/common"
 	"github.com/warpdl/warpdl/internal/extl"
@@ -34,6 +35,12 @@ type Api struct {
 	// drain cleanly without leaking goroutines blocked on network I/O.
 	shutdownCtx    context.Context
 	shutdownCancel context.CancelFunc
+	shutdownOnce   sync.Once
+
+	backgroundMu      sync.Mutex
+	backgroundCond    *sync.Cond
+	backgroundActive  int
+	backgroundClosing bool
 }
 
 // NewApi creates a new Api instance with the provided dependencies.
@@ -45,7 +52,7 @@ type Api struct {
 // Version info (version, commit, buildType) is stored for responding to version queries.
 func NewApi(l *log.Logger, m *warplib.Manager, client *http.Client, elEngine *extl.Engine, router *warplib.SchemeRouter, sched *scheduler.Scheduler, version, commit, buildType string) (*Api, error) {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Api{
+	s := &Api{
 		log:            l,
 		manager:        m,
 		client:         client,
@@ -57,13 +64,35 @@ func NewApi(l *log.Logger, m *warplib.Manager, client *http.Client, elEngine *ex
 		buildType:      buildType,
 		shutdownCtx:    ctx,
 		shutdownCancel: cancel,
-	}, nil
+	}
+	s.backgroundCond = sync.NewCond(&s.backgroundMu)
+	return s, nil
 }
 
 // daemonCtx returns the Api's lifetime-scoped context. Handlers spawn
 // background goroutines against it so that Close() can cancel them in
 // the shutdown path.
 func (s *Api) daemonCtx() context.Context { return s.shutdownCtx }
+
+// BeginShutdown idempotently cancels API-owned background work. Manager
+// transfer shutdown is deliberately separate: the daemon must quiesce its
+// queue before closing transfer admission so active queue state is preserved.
+func (s *Api) BeginShutdown() {
+	if s == nil {
+		return
+	}
+	s.shutdownOnce.Do(func() {
+		s.backgroundMu.Lock()
+		s.backgroundClosing = true
+		if s.backgroundCond != nil {
+			s.backgroundCond.Broadcast()
+		}
+		s.backgroundMu.Unlock()
+		if s.shutdownCancel != nil {
+			s.shutdownCancel()
+		}
+	})
+}
 
 // RegisterHandlers registers all API handlers with the provided server.
 // It sets up handlers for download operations (download, resume, attach, flush,
@@ -111,8 +140,10 @@ func (s *Api) RegisterHandlers(server *server.Server) {
 // background goroutines (e.g. OAuth device-flow pollers) to unblock
 // from network I/O and exit promptly.
 func (s *Api) Close() error {
-	if s.shutdownCancel != nil {
-		s.shutdownCancel()
+	if s == nil {
+		return nil
 	}
-	return s.manager.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), common.ShutdownTimeout)
+	defer cancel()
+	return s.CloseContext(ctx)
 }

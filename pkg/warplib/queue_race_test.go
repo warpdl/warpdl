@@ -300,6 +300,52 @@ func TestQueueManager_Race_HighContentionOnStart(t *testing.T) {
 	// No assertion on exact count - timing dependent
 }
 
+// TestQueueManager_Race_RemoveReaddInvalidatesOldReservation exercises the
+// active-only ABA case. The first Add has reserved a callback but is held
+// before token validation; Remove and a same-hash Add must leave only the new
+// activation eligible to invoke onStart.
+func TestQueueManager_Race_RemoveReaddInvalidatesOldReservation(t *testing.T) {
+	const iterations = 50
+	for i := 0; i < iterations; i++ {
+		changeClaimed := make(chan struct{}, 1)
+		changeEntered := make(chan struct{})
+		releaseChange := make(chan struct{})
+		started := make(chan string, 2)
+		qm := NewQueueManager(1, func(hash string) {
+			started <- hash
+		})
+		qm.SetOnChange(func() {
+			select {
+			case changeClaimed <- struct{}{}:
+				close(changeEntered)
+				<-releaseChange
+			default:
+			}
+		})
+
+		addDone := make(chan struct{})
+		go func() {
+			qm.Add("same-hash", PriorityNormal)
+			close(addDone)
+		}()
+		<-changeEntered
+
+		if !qm.Remove("same-hash") {
+			t.Fatalf("iteration %d: Remove did not find reserved activation", i)
+		}
+		qm.Add("same-hash", PriorityNormal)
+		close(releaseChange)
+		<-addDone
+
+		if got := len(started); got != 1 {
+			t.Fatalf("iteration %d: onStart calls = %d, want only the new activation", i, got)
+		}
+		if hash := <-started; hash != "same-hash" {
+			t.Fatalf("iteration %d: onStart hash = %q", i, hash)
+		}
+	}
+}
+
 // TestQueueManager_Race_AddDuplicates tests concurrent adds of same hash.
 func TestQueueManager_Race_AddDuplicates(t *testing.T) {
 	qm := NewQueueManager(5, nil)

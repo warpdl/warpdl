@@ -238,12 +238,12 @@ func TestOutput_Resume_InvalidHash(t *testing.T) {
 		proxyURL = oldProxy
 	}()
 
-	stdout, _ := captureOutput(func() {
-		_ = resume(ctx)
-	})
+	var gotErr error
+	stdout, stderr := captureOutput(func() { gotErr = resume(ctx) })
+	assertExitError(t, gotErr)
 
 	// The error format should contain "resume" command reference
-	assertContains(t, stdout, "resume")
+	assertContains(t, stdout+stderr, "resume")
 }
 
 // List Command Output Tests
@@ -718,13 +718,16 @@ func TestOutput_StopDaemon_NotRunning(t *testing.T) {
 	app.HelpName = "warpdl"
 	ctx := newContext(app, nil, "stop-daemon")
 
-	stdout, _ := captureOutput(func() {
-		_ = stopDaemon(ctx)
+	_, stderr := captureOutput(func() {
+		if err := stopDaemon(ctx); err == nil {
+			t.Error("stopDaemon unexpectedly reported success")
+		}
 	})
 
-	// Should contain either "not running" or "PID file not found"
-	if !strings.Contains(stdout, "not running") && !strings.Contains(stdout, "PID file not found") {
-		t.Errorf("expected daemon not running message, got:\n%s", stdout)
+	// Operational failures are written to stderr and returned so the CLI exits
+	// non-zero.
+	if !strings.Contains(stderr, "not running") && !strings.Contains(stderr, "PID file not found") {
+		t.Errorf("expected daemon not running message, got:\n%s", stderr)
 	}
 }
 
@@ -745,11 +748,11 @@ func TestOutput_Stop_ErrorResponse(t *testing.T) {
 	app.HelpName = "warpdl"
 	ctx := newContext(app, []string{"testhash"}, "stop")
 
-	stdout, _ := captureOutput(func() {
-		_ = stop(ctx)
-	})
+	var gotErr error
+	_, stderr := captureOutput(func() { gotErr = stop(ctx) })
+	assertExitError(t, gotErr)
 
-	assertErrorFormat(t, stdout, "stop", "stop-download")
+	assertErrorFormat(t, stderr, "stop", "stop-download")
 }
 
 // TestOutput_Flush_ErrorResponse verifies flush command error format when server fails.
@@ -776,11 +779,11 @@ func TestOutput_Flush_ErrorResponse(t *testing.T) {
 		hashToFlush = oldHash
 	}()
 
-	stdout, _ := captureOutput(func() {
-		_ = flush(ctx)
-	})
+	var gotErr error
+	_, stderr := captureOutput(func() { gotErr = flush(ctx) })
+	assertExitError(t, gotErr)
 
-	assertErrorFormat(t, stdout, "flush", "flush")
+	assertErrorFormat(t, stderr, "flush", "flush")
 }
 
 // TestOutput_Attach_ErrorResponse verifies attach command error format when server fails.
@@ -798,14 +801,14 @@ func TestOutput_Attach_ErrorResponse(t *testing.T) {
 	app.HelpName = "warpdl"
 	ctx := newContext(app, []string{"testhash"}, "attach")
 
-	stdout, _ := captureOutput(func() {
-		_ = attach(ctx)
-	})
+	var gotErr error
+	stdout, stderr := captureOutput(func() { gotErr = attach(ctx) })
+	assertExitError(t, gotErr)
 
 	// Attach starts with the initiating message
 	assertContains(t, stdout, ">> Initiating a WARP download <<")
 	// Then shows error
-	assertErrorFormat(t, stdout, "attach", "client-attach")
+	assertErrorFormat(t, stderr, "attach", "client-attach")
 }
 
 // TestOutput_Info_InvalidProxy verifies info command error format for invalid proxy.
@@ -824,12 +827,12 @@ func TestOutput_Info_InvalidProxy(t *testing.T) {
 		proxyURL = oldProxy
 	}()
 
-	stdout, _ := captureOutput(func() {
-		_ = info(ctx)
-	})
+	var gotErr error
+	stdout, stderr := captureOutput(func() { gotErr = info(ctx) })
+	assertExitError(t, gotErr)
 
 	assertContains(t, stdout, "fetching details, please wait")
-	assertErrorFormat(t, stdout, "info", "invalid_proxy")
+	assertErrorFormat(t, stderr, "info", "invalid_proxy")
 }
 
 // Additional Output Verification Tests
@@ -858,14 +861,14 @@ func TestOutput_ErrorFormat_RuntimeErr(t *testing.T) {
 		fileName = oldFileName
 	}()
 
-	stdout, _ := captureOutput(func() {
-		_ = download(ctx)
-	})
+	var gotErr error
+	stdout, stderr := captureOutput(func() { gotErr = download(ctx) })
+	assertExitError(t, gotErr)
 
 	// Note: download.go:96 uses PrintRuntimeErr(ctx, "info", "download", err)
 	// so the format is "info[download]" not "download[client-download]"
-	assertErrorFormat(t, stdout, "info", "download")
-	assertContains(t, stdout, "test error message")
+	assertErrorFormat(t, stderr, "info", "download")
+	assertContains(t, stdout+stderr, "test error message")
 }
 
 // TestOutput_ErrorFormat_DownloadInvalidProxy verifies proxy validation error format
@@ -1100,11 +1103,11 @@ func TestOutput_ErrorFormat_NetworkErr(t *testing.T) {
 		fileName = oldFileName
 	}()
 
-	stdout, _ := captureOutput(func() {
-		_ = download(ctx)
-	})
+	var gotErr error
+	_, stderr := captureOutput(func() { gotErr = download(ctx) })
+	assertExitError(t, gotErr)
 
-	assertErrorFormat(t, stdout, "download", "new_client")
+	assertErrorFormat(t, stderr, "download", "new_client")
 }
 
 // TestOutput_InfoCommand_NoServer verifies info command error when fetching fails

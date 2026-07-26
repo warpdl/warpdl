@@ -155,6 +155,31 @@ func resolveDownloadPath(cliPath string) (string, error) {
 	return absPath, nil
 }
 
+func buildDownloadOpts(
+	ctx *cli.Context,
+	headers warplib.Headers,
+	startAtValue, cookiesFrom, scheduleValue string,
+) *warpcli.DownloadOpts {
+	return &warpcli.DownloadOpts{
+		ForceParts:          forceParts,
+		MaxConnections:      int32(maxConns),
+		MaxSegments:         int32(maxParts),
+		Headers:             headers,
+		Overwrite:           ctx.Bool("overwrite"),
+		Proxy:               proxyURL,
+		Timeout:             timeout,
+		MaxRetries:          maxRetries,
+		RetryDelay:          retryDelay,
+		SpeedLimit:          ctx.String("speed-limit"),
+		DisableWorkStealing: ctx.Bool("no-work-steal"),
+		Priority:            parsePriority(ctx.String("priority")),
+		SSHKeyPath:          ctx.String("ssh-key"),
+		StartAt:             startAtValue,
+		CookiesFrom:         cookiesFrom,
+		Schedule:            scheduleValue,
+	}
+}
+
 func download(ctx *cli.Context) (err error) {
 	inputFile := ctx.String("input-file")
 	url := ctx.Args().First()
@@ -173,11 +198,13 @@ func download(ctx *cli.Context) (err error) {
 	if url == "help" {
 		return cli.ShowCommandHelp(ctx, ctx.Command.Name)
 	}
+	if err := validateTransferLimits(); err != nil {
+		return cmdcommon.PrintErrWithCmdHelp(ctx, err)
+	}
 
 	client, err := getClient()
 	if err != nil {
-		cmdcommon.PrintRuntimeErr(ctx, "download", "new_client", err)
-		return
+		return cmdcommon.PrintRuntimeErr(ctx, "download", "new_client", err)
 	}
 	defer client.Close()
 	client.CheckVersionMismatch(currentBuildArgs.Version)
@@ -200,39 +227,33 @@ func download(ctx *cli.Context) (err error) {
 	cookies := ctx.StringSlice("cookie")
 	headers, err = AppendCookieHeader(headers, cookies)
 	if err != nil {
-		cmdcommon.PrintRuntimeErr(ctx, "download", "parse_cookies", err)
-		return nil
+		return cmdcommon.PrintRuntimeErr(ctx, "download", "parse_cookies", err)
 	}
 	dlPath, err = resolveDownloadPath(dlPath)
 	if err != nil {
-		cmdcommon.PrintRuntimeErr(ctx, "download", "resolve_path", err)
-		return nil
+		return cmdcommon.PrintRuntimeErr(ctx, "download", "resolve_path", err)
 	}
 	if proxyURL != "" {
 		if _, err := warplib.ParseProxyURL(proxyURL); err != nil {
-			cmdcommon.PrintRuntimeErr(ctx, "download", "invalid_proxy", err)
-			return nil
+			return cmdcommon.PrintRuntimeErr(ctx, "download", "invalid_proxy", err)
 		}
 	}
 	// Validate --cookies-from flag
 	cookiesFrom := ctx.String("cookies-from")
 	if err := validateCookiesFrom(cookiesFrom); err != nil {
-		cmdcommon.PrintRuntimeErr(ctx, "download", "cookies_from", err)
-		return nil
+		return cmdcommon.PrintRuntimeErr(ctx, "download", "cookies_from", err)
 	}
 	// Validate mutual exclusion: --start-at and --start-in are mutually exclusive
 	startAtValue := ctx.String("start-at")
 	startInValue := ctx.String("start-in")
 	if err := validateStartAtStartInExclusion(startAtValue, startInValue); err != nil {
-		fmt.Println(err.Error())
-		return nil
+		return cmdcommon.PrintErrWithCmdHelp(ctx, err)
 	}
 	// Validate --start-in flag: parse duration and resolve to absolute time
 	if startInValue != "" {
 		resolvedAt, err := parseStartIn(startInValue)
 		if err != nil {
-			fmt.Println(err.Error())
-			return nil
+			return cmdcommon.PrintErrWithCmdHelp(ctx, err)
 		}
 		// --start-in resolved to absolute time; set startAtValue
 		startAtValue = resolvedAt.Format(startAtLayout)
@@ -240,8 +261,7 @@ func download(ctx *cli.Context) (err error) {
 	// Validate --start-at flag
 	if startAtValue != "" {
 		if _, err := parseStartAt(startAtValue); err != nil {
-			fmt.Println(err.Error())
-			return nil
+			return cmdcommon.PrintErrWithCmdHelp(ctx, err)
 		}
 		var warning string
 		startAtValue, warning = validateStartAt(startAtValue)
@@ -253,32 +273,19 @@ func download(ctx *cli.Context) (err error) {
 	scheduleValue := ctx.String("schedule")
 	if scheduleValue != "" {
 		if err := validateSchedule(scheduleValue); err != nil {
-			fmt.Println(err.Error())
-			return nil
+			return cmdcommon.PrintErrWithCmdHelp(ctx, err)
 		}
 		// Warn if no occurrence in next year
 		if !hasOccurrenceWithinYear(scheduleValue, time.Now()) {
 			fmt.Printf("warning: cron expression %q has no occurrence in the next year\n", scheduleValue)
 		}
 	}
-	d, err := client.Download(url, fileName, dlPath, &warpcli.DownloadOpts{
-		ForceParts:          forceParts,
-		MaxConnections:      int32(maxConns),
-		MaxSegments:         int32(maxParts),
-		Headers:             headers,
-		Overwrite:           ctx.Bool("overwrite"),
-		Proxy:               proxyURL,
-		Timeout:             timeout,
-		MaxRetries:          maxRetries,
-		RetryDelay:          retryDelay,
-		SpeedLimit:          ctx.String("speed-limit"),
-		DisableWorkStealing: ctx.Bool("no-work-steal"),
-		Priority:            parsePriority(ctx.String("priority")),
-		SSHKeyPath:          ctx.String("ssh-key"),
-		StartAt:             startAtValue,
-		CookiesFrom:         cookiesFrom,
-		Schedule:            scheduleValue,
-	})
+	d, err := client.Download(
+		url,
+		fileName,
+		dlPath,
+		buildDownloadOpts(ctx, headers, startAtValue, cookiesFrom, scheduleValue),
+	)
 	if err != nil {
 		if isAuthRequiredError(err) {
 			// The daemon's plugin extractor called getAccessToken() on
@@ -293,8 +300,7 @@ func download(ctx *cli.Context) (err error) {
 			fmt.Fprintln(os.Stderr, "Run `warp auth login <plugin-id>` for the plugin that matches this URL and retry.")
 			fmt.Fprintln(os.Stderr, "Use `warp ext list` to see installed plugins and their IDs.")
 		}
-		cmdcommon.PrintRuntimeErr(ctx, "info", "download", err)
-		return nil
+		return cmdcommon.PrintRuntimeErr(ctx, "info", "download", err)
 	}
 	txt := fmt.Sprintf(`
 Download Info
@@ -312,6 +318,15 @@ Max Connections`+"\t"+`: %d
 		txt += fmt.Sprintf("Max Segments\t: %d\n", d.MaxSegments)
 	}
 	fmt.Println(txt)
+
+	// A scheduled transfer has no live progress stream until its trigger
+	// time. Attaching here would block the CLI for minutes, hours, or forever
+	// for a recurring schedule, despite successful registration.
+	if startAtValue != "" || scheduleValue != "" {
+		fmt.Printf("Scheduled download %s.\n", d.DownloadId)
+		fmt.Println("Use 'warpdl list' to check its next trigger.")
+		return nil
+	}
 
 	if ctx.Bool("background") {
 		fmt.Printf("Started download %s in background.\n", d.DownloadId)
@@ -354,14 +369,9 @@ type authRequiredHandler struct {
 // gracefully (prints to stderr, returns nil so the listener keeps
 // serving download progress updates).
 //
-// CRITICAL: HandleAuthRequired eventually calls client.AuthComplete
-// (via the callback server) or client.AuthCancel, each of which
-// acquires a write-lock on the warpcli client's mu. This handler
-// itself runs UNDER the listener's RLock (see warpcli.Client.Listen),
-// so invoking those RPCs inline would deadlock the listener against
-// itself. We spawn the orchestrator in a goroutine so the listener
-// can release its RLock and keep dispatching download-progress
-// updates while the user interacts with the browser / device flow.
+// HandleAuthRequired can issue follow-up RPCs. Run the interactive flow in a
+// goroutine so this handler returns promptly and the listener can continue
+// dispatching download-progress updates.
 func (h *authRequiredHandler) Handle(m json.RawMessage) error {
 	var res common.AuthLoginResult
 	if err := json.Unmarshal(m, &res); err != nil {
@@ -399,12 +409,17 @@ func registerAuthRequiredHandler(client *warpcli.Client) {
 // and downloads them all using the batch download logic.
 func downloadBatchFromFile(ctx *cli.Context, client *warpcli.Client, inputFile string) error {
 	fmt.Println(">> Initiating WARP batch download << ")
+	if fileName != "" {
+		return cmdcommon.PrintErrWithCmdHelp(
+			ctx,
+			errors.New("--file-name cannot be used with --input-file because each URL requires a distinct output name"),
+		)
+	}
 
 	// Resolve download path
 	resolvedPath, err := resolveDownloadPath(dlPath)
 	if err != nil {
-		cmdcommon.PrintRuntimeErr(ctx, "download", "resolve_path", err)
-		return nil
+		return cmdcommon.PrintRuntimeErr(ctx, "download", "resolve_path", err)
 	}
 
 	// Build headers
@@ -419,36 +434,57 @@ func downloadBatchFromFile(ctx *cli.Context, client *warpcli.Client, inputFile s
 	cookies := ctx.StringSlice("cookie")
 	headers, err = AppendCookieHeader(headers, cookies)
 	if err != nil {
-		cmdcommon.PrintRuntimeErr(ctx, "download", "parse_cookies", err)
-		return nil
+		return cmdcommon.PrintRuntimeErr(ctx, "download", "parse_cookies", err)
 	}
 
 	// Validate proxy if provided
 	if proxyURL != "" {
 		if _, err := warplib.ParseProxyURL(proxyURL); err != nil {
-			cmdcommon.PrintRuntimeErr(ctx, "download", "invalid_proxy", err)
-			return nil
+			return cmdcommon.PrintRuntimeErr(ctx, "download", "invalid_proxy", err)
+		}
+	}
+
+	cookiesFrom := ctx.String("cookies-from")
+	if err := validateCookiesFrom(cookiesFrom); err != nil {
+		return cmdcommon.PrintRuntimeErr(ctx, "download", "cookies_from", err)
+	}
+
+	startAtValue := ctx.String("start-at")
+	startInValue := ctx.String("start-in")
+	if err := validateStartAtStartInExclusion(startAtValue, startInValue); err != nil {
+		return cmdcommon.PrintErrWithCmdHelp(ctx, err)
+	}
+	if startInValue != "" {
+		resolvedAt, err := parseStartIn(startInValue)
+		if err != nil {
+			return cmdcommon.PrintErrWithCmdHelp(ctx, err)
+		}
+		startAtValue = resolvedAt.Format(startAtLayout)
+	}
+	if startAtValue != "" {
+		if _, err := parseStartAt(startAtValue); err != nil {
+			return cmdcommon.PrintErrWithCmdHelp(ctx, err)
+		}
+		var warning string
+		startAtValue, warning = validateStartAt(startAtValue)
+		if warning != "" {
+			fmt.Println(warning)
+		}
+	}
+	scheduleValue := ctx.String("schedule")
+	if scheduleValue != "" {
+		if err := validateSchedule(scheduleValue); err != nil {
+			return cmdcommon.PrintErrWithCmdHelp(ctx, err)
+		}
+		if !hasOccurrenceWithinYear(scheduleValue, time.Now()) {
+			fmt.Printf("warning: cron expression %q has no occurrence in the next year\n", scheduleValue)
 		}
 	}
 
 	// Build download options
 	opts := &BatchDownloadOpts{
-		DownloadDir: resolvedPath,
-		DownloadOpts: &warpcli.DownloadOpts{
-			ForceParts:          forceParts,
-			MaxConnections:      int32(maxConns),
-			MaxSegments:         int32(maxParts),
-			Headers:             headers,
-			Overwrite:           ctx.Bool("overwrite"),
-			Proxy:               proxyURL,
-			Timeout:             timeout,
-			MaxRetries:          maxRetries,
-			RetryDelay:          retryDelay,
-			SpeedLimit:          ctx.String("speed-limit"),
-			DisableWorkStealing: ctx.Bool("no-work-steal"),
-			Priority:            parsePriority(ctx.String("priority")),
-			SSHKeyPath:          ctx.String("ssh-key"),
-		},
+		DownloadDir:  resolvedPath,
+		DownloadOpts: buildDownloadOpts(ctx, headers, startAtValue, cookiesFrom, scheduleValue),
 	}
 
 	// Collect direct URLs from positional arguments
@@ -462,19 +498,33 @@ func downloadBatchFromFile(ctx *cli.Context, client *warpcli.Client, inputFile s
 	// Perform batch download
 	result, err := DownloadBatch(client, inputFile, directURLs, opts)
 	if err != nil {
-		cmdcommon.PrintRuntimeErr(ctx, "download", "batch_download", err)
-		return nil
+		return cmdcommon.PrintRuntimeErr(ctx, "download", "batch_download", err)
 	}
 
-	if !ctx.Bool("background") {
+	// Scheduled batch submissions are accepted work, but they cannot be
+	// attached until their future trigger. Return the submission summary
+	// immediately just as the single-download path does.
+	scheduled := startAtValue != "" || scheduleValue != ""
+	if !ctx.Bool("background") && !scheduled {
 		_ = client.Close()
 		waitForBatchSubmissions(result)
+	}
+	if scheduled {
+		fmt.Println("Scheduled batch submissions; use 'warpdl list' to check their next triggers.")
 	}
 
 	// Print summary using BatchResult's String() method
 	fmt.Println()
 	fmt.Print(result.String())
 
+	if result.HasErrors() {
+		return cmdcommon.PrintRuntimeErr(
+			ctx,
+			"download",
+			"batch",
+			fmt.Errorf("%d of %d downloads failed", result.Failed, result.Total),
+		)
+	}
 	return nil
 }
 
@@ -487,10 +537,6 @@ func waitForBatchSubmissions(result *BatchResult) {
 }
 
 func waitForBatchSubmission(submission BatchSubmission) error {
-	if isBatchSubmissionComplete(submission) {
-		return nil
-	}
-
 	client, err := getClient()
 	if err != nil {
 		return err
@@ -506,8 +552,18 @@ func waitForBatchSubmission(submission BatchSubmission) error {
 		return err
 	}
 
-	registerBatchWaitHandlers(client)
+	terminal := &batchTerminalState{}
+	registerBatchWaitHandlers(client, terminal)
 	err = client.Listen()
+	if terminal.failed != nil {
+		return terminal.failed
+	}
+	if terminal.completed {
+		return nil
+	}
+	if terminal.stopped {
+		return fmt.Errorf("download %s stopped before completion", submission.DownloadID)
+	}
 	if err != nil && !waitForBatchCompletionGrace(submission) {
 		return err
 	}
@@ -520,7 +576,7 @@ func waitForBatchSubmission(submission BatchSubmission) error {
 func waitForBatchCompletionGrace(submission BatchSubmission) bool {
 	deadline := time.Now().Add(batchCompletionGrace)
 	for {
-		if isBatchSubmissionComplete(submission) || isBatchSubmissionCompleteInManager(submission) {
+		if isBatchSubmissionCompleteInManager(submission) {
 			return true
 		}
 		if time.Now().After(deadline) {
@@ -553,13 +609,23 @@ func isBatchSubmissionCompleteInManager(submission BatchSubmission) bool {
 		if total <= 0 {
 			return false
 		}
-		return int64(item.Downloaded) >= total
+		// Parts becomes nil only in Manager's MAIN_HASH completion handler,
+		// after integrity/checksum validation and destination sync. A matching
+		// byte count alone is not an authoritative success state.
+		return item.Parts == nil && int64(item.Downloaded) == total
 	}
 
 	return false
 }
 
-func registerBatchWaitHandlers(client *warpcli.Client) {
+type batchTerminalState struct {
+	completed bool
+	stopped   bool
+	failed    error
+}
+
+func registerBatchWaitHandlers(client *warpcli.Client, terminal *batchTerminalState) {
+	registerDownloadErrorHandler(client, &terminal.failed)
 	client.AddHandler(
 		common.UPDATE_DOWNLOADING,
 		warpcli.NewDownloadingHandler("", func(dr *common.DownloadingResponse) error {
@@ -567,7 +633,11 @@ func registerBatchWaitHandlers(client *warpcli.Client) {
 				return nil
 			}
 			switch dr.Action {
-			case common.DownloadComplete, common.DownloadStopped:
+			case common.DownloadComplete:
+				terminal.completed = true
+				client.Disconnect()
+			case common.DownloadStopped:
+				terminal.stopped = true
 				client.Disconnect()
 			}
 			return nil

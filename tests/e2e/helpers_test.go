@@ -30,6 +30,13 @@ const (
 	commandTimeout = 30 * time.Second
 )
 
+// Daemon IPC paths are isolated per test, but the extension WebSocket server
+// still binds the process-wide default TCP port. Parallel daemon instances
+// would therefore race for the same listener and make unrelated tests fail at
+// startup. Hold this lease for the complete test lifetime; t.Cleanup's LIFO
+// order stops the daemon and removes its socket before releasing the lease.
+var daemonPortLease sync.Mutex
+
 // ---------------------------------------------------------------------------
 // testEnv — per-test isolated environment
 // ---------------------------------------------------------------------------
@@ -52,6 +59,9 @@ type testEnv struct {
 // a single test. It uses binaryPath from TestMain (cli_download_test.go).
 func newTestEnv(t *testing.T) *testEnv {
 	t.Helper()
+	daemonPortLease.Lock()
+	t.Cleanup(daemonPortLease.Unlock)
+
 	configDir := t.TempDir()
 	downloadDir := t.TempDir()
 
@@ -329,6 +339,11 @@ func (ts *testServer) handleRequest(w http.ResponseWriter, r *http.Request) {
 	contentType := f.ContentType
 	latency := ts.slowLatency
 	ts.mu.Unlock()
+
+	// Keep a stable strong validator on both metadata and range responses.
+	// WarpDL deliberately refuses segmented resume without one because bytes
+	// from separate requests cannot otherwise be bound to one representation.
+	w.Header().Set("ETag", fmt.Sprintf("\"warpdl-e2e-%d\"", fileSize))
 
 	// Handle range requests.
 	rangeHeader := r.Header.Get("Range")

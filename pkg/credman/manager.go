@@ -6,13 +6,39 @@ package credman
 import (
 	"bytes"
 	"encoding/gob"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"sync"
 
 	"github.com/warpdl/warpdl/pkg/credman/encryption"
 	"github.com/warpdl/warpdl/pkg/credman/types"
 )
+
+var syncCookieParentDirectory = syncParentDirectory
+
+// cookieStoreCommittedError reports a durability or reopen failure that
+// happened after the replacement file became the live cookie store. Callers
+// must not roll their in-memory mutation back in this case: disk already
+// contains the new snapshot.
+type cookieStoreCommittedError struct {
+	err error
+}
+
+func (e *cookieStoreCommittedError) Error() string {
+	return e.err.Error()
+}
+
+func (e *cookieStoreCommittedError) Unwrap() error {
+	return e.err
+}
+
+func cookieStoreCommitSucceeded(err error) bool {
+	var committedErr *cookieStoreCommittedError
+	return errors.As(err, &committedErr)
+}
 
 // CookieManager handles encrypted storage and retrieval of HTTP cookies.
 // It persists cookies to a file using GOB encoding, with values encrypted
@@ -23,6 +49,7 @@ type CookieManager struct {
 	filePath string
 	key      []byte
 	cookies  map[string]*types.Cookie
+	mu       sync.RWMutex
 }
 
 // NewCookieManager creates a new CookieManager that stores cookies at the
@@ -47,14 +74,19 @@ func NewCookieManager(filePath string, key []byte) (*CookieManager, error) {
 
 func (cm *CookieManager) loadCookies() error {
 	var err error
-	cm.f, err = os.OpenFile(cm.filePath, os.O_RDWR|os.O_CREATE, 0666)
+	cm.f, err = os.OpenFile(cm.filePath, os.O_RDWR|os.O_CREATE, 0600)
 	if err != nil {
+		return err
+	}
+	if err := cm.f.Chmod(0600); err != nil {
+		_ = cm.f.Close()
+		cm.f = nil
 		return err
 	}
 
 	cookiesData, err := io.ReadAll(cm.f)
 	if err != nil {
-		cm.f.Close()
+		_ = cm.f.Close()
 		cm.f = nil
 		return err
 	}
@@ -66,7 +98,7 @@ func (cm *CookieManager) loadCookies() error {
 	err = dec.Decode(&cm.cookies)
 
 	if err != nil {
-		cm.f.Close()
+		_ = cm.f.Close()
 		cm.f = nil
 		return err
 	}
@@ -74,6 +106,23 @@ func (cm *CookieManager) loadCookies() error {
 }
 
 func (cm *CookieManager) saveCookies() error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	return cm.saveCookiesLocked()
+}
+
+// saveCookiesLocked atomically replaces the cookie store. The caller must hold
+// cm.mu for writing. Failures before replacement leave the old store intact;
+// post-replacement durability or reopen failures are marked as committed so
+// callers keep memory consistent with the new on-disk snapshot.
+func (cm *CookieManager) saveCookiesLocked() error {
+	if cm.f == nil {
+		return fmt.Errorf("cookie manager is closed")
+	}
+	if _, err := cm.f.Stat(); err != nil {
+		return fmt.Errorf("cookie store is unavailable: %w", err)
+	}
+
 	var buf bytes.Buffer
 	enc := gob.NewEncoder(&buf)
 	err := enc.Encode(cm.cookies)
@@ -81,17 +130,66 @@ func (cm *CookieManager) saveCookies() error {
 		return err
 	}
 
-	if err := cm.f.Truncate(0); err != nil {
-		return err
-	}
-	if _, err := cm.f.Seek(0, 0); err != nil {
-		return err
-	}
-	_, err = cm.f.Write(buf.Bytes())
+	dir := filepath.Dir(cm.filePath)
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(cm.filePath)+".tmp-*")
 	if err != nil {
 		return err
 	}
+	tmpPath := tmp.Name()
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+	if err := tmp.Chmod(0600); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(buf.Bytes()); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
 
+	// Windows cannot replace a file while our old handle is open.
+	if err := cm.f.Close(); err != nil {
+		return err
+	}
+	cm.f = nil
+	if err := replaceFile(tmpPath, cm.filePath); err != nil {
+		cm.f, _ = os.OpenFile(cm.filePath, os.O_RDWR, 0600)
+		return err
+	}
+	cleanup = false
+
+	dirSyncErr := syncCookieParentDirectory(dir)
+	f, reopenErr := os.OpenFile(cm.filePath, os.O_RDWR, 0600)
+	if reopenErr == nil {
+		cm.f = f
+	}
+	if dirSyncErr != nil || reopenErr != nil {
+		var committedErr error
+		if dirSyncErr != nil {
+			committedErr = errors.Join(
+				committedErr,
+				fmt.Errorf("sync cookie store directory: %w", dirSyncErr),
+			)
+		}
+		if reopenErr != nil {
+			committedErr = errors.Join(
+				committedErr,
+				fmt.Errorf("reopen cookie store: %w", reopenErr),
+			)
+		}
+		return &cookieStoreCommittedError{err: committedErr}
+	}
 	return nil
 }
 
@@ -105,8 +203,21 @@ func (cm *CookieManager) SetCookie(cookie types.Cookie) error {
 		return err
 	}
 	cookie.Value = string(encryptedValue)
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	old, existed := cm.cookies[cookie.Name]
 	cm.cookies[cookie.Name] = &cookie
-	return cm.saveCookies()
+	if err := cm.saveCookiesLocked(); err != nil {
+		if !cookieStoreCommitSucceeded(err) {
+			if existed {
+				cm.cookies[cookie.Name] = old
+			} else {
+				delete(cm.cookies, cookie.Name)
+			}
+		}
+		return err
+	}
+	return nil
 }
 
 // GetCookie retrieves a cookie by name and returns it with its value
@@ -114,6 +225,8 @@ func (cm *CookieManager) SetCookie(cookie types.Cookie) error {
 // the internal state. Returns an error if the cookie does not exist
 // or if decryption fails.
 func (cm *CookieManager) GetCookie(name string) (*types.Cookie, error) {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
 	cookie, ok := cm.cookies[name]
 	if !ok {
 		return nil, fmt.Errorf("cookie not found: %s", name)
@@ -132,12 +245,20 @@ func (cm *CookieManager) GetCookie(name string) (*types.Cookie, error) {
 // immediately persisted to disk. Returns an error if the cookie does
 // not exist or if persistence fails.
 func (cm *CookieManager) DeleteCookie(name string) error {
-	_, ok := cm.cookies[name]
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	old, ok := cm.cookies[name]
 	if !ok {
 		return fmt.Errorf("cookie not found: %s", name)
 	}
 	delete(cm.cookies, name)
-	return cm.saveCookies()
+	if err := cm.saveCookiesLocked(); err != nil {
+		if !cookieStoreCommitSucceeded(err) {
+			cm.cookies[name] = old
+		}
+		return err
+	}
+	return nil
 }
 
 // UpdateCookie updates an existing cookie with new values. The cookie's
@@ -154,22 +275,37 @@ func (cm *CookieManager) UpdateCookie(cookie *types.Cookie) error {
 		return err
 	}
 	copyCookie.Value = string(encryptedValue)
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	old, existed := cm.cookies[copyCookie.Name]
 	cm.cookies[copyCookie.Name] = &copyCookie
-	return cm.saveCookies()
+	if err := cm.saveCookiesLocked(); err != nil {
+		if !cookieStoreCommitSucceeded(err) {
+			if existed {
+				cm.cookies[copyCookie.Name] = old
+			} else {
+				delete(cm.cookies, copyCookie.Name)
+			}
+		}
+		return err
+	}
+	return nil
 }
 
 // Close persists all cookies to disk and closes the underlying file handle.
 // This method should be called when the CookieManager is no longer needed
 // to ensure all data is saved and resources are released.
 func (cm *CookieManager) Close() error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
 	if cm.f == nil {
 		return nil
 	}
-	err := cm.saveCookies()
-	closeErr := cm.f.Close()
-	cm.f = nil
-	if err != nil {
-		return err
+	saveErr := cm.saveCookiesLocked()
+	var closeErr error
+	if cm.f != nil {
+		closeErr = cm.f.Close()
+		cm.f = nil
 	}
-	return closeErr
+	return errors.Join(saveErr, closeErr)
 }

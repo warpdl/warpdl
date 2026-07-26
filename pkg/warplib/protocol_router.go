@@ -63,12 +63,14 @@ func (r *SchemeRouter) NewDownloader(rawURL string, opts *DownloaderOpts) (Proto
 
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
-		return nil, fmt.Errorf("invalid URL %q: %w", rawURL, err)
+		return nil, fmt.Errorf("invalid URL %q: %w",
+			logSafeURL(rawURL), sanitizeHTTPError(err))
 	}
 
 	scheme := strings.ToLower(parsed.Scheme)
 	if scheme == "" {
-		return nil, fmt.Errorf("%w: no scheme in URL %q", ErrUnsupportedDownloadScheme, rawURL)
+		return nil, fmt.Errorf("%w: no scheme in URL %q",
+			ErrUnsupportedDownloadScheme, logSafeURL(rawURL))
 	}
 
 	factory, ok := r.routes[scheme]

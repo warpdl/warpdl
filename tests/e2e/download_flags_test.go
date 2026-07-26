@@ -128,7 +128,7 @@ func TestDownload_InputFile_OnlyComments(t *testing.T) {
 	}
 }
 
-// TestDownload_InputFile_MixedURLs verifies that invalid (non-http) lines in
+// TestDownload_InputFile_MixedURLs verifies that unsupported URL schemes in
 // an input file are reported as skipped while valid URLs succeed.
 func TestDownload_InputFile_MixedURLs(t *testing.T) {
 	t.Parallel()
@@ -139,7 +139,7 @@ func TestDownload_InputFile_MixedURLs(t *testing.T) {
 	ts := newTestServer(t)
 	inputFile := createInputFileWithComments(t, env.ConfigDir,
 		ts.fileURL("/small.bin"),
-		"ftp://invalid.example.com/file.bin", // invalid scheme — skipped
+		"gopher://invalid.example.com/file.bin", // unsupported scheme — skipped
 	)
 
 	output := env.run(t, "download",

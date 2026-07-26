@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"errors"
 	"flag"
 	"io"
 	"os"
@@ -60,6 +61,22 @@ func assertNotContains(t *testing.T, output, notExpected string) {
 	t.Helper()
 	if strings.Contains(output, notExpected) {
 		t.Errorf("expected output to NOT contain %q, got:\n%s", notExpected, output)
+	}
+}
+
+// assertExitError verifies that an operational CLI failure propagates a
+// non-zero process status instead of being printed and reported as success.
+func assertExitError(t *testing.T, err error) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("expected non-zero CLI error, got nil")
+	}
+	var exitCoder cli.ExitCoder
+	if !errors.As(err, &exitCoder) {
+		t.Fatalf("expected cli.ExitCoder, got %T: %v", err, err)
+	}
+	if exitCoder.ExitCode() == 0 {
+		t.Fatalf("expected non-zero exit code, got %d", exitCoder.ExitCode())
 	}
 }
 

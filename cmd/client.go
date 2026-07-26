@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/vbauerster/mpb/v8"
@@ -11,6 +13,32 @@ import (
 )
 
 var daemonURI string
+
+type downloadErrorHandler struct {
+	target *error
+}
+
+func (h downloadErrorHandler) Handle(message json.RawMessage) error {
+	var response common.DownloadErrorResponse
+	if err := json.Unmarshal(message, &response); err != nil {
+		if h.target != nil {
+			*h.target = err
+		}
+		return err
+	}
+	terminalErr := errors.New(response.Error)
+	if response.Error == "" {
+		terminalErr = errors.New("download failed")
+	}
+	if h.target != nil {
+		*h.target = terminalErr
+	}
+	return terminalErr
+}
+
+func registerDownloadErrorHandler(client *warpcli.Client, target *error) {
+	client.AddHandler(common.UPDATE_DOWNLOAD_ERROR, downloadErrorHandler{target: target})
+}
 
 // getClient creates a warpcli client, using --daemon-uri if specified.
 // If daemonURI is set, it connects directly without auto-spawning the daemon.

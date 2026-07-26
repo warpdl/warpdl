@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sync"
 
 	"github.com/warpdl/warpdl/common"
 	"github.com/warpdl/warpdl/internal/extl/auth"
@@ -18,6 +19,9 @@ import (
 // The engine maintains state in a JSON file and provides URL extraction
 // capabilities through registered extension modules.
 type Engine struct {
+	mu sync.RWMutex
+	// closed guards the lifetime of f and enc. It is protected by mu.
+	closed bool
 	// file object for module_engine.json
 	f *os.File
 	// shared json encoder for module_engine.json
@@ -81,8 +85,12 @@ func NewEngine(l *log.Logger, cookieManager *credman.CookieManager, tokens *cred
 	}
 	// create the module_engine.json if it doesn't exist,
 	// otherwise open it with read and write perms.
-	file, err := os.OpenFile(mePath, os.O_RDWR|os.O_CREATE, 0666)
+	file, err := os.OpenFile(mePath, os.O_RDWR|os.O_CREATE, 0o600)
 	if err != nil {
+		return nil, err
+	}
+	if err := file.Chmod(0o600); err != nil {
+		_ = file.Close()
 		return nil, err
 	}
 	// absolute path to the module storage (*/extstore/*)
@@ -93,6 +101,7 @@ func NewEngine(l *log.Logger, cookieManager *credman.CookieManager, tokens *cred
 		absMsPath, err = filepath.Abs(MODULE_STORE)
 	}
 	if err != nil {
+		_ = file.Close()
 		return nil, err
 	}
 	var e = Engine{
@@ -115,7 +124,7 @@ func NewEngine(l *log.Logger, cookieManager *credman.CookieManager, tokens *cred
 		if err == io.EOF {
 			return &e, nil
 		}
-		file.Close() // Close file on error to prevent handle leak
+		_ = file.Close() // Close file on error to prevent handle leak
 		return nil, err
 	}
 	var i int
@@ -127,20 +136,29 @@ func NewEngine(l *log.Logger, cookieManager *credman.CookieManager, tokens *cred
 		}
 		// try to open the module
 		// (this reads manifest.json internally and parses the module)
-		m, err := OpenModule(l, filepath.Join(absMsPath, modState.ModuleId))
+		if !validModuleID(modState.ModuleId) {
+			_ = file.Close()
+			return nil, ErrPathOutsideModule
+		}
+		modPath, err := modulePath(absMsPath, modState.ModuleId)
 		if err != nil {
-			file.Close()
+			_ = file.Close()
+			return nil, err
+		}
+		m, err := OpenModule(l, modPath)
+		if err != nil {
+			_ = file.Close()
 			return nil, err
 		}
 		m.ModuleId = modState.ModuleId
 		// allocate a runtime to the module
 		err = m.Load()
 		if err != nil {
-			file.Close()
+			_ = file.Close()
 			return nil, err
 		}
 		if err := e.attachProvider(m); err != nil {
-			file.Close()
+			_ = file.Close()
 			return nil, err
 		}
 		e.modIndex[m.ModuleId] = i
@@ -160,7 +178,7 @@ func (e *Engine) attachProvider(m *Module) error {
 	}
 	prov := auth.NewOAuth2Provider(m.ModuleId, *m.Auth, e.tokens, e.flows)
 	m.provider = prov
-	return auth.RegisterBindings(m.runtime.Runtime, prov)
+	return m.runtime.registerAuthBindings(prov)
 }
 
 // AddModule installs a new extension module from the given path.
@@ -168,6 +186,12 @@ func (e *Engine) attachProvider(m *Module) error {
 // activates it, and persists the engine state.
 // Returns the loaded module or an error if installation fails.
 func (e *Engine) AddModule(path string) (*Module, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if err := e.ensureOpenLocked(); err != nil {
+		return nil, err
+	}
+
 	// add module's runtime to engine
 	m, err := e.loadModule(path)
 	if err != nil {
@@ -186,15 +210,19 @@ func (e *Engine) AddModule(path string) (*Module, error) {
 	if err := e.attachProvider(m); err != nil {
 		return nil, err
 	}
-	e.modIndex[m.ModuleId] = len(e.modules)
-	e.modules = append(e.modules, m)
+	if index, exists := e.modIndex[m.ModuleId]; exists {
+		e.modules[index] = m
+	} else {
+		e.modIndex[m.ModuleId] = len(e.modules)
+		e.modules = append(e.modules, m)
+	}
 	e.LoadedModule[path] = LoadedModuleState{
 		ModuleId:    m.ModuleId,
 		IsActivated: true,
 		Name:        m.Name,
 	}
 	e.l.Println("Added Ext: ", m.Name)
-	return m, e.Save()
+	return m, e.saveLocked()
 }
 
 // DeleteModule removes an extension module from the engine.
@@ -202,21 +230,36 @@ func (e *Engine) AddModule(path string) (*Module, error) {
 // and deletes the module files from disk.
 // Returns the extension name and an error if deletion fails.
 func (e *Engine) DeleteModule(moduleId string) (string, error) {
-	err := e.offloadModule(moduleId)
-	if err != nil {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if err := e.ensureOpenLocked(); err != nil {
 		return "", err
 	}
+
+	if !validModuleID(moduleId) {
+		return "", ErrModuleNotFound
+	}
+	if _, active := e.modIndex[moduleId]; active {
+		if err := e.offloadModule(moduleId); err != nil {
+			return "", err
+		}
+	}
 	var extName string
+	var found bool
 	// delete the module from engine's state
 	for modPath, modState := range e.LoadedModule {
 		if modState.ModuleId == moduleId {
 			extName = modState.Name
 			delete(e.LoadedModule, modPath)
+			found = true
 			break
 		}
 	}
+	if !found {
+		return "", ErrModuleNotFound
+	}
 	// save engine's state
-	err = e.Save()
+	err := e.saveLocked()
 	if err != nil {
 		return extName, err
 	}
@@ -228,21 +271,34 @@ func (e *Engine) DeleteModule(moduleId string) (string, error) {
 // It loads the module into memory and marks it as activated in the engine state.
 // Returns ErrModuleNotFound if the module does not exist.
 func (e *Engine) ActivateModule(moduleId string) (*Module, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if err := e.ensureOpenLocked(); err != nil {
+		return nil, err
+	}
+
 	var (
-		modFound bool   = false
-		modPath  string = ""
+		modFound  bool
+		statePath string
+		state     LoadedModuleState
 	)
-	for _modPath, modState := range e.LoadedModule {
+	for modPath, modState := range e.LoadedModule {
 		if modState.ModuleId == moduleId {
-			modState.IsActivated = true
-			e.LoadedModule[_modPath] = modState
 			modFound = true
-			modPath = _modPath
+			statePath = modPath
+			state = modState
 			break
 		}
 	}
 	if !modFound {
 		return nil, ErrModuleNotFound
+	}
+	if existing, ok := e.modIndex[moduleId]; ok {
+		return e.modules[existing], nil
+	}
+	modPath, err := modulePath(e.msPath, moduleId)
+	if err != nil {
+		return nil, err
 	}
 	// add module's runtime to engine
 	m, err := e.loadModule(modPath)
@@ -257,14 +313,22 @@ func (e *Engine) ActivateModule(moduleId string) (*Module, error) {
 	}
 	e.modIndex[moduleId] = len(e.modules)
 	e.modules = append(e.modules, m)
+	state.IsActivated = true
+	e.LoadedModule[statePath] = state
 	e.l.Println("Activated Ext: ", m.Name, "(", moduleId, ")")
-	return m, e.Save()
+	return m, e.saveLocked()
 }
 
 // DeactiveModule disables an active extension module without removing it.
 // The module is unloaded from memory but remains registered in the engine state.
 // Returns the extension name and an error if deactivation fails.
 func (e *Engine) DeactiveModule(moduleId string) (string, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if err := e.ensureOpenLocked(); err != nil {
+		return "", err
+	}
+
 	var extName string
 	err := e.offloadModule(moduleId)
 	if err != nil {
@@ -280,7 +344,7 @@ func (e *Engine) DeactiveModule(moduleId string) (string, error) {
 		}
 	}
 	// finally save the engine's state
-	return extName, e.Save()
+	return extName, e.saveLocked()
 }
 
 // loadModule opens the module, parses it, and loads its runtime
@@ -306,12 +370,15 @@ func (e *Engine) offloadModule(moduleId string) error {
 	if !ok {
 		return ErrModuleNotFound
 	}
-	// delete it from module index
+	last := len(e.modules) - 1
 	delete(e.modIndex, moduleId)
-	// replace target module with last module
-	e.modules[i] = e.modules[len(e.modules)-1]
-	// resplice the modules array
-	e.modules = e.modules[:len(e.modules)-1]
+	if i != last {
+		moved := e.modules[last]
+		e.modules[i] = moved
+		e.modIndex[moved.ModuleId] = i
+	}
+	e.modules[last] = nil
+	e.modules = e.modules[:last]
 	return nil
 }
 
@@ -321,10 +388,13 @@ func (e *Engine) offloadModule(moduleId string) error {
 // matches the input URL. Returns the original URL (wrapped in
 // ExtractResult, no headers) unchanged if no matching module is found.
 func (e *Engine) Extract(url string) (ExtractResult, error) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
 	for _, m := range e.modules {
 		for _, a := range m.Matches {
 			if ok, err := regexp.MatchString(a, url); ok && err == nil {
-				e.l.Println("Found match for", url, "in", m.Name, "(", m.ModuleId, ")")
+				e.l.Println("Found matching extension", m.Name, "(", m.ModuleId, ")")
 				return m.Extract(url)
 			}
 		}
@@ -338,6 +408,9 @@ func (e *Engine) Extract(url string) (ExtractResult, error) {
 // GetModule retrieves an active module by its identifier.
 // Returns nil if the module is not found or not currently active.
 func (e *Engine) GetModule(moduleId string) *Module {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
 	if i, ok := e.modIndex[moduleId]; ok {
 		return e.modules[i]
 	}
@@ -348,6 +421,9 @@ func (e *Engine) GetModule(moduleId string) *Module {
 // If all is true, returns all modules including deactivated ones.
 // If all is false, returns only activated modules.
 func (e *Engine) ListModules(all bool) []common.ExtensionInfoShort {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
 	var arr = []common.ExtensionInfoShort{}
 	for _, modState := range e.LoadedModule {
 		if all || modState.IsActivated {
@@ -364,6 +440,15 @@ func (e *Engine) ListModules(all bool) []common.ExtensionInfoShort {
 // Save persists the current engine state to the engine configuration file.
 // It truncates the existing file and writes the current state as JSON.
 func (e *Engine) Save() error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.saveLocked()
+}
+
+func (e *Engine) saveLocked() error {
+	if err := e.ensureOpenLocked(); err != nil {
+		return err
+	}
 	err := e.f.Truncate(0)
 	if err != nil {
 		return err
@@ -375,8 +460,28 @@ func (e *Engine) Save() error {
 	return e.enc.Encode(e)
 }
 
+func (e *Engine) ensureOpenLocked() error {
+	if e.closed || e.f == nil || e.enc == nil {
+		return ErrEngineClosed
+	}
+	return nil
+}
+
 // Close releases resources held by the engine.
 // It closes the underlying configuration file handle.
 func (e *Engine) Close() error {
-	return e.f.Close()
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.closed {
+		return nil
+	}
+	e.closed = true
+	if e.f == nil {
+		e.enc = nil
+		return nil
+	}
+	err := e.f.Close()
+	e.f = nil
+	e.enc = nil
+	return err
 }

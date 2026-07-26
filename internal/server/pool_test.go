@@ -85,7 +85,15 @@ func TestPoolBroadcastWriteErrorRemovesConn(t *testing.T) {
 	sconn := NewSyncConn(c1)
 	p.AddDownload("id", sconn)
 	p.Broadcast("id", []byte("payload"))
-	if len(p.m["id"]) != 0 {
+	waitForCondition(t, time.Second, func() bool {
+		p.mu.RLock()
+		defer p.mu.RUnlock()
+		return len(p.m["id"]) == 0
+	})
+	p.mu.RLock()
+	remaining := len(p.m["id"])
+	p.mu.RUnlock()
+	if remaining != 0 {
 		t.Fatalf("expected connection to be removed after write error")
 	}
 }

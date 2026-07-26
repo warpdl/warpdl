@@ -11,8 +11,9 @@ import (
 //go:embed header.js
 var headerJs string
 
-func loadHeaderJs(runtime *goja.Runtime) {
-	runtime.RunString(headerJs)
+func loadHeaderJs(runtime *goja.Runtime) error {
+	_, err := runtime.RunString(headerJs)
+	return err
 }
 
 type Header struct {
@@ -21,8 +22,7 @@ type Header struct {
 }
 
 func (h Header) Append(key, value string) {
-	v := h.std.Get(key)
-	h.std.Set(key, strings.Join([]string{v, value}, ","))
+	h.std.Add(key, value)
 }
 
 func (h Header) Delete(key string) {
@@ -30,25 +30,26 @@ func (h Header) Delete(key string) {
 }
 
 func (h Header) Entries() [][]string {
-	v := make([][]string, len(h.std))
-	var i int64 = 0
+	v := make([][]string, 0, len(h.std))
 	for k, _v := range h.std {
-		if k == "Set-Cookie" {
+		if strings.EqualFold(k, "Set-Cookie") || len(_v) == 0 {
 			continue
 		}
-		v[i] = []string{k, _v[0]}
-		i++
+		v = append(v, []string{k, _v[0]})
 	}
 	return v
 }
 
 func (h Header) ForEach(callback any) {
+	if h.runtime == nil {
+		return
+	}
 	cb, ok := callback.(func(goja.FunctionCall) goja.Value)
 	if !ok {
 		return
 	}
 	for k, v := range h.std {
-		if k == "Set-Cookie" {
+		if strings.EqualFold(k, "Set-Cookie") || len(v) == 0 {
 			continue
 		}
 		cb(goja.FunctionCall{
@@ -77,14 +78,12 @@ func (h Header) Has(key string) bool {
 }
 
 func (h Header) Keys() []string {
-	var keys []string = make([]string, len(h.std))
-	var i int64 = 0
+	keys := make([]string, 0, len(h.std))
 	for k := range h.std {
-		if k == "Set-Cookie" {
+		if strings.EqualFold(k, "Set-Cookie") {
 			continue
 		}
-		keys[i] = k
-		i++
+		keys = append(keys, k)
 	}
 	return keys
 }
@@ -94,14 +93,12 @@ func (h Header) Set(key, value string) {
 }
 
 func (h Header) Values() []string {
-	var values []string = make([]string, len(h.std))
-	var i int64 = 0
+	values := make([]string, 0, len(h.std))
 	for k, v := range h.std {
-		if k == "Set-Cookie" {
+		if strings.EqualFold(k, "Set-Cookie") || len(v) == 0 {
 			continue
 		}
-		values[i] = v[0]
-		i++
+		values = append(values, v[0])
 	}
 	return values
 }

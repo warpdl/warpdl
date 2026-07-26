@@ -117,7 +117,7 @@ func newAdaptiveTestServer(t *testing.T) (rs *RPCServer, muxCalled *int32) {
 
 	muxCalled = new(int32)
 	rs = &RPCServer{
-		legDownloader: func(_ *RPCServer, url, out string, _ int32, progress func(int64)) error {
+		legDownloader: func(_ context.Context, _ *RPCServer, url, out string, _ int32, progress func(int64)) error {
 			if err := os.WriteFile(out, []byte("dummy-"+url), 0o644); err != nil {
 				return err
 			}
@@ -177,8 +177,21 @@ func requireMuxTmpDirsCleaned(t *testing.T, dir string) {
 }
 
 func TestYouTubeDownload_AdaptiveOrchestration(t *testing.T) {
-	withStubFetcher(t, &stubFetcher{video: makeFixtureVideo()})
+	fixture := makeFixtureVideo()
+	for i := range fixture.Formats {
+		switch fixture.Formats[i].ItagNo {
+		case 137, 251:
+			// Real YouTube responses do not always report adaptive stream
+			// lengths. The final muxed file size must make this zero-sized
+			// synthetic parent terminal.
+			fixture.Formats[i].ContentLength = 0
+		}
+	}
+	withStubFetcher(t, &stubFetcher{video: fixture})
 	rs, muxCalled := newAdaptiveTestServer(t)
+	manager, pool := newRPCQueueTestManager(t)
+	rs.manager = manager
+	rs.pool = pool
 
 	dir := t.TempDir()
 	res, err := rs.youtubeDownload(context.Background(), &common.YouTubeDownloadParams{
@@ -205,11 +218,45 @@ func TestYouTubeDownload_AdaptiveOrchestration(t *testing.T) {
 	if !waitFor(func() bool { return atomic.LoadInt32(muxCalled) == 1 }, 2*time.Second) {
 		t.Fatal("muxRunner was not invoked")
 	}
+	requireMuxTmpDirsCleaned(t, dir)
 	// Final file must exist.
 	if _, err := os.Stat(filepath.Join(dir, res.FileName)); err != nil {
 		t.Errorf("final file missing: %v", err)
 	}
-	requireMuxTmpDirsCleaned(t, dir)
+	if !waitFor(func() bool { return !pool.HasDownload(res.GID) }, 2*time.Second) {
+		t.Fatal("adaptive parent remained in the active pool after success")
+	}
+	item := manager.GetItem(res.GID)
+	if item == nil {
+		t.Fatal("completed adaptive parent missing from manager")
+	}
+	snapshot := item.Snapshot()
+	if snapshot.TotalSize != 5 || snapshot.Downloaded != snapshot.TotalSize {
+		t.Fatalf("completed adaptive parent lengths = %d/%d, want 5/5",
+			snapshot.Downloaded, snapshot.TotalSize)
+	}
+	if got := itemStatus(item); got != "complete" {
+		t.Fatalf("completed adaptive parent status = %q", got)
+	}
+
+	if err := manager.Close(); err != nil {
+		t.Fatalf("close manager: %v", err)
+	}
+	reloaded, err := warplib.InitManager()
+	if err != nil {
+		t.Fatalf("reload manager: %v", err)
+	}
+	t.Cleanup(func() { _ = reloaded.Close() })
+	reloadedItem := reloaded.GetItem(res.GID)
+	if reloadedItem == nil {
+		t.Fatal("completed adaptive parent was not persisted")
+	}
+	reloadedSnapshot := reloadedItem.Snapshot()
+	if reloadedSnapshot.TotalSize != 5 ||
+		reloadedSnapshot.Downloaded != reloadedSnapshot.TotalSize {
+		t.Fatalf("persisted adaptive parent lengths = %d/%d, want 5/5",
+			reloadedSnapshot.Downloaded, reloadedSnapshot.TotalSize)
+	}
 }
 
 func TestYouTubeDownload_AdaptiveDownloadFailureBroadcastsError(t *testing.T) {
@@ -231,7 +278,7 @@ func TestYouTubeDownload_AdaptiveDownloadFailureBroadcastsError(t *testing.T) {
 
 	var muxCalled int32
 	rs := &RPCServer{
-		legDownloader: func(_ *RPCServer, url, _ string, _ int32, _ func(int64)) error {
+		legDownloader: func(_ context.Context, _ *RPCServer, url, _ string, _ int32, _ func(int64)) error {
 			// Audio leg fails; video leg succeeds (writes nothing).
 			if strings.Contains(url, "audio") {
 				return errors.New("network reset")
@@ -243,6 +290,9 @@ func TestYouTubeDownload_AdaptiveDownloadFailureBroadcastsError(t *testing.T) {
 			return nil
 		},
 	}
+	manager, pool := newRPCQueueTestManager(t)
+	rs.manager = manager
+	rs.pool = pool
 
 	dir := t.TempDir()
 	res, err := rs.youtubeDownload(context.Background(), &common.YouTubeDownloadParams{
@@ -264,6 +314,119 @@ func TestYouTubeDownload_AdaptiveDownloadFailureBroadcastsError(t *testing.T) {
 	requireMuxTmpDirsCleaned(t, dir)
 	if atomic.LoadInt32(&muxCalled) == 1 {
 		t.Error("mux should not run when a download leg fails")
+	}
+	if !waitFor(func() bool { return !pool.HasDownload(res.GID) }, 2*time.Second) {
+		t.Fatal("failed adaptive parent remained in the active pool")
+	}
+	if item := manager.GetItem(res.GID); item != nil {
+		t.Fatalf("failed zero-byte adaptive parent remained in manager: %+v", item.Snapshot())
+	}
+
+	if err := manager.Close(); err != nil {
+		t.Fatalf("close manager: %v", err)
+	}
+	reloaded, err := warplib.InitManager()
+	if err != nil {
+		t.Fatalf("reload manager: %v", err)
+	}
+	t.Cleanup(func() { _ = reloaded.Close() })
+	if item := reloaded.GetItem(res.GID); item != nil {
+		t.Fatalf("failed adaptive parent was not durably purged: %+v", item.Snapshot())
+	}
+}
+
+func TestYouTubeDownload_AdaptiveAdmissionRejectionCleansState(t *testing.T) {
+	withStubFetcher(t, &stubFetcher{video: makeFixtureVideo()})
+	rs, muxCalled := newAdaptiveTestServer(t)
+	manager, pool := newRPCQueueTestManager(t)
+	rs.manager = manager
+	rs.pool = pool
+	rs.transferLauncher = func(func(context.Context)) bool { return false }
+
+	dir := t.TempDir()
+	_, err := rs.youtubeDownload(context.Background(), &common.YouTubeDownloadParams{
+		VideoID:       "x",
+		VideoFormatID: "137",
+		AudioFormatID: "251",
+		Dir:           dir,
+	})
+	requireJrpcCode(t, err, codeDownloadNotActive)
+	if got := atomic.LoadInt32(muxCalled); got != 0 {
+		t.Fatalf("mux calls = %d, want 0", got)
+	}
+	if dirs := muxTmpDirs(dir); len(dirs) != 0 {
+		t.Fatalf("admission rejection retained tmp dirs: %v", dirs)
+	}
+	if items := manager.GetItems(); len(items) != 0 {
+		t.Fatalf("admission rejection retained synthetic items: %d", len(items))
+	}
+	pool.mu.RLock()
+	active, critical := len(pool.m), len(pool.e)
+	pool.mu.RUnlock()
+	if active != 0 || critical != 0 {
+		t.Fatalf("admission rejection retained pool state: active=%d errors=%d", active, critical)
+	}
+}
+
+func TestYouTubeDownload_AdaptiveCancellationCleansWithoutCriticalError(t *testing.T) {
+	prevLP := muxLookPath
+	muxLookPath = func(string) (string, error) { return "/usr/bin/ffmpeg", nil }
+	t.Cleanup(func() { muxLookPath = prevLP })
+	withStubFetcher(t, &stubFetcher{video: makeFixtureVideo()})
+
+	legsStarted := make(chan struct{}, 2)
+	var muxCalled atomic.Bool
+	rs := &RPCServer{
+		legDownloader: func(ctx context.Context, _ *RPCServer, _, _ string, _ int32, _ func(int64)) error {
+			legsStarted <- struct{}{}
+			<-ctx.Done()
+			return ctx.Err()
+		},
+		muxer: func(context.Context, string, string, string) error {
+			muxCalled.Store(true)
+			return nil
+		},
+	}
+	manager, pool := newRPCQueueTestManager(t)
+	rs.manager = manager
+	rs.pool = pool
+
+	dir := t.TempDir()
+	result, err := rs.youtubeDownload(context.Background(), &common.YouTubeDownloadParams{
+		VideoID:       "x",
+		VideoFormatID: "137",
+		AudioFormatID: "251",
+		Dir:           dir,
+	})
+	if err != nil {
+		t.Fatalf("youtubeDownload: %v", err)
+	}
+	for range 2 {
+		select {
+		case <-legsStarted:
+		case <-time.After(time.Second):
+			t.Fatal("adaptive legs did not start")
+		}
+	}
+
+	manager.CancelTransfers()
+	waitCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := manager.WaitTransfers(waitCtx); err != nil {
+		t.Fatalf("WaitTransfers: %v", err)
+	}
+	requireMuxTmpDirsCleaned(t, dir)
+	if muxCalled.Load() {
+		t.Fatal("mux ran after adaptive cancellation")
+	}
+	if pool.HasDownload(result.GID) {
+		t.Fatal("cancelled adaptive parent remained active")
+	}
+	if critical := pool.GetError(result.GID); critical != nil {
+		t.Fatalf("cancelled adaptive parent recorded a critical error: %+v", critical)
+	}
+	if item := manager.GetItem(result.GID); item != nil {
+		t.Fatalf("cancelled adaptive parent remained persisted: %+v", item.Snapshot())
 	}
 }
 
@@ -351,7 +514,7 @@ func TestDefaultDownloadLeg_StartFailureSurfaces(t *testing.T) {
 
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- defaultDownloadLeg(rs, srv.URL+"/video.bin", outPath, 1, nil)
+		errCh <- defaultDownloadLeg(context.Background(), rs, srv.URL+"/video.bin", outPath, 1, nil)
 	}()
 	select {
 	case err := <-errCh:

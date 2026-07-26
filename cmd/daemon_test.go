@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"flag"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/urfave/cli"
@@ -55,6 +57,130 @@ func TestDaemonStartStub(t *testing.T) {
 	}
 }
 
+func TestDaemonRejectsNegativeMaxConcurrent(t *testing.T) {
+	set := flag.NewFlagSet("daemon", flag.ContinueOnError)
+	set.Int("max-concurrent", 0, "")
+	if err := set.Parse([]string{"--max-concurrent", "-1"}); err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	ctx := cli.NewContext(cli.NewApp(), set, nil)
+	ctx.Command = cli.Command{Name: "daemon"}
+
+	oldInit := initDaemonComponents
+	initCalled := false
+	initDaemonComponents = func(logger.Logger, int, *server.RPCConfig) (*DaemonComponents, error) {
+		initCalled = true
+		return nil, nil
+	}
+	defer func() { initDaemonComponents = oldInit }()
+
+	var gotErr error
+	_, stderr := captureOutput(func() { gotErr = daemon(ctx) })
+	assertExitError(t, gotErr)
+	if initCalled {
+		t.Fatal("negative max-concurrent reached daemon initialization")
+	}
+	if !strings.Contains(stderr, "max-concurrent must be zero or greater") {
+		t.Fatalf("validation output = %q", stderr)
+	}
+}
+
+func TestDaemonShutdownFailureReturnsExitError(t *testing.T) {
+	base := t.TempDir()
+	if err := warplib.SetConfigDir(base); err != nil {
+		t.Fatalf("SetConfigDir: %v", err)
+	}
+	if err := extl.SetEngineStore(base); err != nil {
+		t.Fatalf("SetEngineStore: %v", err)
+	}
+
+	oldInit := initDaemonComponents
+	oldStart := startServerFunc
+	oldClose := closeDaemonComponentsFn
+	shutdownErr := errors.New("final snapshot failed")
+	initDaemonComponents = func(logger.Logger, int, *server.RPCConfig) (*DaemonComponents, error) {
+		return &DaemonComponents{Server: &server.Server{}}, nil
+	}
+	startServerFunc = func(*server.Server, context.Context) error { return nil }
+	closeDaemonComponentsFn = func(*DaemonComponents) error { return shutdownErr }
+	defer func() {
+		initDaemonComponents = oldInit
+		startServerFunc = oldStart
+		closeDaemonComponentsFn = oldClose
+	}()
+
+	ctx := newContext(cli.NewApp(), nil, "daemon")
+	var gotErr error
+	_, stderr := captureOutput(func() { gotErr = daemon(ctx) })
+	assertExitError(t, gotErr)
+	if !bytes.Contains([]byte(stderr), []byte("daemon[shutdown]")) {
+		t.Fatalf("shutdown failure was not reported on stderr: %s", stderr)
+	}
+	if !bytes.Contains([]byte(stderr), []byte(shutdownErr.Error())) {
+		t.Fatalf("shutdown cause was not reported on stderr: %s", stderr)
+	}
+}
+
+func TestDaemonClosesComponentsOnlyAfterProvenServerDrain(t *testing.T) {
+	tests := []struct {
+		name      string
+		serverErr error
+		wantClose int
+	}{
+		{
+			name:      "ordinary runtime error",
+			serverErr: errors.New("listener failed"),
+			wantClose: 1,
+		},
+		{
+			name:      "incomplete drain",
+			serverErr: errors.Join(errors.New("listener failed"), server.ErrDrainIncomplete),
+			wantClose: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			base := t.TempDir()
+			if err := warplib.SetConfigDir(base); err != nil {
+				t.Fatalf("SetConfigDir: %v", err)
+			}
+			if err := extl.SetEngineStore(base); err != nil {
+				t.Fatalf("SetEngineStore: %v", err)
+			}
+
+			oldInit := initDaemonComponents
+			oldStart := startServerFunc
+			oldClose := closeDaemonComponentsFn
+			closeCalls := 0
+			initDaemonComponents = func(logger.Logger, int, *server.RPCConfig) (*DaemonComponents, error) {
+				return &DaemonComponents{Server: &server.Server{}}, nil
+			}
+			startServerFunc = func(*server.Server, context.Context) error {
+				return tt.serverErr
+			}
+			closeDaemonComponentsFn = func(*DaemonComponents) error {
+				closeCalls++
+				return nil
+			}
+			defer func() {
+				initDaemonComponents = oldInit
+				startServerFunc = oldStart
+				closeDaemonComponentsFn = oldClose
+			}()
+
+			ctx := newContext(cli.NewApp(), nil, "daemon")
+			err := daemon(ctx)
+			if !errors.Is(err, tt.serverErr) {
+				t.Fatalf("daemon error = %v, want %v", err, tt.serverErr)
+			}
+			if closeCalls != tt.wantClose {
+				t.Fatalf("component close calls = %d, want %d", closeCalls, tt.wantClose)
+			}
+		})
+	}
+}
+
 func TestDaemonInitComponentsError(t *testing.T) {
 	base := t.TempDir()
 	if err := warplib.SetConfigDir(base); err != nil {
@@ -73,11 +199,7 @@ func TestDaemonInitComponentsError(t *testing.T) {
 	}()
 
 	ctx := newContext(cli.NewApp(), nil, "daemon")
-	// daemon returns nil even on error (errors are logged, not returned)
-	err := daemon(ctx)
-	if err != nil {
-		t.Fatalf("daemon returned unexpected error: %v", err)
-	}
+	assertExitError(t, daemon(ctx))
 }
 
 func TestDaemonCleanupStalePidFileError(t *testing.T) {
@@ -89,9 +211,7 @@ func TestDaemonCleanupStalePidFileError(t *testing.T) {
 		t.Fatalf("WritePidFile: %v", err)
 	}
 	ctx := newContext(cli.NewApp(), nil, "daemon")
-	if err := daemon(ctx); err != nil {
-		t.Fatalf("daemon: %v", err)
-	}
+	assertExitError(t, daemon(ctx))
 }
 
 func TestDaemonExtEngineError(t *testing.T) {
@@ -128,9 +248,7 @@ func TestDaemonExtEngineError(t *testing.T) {
 	}()
 
 	ctx := newContext(cli.NewApp(), nil, "daemon")
-	if err := daemon(ctx); err != nil {
-		t.Fatalf("daemon: %v", err)
-	}
+	assertExitError(t, daemon(ctx))
 }
 
 func TestDaemonWritePidFileError(t *testing.T) {
@@ -144,9 +262,7 @@ func TestDaemonWritePidFileError(t *testing.T) {
 	defer os.Chmod(base, 0755)
 
 	ctx := newContext(cli.NewApp(), nil, "daemon")
-	if err := daemon(ctx); err != nil {
-		t.Fatalf("daemon: %v", err)
-	}
+	assertExitError(t, daemon(ctx))
 }
 
 // TestDaemonInitManagerError tests daemon initialization when userdata.warp

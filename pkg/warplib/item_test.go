@@ -4,11 +4,51 @@ import (
 	"bytes"
 	"context"
 	"encoding/gob"
+	"encoding/json"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 )
+
+func TestItemMarshalJSONExcludesRequestSecrets(t *testing.T) {
+	item := &Item{
+		Hash: "id",
+		Name: "file.bin",
+		Url:  "https://url-user:url-password@example.com/file.bin?signature=url-secret#url-fragment",
+		Headers: Headers{
+			{Key: "Cookie", Value: "session=top-secret"},
+			{Key: "Authorization", Value: "Bearer private-token"},
+		},
+		PluginHeaderNames: []string{"X-Plugin-Token"},
+		ResourceETag:      `"private-etag"`,
+		SSHKeyPath:        "/home/user/.ssh/id_private",
+		CookieSourcePath:  "/home/user/browser/Cookies",
+	}
+
+	buf, err := json.Marshal(item)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	text := string(buf)
+	for _, secret := range []string{
+		"session=top-secret",
+		"Bearer private-token",
+		"id_private",
+		"browser/Cookies",
+		"url-user",
+		"url-password",
+		"url-secret",
+		"url-fragment",
+		"X-Plugin-Token",
+		"private-etag",
+	} {
+		if strings.Contains(text, secret) {
+			t.Fatalf("public item JSON leaked %q: %s", secret, text)
+		}
+	}
+}
 
 func TestItemBasics(t *testing.T) {
 	mu := &sync.RWMutex{}
@@ -58,6 +98,39 @@ func TestItemBasics(t *testing.T) {
 	}
 	if err := item.StopDownload(); err != nil {
 		t.Fatalf("StopDownload: %v", err)
+	}
+}
+
+func TestItemUpdateHeaderDoesNotDeadlock(t *testing.T) {
+	item := &Item{
+		mu:      &sync.RWMutex{},
+		Headers: Headers{{Key: "Authorization", Value: "old"}},
+	}
+	done := make(chan struct{})
+	go func() {
+		item.UpdateHeader("Authorization", "new")
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("UpdateHeader deadlocked while acquiring the item lock")
+	}
+
+	snapshot := item.Snapshot()
+	index, ok := snapshot.Headers.Get("Authorization")
+	if !ok || snapshot.Headers[index].Value != "new" {
+		t.Fatalf("updated headers = %#v", snapshot.Headers)
+	}
+}
+
+func TestValidateItemPartsAllowsOneByteInclusiveRange(t *testing.T) {
+	parts := map[int64]*ItemPart{
+		7: {Hash: "one-byte", FinalOffset: 7},
+	}
+	if err := ValidateItemParts(parts); err != nil {
+		t.Fatalf("one-byte part rejected: %v", err)
 	}
 }
 

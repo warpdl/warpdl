@@ -71,9 +71,28 @@ func TestBeautOddRemainder(t *testing.T) {
 	}
 }
 
+func TestBeautLongInputDoesNotPanic(t *testing.T) {
+	const value = "schedule-value-longer-than-column"
+	if got := Beaut(value, 14); got != value {
+		t.Fatalf("expected long value unchanged, got %q", got)
+	}
+	if got := Beaut(value, 0); got != "" {
+		t.Fatalf("expected empty output for non-positive width, got %q", got)
+	}
+}
+
 func TestPrintRuntimeErr(t *testing.T) {
-	PrintRuntimeErr(nil, "cmd", "action", nil)
-	PrintRuntimeErr(newTestContext(), "cmd", "action", errors.New("boom"))
+	if err := PrintRuntimeErr(nil, "cmd", "action", nil); err != nil {
+		t.Fatalf("nil runtime error: %v", err)
+	}
+	err := PrintRuntimeErr(newTestContext(), "cmd", "action", errors.New("boom"))
+	if err == nil {
+		t.Fatal("expected non-zero runtime error")
+	}
+	exitCoder, ok := err.(cli.ExitCoder)
+	if !ok || exitCoder.ExitCode() == 0 {
+		t.Fatalf("expected non-zero cli.ExitCoder, got %T: %v", err, err)
+	}
 }
 
 func TestPrintErrWithHelp(t *testing.T) {
@@ -216,8 +235,21 @@ func TestPrintErrWithHelpVersion(t *testing.T) {
 	VersionCmdStr = "v0"
 	defer func() { VersionCmdStr = old }()
 
-	if err := PrintErrWithHelp(newTestContext(), errors.New("bad -v")); err != nil {
+	if err := PrintErrWithHelp(newTestContext(), errors.New("flag provided but not defined: -v")); err != nil {
 		t.Fatalf("PrintErrWithHelp: %v", err)
+	}
+}
+
+func TestPrintErrWithHelpDoesNotTreatSubstringAsVersion(t *testing.T) {
+	ctx := newTestContext()
+	called := false
+	orig := showAppHelpAndExit
+	showAppHelpAndExit = func(*cli.Context, int) { called = true }
+	defer func() { showAppHelpAndExit = orig }()
+
+	_ = PrintErrWithHelp(ctx, errors.New("invalid value"))
+	if !called {
+		t.Fatal("expected ordinary invalid-value error to show help")
 	}
 }
 

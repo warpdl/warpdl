@@ -1,14 +1,18 @@
 package warplib
 
 import (
-	"bytes"
 	"context"
 	"encoding/gob"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -16,6 +20,32 @@ import (
 
 // Default download data directory
 var __USERDATA_FILE_NAME string
+
+const managerDataFileMode os.FileMode = 0600
+
+var renameManagerFile = WarpRename
+var syncManagerParentDirectory = syncManagerDirectory
+
+// managerStoreCommittedError reports a failure after the new snapshot became
+// the live userdata file. Callers must keep the corresponding in-memory
+// mutation instead of rolling it back to a state that no longer exists on
+// disk.
+type managerStoreCommittedError struct {
+	err error
+}
+
+func (e *managerStoreCommittedError) Error() string {
+	return e.err.Error()
+}
+
+func (e *managerStoreCommittedError) Unwrap() error {
+	return e.err
+}
+
+func managerStoreCommitSucceeded(err error) bool {
+	var committedErr *managerStoreCommittedError
+	return errors.As(err, &committedErr)
+}
 
 // ManagerData is the persistent state of the Manager.
 // It wraps items and optional queue state for GOB encoding.
@@ -29,14 +59,22 @@ type ManagerData struct {
 type Manager struct {
 	// items is a map of download items
 	items ItemsMap
-	f     *os.File
 	mu    *sync.RWMutex
-	// queue manages concurrent download limits (nil if disabled)
-	queue *QueueManager
+	// dataPath is retained after the initial decode. Persistence uses
+	// same-directory temporary files and atomic replacement rather than
+	// keeping the destination inode open and truncating it in place.
+	dataPath string
+	// closed is guarded by mu. Post-Close updates remain valid in memory but
+	// are intentionally not written to disk.
+	closed bool
+	// queue manages concurrent download limits (nil if disabled). It is
+	// published atomically because completion/progress callbacks read it while
+	// daemon startup or reconfiguration may install/disable the queue.
+	queue atomic.Pointer[QueueManager]
 	// queueState stores persisted queue state until queue is initialized
 	queueState *QueueState
 	// schemeRouter dispatches URL schemes to protocol factories during resume.
-	schemeRouter *SchemeRouter
+	schemeRouter atomic.Pointer[SchemeRouter]
 	// persister coalesces high-frequency UpdateItem calls into bounded
 	// disk writes. See persist.go.
 	//
@@ -44,47 +82,57 @@ type Manager struct {
 	// without racing the hot UpdateItem/UpdateItemAsync paths on
 	// concurrent goroutines.
 	persister atomic.Pointer[persister]
+	// transferMu guards admission and the active synchronous/goroutine count
+	// for Manager-owned transfer work. transferCond uses the same mutex so
+	// closing admission and observing a drained count are one atomic protocol.
+	transferMu      sync.Mutex
+	transferCond    *sync.Cond
+	transferCtx     context.Context
+	transferCancel  context.CancelFunc
+	transferActive  int
+	transferClosing bool
 }
 
 // SetSchemeRouter sets the scheme router for protocol dispatch during resume.
 // Used by daemon startup to provide the router to the Manager.
 func (m *Manager) SetSchemeRouter(r *SchemeRouter) {
-	m.schemeRouter = r
+	m.schemeRouter.Store(r)
 }
 
 // InitManager creates a new manager instance.
 func InitManager() (m *Manager, err error) {
 	m = &Manager{
-		items: make(ItemsMap),
-		mu:    new(sync.RWMutex),
+		items:    make(ItemsMap),
+		mu:       new(sync.RWMutex),
+		dataPath: __USERDATA_FILE_NAME,
 	}
-	m.f, err = WarpOpenFile(
-		__USERDATA_FILE_NAME,
+	m.initTransferLifetime()
+	f, err := WarpOpenFile(
+		m.dataPath,
 		os.O_RDWR|os.O_CREATE,
-		DefaultFileMode,
+		managerDataFileMode,
 	)
 	if err != nil {
 		m = nil
 		return
 	}
-	// Start the background persister before decoding. persistence is
-	// started even when the file is empty so any subsequent AddDownload
-	// or progress update does not hit the slow synchronous path.
-	m.persister.Store(newPersister(
-		m.encodeLocked,
-		DefaultPersistInterval,
-		func(format string, args ...any) {
-			log.Printf("warplib: "+format, args...)
-		},
-	))
+	defer func() {
+		if f != nil {
+			_ = f.Close()
+		}
+	}()
+	if chmodErr := WarpChmod(m.dataPath, managerDataFileMode); chmodErr != nil {
+		return nil, fmt.Errorf("secure userdata permissions: %w", chmodErr)
+	}
+
 	// Attempt to decode existing data. Try new format first, fall back to legacy.
 	var data ManagerData
-	if decErr := gob.NewDecoder(m.f).Decode(&data); decErr != nil {
+	if decErr := gob.NewDecoder(f).Decode(&data); decErr != nil {
 		if decErr != io.EOF {
 			// Try legacy format (ItemsMap only)
-			if _, seekErr := m.f.Seek(0, 0); seekErr != nil {
+			if _, seekErr := f.Seek(0, 0); seekErr != nil {
 				log.Printf("warplib: warning: failed to seek for legacy decode: %v", seekErr)
-			} else if legacyErr := gob.NewDecoder(m.f).Decode(&m.items); legacyErr != nil {
+			} else if legacyErr := gob.NewDecoder(f).Decode(&m.items); legacyErr != nil {
 				if legacyErr != io.EOF {
 					// Log warning for non-empty but corrupt file
 					log.Printf("warplib: warning: failed to decode userdata, starting fresh: %v", legacyErr)
@@ -110,58 +158,225 @@ func InitManager() (m *Manager, err error) {
 				continue
 			}
 			if err := ValidateProtocol(item.Protocol); err != nil {
-				m.f.Close()
 				return nil, fmt.Errorf("item %s: %w", hash, err)
 			}
 		}
 	}
+	if closeErr := f.Close(); closeErr != nil {
+		return nil, fmt.Errorf("close userdata after decode: %w", closeErr)
+	}
+	f = nil
 	m.populateMemPart()
+	// Start persistence only after decoding and validation succeeds. This
+	// avoids leaking a writer goroutine when initialization returns an error.
+	m.persister.Store(newPersister(
+		m.encodeLocked,
+		DefaultPersistInterval,
+		func(format string, args ...any) {
+			log.Printf("warplib: "+format, args...)
+		},
+	))
 	return
 }
 
 func (m *Manager) populateMemPart() {
 	for _, item := range m.items {
+		if item == nil {
+			continue
+		}
+		item.mu = m.mu
 		if item.memPart == nil {
 			item.memPart = make(map[string]int64)
 		}
 		for ioff, part := range item.Parts {
-			item.memPart[part.Hash] = ioff
+			if part != nil {
+				item.memPart[part.Hash] = ioff
+			}
 		}
 	}
+}
+
+// reconcileQueueState removes queue entries that cannot be runnable after a
+// restart. A crash may leave an item in QueueState.Active even though the
+// completion snapshot (Downloaded == TotalSize) reached disk first; restoring
+// that stale slot would download the completed file again. Missing items are
+// equally non-runnable and must not consume queue capacity.
+func (m *Manager) reconcileQueueState(state QueueState) (QueueState, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	keep := func(hash string) bool {
+		item := m.items[hash]
+		if item == nil {
+			return false
+		}
+		switch {
+		case item.TotalSize < 0:
+			// Unknown-size downloads remain runnable until their completion
+			// wrapper records the final size.
+			return true
+		case item.TotalSize == 0:
+			// New zero-byte candidates have a non-nil empty parts map.
+			// Completion wrappers clear Parts, which gives persisted empty
+			// files an unambiguous terminal representation.
+			return item.Parts != nil
+		default:
+			return item.Downloaded < item.TotalSize
+		}
+	}
+	filter := func(items []QueuedItemState) ([]QueuedItemState, bool) {
+		filtered := make([]QueuedItemState, 0, len(items))
+		changed := false
+		for _, item := range items {
+			if !keep(item.Hash) {
+				changed = true
+				continue
+			}
+			filtered = append(filtered, item)
+		}
+		return filtered, changed
+	}
+
+	active, activeChanged := filter(state.Active)
+	waiting, waitingChanged := filter(state.Waiting)
+	if !activeChanged && !waitingChanged {
+		return state, false
+	}
+	state.Active = active
+	state.Waiting = waiting
+	return state, true
 }
 
 // SetMaxConcurrentDownloads enables the download queue with a concurrency limit.
 // When a slot becomes available for a queued download, onStartDownload is called
 // with the hash. The callback should start the download (e.g., via ResumeDownload
 // or by getting the item's downloader and calling Start).
-// If maxConcurrent is 0 or negative, the queue is disabled.
+// Zero means unlimited concurrency while retaining durable queue lifecycle
+// state. A negative value disables the queue.
 // If queue state was persisted, it will be restored (waiting items preserved).
 func (m *Manager) SetMaxConcurrentDownloads(maxConcurrent int, onStartDownload func(hash string)) {
-	if maxConcurrent <= 0 {
-		m.queue = nil
+	var onStart func(QueueActivation)
+	if onStartDownload != nil {
+		onStart = func(activation QueueActivation) {
+			onStartDownload(activation.Hash())
+		}
+	}
+	m.setMaxConcurrentDownloads(maxConcurrent, onStart)
+}
+
+// SetMaxConcurrentDownloadsWithActivation configures the queue and passes an
+// exact activation lease to each start callback. Daemon lifecycle code uses
+// this form to reject cancellation/re-add ABA races during slow reconstruction.
+func (m *Manager) SetMaxConcurrentDownloadsWithActivation(
+	maxConcurrent int,
+	onStartDownload func(QueueActivation),
+) {
+	m.setMaxConcurrentDownloads(maxConcurrent, onStartDownload)
+}
+
+func (m *Manager) setMaxConcurrentDownloads(
+	maxConcurrent int,
+	onStartDownload func(QueueActivation),
+) {
+	if maxConcurrent < 0 {
+		m.queue.Store(nil)
+		if p := m.persister.Load(); p != nil {
+			p.markDirty()
+			if err := p.flush(); err != nil {
+				log.Printf("warplib: warning: persist disabled queue state: %v", err)
+			}
+		}
 		return
 	}
-	m.queue = NewQueueManager(maxConcurrent, onStartDownload)
+	queue := newQueueManagerWithActivation(maxConcurrent, onStartDownload)
+	queue.SetOnChange(func() {
+		if p := m.persister.Load(); p != nil {
+			p.markDirty()
+			// Queue transitions are infrequent lifecycle events, not progress
+			// hot-path updates. Persist them synchronously so pause/order/slot
+			// changes are not lost if the daemon exits inside the debounce
+			// window.
+			if err := p.flush(); err != nil {
+				log.Printf("warplib: warning: persist queue state: %v", err)
+			}
+		}
+	})
+	m.queue.Store(queue)
 
 	// Restore persisted queue state if available
 	if m.queueState != nil {
+		restoredState, _ := m.reconcileQueueState(*m.queueState)
 		// Override maxConcurrent with persisted value if it was set
 		// (but keep the new onStartDownload callback)
-		m.queue.LoadState(*m.queueState)
+		// LoadState persists the reconciled waiting snapshot synchronously
+		// before Resume can promote any surviving entry.
+		queue.LoadState(restoredState)
 		// Override with the new maxConcurrent if different from persisted
 		// (user may have changed the flag)
-		if maxConcurrent != m.queueState.MaxConcurrent {
-			m.queue.mu.Lock()
-			m.queue.maxConcurrent = maxConcurrent
-			m.queue.mu.Unlock()
+		if maxConcurrent != restoredState.MaxConcurrent {
+			queue.mu.Lock()
+			queue.maxConcurrent = maxConcurrent
+			queue.mu.Unlock()
+			queue.notifyChange()
 		}
 		m.queueState = nil // Clear after restoring
+
+		// LoadState converts prior active items to waiting. If the queue was
+		// running before shutdown, immediately fill available slots so the
+		// caller can reconstruct and restart those downloads.
+		if !queue.IsPaused() {
+			queue.Resume()
+		}
+		return
 	}
+	queue.notifyChange()
 }
 
 // GetQueue returns the QueueManager if enabled, or nil if disabled.
 func (m *Manager) GetQueue() *QueueManager {
-	return m.queue
+	return m.queue.Load()
+}
+
+// ReleaseQueueSlot removes hash from the active or waiting queue. Active
+// removal starts the next waiting item when capacity becomes available.
+func (m *Manager) ReleaseQueueSlot(hash string) bool {
+	queue := m.queue.Load()
+	if queue == nil {
+		return false
+	}
+	return queue.Remove(hash)
+}
+
+// CloseWaitingDownloader closes and clears an item's live downloader only if
+// it is still waiting for a queue slot. Queue membership is held stable for
+// the duration of CloseDownloader, so a concurrent slot release cannot start
+// the downloader while it is being detached. The item remains queued and is
+// freshly reconstructed by the queue's onStart callback when promoted.
+func (m *Manager) CloseWaitingDownloader(hash string) (bool, error) {
+	queue := m.queue.Load()
+	if queue == nil {
+		return false, nil
+	}
+	item := m.GetItem(hash)
+	if item == nil {
+		return false, ErrDownloadNotFound
+	}
+	return queue.runIfWaiting(hash, item.CloseDownloader)
+}
+
+// RemoveWaitingDownloader atomically removes a waiting queue entry and closes
+// its allocation. If promotion already won, it returns false without touching
+// the now-active allocation so the caller can request a normal active stop.
+func (m *Manager) RemoveWaitingDownloader(hash string) (bool, error) {
+	queue := m.queue.Load()
+	if queue == nil {
+		return false, nil
+	}
+	item := m.GetItem(hash)
+	if item == nil {
+		return false, ErrDownloadNotFound
+	}
+	return queue.removeIfWaiting(hash, item.CloseDownloader)
 }
 
 // AddDownloadOpts contains optional parameters for AddDownload.
@@ -172,9 +387,64 @@ type AddDownloadOpts struct {
 	AbsoluteLocation string
 	Priority         Priority
 	SkipQueue        bool
+	// ExcludePersistedHeaders lists request-header names that must remain
+	// available to the live downloader but must not be copied into Item or
+	// userdata.warp. Header names are matched case-insensitively.
+	//
+	// The API uses this for browser-imported Cookie values: the initial
+	// request still receives the cookie, while only CookieSourcePath is
+	// persisted so later runs can safely re-import it.
+	ExcludePersistedHeaders []string
 	// SSHKeyPath is the SSH key path to persist in Item for SFTP resume.
 	// Empty means default key paths are tried on resume.
 	SSHKeyPath string
+	// TransferConfig carries non-secret reconstruction settings that cannot
+	// be recovered from the ProtocolDownloader interface (notably proxy and
+	// credential requirements).
+	TransferConfig TransferConfig
+}
+
+func filterPersistedHeaders(headers Headers, excluded []string) Headers {
+	if len(headers) == 0 {
+		return nil
+	}
+	excludedNames := make(map[string]struct{}, len(excluded))
+	for _, key := range excluded {
+		excludedNames[strings.ToLower(strings.TrimSpace(key))] = struct{}{}
+	}
+
+	filtered := make(Headers, 0, len(headers))
+	for _, header := range headers {
+		if _, omit := excludedNames[strings.ToLower(strings.TrimSpace(header.Key))]; omit {
+			continue
+		}
+		filtered = append(filtered, header)
+	}
+	return filtered
+}
+
+func transferConfigFromDownloader(d *Downloader) TransferConfig {
+	config := TransferConfig{
+		ForceParts:          d.force,
+		NumBaseParts:        d.numBaseParts,
+		MaxConnections:      d.maxConn,
+		MaxSegments:         d.maxParts,
+		Overwrite:           d.overwrite,
+		LockFileName:        d.lockFileName,
+		RequestTimeout:      d.requestTimeout,
+		MaxFileSize:         d.maxFileSize,
+		SpeedLimit:          d.speedLimit,
+		DisableWorkStealing: !d.enableWorkStealing,
+	}
+	if d.retryConfig != nil {
+		retryConfig := *d.retryConfig
+		config.RetryConfig = &retryConfig
+	}
+	if d.checksumConfig != nil {
+		checksumConfig := *d.checksumConfig
+		config.ChecksumConfig = &checksumConfig
+	}
+	return config
 }
 
 // AddDownload adds a new download item entry.
@@ -184,23 +454,39 @@ type AddDownloadOpts struct {
 // The *Downloader is wrapped in an httpProtocolDownloader adapter and stored
 // in item.dAlloc as a ProtocolDownloader.
 func (m *Manager) AddDownload(d *Downloader, opts *AddDownloadOpts) (err error) {
+	_, done, admitted := m.admitTransfer()
+	if !admitted {
+		return ErrManagerShuttingDown
+	}
+	defer done()
 	if opts == nil {
 		opts = &AddDownloadOpts{}
 	}
+	transferConfig := transferConfigFromDownloader(d)
+	safeProxyURL, proxyCredentialsRequired, err := SanitizeProxyURLForPersistence(opts.TransferConfig.ProxyURL)
+	if err != nil {
+		return fmt.Errorf("persist proxy configuration: %w", err)
+	}
+	transferConfig.ProxyURL = safeProxyURL
+	transferConfig.ProxyCredentialsRequired =
+		opts.TransferConfig.ProxyCredentialsRequired || proxyCredentialsRequired
 	item, err := newItem(
 		m.mu,
 		d.fileName,
-		d.url,
+		d.persistedURL(),
 		d.dlLoc,
 		d.hash,
 		d.contentLength,
 		d.resumable,
 		&itemOpts{
-			AbsoluteLocation: opts.AbsoluteLocation,
-			Child:            opts.IsChildren,
-			Hide:             opts.IsHidden,
-			ChildHash:        opts.ChildHash,
-			Headers:          d.headers,
+			AbsoluteLocation:  opts.AbsoluteLocation,
+			Child:             opts.IsChildren,
+			Hide:              opts.IsHidden,
+			ChildHash:         opts.ChildHash,
+			Headers:           filterPersistedHeaders(d.persistedHeaders(), opts.ExcludePersistedHeaders),
+			PluginHeaderNames: sortedPluginHeaderNames(d.pluginHeaderNames),
+			ResourceETag:      d.resourceETag,
+			TransferConfig:    transferConfig,
 		},
 	)
 	if err != nil {
@@ -213,21 +499,33 @@ func (m *Manager) AddDownload(d *Downloader, opts *AddDownloadOpts) (err error) 
 
 	adapter := &httpProtocolDownloader{
 		inner:  d,
-		rawURL: d.url,
+		rawURL: d.persistedURL(),
 		probed: true, // fetchInfo was already called by NewDownloader
 	}
 	item.setDAlloc(adapter)
 	m.UpdateItem(item)
 
 	// Register with queue if enabled
-	if m.queue != nil && !opts.SkipQueue {
-		m.queue.Add(d.hash, opts.Priority)
+	if queue := m.queue.Load(); queue != nil && !opts.SkipQueue {
+		queue.Add(d.hash, opts.Priority)
 	}
 	return
 }
 
 // patchHandlers patches the handlers of the downloader to update the item.
 func (m *Manager) patchHandlers(d *Downloader, item *Item) {
+	oDClaimH := d.handlers.DestinationClaimedHandler
+	d.handlers.DestinationClaimedHandler = func() error {
+		if err := m.mutateItem(item.Hash, func(managedItem *Item) {
+			managedItem.DestinationClaimed = true
+		}); err != nil {
+			return err
+		}
+		if oDClaimH != nil {
+			return oDClaimH()
+		}
+		return nil
+	}
 	oSPH := d.handlers.SpawnPartHandler
 	d.handlers.SpawnPartHandler = func(hash string, ioff, foff int64) {
 		item.addPart(hash, ioff, foff)
@@ -275,16 +573,27 @@ func (m *Manager) patchHandlers(d *Downloader, item *Item) {
 		}
 		item.mu.Lock()
 		item.Parts = nil
+		if item.TotalSize < 0 {
+			item.TotalSize = ContentLength(tread)
+		}
 		item.Downloaded = item.TotalSize
+		item.DestinationClaimed = false
 		item.mu.Unlock()
 		m.UpdateItem(item)
 
 		// Notify queue that download is complete (use item.Hash, not part hash)
-		if m.queue != nil {
-			m.queue.OnComplete(item.Hash)
+		if queue := m.queue.Load(); queue != nil {
+			queue.OnComplete(item.Hash)
 		}
 
 		oDCH(hash, tread)
+	}
+	oDSH := d.handlers.DownloadStoppedHandler
+	d.handlers.DownloadStoppedHandler = func() {
+		if queue := m.queue.Load(); queue != nil {
+			queue.OnStopped(item.Hash)
+		}
+		oDSH()
 	}
 }
 
@@ -292,9 +601,22 @@ func (m *Manager) patchHandlers(d *Downloader, item *Item) {
 // cleanURL is the URL with credentials stripped — safe for GOB persistence.
 // proto identifies the protocol (ProtoFTP, ProtoFTPS, ProtoSFTP).
 func (m *Manager) AddProtocolDownload(pd ProtocolDownloader, probe ProbeResult, cleanURL string, proto Protocol, handlers *Handlers, opts *AddDownloadOpts) error {
+	_, done, admitted := m.admitTransfer()
+	if !admitted {
+		return ErrManagerShuttingDown
+	}
+	defer done()
 	if opts == nil {
 		opts = &AddDownloadOpts{}
 	}
+	transferConfig := cloneTransferConfig(opts.TransferConfig)
+	safeProxyURL, proxyCredentialsRequired, err := SanitizeProxyURLForPersistence(transferConfig.ProxyURL)
+	if err != nil {
+		return fmt.Errorf("persist proxy configuration: %w", err)
+	}
+	transferConfig.ProxyURL = safeProxyURL
+	transferConfig.ProxyCredentialsRequired =
+		transferConfig.ProxyCredentialsRequired || proxyCredentialsRequired
 	item, err := newItem(
 		m.mu,
 		pd.GetFileName(),
@@ -308,6 +630,7 @@ func (m *Manager) AddProtocolDownload(pd ProtocolDownloader, probe ProbeResult, 
 			Child:            opts.IsChildren,
 			Hide:             opts.IsHidden,
 			ChildHash:        opts.ChildHash,
+			TransferConfig:   transferConfig,
 		},
 	)
 	if err != nil {
@@ -315,15 +638,18 @@ func (m *Manager) AddProtocolDownload(pd ProtocolDownloader, probe ProbeResult, 
 	}
 	item.Protocol = proto
 	item.SSHKeyPath = opts.SSHKeyPath
+	item.TransferConfig.MaxConnections = pd.GetMaxConnections()
+	item.TransferConfig.MaxSegments = pd.GetMaxParts()
 
 	// Wrap handlers with item-update callbacks
 	m.patchProtocolHandlers(handlers, item)
 
+	item.setResumeHandlers(handlers)
 	item.setDAlloc(pd)
 	m.UpdateItem(item)
 
-	if m.queue != nil && !opts.SkipQueue {
-		m.queue.Add(pd.GetHash(), opts.Priority)
+	if queue := m.queue.Load(); queue != nil && !opts.SkipQueue {
+		queue.Add(pd.GetHash(), opts.Priority)
 	}
 	return nil
 }
@@ -406,49 +732,115 @@ func (m *Manager) patchProtocolHandlers(h *Handlers, item *Item) {
 		item.Downloaded = item.TotalSize
 		item.mu.Unlock()
 		m.UpdateItem(item)
-		if m.queue != nil {
-			m.queue.OnComplete(item.Hash)
+		if queue := m.queue.Load(); queue != nil {
+			queue.OnComplete(item.Hash)
 		}
 		if oDCH != nil {
 			oDCH(hash, tread)
 		}
 	}
+	oDSH := h.DownloadStoppedHandler
+	h.DownloadStoppedHandler = func() {
+		if queue := m.queue.Load(); queue != nil {
+			queue.OnStopped(item.Hash)
+		}
+		if oDSH != nil {
+			oDSH()
+		}
+	}
 }
 
-// persistItems writes items to disk using buffer-first approach.
-// Called by encode() which handles locking, or directly by Flush()/Close()
-// which must hold m.mu write lock.
-// Does NOT call Sync() - caller decides if durability is needed.
-// If the underlying file has already been closed (m.f == nil) this is a
-// no-op and returns nil - treating post-Close calls as quietly dropped
-// rather than an error keeps the API forgiving for naive callers.
+// persistItems writes a complete snapshot using a same-directory temporary
+// file, fsync, and atomic rename. The previous userdata file remains intact
+// unless the replacement snapshot has been fully encoded and synced.
+// The caller must hold m.mu for writing.
 func (m *Manager) persistItems() error {
-	if m.f == nil {
+	var queueState *QueueState
+	if queue := m.queue.Load(); queue != nil {
+		state := queue.GetState()
+		queueState = &state
+	}
+	return m.persistItemsWithQueueState(queueState)
+}
+
+// persistItemsWithQueueState writes a snapshot using a queue state already
+// captured by a caller holding queue.mu. This avoids re-locking the queue while
+// manager deletion and queue-member removal commit as one snapshot.
+// The caller must hold m.mu for writing.
+func (m *Manager) persistItemsWithQueueState(queueState *QueueState) error {
+	if m.closed {
 		return nil
 	}
 	data := ManagerData{
-		Items: m.items,
+		Items:      m.items,
+		QueueState: queueState,
 	}
-	// Include queue state if queue is enabled
-	if m.queue != nil {
-		state := m.queue.GetState()
-		data.QueueState = &state
-	}
-
-	var buf bytes.Buffer
-	if err := gob.NewEncoder(&buf).Encode(data); err != nil {
-		return fmt.Errorf("encode items: %w", err)
-	}
-	if err := m.f.Truncate(0); err != nil {
-		return fmt.Errorf("truncate: %w", err)
-	}
-	if _, err := m.f.Seek(0, 0); err != nil {
-		return fmt.Errorf("seek: %w", err)
-	}
-	if _, err := m.f.Write(buf.Bytes()); err != nil {
-		return fmt.Errorf("write: %w", err)
+	if err := writeManagerDataAtomic(m.dataPath, data); err != nil {
+		return fmt.Errorf("persist manager data: %w", err)
 	}
 	return nil
+}
+
+func writeManagerDataAtomic(path string, data ManagerData) (err error) {
+	if path == "" {
+		return errors.New("userdata path is empty")
+	}
+	dir := filepath.Dir(path)
+	base := filepath.Base(path)
+	tmp, err := os.CreateTemp(NormalizePath(dir), "."+base+".tmp-*")
+	if err != nil {
+		return fmt.Errorf("create temporary snapshot: %w", err)
+	}
+	tmpPath := tmp.Name()
+	keepTemp := true
+	defer func() {
+		if tmp != nil {
+			_ = tmp.Close()
+		}
+		if keepTemp {
+			_ = WarpRemove(tmpPath)
+		}
+	}()
+
+	if err = WarpChmod(tmpPath, managerDataFileMode); err != nil {
+		return fmt.Errorf("secure temporary snapshot: %w", err)
+	}
+	if err = gob.NewEncoder(tmp).Encode(data); err != nil {
+		return fmt.Errorf("encode snapshot: %w", err)
+	}
+	if err = tmp.Sync(); err != nil {
+		return fmt.Errorf("sync temporary snapshot: %w", err)
+	}
+	if err = tmp.Close(); err != nil {
+		tmp = nil
+		return fmt.Errorf("close temporary snapshot: %w", err)
+	}
+	tmp = nil
+
+	if err = renameManagerFile(tmpPath, path); err != nil {
+		return fmt.Errorf("replace userdata: %w", err)
+	}
+	keepTemp = false
+
+	if err = syncManagerParentDirectory(dir); err != nil {
+		return &managerStoreCommittedError{
+			err: fmt.Errorf("sync userdata directory: %w", err),
+		}
+	}
+	return nil
+}
+
+func syncManagerDirectory(dir string) error {
+	// MoveFileEx with WRITE_THROUGH is used by WarpRename on Windows; opening
+	// a directory for fsync is not portable there.
+	if runtime.GOOS == "windows" {
+		return nil
+	}
+	dirFile, err := WarpOpen(dir)
+	if err != nil {
+		return err
+	}
+	return errors.Join(dirFile.Sync(), dirFile.Close())
 }
 
 // encodeLocked persists items to disk under the manager's write lock.
@@ -475,6 +867,20 @@ func (m *Manager) encode() error {
 func (m *Manager) mapItem(item *Item) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	// Item.mu is initialized once, before the item is published in m.items.
+	// Rewriting the pointer on every progress UpdateItem races getters that
+	// first read i.mu to acquire the item lock.
+	if item.mu == nil {
+		item.mu = m.mu
+	}
+	if item.memPart == nil {
+		item.memPart = make(map[string]int64)
+		for offset, part := range item.Parts {
+			if part != nil {
+				item.memPart[part.Hash] = offset
+			}
+		}
+	}
 	m.items[item.Hash] = item
 }
 
@@ -487,6 +893,15 @@ func (m *Manager) mapItem(item *Item) {
 // down. No panic.
 func (m *Manager) UpdateItem(item *Item) {
 	m.mapItem(item)
+	m.persistCurrentItems()
+}
+
+// persistCurrentItems synchronously snapshots the manager's current map
+// without publishing a caller-supplied Item pointer. Reconstruction commit
+// uses this after releasing Item lifecycle locks: if a same-hash replacement
+// won meanwhile, persistence must capture that newer mapping rather than
+// resurrecting the stale Item.
+func (m *Manager) persistCurrentItems() {
 	if p := m.persister.Load(); p != nil {
 		// Ensure any pending async dirt is flushed first so callers that
 		// expect synchronous durability (AddDownload, completion handlers)
@@ -555,8 +970,10 @@ func (m *Manager) GetItems() []*Item {
 // GetPublicItems returns all the public items in the manager.
 // It excludes child items from the result.
 func (m *Manager) GetPublicItems() []*Item {
-	var items = []*Item{}
-	for _, item := range m.GetItems() {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	items := make([]*Item, 0, len(m.items))
+	for _, item := range m.items {
 		if item.Children {
 			continue
 		}
@@ -596,22 +1013,140 @@ func (m *Manager) GetCompletedItems() []*Item {
 func (m *Manager) GetItem(hash string) (item *Item) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	item = m.items[hash]
+	return m.items[hash]
+}
+
+// ScheduleInfo is a lock-safe snapshot of fields used by scheduler and API
+// orchestration. It prevents callers from racing the manager's GOB encoder by
+// reading mutable Item fields directly.
+type ScheduleInfo struct {
+	Hash             string
+	Name             string
+	URL              string
+	CookieSourcePath string
+	ScheduledAt      time.Time
+	CronExpr         string
+	State            ScheduleState
+	Downloaded       ContentLength
+	TotalSize        ContentLength
+}
+
+// GetScheduleInfo returns a consistent scheduling snapshot.
+func (m *Manager) GetScheduleInfo(hash string) (ScheduleInfo, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	item := m.items[hash]
 	if item == nil {
-		return
+		return ScheduleInfo{}, false
 	}
-	if item.memPart == nil {
-		item.memPart = make(map[string]int64)
+	return ScheduleInfo{
+		Hash:             item.Hash,
+		Name:             item.Name,
+		URL:              item.Url,
+		CookieSourcePath: item.CookieSourcePath,
+		ScheduledAt:      item.ScheduledAt,
+		CronExpr:         item.CronExpr,
+		State:            item.ScheduleState,
+		Downloaded:       item.Downloaded,
+		TotalSize:        item.TotalSize,
+	}, true
+}
+
+func (m *Manager) mutateItem(hash string, mutate func(*Item)) error {
+	m.mu.Lock()
+	item := m.items[hash]
+	if item == nil {
+		m.mu.Unlock()
+		return ErrDownloadNotFound
 	}
-	if item.mu == nil {
-		item.mu = m.mu
+	mutate(item)
+	m.mu.Unlock()
+
+	if p := m.persister.Load(); p != nil {
+		p.markDirty()
+		if err := p.flush(); err != nil {
+			return fmt.Errorf("persist item mutation: %w", err)
+		}
+		return nil
 	}
-	return
+	return m.encodeLocked()
+}
+
+// ConfigureSchedule atomically updates all persisted schedule fields.
+func (m *Manager) ConfigureSchedule(hash string, scheduledAt time.Time, cronExpr string, state ScheduleState) error {
+	return m.mutateItem(hash, func(item *Item) {
+		item.ScheduledAt = scheduledAt
+		item.CronExpr = cronExpr
+		item.ScheduleState = state
+	})
+}
+
+// SetScheduleState atomically transitions a schedule without changing its
+// expression or next occurrence.
+func (m *Manager) SetScheduleState(hash string, state ScheduleState) error {
+	return m.mutateItem(hash, func(item *Item) {
+		item.ScheduleState = state
+	})
+}
+
+// SetScheduleStateIf changes a schedule state only when its current value is
+// one of expected. The comparison and mutation share the manager lock, which
+// lets scheduler triggers and explicit cancellation establish one durable
+// winner without a read-then-write race.
+func (m *Manager) SetScheduleStateIf(hash string, state ScheduleState, expected ...ScheduleState) (bool, error) {
+	m.mu.Lock()
+	item := m.items[hash]
+	if item == nil {
+		m.mu.Unlock()
+		return false, ErrDownloadNotFound
+	}
+	matches := false
+	for _, candidate := range expected {
+		if item.ScheduleState == candidate {
+			matches = true
+			break
+		}
+	}
+	if !matches {
+		m.mu.Unlock()
+		return false, nil
+	}
+	item.ScheduleState = state
+	m.mu.Unlock()
+
+	if p := m.persister.Load(); p != nil {
+		p.markDirty()
+		if err := p.flush(); err != nil {
+			return true, fmt.Errorf("persist item mutation: %w", err)
+		}
+		return true, nil
+	}
+	return true, m.encodeLocked()
+}
+
+// SetCookieSourcePath records the browser cookie source used for future
+// scheduled or resumed requests.
+func (m *Manager) SetCookieSourcePath(hash, sourcePath string) error {
+	return m.mutateItem(hash, func(item *Item) {
+		item.CookieSourcePath = sourcePath
+	})
+}
+
+// RenameItem updates the persisted output name under the Item lock.
+func (m *Manager) RenameItem(hash, name string) error {
+	return m.mutateItem(hash, func(item *Item) {
+		item.Name = name
+	})
 }
 
 // ResumeDownloadOpts contains optional parameters for ResumeDownload.
 type ResumeDownloadOpts struct {
 	ForceParts bool
+	// Fresh reconstructs a downloader for a new transfer using the persisted
+	// Item metadata. It is used by recurring schedules after a prior
+	// occurrence completed and by restored queued/scheduled items that never
+	// created part state.
+	Fresh bool
 	// MaxConnections sets the maximum number of parallel
 	// network connections to be used for the downloading the file.
 	MaxConnections int32
@@ -619,7 +1154,11 @@ type ResumeDownloadOpts struct {
 	// to be created for the downloading the file.
 	MaxSegments int32
 	Headers     Headers
-	Handlers    *Handlers
+	// TransientHeaders are applied to the reconstructed downloader without
+	// mutating Item.Headers or userdata.warp. Use this for freshly imported
+	// credentials such as browser cookies.
+	TransientHeaders Headers
+	Handlers         *Handlers
 	// RetryConfig configures retry behavior for transient errors.
 	// If nil, DefaultRetryConfig() is used.
 	RetryConfig *RetryConfig
@@ -629,6 +1168,16 @@ type ResumeDownloadOpts struct {
 	// SpeedLimit specifies the maximum download speed in bytes per second.
 	// If zero, no limit is applied.
 	SpeedLimit int64
+	// ProxyURL reports the runtime proxy used to construct client. It is
+	// sanitized before its non-secret representation is persisted.
+	ProxyURL string
+	// ReconstructionLease binds this call's local probe and allocation to one
+	// exact Item reconstruction generation. Callers that need exact cleanup
+	// should use Manager.ResumeDownloadWithLease.
+	ReconstructionLease *ReconstructionLease
+	// CommitGuard is evaluated at the reconstruction commit point. Queue
+	// callers use it to ensure their exact activation is still current.
+	CommitGuard func() bool
 }
 
 // ResumeDownload resumes a download item.
@@ -636,6 +1185,22 @@ type ResumeDownloadOpts struct {
 // For FTP/FTPS/SFTP items, it skips segment-file checks (single-stream to dest file)
 // and dispatches through SchemeRouter to create a protocol-specific downloader.
 func (m *Manager) ResumeDownload(client *http.Client, hash string, opts *ResumeDownloadOpts) (item *Item, err error) {
+	transferCtx, done, admitted := m.admitTransfer()
+	if !admitted {
+		return nil, ErrManagerShuttingDown
+	}
+	defer done()
+	opts = cloneResumeDownloadOpts(opts)
+	opts.CommitGuard = transferCommitGuard(transferCtx, opts.CommitGuard)
+	return m.resumeDownload(transferCtx, client, hash, opts)
+}
+
+func (m *Manager) resumeDownload(
+	transferCtx context.Context,
+	client *http.Client,
+	hash string,
+	opts *ResumeDownloadOpts,
+) (item *Item, err error) {
 	if opts == nil {
 		opts = &ResumeDownloadOpts{}
 	}
@@ -644,103 +1209,352 @@ func (m *Manager) ResumeDownload(client *http.Client, hash string, opts *ResumeD
 		err = ErrDownloadNotFound
 		return
 	}
-	if !item.Resumable {
+	lease := opts.ReconstructionLease
+	if lease == nil {
+		lease, err = m.beginReconstruction(hash, opts.CommitGuard)
+		if err != nil {
+			return
+		}
+	} else if !lease.belongsTo(item) {
+		err = ErrReconstructionSuperseded
+		return
+	}
+	snapshot := item.Snapshot()
+	fresh := opts.Fresh
+	if !fresh && !snapshot.Resumable {
 		err = ErrDownloadNotResumable
 		return
 	}
-
 	// Protocol guard: validate integrity differently per protocol.
 	// HTTP uses segment directories + part files; FTP writes directly to dest file.
-	switch item.Protocol {
+	switch snapshot.Protocol {
 	case ProtoHTTP:
 		// HTTP: validate segment directory + part files (existing behavior)
-		if err = validateDownloadIntegrity(item); err != nil {
+		if !fresh {
+			err = validateDownloadIntegritySnapshot(snapshot)
+		}
+		if err != nil {
 			return
 		}
 	case ProtoFTP, ProtoFTPS, ProtoSFTP:
 		// FTP/SFTP: no segment files exist. Only verify destination file if download started.
-		if item.Downloaded > 0 {
-			mainFile := item.GetAbsolutePath()
+		if !fresh && snapshot.Downloaded > 0 {
+			mainFile := GetPath(snapshot.AbsoluteLocation, snapshot.Name)
 			if !fileExists(mainFile) {
-				err = fmt.Errorf("%w: destination file missing for %s resume: %s", ErrDownloadDataMissing, item.Protocol, mainFile)
+				err = fmt.Errorf("%w: destination file missing for %s resume: %s", ErrDownloadDataMissing, snapshot.Protocol, mainFile)
 				return
 			}
 		}
 	default:
-		err = fmt.Errorf("resume not supported for protocol %s", item.Protocol)
+		err = fmt.Errorf("resume not supported for protocol %s", snapshot.Protocol)
 		return
 	}
 
 	// Dispatch based on protocol
-	switch item.Protocol {
+	switch snapshot.Protocol {
 	case ProtoFTP, ProtoFTPS, ProtoSFTP:
-		// FTP/FTPS/SFTP resume via SchemeRouter
-		if m.schemeRouter == nil {
-			err = fmt.Errorf("scheme router not initialized for %s resume", item.Protocol)
+		if snapshot.TransferConfig.ProtocolCredentialsRequired {
+			err = ErrProtocolCredentialsRequired
 			return
 		}
+		// FTP/FTPS/SFTP resume via SchemeRouter
+		schemeRouter := m.schemeRouter.Load()
+		if schemeRouter == nil {
+			err = fmt.Errorf("scheme router not initialized for %s resume", snapshot.Protocol)
+			return
+		}
+		protocolURL := snapshot.URL
+		if snapshot.TransferConfig.ProtocolUsername != "" {
+			var parsedURL *url.URL
+			parsedURL, err = url.Parse(protocolURL)
+			if err != nil {
+				err = fmt.Errorf("restore protocol username: %w", sanitizeHTTPError(err))
+				return
+			}
+			parsedURL.User = url.User(snapshot.TransferConfig.ProtocolUsername)
+			protocolURL = parsedURL.String()
+		}
 		var pd ProtocolDownloader
-		pd, err = m.schemeRouter.NewDownloader(item.Url, &DownloaderOpts{
-			FileName:          item.Name,
-			DownloadDirectory: item.DownloadLocation,
-			SSHKeyPath:        item.SSHKeyPath,
+		pd, err = schemeRouter.NewDownloader(protocolURL, &DownloaderOpts{
+			Context:           transferCtx,
+			FileName:          snapshot.Name,
+			DownloadDirectory: snapshot.DownloadLocation,
+			SSHKeyPath:        snapshot.SSHKeyPath,
+			MaxConnections:    snapshot.TransferConfig.MaxConnections,
+			MaxSegments:       snapshot.TransferConfig.MaxSegments,
+			Overwrite:         snapshot.TransferConfig.Overwrite,
 		})
 		if err != nil {
 			return
 		}
 		// Probe to get file metadata (size, etc.)
-		if _, err = pd.Probe(context.Background()); err != nil {
+		var probe ProbeResult
+		if probe, err = pd.Probe(transferCtx); err != nil {
+			_ = pd.Close()
 			return
+		}
+		var restartPart *ItemPart
+		if !fresh {
+			// FTP and SFTP do not expose a strong representation identity that
+			// can be persisted and revalidated. Their Resume implementations
+			// therefore restart from byte zero instead of combining an old
+			// local prefix with the newly probed remote object. Publish the
+			// matching zero-progress state before exposing the downloader.
+			//
+			// Keep a noncompiled marker even for a zero-length object. Besides
+			// describing the pending restart, it ensures crash recovery takes
+			// the protocol Resume path rather than treating this as a new
+			// collision-prone destination.
+			finalOffset := int64(probe.ContentLength) - 1
+			if finalOffset < 0 {
+				finalOffset = 0
+			}
+			restartPart = &ItemPart{
+				Hash:        pd.GetHash(),
+				FinalOffset: finalOffset,
+				Compiled:    false,
+			}
 		}
 		// Patch handlers for item state updates
 		if opts.Handlers == nil {
 			opts.Handlers = &Handlers{}
 		}
 		m.patchProtocolHandlers(opts.Handlers, item)
-		item.setResumeHandlers(opts.Handlers)
-		item.setDAlloc(pd)
-		m.UpdateItem(item)
-
-	default:
-		// HTTP resume path (existing behavior — unchanged)
-		if item.Headers == nil {
-			item.Headers = make(Headers, 0)
-		}
-		if opts.Headers != nil {
-			for _, newHeader := range opts.Headers {
-				item.Headers.Update(newHeader.Key, newHeader.Value)
+		err = lease.commit(m, pd, opts.Handlers, opts.CommitGuard, func(item *Item) {
+			item.Downloaded = 0
+			item.TotalSize = ContentLength(probe.ContentLength)
+			item.Resumable = probe.Resumable
+			if fresh {
+				item.Parts = make(map[int64]*ItemPart)
+				item.memPart = make(map[string]int64)
+				if probe.FileName != "" {
+					item.Name = probe.FileName
+				}
+				return
 			}
-		}
-		var d *Downloader
-		d, err = initDownloader(client, hash, item.Url, item.TotalSize, &DownloaderOpts{
-			ForceParts:        opts.ForceParts,
-			MaxConnections:    opts.MaxConnections,
-			MaxSegments:       opts.MaxSegments,
-			Handlers:          opts.Handlers,
-			FileName:          item.Name,
-			DownloadDirectory: item.DownloadLocation,
-			Headers:           item.Headers,
-			RetryConfig:       opts.RetryConfig,
-			RequestTimeout:    opts.RequestTimeout,
-			SpeedLimit:        opts.SpeedLimit,
+			item.Parts = map[int64]*ItemPart{0: restartPart}
+			item.memPart = map[string]int64{restartPart.Hash: 0}
 		})
 		if err != nil {
+			_ = pd.Close()
+			return
+		}
+
+	default:
+		// HTTP resume path.
+		config := cloneTransferConfig(snapshot.TransferConfig)
+		runtimeProxy := opts.ProxyURL != ""
+		if runtimeProxy {
+			var safeProxyURL string
+			var proxyCredentialsRequired bool
+			safeProxyURL, proxyCredentialsRequired, err =
+				SanitizeProxyURLForPersistence(opts.ProxyURL)
+			if err != nil {
+				err = fmt.Errorf("persist runtime proxy: %w", err)
+				return
+			}
+			config.ProxyURL = safeProxyURL
+			config.ProxyCredentialsRequired = proxyCredentialsRequired
+		}
+		if config.ProxyCredentialsRequired && !runtimeProxy {
+			err = ErrProxyCredentialsRequired
+			return
+		}
+		if !runtimeProxy && config.ProxyURL != "" {
+			var proxyClient *http.Client
+			proxyClient, err = NewHTTPClientWithProxy(config.ProxyURL)
+			if err != nil {
+				err = fmt.Errorf("restore proxy: %w", err)
+				return
+			}
+			if client != nil && client.Jar != nil {
+				proxyClient.Jar = client.Jar
+			}
+			client = proxyClient
+		}
+		if fresh {
+			if mkdirErr := WarpMkdirAll(GetPath(DlDataDir, hash), PrivateDirMode); mkdirErr != nil {
+				err = fmt.Errorf("create download state directory: %w", mkdirErr)
+				return
+			}
+		}
+		persistedHeaders := append(Headers(nil), snapshot.Headers...)
+		if persistedHeaders == nil {
+			persistedHeaders = make(Headers, 0)
+		}
+		for _, newHeader := range opts.Headers {
+			persistedHeaders.Update(newHeader.Key, newHeader.Value)
+		}
+		requestHeaders := append(Headers(nil), persistedHeaders...)
+		for _, transientHeader := range opts.TransientHeaders {
+			requestHeaders.Update(transientHeader.Key, transientHeader.Value)
+		}
+		var d *Downloader
+		var downloaderOptFuncs []DownloaderOptsFunc
+		if !fresh {
+			downloaderOptFuncs = append(downloaderOptFuncs, withResumable(snapshot.Resumable))
+		}
+		if fresh && snapshot.DestinationClaimed {
+			downloaderOptFuncs = append(downloaderOptFuncs, withClaimedEmptyDestination())
+		}
+		if opts.ForceParts {
+			config.ForceParts = true
+		}
+		if opts.MaxConnections != 0 {
+			config.MaxConnections = opts.MaxConnections
+		}
+		if opts.MaxSegments != 0 {
+			config.MaxSegments = opts.MaxSegments
+		}
+		if opts.RetryConfig != nil {
+			retryConfig := *opts.RetryConfig
+			config.RetryConfig = &retryConfig
+		}
+		if opts.RequestTimeout != 0 {
+			config.RequestTimeout = opts.RequestTimeout
+		}
+		if opts.SpeedLimit != 0 {
+			config.SpeedLimit = opts.SpeedLimit
+		}
+		if config.NumBaseParts <= 0 {
+			config.NumBaseParts = 1
+		}
+		downloaderOpts := &DownloaderOpts{
+			Context:             transferCtx,
+			ForceParts:          config.ForceParts,
+			NumBaseParts:        config.NumBaseParts,
+			MaxConnections:      config.MaxConnections,
+			MaxSegments:         config.MaxSegments,
+			Handlers:            opts.Handlers,
+			FileName:            snapshot.Name,
+			DownloadDirectory:   snapshot.DownloadLocation,
+			Headers:             requestHeaders,
+			PluginHeaderNames:   snapshot.PluginHeaderNames,
+			ResourceETag:        snapshot.ResourceETag,
+			RetryConfig:         config.RetryConfig,
+			Overwrite:           config.Overwrite,
+			LockFileName:        config.LockFileName,
+			RequestTimeout:      config.RequestTimeout,
+			MaxFileSize:         config.MaxFileSize,
+			ChecksumConfig:      config.ChecksumConfig,
+			SpeedLimit:          config.SpeedLimit,
+			DisableWorkStealing: config.DisableWorkStealing,
+		}
+		if fresh {
+			// A fresh occurrence is a new representation, not a resume. Probe
+			// the live resource so a changed size, range capability or ETag
+			// cannot be replaced with stale Item metadata. Recurring names and
+			// manager-owned empty destinations are already claimed identities
+			// and must not be changed by Content-Disposition or uniquification.
+			persistedDestinationExists := snapshot.Name != "" &&
+				fileExists(GetPath(snapshot.DownloadLocation, snapshot.Name))
+			preserveName := config.LockFileName || snapshot.CronExpr != "" || snapshot.DestinationClaimed ||
+				persistedDestinationExists
+			if !preserveName {
+				downloaderOpts.FileName = ""
+			}
+			downloaderOpts.LockFileName = preserveName
+			downloaderOpts.ResourceETag = ""
+			downloaderOpts.SkipSetup = true
+			d, err = NewDownloader(client, snapshot.URL, downloaderOpts, downloaderOptFuncs...)
+			if err == nil {
+				err = finishFreshHTTPDownloader(d, hash, downloaderOpts)
+			}
+		} else {
+			d, err = initDownloader(client, hash, snapshot.URL, snapshot.TotalSize, downloaderOpts, downloaderOptFuncs...)
+		}
+		if err != nil {
+			if d != nil {
+				_ = d.Close()
+			}
 			return
 		}
 		m.patchHandlers(d, item)
 		// Wrap the concrete *Downloader in an httpProtocolDownloader adapter.
 		adapter := &httpProtocolDownloader{
 			inner:  d,
-			rawURL: item.Url,
+			rawURL: snapshot.URL,
 			probed: true, // initDownloader already has the state
 		}
-		item.setDAlloc(adapter)
-		m.UpdateItem(item)
+		err = lease.commit(m, adapter, nil, opts.CommitGuard, func(item *Item) {
+			item.Headers = persistedHeaders
+			if fresh {
+				// Publish the new representation metadata and reset progress
+				// atomically with the matching allocation.
+				item.Downloaded = 0
+				item.Parts = make(map[int64]*ItemPart)
+				item.memPart = make(map[string]int64)
+				item.Name = d.fileName
+				item.Url = d.persistedURL()
+				item.TotalSize = d.contentLength
+				item.Resumable = d.resumable
+				item.ResourceETag = d.resourceETag
+			}
+			item.TransferConfig = transferConfigFromDownloader(d)
+			item.TransferConfig.ProxyURL = config.ProxyURL
+			item.TransferConfig.ProxyCredentialsRequired = config.ProxyCredentialsRequired
+		})
+		if err != nil {
+			_ = d.Close()
+			return
+		}
 	}
 	return
 }
 
-// Flush flushes away all the inactive download items.
+// finishFreshHTTPDownloader attaches a freshly probed downloader to an
+// existing manager hash. NewDownloader's SkipSetup mode deliberately avoids
+// allocating a new hash/state directory; restart reconstruction reuses the
+// persisted identity after the live metadata probe succeeds.
+func finishFreshHTTPDownloader(d *Downloader, hash string, opts *DownloaderOpts) error {
+	d.hash = hash
+	d.dlPath = filepath.Join(DlDataDir, hash)
+	if err := d.setupLogger(); err != nil {
+		return err
+	}
+	d.l.Println("GET:", logSafeURL(d.url))
+	d.l.Println("CONTENT-LENGTH:", d.contentLength.v(), "(", d.contentLength, ")")
+	d.l.Println("FILE-NAME:", d.fileName)
+	d.handlers.setDefault(d.l)
+	if !d.resumable {
+		d.numBaseParts = 1
+	} else if opts.NumBaseParts != 0 {
+		d.numBaseParts = opts.NumBaseParts
+	}
+	if d.numBaseParts <= 0 {
+		d.numBaseParts = 1
+	}
+	if d.maxParts != 0 && d.maxConn > d.maxParts {
+		d.maxConn = d.maxParts
+	}
+	if d.numBaseParts > d.maxConn {
+		d.numBaseParts = d.maxConn
+	}
+	if d.maxParts != 0 && d.numBaseParts > d.maxParts {
+		d.numBaseParts = d.maxParts
+	}
+	return nil
+}
+
+// itemHasPendingSchedule reports whether deleting item would discard work
+// that is still expected to run. Scheduled and missed entries are directly
+// runnable; a triggered item remains pending until its current occurrence
+// reaches a terminal byte count.
+//
+// The caller must hold m.mu.
+func itemHasPendingSchedule(item *Item) bool {
+	switch item.ScheduleState {
+	case ScheduleStateScheduled, ScheduleStateMissed:
+		return true
+	case ScheduleStateTriggered:
+		return item.TotalSize < 0 || item.Downloaded < item.TotalSize
+	default:
+		return false
+	}
+}
+
+// Flush flushes away all inactive history. Runnable queued or scheduled
+// entries are preserved.
 func (m *Manager) Flush() error {
 	// Drain any pending background writes first so this operation is
 	// applied on top of the latest persisted state.
@@ -749,9 +1563,11 @@ func (m *Manager) Flush() error {
 			return fmt.Errorf("flush persister: %w", err)
 		}
 	}
-	// add a write lock to prevent data modification while flushing
+	// Stage metadata deletion under the lock, but leave resume directories
+	// intact until the replacement snapshot has committed.
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	removed := make(ItemsMap)
+	candidates := make(map[string]struct{})
 	for hash, item := range m.items {
 		// Since item.mu == m.mu, we already hold the lock.
 		// Read fields directly without additional locking.
@@ -761,20 +1577,68 @@ func (m *Manager) Flush() error {
 		// Use getDAlloc() for synchronized access to dAlloc
 		dAlloc := item.getDAlloc()
 
-		if totalSize != downloaded && dAlloc != nil {
+		if itemHasPendingSchedule(item) || (totalSize != downloaded && dAlloc != nil) {
 			continue
 		}
-		delete(m.items, hash)
-		_ = WarpRemoveAll(GetPath(DlDataDir, hash))
+		candidates[hash] = struct{}{}
 	}
-	if err := m.persistItems(); err != nil {
-		return fmt.Errorf("flush persist: %w", err)
+
+	var (
+		finalizeQueueRemoval func()
+		persistErr           error
+	)
+	if queue := m.queue.Load(); queue != nil {
+		finalizeQueueRemoval, persistErr = queue.removeForManagerPersistence(
+			candidates,
+			true,
+			func(queueState *QueueState, removable map[string]struct{}) (bool, error) {
+				for hash := range removable {
+					if item := m.items[hash]; item != nil {
+						removed[hash] = item
+						delete(m.items, hash)
+					}
+				}
+				err := m.persistItemsWithQueueState(queueState)
+				if err != nil && !managerStoreCommitSucceeded(err) {
+					for hash, item := range removed {
+						m.items[hash] = item
+					}
+					return false, err
+				}
+				return true, err
+			},
+		)
+	} else {
+		for hash := range candidates {
+			removed[hash] = m.items[hash]
+			delete(m.items, hash)
+		}
+		persistErr = m.persistItems()
+		if persistErr != nil && !managerStoreCommitSucceeded(persistErr) {
+			for hash, item := range removed {
+				m.items[hash] = item
+			}
+		}
 	}
-	// Sync to ensure durability - Flush is an explicit user action
-	if err := m.f.Sync(); err != nil {
-		return fmt.Errorf("flush sync: %w", err)
+	if persistErr != nil && !managerStoreCommitSucceeded(persistErr) {
+		m.mu.Unlock()
+		return fmt.Errorf("flush persist: %w", persistErr)
 	}
-	return nil
+	m.mu.Unlock()
+	if finalizeQueueRemoval != nil {
+		finalizeQueueRemoval()
+	}
+
+	var cleanupErr error
+	for hash := range removed {
+		if err := WarpRemoveAll(GetPath(DlDataDir, hash)); err != nil {
+			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("remove download data for %s: %w", hash, err))
+		}
+	}
+	if persistErr != nil {
+		persistErr = fmt.Errorf("flush persist: %w", persistErr)
+	}
+	return errors.Join(persistErr, cleanupErr)
 }
 
 // FlushOne flushes away the download item with the given hash.
@@ -786,33 +1650,67 @@ func (m *Manager) FlushOne(hash string) error {
 		}
 	}
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	item, found := m.items[hash]
 	if !found {
+		m.mu.Unlock()
 		return ErrFlushHashNotFound
 	}
 
 	// Check download state atomically under manager lock
-	if item.TotalSize != item.Downloaded && item.getDAlloc() != nil {
+	if itemHasPendingSchedule(item) ||
+		(item.TotalSize != item.Downloaded && item.getDAlloc() != nil) {
+		m.mu.Unlock()
 		return ErrFlushItemDownloading
 	}
 
-	// Delete from map while holding lock
-	delete(m.items, hash)
-
-	if err := m.persistItems(); err != nil {
-		// Restore on error
-		m.items[hash] = item
-		return fmt.Errorf("flush one persist: %w", err)
+	var (
+		finalizeQueueRemoval func()
+		persistErr           error
+	)
+	if queue := m.queue.Load(); queue != nil {
+		finalizeQueueRemoval, persistErr = queue.removeForManagerPersistence(
+			map[string]struct{}{hash: {}},
+			true,
+			func(queueState *QueueState, removable map[string]struct{}) (bool, error) {
+				if _, removable := removable[hash]; !removable {
+					return false, ErrFlushItemDownloading
+				}
+				delete(m.items, hash)
+				err := m.persistItemsWithQueueState(queueState)
+				if err != nil && !managerStoreCommitSucceeded(err) {
+					m.items[hash] = item
+					return false, err
+				}
+				return true, err
+			},
+		)
+	} else {
+		delete(m.items, hash)
+		persistErr = m.persistItems()
+		if persistErr != nil && !managerStoreCommitSucceeded(persistErr) {
+			m.items[hash] = item
+		}
 	}
-
-	if err := m.f.Sync(); err != nil {
-		return fmt.Errorf("flush one sync: %w", err)
+	if errors.Is(persistErr, ErrFlushItemDownloading) {
+		m.mu.Unlock()
+		return ErrFlushItemDownloading
+	}
+	if persistErr != nil && !managerStoreCommitSucceeded(persistErr) {
+		m.mu.Unlock()
+		return fmt.Errorf("flush one persist: %w", persistErr)
+	}
+	m.mu.Unlock()
+	if finalizeQueueRemoval != nil {
+		finalizeQueueRemoval()
 	}
 
 	// Directory removal is safe after persist (item can't be resumed)
-	return WarpRemoveAll(GetPath(DlDataDir, hash))
+	removeErr := WarpRemoveAll(GetPath(DlDataDir, hash))
+	if persistErr != nil {
+		persistErr = fmt.Errorf("flush one persist: %w", persistErr)
+	}
+	return errors.Join(persistErr, removeErr)
 }
 
 // PurgeFailedDownload removes a download entry that never wrote any
@@ -832,28 +1730,121 @@ func (m *Manager) PurgeFailedDownload(hash string) error {
 		}
 	}
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	item, found := m.items[hash]
 	if !found {
+		m.mu.Unlock()
 		return nil
 	}
-	delete(m.items, hash)
-	if err := m.persistItems(); err != nil {
-		// Restore on persist error to keep on-disk state consistent.
-		m.items[hash] = item
-		return fmt.Errorf("purge failed download: %w", err)
+	var (
+		finalizeQueueRemoval func()
+		persistErr           error
+	)
+	if queue := m.queue.Load(); queue != nil {
+		finalizeQueueRemoval, persistErr = queue.removeForManagerPersistence(
+			map[string]struct{}{hash: {}},
+			false,
+			func(queueState *QueueState, _ map[string]struct{}) (bool, error) {
+				delete(m.items, hash)
+				err := m.persistItemsWithQueueState(queueState)
+				if err != nil && !managerStoreCommitSucceeded(err) {
+					m.items[hash] = item
+					return false, err
+				}
+				return true, err
+			},
+		)
+	} else {
+		delete(m.items, hash)
+		persistErr = m.persistItems()
+		if persistErr != nil && !managerStoreCommitSucceeded(persistErr) {
+			m.items[hash] = item
+		}
 	}
-	if err := m.f.Sync(); err != nil {
-		return fmt.Errorf("purge failed download sync: %w", err)
+	if persistErr != nil && !managerStoreCommitSucceeded(persistErr) {
+		m.mu.Unlock()
+		return fmt.Errorf("purge failed download: %w", persistErr)
 	}
-	return WarpRemoveAll(GetPath(DlDataDir, hash))
+	m.mu.Unlock()
+	if finalizeQueueRemoval != nil {
+		finalizeQueueRemoval()
+	}
+
+	removeErr := WarpRemoveAll(GetPath(DlDataDir, hash))
+	if persistErr != nil {
+		persistErr = fmt.Errorf("purge failed download: %w", persistErr)
+	}
+	return errors.Join(persistErr, removeErr)
 }
 
 // Close closes the manager safely, ensuring all data is persisted.
 // Safe to call multiple times and concurrently; only the first
 // caller performs the shutdown, others are no-ops.
 func (m *Manager) Close() error {
+	// Close admission and cancel all Manager-owned protocol contexts before
+	// stopping persistence. Stop every published allocation first, including
+	// stopped-but-still-owned allocations and nil in-flight reconstructions.
+	// Then drain admitted work before exact allocation cleanup so no file
+	// handle can outlive the final persisted snapshot.
+	var shutdownErr error
+	m.CancelTransfers()
+	items := m.GetItems()
+	for _, item := range items {
+		if item == nil {
+			continue
+		}
+		if err := item.StopDownload(); err != nil &&
+			!errors.Is(err, ErrItemDownloaderNotFound) {
+			shutdownErr = errors.Join(
+				shutdownErr,
+				fmt.Errorf("stop downloader %s: %w", item.Hash, err),
+			)
+		}
+	}
+	if err := m.WaitTransfers(context.Background()); err != nil {
+		shutdownErr = errors.Join(shutdownErr, err)
+	}
+	// An AddDownload admitted before cancellation may publish after the first
+	// snapshot. WaitTransfers proves registration is now quiescent; refresh
+	// the current map and stop those exact allocations too. Keep the original
+	// pointers in the cleanup set so a same-hash replacement cannot orphan
+	// the allocation observed by the first snapshot.
+	currentItems := m.GetItems()
+	for _, item := range currentItems {
+		if item == nil {
+			continue
+		}
+		if err := item.StopDownload(); err != nil &&
+			!errors.Is(err, ErrItemDownloaderNotFound) {
+			shutdownErr = errors.Join(
+				shutdownErr,
+				fmt.Errorf("stop downloader %s: %w", item.Hash, err),
+			)
+		}
+	}
+	cleanupItems := make(map[*Item]struct{}, len(items)+len(currentItems))
+	for _, item := range items {
+		if item != nil {
+			cleanupItems[item] = struct{}{}
+		}
+	}
+	for _, item := range currentItems {
+		if item != nil {
+			cleanupItems[item] = struct{}{}
+		}
+	}
+	for item := range cleanupItems {
+		if item == nil {
+			continue
+		}
+		if err := item.CloseDownloader(); err != nil {
+			shutdownErr = errors.Join(
+				shutdownErr,
+				fmt.Errorf("close downloader %s: %w", item.Hash, err),
+			)
+		}
+	}
+
 	// Swap the persister out atomically so concurrent UpdateItem calls
 	// see either the live persister or nil - never a half-closed state.
 	// CompareAndSwap ensures only the first caller shuts it down.
@@ -861,30 +1852,29 @@ func (m *Manager) Close() error {
 	if p != nil && m.persister.CompareAndSwap(p, nil) {
 		if err := p.shutdown(); err != nil {
 			log.Printf("warplib: warning: persister shutdown error: %v", err)
+			shutdownErr = errors.Join(shutdownErr, err)
 		}
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Already closed — return immediately. Close is safe to call more
-	// than once; the first winning CAS above handled shutdown.
-	if m.f == nil {
+	// Already closed — return immediately. Close is safe to call more than
+	// once; the first winning CAS above handled shutdown.
+	if m.closed {
 		return nil
 	}
 
-	// Final persist and sync before closing - belt-and-braces guard
+	// Final atomic persist before closing - belt-and-braces guard
 	// against a dirty flag that arrived after the persister's final
-	// flush. (If persister.flush already wrote everything this is a
-	// no-op from the OS's point of view beyond the fsync.)
+	// flush.
 	if err := m.persistItems(); err != nil {
-		// Log but don't fail - still need to close file
 		log.Printf("warplib: warning: failed to persist on close: %v", err)
+		// Leave closed false so a caller can retry Close after a transient
+		// filesystem failure. The persister is already shut down, so the
+		// retry performs a direct final atomic snapshot.
+		return errors.Join(shutdownErr, err)
 	}
-	if err := m.f.Sync(); err != nil {
-		log.Printf("warplib: warning: failed to sync on close: %v", err)
-	}
-	err := m.f.Close()
-	m.f = nil
-	return err
+	m.closed = true
+	return shutdownErr
 }

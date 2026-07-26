@@ -2,9 +2,12 @@ package server
 
 import (
 	"context"
+	"time"
 
 	cws "github.com/coder/websocket"
 )
+
+const rpcWebSocketWriteTimeout = 2 * time.Second
 
 // wsChannel adapts a coder/websocket.Conn to the jrpc2 Channel interface.
 // Each WebSocket connection gets one wsChannel that bridges read/write
@@ -16,7 +19,9 @@ type wsChannel struct {
 
 // Send writes a JSON-RPC message to the WebSocket connection.
 func (c *wsChannel) Send(data []byte) error {
-	return c.conn.Write(c.ctx, cws.MessageText, data)
+	ctx, cancel := context.WithTimeout(c.ctx, rpcWebSocketWriteTimeout)
+	defer cancel()
+	return c.conn.Write(ctx, cws.MessageText, data)
 }
 
 // Recv reads a JSON-RPC message from the WebSocket connection.

@@ -23,16 +23,14 @@ func attach(ctx *cli.Context) (err error) {
 	}
 	client, err := getClient()
 	if err != nil {
-		common.PrintRuntimeErr(ctx, "attach", "new_client", err)
-		return nil
+		return common.PrintRuntimeErr(ctx, "attach", "new_client", err)
 	}
 	defer client.Close()
 	client.CheckVersionMismatch(currentBuildArgs.Version)
 	fmt.Println(">> Initiating a WARP download << ")
 	d, err := client.AttachDownload(hash)
 	if err != nil {
-		common.PrintRuntimeErr(ctx, "attach", "client-attach", err)
-		return nil
+		return common.PrintRuntimeErr(ctx, "attach", "client-attach", err)
 	}
 	txt := fmt.Sprintf(`
 Download Info

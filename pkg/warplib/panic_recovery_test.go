@@ -28,14 +28,8 @@ func TestDownloadSurvivesPanicInProgressCallback(t *testing.T) {
 	// Create test data (64 bytes to ensure progress callback is invoked)
 	content := bytes.Repeat([]byte("x"), 64)
 
-	// Setup HTTP test server that returns content with range support
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Accept-Ranges", "bytes")
-		w.Header().Set("Content-Type", "application/octet-stream")
-		w.Header().Set("Content-Length", "64")
-		w.WriteHeader(http.StatusOK)
-		w.Write(content)
-	}))
+	// Setup HTTP test server that honours range requests.
+	srv := newRangeServer(t, content)
 	defer srv.Close()
 
 	var panicCount int32
@@ -238,13 +232,7 @@ func TestNewPartDownloadSurvivesPanic(t *testing.T) {
 
 	content := bytes.Repeat([]byte("z"), 128)
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Accept-Ranges", "bytes")
-		w.Header().Set("Content-Type", "application/octet-stream")
-		w.Header().Set("Content-Length", "128")
-		w.WriteHeader(http.StatusPartialContent)
-		w.Write(content)
-	}))
+	srv := newRangeServer(t, content)
 	defer srv.Close()
 
 	var progressPanics int32
@@ -301,13 +289,7 @@ func TestNewPartDownloadSurvivesPanic(t *testing.T) {
 func TestResumePartDownloadSurvivesPanic(t *testing.T) {
 	content := bytes.Repeat([]byte("a"), 128)
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Accept-Ranges", "bytes")
-		w.Header().Set("Content-Type", "application/octet-stream")
-		w.Header().Set("Content-Length", "128")
-		w.WriteHeader(http.StatusPartialContent)
-		w.Write(content)
-	}))
+	srv := newRangeServer(t, content)
 	defer srv.Close()
 
 	var panicCount int32
@@ -455,12 +437,7 @@ func TestCompileProgressCallbackPanicDoesNotHang(t *testing.T) {
 
 	content := bytes.Repeat([]byte("c"), 64)
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Accept-Ranges", "bytes")
-		w.Header().Set("Content-Length", "64")
-		w.WriteHeader(http.StatusPartialContent)
-		w.Write(content)
-	}))
+	srv := newRangeServer(t, content)
 	defer srv.Close()
 
 	var compilePanics int32

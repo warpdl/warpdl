@@ -28,6 +28,7 @@ func TestPrepareDownloaderSlowSpeed(t *testing.T) {
 			h := make(http.Header)
 			h.Set("Accept-Ranges", "bytes")
 			h.Set("Content-Length", "8")
+			h.Set("ETag", `"speed-test"`)
 			return &http.Response{
 				StatusCode: http.StatusPartialContent,
 				Body:       reader,
@@ -43,6 +44,7 @@ func TestPrepareDownloaderSlowSpeed(t *testing.T) {
 		numBaseParts:  0,
 		contentLength: 1000,
 		headers:       Headers{},
+		resourceETag:  `"speed-test"`,
 	}
 	if err := d.prepareDownloader(); err != nil {
 		t.Fatalf("prepareDownloader: %v", err)
@@ -108,6 +110,7 @@ func TestPrepareDownloaderSpeedAllocation(t *testing.T) {
 					h := make(http.Header)
 					h.Set("Accept-Ranges", "bytes")
 					h.Set("Content-Length", "1048576") // 1MB
+					h.Set("ETag", `"speed-test"`)
 					return &http.Response{
 						StatusCode: http.StatusPartialContent,
 						Body:       reader,
@@ -123,6 +126,7 @@ func TestPrepareDownloaderSpeedAllocation(t *testing.T) {
 				numBaseParts:  0,
 				contentLength: 1048576, // 1MB
 				headers:       Headers{},
+				resourceETag:  `"speed-test"`,
 			}
 			if err := d.prepareDownloader(); err != nil {
 				t.Fatalf("prepareDownloader: %v", err)
@@ -185,6 +189,7 @@ func TestPrepareDownloaderNoAcceptRanges(t *testing.T) {
 		numBaseParts:  0,
 		contentLength: 1048576,
 		headers:       Headers{},
+		resourceETag:  `"no-ranges-test"`,
 	}
 	if err := d.prepareDownloader(); err != nil {
 		t.Fatalf("prepareDownloader: %v", err)
@@ -204,6 +209,7 @@ func TestPrepareDownloaderSmallContent(t *testing.T) {
 			h := make(http.Header)
 			h.Set("Accept-Ranges", "bytes")
 			h.Set("Content-Length", "100") // Very small file
+			h.Set("ETag", `"small-test"`)
 			return &http.Response{
 				StatusCode: http.StatusPartialContent,
 				Body:       io.NopCloser(bytes.NewReader(bytes.Repeat([]byte("x"), 100))),
@@ -219,6 +225,7 @@ func TestPrepareDownloaderSmallContent(t *testing.T) {
 		numBaseParts:  0,
 		contentLength: 100, // Content smaller than chunk
 		headers:       Headers{},
+		resourceETag:  `"small-test"`,
 	}
 	if err := d.prepareDownloader(); err != nil {
 		t.Fatalf("prepareDownloader: %v", err)
@@ -235,6 +242,7 @@ func TestPrepareDownloaderNumBasePartsPreset(t *testing.T) {
 			h := make(http.Header)
 			h.Set("Accept-Ranges", "bytes")
 			h.Set("Content-Length", "1048576")
+			h.Set("ETag", `"preset-test"`)
 			return &http.Response{
 				StatusCode: http.StatusPartialContent,
 				Body:       io.NopCloser(bytes.NewReader(bytes.Repeat([]byte("x"), 1024))),
@@ -250,6 +258,7 @@ func TestPrepareDownloaderNumBasePartsPreset(t *testing.T) {
 		numBaseParts:  7, // Already set
 		contentLength: 1048576,
 		headers:       Headers{},
+		resourceETag:  `"preset-test"`,
 	}
 	if err := d.prepareDownloader(); err != nil {
 		t.Fatalf("prepareDownloader: %v", err)

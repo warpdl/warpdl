@@ -101,8 +101,7 @@ func list(ctx *cli.Context) error {
 	}
 	client, err := getClient()
 	if err != nil {
-		common.PrintRuntimeErr(ctx, "list", "new_client", err)
-		return nil
+		return common.PrintRuntimeErr(ctx, "list", "new_client", err)
 	}
 	defer client.Close()
 	l, err := client.List(&warpcli.ListOpts{
@@ -110,8 +109,7 @@ func list(ctx *cli.Context) error {
 		ShowPending:   showPending || showAll,
 	})
 	if err != nil {
-		common.PrintRuntimeErr(ctx, "list", "get_list", err)
-		return nil
+		return common.PrintRuntimeErr(ctx, "list", "get_list", err)
 	}
 	fback := func() error {
 		fmt.Println("warp: no downloads found")
@@ -141,6 +139,9 @@ func list(ctx *cli.Context) error {
 		}
 		perc := fmt.Sprintf(`%d%%`, item.GetPercentage())
 		sched := formatScheduleColumn(item)
+		if len(sched) > 14 {
+			sched = sched[:11] + "..."
+		}
 		txt += fmt.Sprintf("\n| %d | %s |   %s  |  %s  | %s |", i, name, item.Hash, common.Beaut(perc, 4), common.Beaut(sched, 14))
 	}
 	if i == 0 {

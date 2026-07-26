@@ -166,6 +166,14 @@ func (p *persister) drainAndWrite() (err error) {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("persist: writeFn panic: %v", r)
 		}
+		if err != nil {
+			// A failed write did not persist the snapshot. Restore dirty so
+			// the regular ticker or the next explicit flush retries it even
+			// when no new application mutation occurs.
+			p.mu.Lock()
+			p.dirty = true
+			p.mu.Unlock()
+		}
 	}()
 	return p.writeFn()
 }

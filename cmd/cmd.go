@@ -197,6 +197,10 @@ func GetApp(bArgs BuildArgs) *cli.App {
 		UseShortOptionHandling: true,
 		HideHelp:               true,
 		HideVersion:            true,
+		// Let main translate cli.ExitCoder values into process exit statuses.
+		// urfave/cli's default handler calls os.Exit from inside App.Run,
+		// which bypasses deferred cleanup and collapses testability.
+		ExitErrHandler: func(_ *cli.Context, _ error) {},
 		Before: func(ctx *cli.Context) error {
 			// Set WARPDL_DEBUG=1 if --debug/-d flag is set
 			// This enables debug logging throughout the application

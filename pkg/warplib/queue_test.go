@@ -1,9 +1,12 @@
 package warplib
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 )
 
 // TestQueueManager_AddWithCapacity tests that QueueManager respects maxConcurrent limit.
@@ -25,6 +28,56 @@ func TestQueueManager_AddWithCapacity(t *testing.T) {
 	}
 	if waitingCount != 1 {
 		t.Fatalf("expected 1 waiting download, got %d", waitingCount)
+	}
+}
+
+func TestQueueManagerRemoveIfWaitingPreventsConcurrentPromotion(t *testing.T) {
+	started := make(chan string, 1)
+	qm := NewQueueManager(1, func(hash string) {
+		started <- hash
+	})
+	qm.Pause()
+	qm.Add("waiting", PriorityNormal)
+
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	removed := make(chan bool, 1)
+	go func() {
+		ok, err := qm.removeIfWaiting("waiting", func() error {
+			close(entered)
+			<-release
+			return nil
+		})
+		if err != nil {
+			t.Errorf("removeIfWaiting: %v", err)
+		}
+		removed <- ok
+	}()
+	<-entered
+
+	resumed := make(chan struct{})
+	go func() {
+		qm.Resume()
+		close(resumed)
+	}()
+	select {
+	case <-resumed:
+		t.Fatal("queue resumed while waiting-item cleanup still held its atomic claim")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	close(release)
+	if ok := <-removed; !ok {
+		t.Fatal("waiting item was not removed")
+	}
+	<-resumed
+	if qm.IsWaiting("waiting") || qm.IsActive("waiting") {
+		t.Fatal("removed item retained queue membership")
+	}
+	select {
+	case hash := <-started:
+		t.Fatalf("removed item was promoted: %s", hash)
+	default:
 	}
 }
 
@@ -80,6 +133,278 @@ func TestQueueManager_OnComplete(t *testing.T) {
 	}
 	if qm.WaitingCount() != 0 {
 		t.Fatalf("expected 0 waiting downloads after completion, got %d", qm.WaitingCount())
+	}
+}
+
+func TestQueueActivationClaimDefersHashOnlyCompletion(t *testing.T) {
+	var activations []QueueActivation
+	queue := newQueueManagerWithActivation(1, func(activation QueueActivation) {
+		activations = append(activations, activation)
+	})
+
+	queue.Add("same-hash", PriorityNormal)
+	if len(activations) != 1 {
+		t.Fatalf("activation callbacks = %d, want 1", len(activations))
+	}
+	first := activations[0]
+	if !queue.ClaimActivation(first) {
+		t.Fatal("failed to claim first activation")
+	}
+
+	// Manager's completion wrapper runs before Start returns. A claimed lease
+	// must remain active until the outer goroutine explicitly finishes it.
+	queue.OnComplete("same-hash")
+	if !queue.IsActivationCurrent(first) {
+		t.Fatal("hash-only completion released a claimed activation")
+	}
+	if !queue.FinishActivation(first) {
+		t.Fatal("outer finalizer failed to release claimed activation")
+	}
+	if queue.IsActive("same-hash") {
+		t.Fatal("finished activation remains active")
+	}
+}
+
+func TestQueueActivationRejectsCancelReaddABA(t *testing.T) {
+	var activations []QueueActivation
+	queue := newQueueManagerWithActivation(1, func(activation QueueActivation) {
+		activations = append(activations, activation)
+	})
+
+	queue.Add("same-hash", PriorityNormal)
+	first := activations[0]
+	if !queue.ClaimActivation(first) {
+		t.Fatal("failed to claim first activation")
+	}
+	if !queue.Remove("same-hash") {
+		t.Fatal("failed to cancel first activation")
+	}
+	queue.Add("same-hash", PriorityNormal)
+	if len(activations) != 2 {
+		t.Fatalf("activation callbacks = %d, want 2", len(activations))
+	}
+	replacement := activations[1]
+
+	if queue.IsActivationCurrent(first) {
+		t.Fatal("cancelled activation survived re-add")
+	}
+	if queue.FinishActivation(first) {
+		t.Fatal("old activation released its replacement")
+	}
+	if !queue.IsActivationCurrent(replacement) {
+		t.Fatal("replacement activation was lost")
+	}
+	if !queue.ClaimActivation(replacement) {
+		t.Fatal("failed to claim replacement activation")
+	}
+	if !queue.FinishActivation(replacement) {
+		t.Fatal("failed to finish replacement activation")
+	}
+}
+
+func TestQueueManagerQuiescePreventsShutdownPromotion(t *testing.T) {
+	started := make(chan string, 2)
+	queue := NewQueueManager(1, func(hash string) { started <- hash })
+	queue.Add("active", PriorityNormal)
+	if got := <-started; got != "active" {
+		t.Fatalf("first start = %q", got)
+	}
+	queue.Add("waiting", PriorityNormal)
+	queue.Quiesce()
+	queue.OnComplete("active")
+
+	select {
+	case hash := <-started:
+		t.Fatalf("quiesced queue started waiting item %q", hash)
+	default:
+	}
+	if !queue.IsWaiting("waiting") {
+		t.Fatal("quiesced queue did not preserve waiting work")
+	}
+	if queue.IsPaused() {
+		t.Fatal("quiesce changed the persisted paused preference")
+	}
+}
+
+func TestQueueManagerQuiesceWaitsForCommittedStartCallback(t *testing.T) {
+	callbackEntered := make(chan struct{})
+	releaseCallback := make(chan struct{})
+	addDone := make(chan struct{})
+	queue := NewQueueManager(1, func(string) {
+		close(callbackEntered)
+		<-releaseCallback
+	})
+
+	go func() {
+		queue.Add("active", PriorityNormal)
+		close(addDone)
+	}()
+	select {
+	case <-callbackEntered:
+	case <-time.After(time.Second):
+		t.Fatal("start callback did not run")
+	}
+
+	quiesceDone := make(chan struct{})
+	go func() {
+		queue.Quiesce()
+		close(quiesceDone)
+	}()
+	select {
+	case <-quiesceDone:
+		t.Fatal("Quiesce returned while a committed start callback was still running")
+	case <-time.After(25 * time.Millisecond):
+	}
+
+	close(releaseCallback)
+	select {
+	case <-addDone:
+	case <-time.After(time.Second):
+		t.Fatal("Add did not return after callback release")
+	}
+	select {
+	case <-quiesceDone:
+	case <-time.After(time.Second):
+		t.Fatal("Quiesce did not drain the committed callback")
+	}
+
+	queue.Add("after-quiesce", PriorityNormal)
+	if !queue.IsWaiting("after-quiesce") {
+		t.Fatal("item added after Quiesce was activated")
+	}
+}
+
+func TestQueueManagerQuiesceContextBoundsCommittedStartWait(t *testing.T) {
+	callbackEntered := make(chan struct{})
+	releaseCallback := make(chan struct{})
+	addDone := make(chan struct{})
+	queue := NewQueueManager(1, func(string) {
+		close(callbackEntered)
+		<-releaseCallback
+	})
+
+	go func() {
+		queue.Add("active", PriorityNormal)
+		close(addDone)
+	}()
+	select {
+	case <-callbackEntered:
+	case <-time.After(time.Second):
+		t.Fatal("start callback did not run")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	err := queue.QuiesceContext(ctx)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("QuiesceContext error = %v, want deadline exceeded", err)
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("QuiesceContext exceeded bounded wait: %v", elapsed)
+	}
+
+	queue.Add("after-timeout", PriorityNormal)
+	if !queue.IsWaiting("after-timeout") {
+		t.Fatal("timed-out quiesce re-enabled queue promotion")
+	}
+	state := queue.GetState()
+	if len(state.Active) != 1 || state.Active[0].Hash != "active" {
+		t.Fatalf("active queue state after timeout = %+v", state.Active)
+	}
+
+	close(releaseCallback)
+	select {
+	case <-addDone:
+	case <-time.After(time.Second):
+		t.Fatal("start callback did not finish after release")
+	}
+}
+
+func TestQueueManagerBeginQuiescePrecedesTransferCancellation(t *testing.T) {
+	callbackEntered := make(chan struct{})
+	releaseCallback := make(chan struct{})
+	callbackDone := make(chan struct{})
+	var activation QueueActivation
+	queue := newQueueManagerWithActivation(1, func(current QueueActivation) {
+		activation = current
+		if !current.queue.ClaimActivation(current) {
+			t.Error("failed to claim activation")
+		}
+		close(callbackEntered)
+		<-releaseCallback
+		if !current.queue.StopActivation(current) {
+			t.Error("quiesced stop did not preserve current activation")
+		}
+		close(callbackDone)
+	})
+
+	go queue.Add("interrupted", PriorityNormal)
+	select {
+	case <-callbackEntered:
+	case <-time.After(time.Second):
+		t.Fatal("start callback did not run")
+	}
+
+	// BeginQuiesce must not wait for the callback. Its only job is to make the
+	// preservation rule visible before cancellation lets that callback finish.
+	queue.BeginQuiesce()
+	if !queue.IsActivationCurrent(activation) {
+		t.Fatal("BeginQuiesce discarded the active activation")
+	}
+
+	close(releaseCallback)
+	select {
+	case <-callbackDone:
+	case <-time.After(time.Second):
+		t.Fatal("start callback did not finish")
+	}
+	if !queue.IsActivationCurrent(activation) {
+		t.Fatal("stopped activation was released after BeginQuiesce")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := queue.QuiesceContext(ctx); err != nil {
+		t.Fatalf("QuiesceContext after callback drain: %v", err)
+	}
+	state := queue.GetState()
+	if len(state.Active) != 1 || state.Active[0].Hash != "interrupted" {
+		t.Fatalf("persisted active state = %+v", state.Active)
+	}
+}
+
+func TestQueueManagerQuiescedStopPreservesPersistedRunnableState(t *testing.T) {
+	queue := NewQueueManager(1, nil)
+	queue.Add("interrupted", PriorityHigh)
+	queue.Add("waiting", PriorityNormal)
+	queue.Quiesce()
+
+	queue.OnStopped("interrupted")
+	state := queue.GetState()
+	if len(state.Active) != 1 || state.Active[0].Hash != "interrupted" {
+		t.Fatalf("quiesced stopped state active = %+v, want interrupted", state.Active)
+	}
+	if len(state.Waiting) != 1 || state.Waiting[0].Hash != "waiting" {
+		t.Fatalf("quiesced stopped state waiting = %+v, want waiting", state.Waiting)
+	}
+	if state.Paused {
+		t.Fatal("Quiesce changed persisted pause preference")
+	}
+
+	// A true completion racing shutdown is different from an interrupted
+	// transfer: it must be removed so startup does not download it again.
+	completed := NewQueueManager(1, nil)
+	completed.Add("complete", PriorityNormal)
+	completed.Add("next", PriorityNormal)
+	completed.Quiesce()
+	completed.OnComplete("complete")
+	completedState := completed.GetState()
+	if len(completedState.Active) != 0 {
+		t.Fatalf("completed item persisted active after quiesce: %+v", completedState.Active)
+	}
+	if len(completedState.Waiting) != 1 || completedState.Waiting[0].Hash != "next" {
+		t.Fatalf("waiting state after completion = %+v, want next", completedState.Waiting)
 	}
 }
 
@@ -213,6 +538,187 @@ func TestQueueManager_Pause(t *testing.T) {
 	}
 	if qm.WaitingCount() != 0 {
 		t.Fatalf("expected 0 waiting after resume, got %d", qm.WaitingCount())
+	}
+}
+
+func TestQueueManager_AddWhilePausedWaits(t *testing.T) {
+	var started []string
+	qm := NewQueueManager(2, func(hash string) {
+		started = append(started, hash)
+	})
+	qm.Pause()
+
+	qm.Add("paused-new", PriorityNormal)
+	if got := qm.ActiveCount(); got != 0 {
+		t.Fatalf("paused Add activated %d items, want 0", got)
+	}
+	if got := qm.WaitingCount(); got != 1 {
+		t.Fatalf("paused Add queued %d items, want 1", got)
+	}
+	if len(started) != 0 {
+		t.Fatalf("paused Add invoked onStart: %v", started)
+	}
+
+	qm.Resume()
+	if len(started) != 1 || started[0] != "paused-new" {
+		t.Fatalf("Resume starts = %v, want [paused-new]", started)
+	}
+}
+
+func TestQueueManager_RemoveActiveReleasesExactlyOneSlot(t *testing.T) {
+	var started []string
+	qm := NewQueueManager(1, func(hash string) {
+		started = append(started, hash)
+	})
+	qm.Add("active", PriorityNormal)
+	qm.Add("next", PriorityNormal)
+	started = nil
+
+	if !qm.Remove("active") {
+		t.Fatal("Remove(active) returned false")
+	}
+	if len(started) != 1 || started[0] != "next" {
+		t.Fatalf("started = %v, want [next]", started)
+	}
+	if qm.Remove("active") {
+		t.Fatal("duplicate Remove(active) returned true")
+	}
+	if got := qm.ActiveCount(); got != 1 {
+		t.Fatalf("active count = %d, want 1", got)
+	}
+}
+
+func TestQueueManager_RemoveInvalidatesReservedStart(t *testing.T) {
+	changeClaimed := make(chan struct{}, 1)
+	changeEntered := make(chan struct{})
+	releaseChange := make(chan struct{})
+	started := make(chan string, 1)
+	qm := NewQueueManager(1, func(hash string) {
+		started <- hash
+	})
+	qm.SetOnChange(func() {
+		select {
+		case changeClaimed <- struct{}{}:
+			close(changeEntered)
+			<-releaseChange
+		default:
+		}
+	})
+
+	addDone := make(chan struct{})
+	go func() {
+		qm.Add("reserved", PriorityNormal)
+		close(addDone)
+	}()
+	select {
+	case <-changeEntered:
+	case <-time.After(time.Second):
+		t.Fatal("Add did not reserve a start before persisting its queue change")
+	}
+
+	if !qm.Remove("reserved") {
+		t.Fatal("Remove did not find reserved activation")
+	}
+	close(releaseChange)
+	select {
+	case <-addDone:
+	case <-time.After(time.Second):
+		t.Fatal("Add did not return after persistence callback release")
+	}
+	select {
+	case hash := <-started:
+		t.Fatalf("removed reserved activation started %q", hash)
+	default:
+	}
+	if qm.IsActive("reserved") || qm.IsWaiting("reserved") {
+		t.Fatal("removed activation retained queue membership")
+	}
+}
+
+func TestQueueManager_PauseInvalidatesAndRequeuesReservedStart(t *testing.T) {
+	changeClaimed := make(chan struct{}, 1)
+	changeEntered := make(chan struct{})
+	releaseChange := make(chan struct{})
+	started := make(chan string, 1)
+	qm := NewQueueManager(1, func(hash string) {
+		started <- hash
+	})
+	qm.SetOnChange(func() {
+		select {
+		case changeClaimed <- struct{}{}:
+			close(changeEntered)
+			<-releaseChange
+		default:
+		}
+	})
+
+	addDone := make(chan struct{})
+	go func() {
+		qm.Add("reserved", PriorityHigh)
+		close(addDone)
+	}()
+	select {
+	case <-changeEntered:
+	case <-time.After(time.Second):
+		t.Fatal("Add did not reserve a start before persisting its queue change")
+	}
+
+	qm.Add("later", PriorityHigh)
+	qm.Pause()
+	close(releaseChange)
+	select {
+	case <-addDone:
+	case <-time.After(time.Second):
+		t.Fatal("Add did not return after persistence callback release")
+	}
+	select {
+	case hash := <-started:
+		t.Fatalf("paused reserved activation started %q", hash)
+	default:
+	}
+	if !qm.IsWaiting("reserved") || qm.IsActive("reserved") {
+		t.Fatal("Pause did not return the unstarted activation to waiting")
+	}
+	waiting := qm.GetWaitingItems()
+	if len(waiting) != 2 || waiting[0].Hash != "reserved" || waiting[1].Hash != "later" {
+		t.Fatalf("Pause reordered equal-priority work: %+v", waiting)
+	}
+
+	qm.Resume()
+	select {
+	case hash := <-started:
+		if hash != "reserved" {
+			t.Fatalf("Resume started %q, want reserved", hash)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Resume did not restart the invalidated activation")
+	}
+}
+
+func TestQueueManager_StartCallbackCanReleaseOwnSlot(t *testing.T) {
+	callbackDone := make(chan struct{})
+	var qm *QueueManager
+	qm = NewQueueManager(1, func(hash string) {
+		if !qm.Remove(hash) {
+			t.Errorf("onStart could not release its own slot")
+		}
+		close(callbackDone)
+	})
+
+	addDone := make(chan struct{})
+	go func() {
+		qm.Add("self-release", PriorityNormal)
+		close(addDone)
+	}()
+	select {
+	case <-callbackDone:
+	case <-time.After(time.Second):
+		t.Fatal("onStart deadlocked while releasing its own slot")
+	}
+	select {
+	case <-addDone:
+	case <-time.After(time.Second):
+		t.Fatal("Add did not return after self-releasing callback")
 	}
 }
 
@@ -419,8 +925,9 @@ func TestQueueManager_Move(t *testing.T) {
 	})
 }
 
-// TestQueueManager_StatePersistence tests that queue state can be saved and restored.
-// Waiting items should survive GetState/LoadState cycle. Active items are not persisted.
+// TestQueueManager_StatePersistence tests that all queue state can be saved
+// and restored. Previously-active items return to waiting until Resume fills
+// the new process's slots.
 func TestQueueManager_StatePersistence(t *testing.T) {
 	// Create queue with items: 2 active, 3 waiting
 	qm := NewQueueManager(2, nil)
@@ -449,6 +956,9 @@ func TestQueueManager_StatePersistence(t *testing.T) {
 	if len(state.Waiting) != 3 {
 		t.Fatalf("expected 3 waiting in state, got %d", len(state.Waiting))
 	}
+	if len(state.Active) != 2 {
+		t.Fatalf("expected 2 active in state, got %d", len(state.Active))
+	}
 
 	// Create new queue and restore state
 	var startedHashes []string
@@ -463,24 +973,21 @@ func TestQueueManager_StatePersistence(t *testing.T) {
 	if qm2.MaxConcurrent() != 2 {
 		t.Fatalf("expected restored MaxConcurrent=2, got %d", qm2.MaxConcurrent())
 	}
-	if qm2.WaitingCount() != 3 {
-		t.Fatalf("expected restored waiting=3, got %d", qm2.WaitingCount())
+	if qm2.WaitingCount() != 5 {
+		t.Fatalf("expected restored waiting=5, got %d", qm2.WaitingCount())
 	}
-	// Active is 0 after restore (active items not persisted)
+	// Active is 0 until the caller has installed its reconstruction callback
+	// and explicitly resumes the restored queue.
 	if qm2.ActiveCount() != 0 {
 		t.Fatalf("expected restored active=0, got %d", qm2.ActiveCount())
 	}
 
-	// Verify priority order maintained: high (hash3), normal (hash4), low (hash2)
-	// Simulate one slot becoming available by adding and completing a dummy active
-	qm2.mu.Lock()
-	qm2.active["dummy"] = struct{}{}
-	qm2.mu.Unlock()
-	qm2.OnComplete("dummy")
+	qm2.Resume()
 
-	// hash3 (high) should have started
-	if len(startedHashes) != 1 || startedHashes[0] != "hash3" {
-		t.Fatalf("expected hash3 (high priority) started first, got %v", startedHashes)
+	// The high-priority waiting item starts first, followed by one of the
+	// previously active normal-priority items.
+	if len(startedHashes) != 2 || startedHashes[0] != "hash3" {
+		t.Fatalf("expected hash3 first and two restored starts, got %v", startedHashes)
 	}
 }
 

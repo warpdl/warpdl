@@ -1,6 +1,9 @@
 package cmd
 
 import (
+	"encoding/json"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -9,6 +12,24 @@ import (
 	"github.com/warpdl/warpdl/pkg/warpcli"
 	"github.com/warpdl/warpdl/pkg/warplib"
 )
+
+func TestDownloadErrorHandlerPreservesTerminalFailure(t *testing.T) {
+	message, err := json.Marshal(common.DownloadErrorResponse{
+		DownloadId: "id",
+		Error:      "checksum mismatch",
+	})
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	var captured error
+	err = (downloadErrorHandler{target: &captured}).Handle(message)
+	if err == nil || captured == nil {
+		t.Fatalf("handler errors = (%v, %v), want terminal failure", err, captured)
+	}
+	if !errors.Is(err, captured) || !strings.Contains(err.Error(), "checksum mismatch") {
+		t.Fatalf("handler error = %v, captured = %v", err, captured)
+	}
+}
 
 func TestDownloadHandlers(t *testing.T) {
 	p := mpb.New()

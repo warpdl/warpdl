@@ -13,8 +13,7 @@ import (
 
 // newBatchDownloadContext builds a *cli.Context wired for the download
 // command's batch path: it registers the flags downloadBatchFromFile
-// reads (input-file, background, overwrite, no-work-steal, priority,
-// ssh-key, speed-limit) and parses the supplied raw args. The command
+// reads and parses the supplied raw args. The command
 // name is "download" so the no-URL guard inside download() does not
 // short-circuit (the input-file flag satisfies it).
 func newBatchDownloadContext(app *cli.App, rawArgs []string) *cli.Context {
@@ -26,10 +25,78 @@ func newBatchDownloadContext(app *cli.App, rawArgs []string) *cli.Context {
 	set.String("priority", "normal", "")
 	set.String("ssh-key", "", "")
 	set.String("speed-limit", "", "")
+	set.String("cookies-from", "", "")
+	set.String("start-at", "", "")
+	set.String("start-in", "", "")
+	set.String("schedule", "", "")
 	_ = set.Parse(rawArgs)
 	ctx := cli.NewContext(app, set, nil)
 	ctx.Command = cli.Command{Name: "download", Flags: dlFlags}
 	return ctx
+}
+
+func TestBuildDownloadOptsIncludesBatchFlags(t *testing.T) {
+	app := cli.NewApp()
+	ctx := newBatchDownloadContext(app, []string{
+		"--overwrite",
+		"--no-work-steal",
+		"-priority", "high",
+		"-ssh-key", "/keys/id",
+		"-speed-limit", "2MB",
+	})
+
+	oldForce, oldConns, oldParts := forceParts, maxConns, maxParts
+	oldProxy, oldTimeout := proxyURL, timeout
+	oldRetries, oldDelay := maxRetries, retryDelay
+	forceParts, maxConns, maxParts = true, 7, 9
+	proxyURL, timeout = "http://proxy.example:8080", 12
+	maxRetries, retryDelay = 3, 250
+	defer func() {
+		forceParts, maxConns, maxParts = oldForce, oldConns, oldParts
+		proxyURL, timeout = oldProxy, oldTimeout
+		maxRetries, retryDelay = oldRetries, oldDelay
+	}()
+
+	opts := buildDownloadOpts(ctx, nil, "2030-01-01 10:00", "auto", "0 2 * * *")
+	if !opts.Overwrite || !opts.DisableWorkStealing || !opts.ForceParts {
+		t.Fatalf("boolean batch flags not propagated: %+v", opts)
+	}
+	if opts.MaxConnections != 7 || opts.MaxSegments != 9 || opts.Timeout != 12 {
+		t.Fatalf("transfer limits not propagated: %+v", opts)
+	}
+	if opts.MaxRetries != 3 || opts.RetryDelay != 250 || opts.SpeedLimit != "2MB" {
+		t.Fatalf("retry/speed flags not propagated: %+v", opts)
+	}
+	if opts.Priority != 2 || opts.SSHKeyPath != "/keys/id" || opts.Proxy != proxyURL {
+		t.Fatalf("priority/transport flags not propagated: %+v", opts)
+	}
+	if opts.StartAt != "2030-01-01 10:00" || opts.CookiesFrom != "auto" || opts.Schedule != "0 2 * * *" {
+		t.Fatalf("schedule/cookie flags not propagated: %+v", opts)
+	}
+}
+
+func TestDownloadBatchFromFileRejectsSingleFileName(t *testing.T) {
+	socketPath := getShortSocketPath(t)
+	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
+	srv := startFakeServer(t, socketPath)
+	defer srv.close()
+
+	inputFile := createTempInputFile(t, "http://example.com/a.bin\n")
+	ctx := newBatchDownloadContext(cli.NewApp(), []string{
+		"--background",
+		"-input-file", inputFile,
+	})
+
+	oldDlPath, oldFileName := dlPath, fileName
+	dlPath, fileName = t.TempDir(), "one-name.bin"
+	defer func() { dlPath, fileName = oldDlPath, oldFileName }()
+
+	var gotErr error
+	stdout, stderr := captureOutput(func() { gotErr = download(ctx) })
+	assertExitError(t, gotErr)
+	if !strings.Contains(stdout+stderr, "--file-name cannot be used with --input-file") {
+		t.Fatalf("expected explicit filename rejection, got:\n%s%s", stdout, stderr)
+	}
 }
 
 // TestDownloadBatchFromFile_Background drives download() down the batch
@@ -79,14 +146,84 @@ func TestDownloadBatchFromFile_Background(t *testing.T) {
 	}
 }
 
-// TestDownloadBatchFromFile_WaitCompletesImmediately drives the
-// foreground (non-background) batch path. The fake daemon's
-// UPDATE_DOWNLOAD reply reports SavePath="file.bin" with
-// ContentLength=10; we pre-create a 10-byte file at that path inside the
-// working directory so isBatchSubmissionComplete returns true on the
-// first check and waitForBatchSubmission early-returns without dialing
-// again. This covers downloadBatchFromFile's non-background branch
-// (client.Close + waitForBatchSubmissions) deterministically.
+func TestDownloadBatchFromFile_ScheduledDoesNotAttach(t *testing.T) {
+	socketPath := getShortSocketPath(t)
+	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
+	srv := startFakeServer(t, socketPath)
+	defer srv.close()
+
+	inputFile := createTempInputFile(t, "http://example.com/a.bin\n")
+	ctx := newBatchDownloadContext(cli.NewApp(), []string{
+		"-input-file", inputFile,
+		"-start-in", "2h",
+	})
+
+	oldDlPath, oldFileName := dlPath, fileName
+	dlPath, fileName = t.TempDir(), ""
+	defer func() { dlPath, fileName = oldDlPath, oldFileName }()
+
+	stdout, _ := captureOutput(func() {
+		if err := download(ctx); err != nil {
+			t.Errorf("scheduled batch download: %v", err)
+		}
+	})
+	if !strings.Contains(stdout, "Scheduled batch submissions") {
+		t.Fatalf("scheduled batch did not return after registration:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "Succeeded:  1") {
+		t.Fatalf("scheduled submission was not reported as accepted:\n%s", stdout)
+	}
+}
+
+func TestDownloadBatchFromFile_SubmissionFailureReturnsExitError(t *testing.T) {
+	socketPath := getShortSocketPath(t)
+	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
+	srv := startFakeServer(t, socketPath, map[common.UpdateType]string{
+		common.UPDATE_DOWNLOAD: "submission rejected",
+	})
+	defer srv.close()
+
+	inputFile := createTempInputFile(t, "http://example.com/a.bin\n")
+	ctx := newBatchDownloadContext(cli.NewApp(), []string{
+		"--background",
+		"-input-file", inputFile,
+	})
+
+	oldDlPath, oldFileName := dlPath, fileName
+	dlPath, fileName = t.TempDir(), ""
+	defer func() { dlPath, fileName = oldDlPath, oldFileName }()
+
+	var gotErr error
+	stdout, stderr := captureOutput(func() { gotErr = download(ctx) })
+	assertExitError(t, gotErr)
+	if !strings.Contains(stdout, "Failed:     1") {
+		t.Fatalf("batch summary did not report the failure:\n%s", stdout)
+	}
+	if !strings.Contains(stderr, "1 of 1 downloads failed") {
+		t.Fatalf("batch failure did not reach stderr:\n%s", stderr)
+	}
+}
+
+func TestWaitForBatchSubmission_UnknownSizeCompletesFromTerminalEvent(t *testing.T) {
+	socketPath := getShortSocketPath(t)
+	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
+	srv := startFakeServer(t, socketPath)
+	defer srv.close()
+
+	submission := BatchSubmission{
+		DownloadID:    "id",
+		SavePath:      filepath.Join(t.TempDir(), "not-created"),
+		ContentLength: -1,
+	}
+	if err := waitForBatchSubmission(submission); err != nil {
+		t.Fatalf("unknown-size terminal completion was reported as failure: %v", err)
+	}
+}
+
+// TestDownloadBatchFromFile_WaitCompletesImmediately drives the foreground
+// batch path through a terminal completion notification. A same-sized local
+// file is deliberately present to ensure it is not treated as authoritative
+// before the daemon reports success.
 func TestDownloadBatchFromFile_WaitCompletesImmediately(t *testing.T) {
 	socketPath := getShortSocketPath(t)
 	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
@@ -258,8 +395,8 @@ func TestDownloadBatchFromFile_WaitAttachErrorThenManagerComplete(t *testing.T) 
 
 // TestDownloadBatchFromFile_ResolvePathError exercises the
 // resolveDownloadPath failure branch inside downloadBatchFromFile: an
-// invalid download directory makes resolveDownloadPath return an error,
-// which the batch path reports via PrintRuntimeErr and then returns nil.
+// invalid download directory makes resolveDownloadPath return a non-zero
+// CLI error.
 func TestDownloadBatchFromFile_ResolvePathError(t *testing.T) {
 	socketPath := getShortSocketPath(t)
 	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
@@ -290,12 +427,9 @@ func TestDownloadBatchFromFile_ResolvePathError(t *testing.T) {
 		fileName = oldFileName
 	}()
 
-	// resolveDownloadPath error → PrintRuntimeErr → returns nil.
-	stdout, stderr := captureOutput(func() {
-		if err := download(ctx); err != nil {
-			t.Errorf("download: unexpected error: %v", err)
-		}
-	})
+	var gotErr error
+	stdout, stderr := captureOutput(func() { gotErr = download(ctx) })
+	assertExitError(t, gotErr)
 	combined := stdout + stderr
 	if !strings.Contains(combined, "resolve_path") {
 		t.Fatalf("expected resolve_path error, got:\nstdout=%s\nstderr=%s", stdout, stderr)
@@ -329,11 +463,9 @@ func TestDownloadBatchFromFile_InvalidProxy(t *testing.T) {
 		proxyURL = oldProxy
 	}()
 
-	stdout, stderr := captureOutput(func() {
-		if err := download(ctx); err != nil {
-			t.Errorf("download: unexpected error: %v", err)
-		}
-	})
+	var gotErr error
+	stdout, stderr := captureOutput(func() { gotErr = download(ctx) })
+	assertExitError(t, gotErr)
 	combined := stdout + stderr
 	if !strings.Contains(combined, "invalid_proxy") {
 		t.Fatalf("expected invalid_proxy error, got:\nstdout=%s\nstderr=%s", stdout, stderr)
@@ -342,8 +474,8 @@ func TestDownloadBatchFromFile_InvalidProxy(t *testing.T) {
 
 // TestDownloadBatchFromFile_BatchDownloadError exercises the
 // DownloadBatch error branch: a missing input file makes ParseInputFile
-// (inside DownloadBatch) fail, which downloadBatchFromFile reports via
-// PrintRuntimeErr("batch_download") and returns nil.
+// (inside DownloadBatch) fail, which downloadBatchFromFile reports with a
+// non-zero batch_download error.
 func TestDownloadBatchFromFile_BatchDownloadError(t *testing.T) {
 	socketPath := getShortSocketPath(t)
 	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
@@ -366,11 +498,9 @@ func TestDownloadBatchFromFile_BatchDownloadError(t *testing.T) {
 		fileName = oldFileName
 	}()
 
-	stdout, stderr := captureOutput(func() {
-		if err := download(ctx); err != nil {
-			t.Errorf("download: unexpected error: %v", err)
-		}
-	})
+	var gotErr error
+	stdout, stderr := captureOutput(func() { gotErr = download(ctx) })
+	assertExitError(t, gotErr)
 	combined := stdout + stderr
 	if !strings.Contains(combined, "batch_download") {
 		t.Fatalf("expected batch_download error, got:\nstdout=%s\nstderr=%s", stdout, stderr)

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
 	"net/textproto"
@@ -280,6 +281,42 @@ func TestStripURLCredentials(t *testing.T) {
 	})
 }
 
+func TestProtocolFactoryParseErrorsRedactCredentials(t *testing.T) {
+	tests := []struct {
+		name    string
+		rawURL  string
+		factory func(string, *DownloaderOpts) (ProtocolDownloader, error)
+	}{
+		{
+			name:    "FTP",
+			rawURL:  "ftp://user:parse-secret%zz@example.test/file.bin",
+			factory: newFTPProtocolDownloader,
+		},
+		{
+			name:    "SFTP",
+			rawURL:  "sftp://user:parse-secret%zz@example.test/file.bin",
+			factory: newSFTPProtocolDownloader,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := tt.factory(tt.rawURL, nil)
+			if err == nil {
+				t.Fatal("factory accepted malformed credential URL")
+			}
+			for _, secret := range []string{"parse-secret", "user:"} {
+				if strings.Contains(err.Error(), secret) {
+					t.Fatalf("parse error leaked %q: %v", secret, err)
+				}
+			}
+		})
+	}
+
+	if got := StripURLCredentials("ftp://user:parse-secret%zz@example.test/file.bin"); got != "[invalid URL redacted]" {
+		t.Fatalf("invalid URL sanitization = %q", got)
+	}
+}
+
 func TestFTPCapabilities(t *testing.T) {
 	pd, err := newFTPProtocolDownloader("ftp://host/file.bin", nil)
 	if err != nil {
@@ -421,6 +458,42 @@ func TestFTPDownloadIntegration(t *testing.T) {
 	}
 	if atomic.LoadInt64(&totalProgress) != 1024 {
 		t.Errorf("total progress = %d, want 1024", totalProgress)
+	}
+}
+
+func TestFTPDownloadRejectsPhysicalSizeMutation(t *testing.T) {
+	addr, cleanup := startMockFTPServer(t)
+	defer cleanup()
+
+	dlDir := t.TempDir()
+	pd, err := newFTPProtocolDownloader(
+		fmt.Sprintf("ftp://%s/pub/testfile.bin", addr),
+		&DownloaderOpts{DownloadDirectory: dlDir},
+	)
+	if err != nil {
+		t.Fatalf("factory error: %v", err)
+	}
+	probe, err := pd.Probe(context.Background())
+	if err != nil {
+		t.Fatalf("Probe error: %v", err)
+	}
+
+	progress, appendErr := appendTailOnFinalProgress(pd.GetSavePath(), probe.ContentLength)
+	var completeCalls atomic.Int32
+	err = pd.Download(context.Background(), &Handlers{
+		DownloadProgressHandler: progress,
+		DownloadCompleteHandler: func(string, int64) {
+			completeCalls.Add(1)
+		},
+	})
+	if callbackErr := appendErr(); callbackErr != nil {
+		t.Fatalf("append corrupting tail: %v", callbackErr)
+	}
+	if !errors.Is(err, ErrDownloadSizeMismatch) {
+		t.Fatalf("Download error = %v, want %v", err, ErrDownloadSizeMismatch)
+	}
+	if got := completeCalls.Load(); got != 0 {
+		t.Fatalf("DownloadComplete calls = %d, want 0", got)
 	}
 }
 
@@ -832,7 +905,7 @@ func TestFTPResume(t *testing.T) {
 	addr, cleanup := startMockFTPServer(t)
 	defer cleanup()
 
-	t.Run("resume from offset completes file", func(t *testing.T) {
+	t.Run("same-size replacement restarts from zero", func(t *testing.T) {
 		dlDir := t.TempDir()
 		pd, err := newFTPProtocolDownloader(
 			fmt.Sprintf("ftp://%s/pub/testfile.bin", addr),
@@ -846,10 +919,12 @@ func TestFTPResume(t *testing.T) {
 			t.Fatalf("Probe error: %v", err)
 		}
 
-		// Create partial file (first 512 bytes)
+		// The persisted prefix came from an older object with the same total
+		// size. Appending the current suffix would produce a mixed file whose
+		// byte count still looks valid.
 		expected := bytes.Repeat([]byte{0xAB}, 1024)
 		partialPath := filepath.Join(dlDir, "testfile.bin")
-		if err := os.WriteFile(partialPath, expected[:512], DefaultFileMode); err != nil {
+		if err := os.WriteFile(partialPath, bytes.Repeat([]byte{0xEF}, 512), DefaultFileMode); err != nil {
 			t.Fatalf("failed to create partial file: %v", err)
 		}
 
@@ -885,8 +960,79 @@ func TestFTPResume(t *testing.T) {
 		if !completeCalled {
 			t.Error("DownloadCompleteHandler was not called")
 		}
-		if progressTotal != 512 {
-			t.Errorf("progress total = %d, want 512 (remaining bytes)", progressTotal)
+		if progressTotal != 1024 {
+			t.Errorf("progress total = %d, want 1024 (full restart)", progressTotal)
+		}
+	})
+
+	t.Run("incomplete state never trusts an exact local size", func(t *testing.T) {
+		dlDir := t.TempDir()
+		pd, err := newFTPProtocolDownloader(
+			fmt.Sprintf("ftp://%s/pub/testfile.bin", addr),
+			&DownloaderOpts{DownloadDirectory: dlDir},
+		)
+		if err != nil {
+			t.Fatalf("factory error: %v", err)
+		}
+		if _, err := pd.Probe(context.Background()); err != nil {
+			t.Fatalf("Probe error: %v", err)
+		}
+
+		savePath := filepath.Join(dlDir, "testfile.bin")
+		if err := os.WriteFile(savePath, bytes.Repeat([]byte{0xEF}, 1024), DefaultFileMode); err != nil {
+			t.Fatalf("write old representation: %v", err)
+		}
+		parts := map[int64]*ItemPart{
+			0: {Hash: "part0", FinalOffset: 1023, Compiled: false},
+		}
+		if err := pd.Resume(context.Background(), parts, nil); err != nil {
+			t.Fatalf("Resume error: %v", err)
+		}
+		got, err := os.ReadFile(savePath)
+		if err != nil {
+			t.Fatalf("read resumed file: %v", err)
+		}
+		want := bytes.Repeat([]byte{0xAB}, 1024)
+		if !bytes.Equal(got, want) {
+			t.Fatal("exact-size local file was trusted instead of redownloaded")
+		}
+	})
+
+	t.Run("rejects physical size mutation", func(t *testing.T) {
+		dlDir := t.TempDir()
+		pd, err := newFTPProtocolDownloader(
+			fmt.Sprintf("ftp://%s/pub/testfile.bin", addr),
+			&DownloaderOpts{DownloadDirectory: dlDir},
+		)
+		if err != nil {
+			t.Fatalf("factory error: %v", err)
+		}
+		probe, err := pd.Probe(context.Background())
+		if err != nil {
+			t.Fatalf("Probe error: %v", err)
+		}
+		if err := os.WriteFile(pd.GetSavePath(), []byte("partial"), DefaultFileMode); err != nil {
+			t.Fatalf("write partial file: %v", err)
+		}
+
+		progress, appendErr := appendTailOnFinalProgress(pd.GetSavePath(), probe.ContentLength)
+		var completeCalls atomic.Int32
+		err = pd.Resume(context.Background(), map[int64]*ItemPart{
+			0: {Hash: "part0", FinalOffset: probe.ContentLength - 1},
+		}, &Handlers{
+			DownloadProgressHandler: progress,
+			DownloadCompleteHandler: func(string, int64) {
+				completeCalls.Add(1)
+			},
+		})
+		if callbackErr := appendErr(); callbackErr != nil {
+			t.Fatalf("append corrupting tail: %v", callbackErr)
+		}
+		if !errors.Is(err, ErrDownloadSizeMismatch) {
+			t.Fatalf("Resume error = %v, want %v", err, ErrDownloadSizeMismatch)
+		}
+		if got := completeCalls.Load(); got != 0 {
+			t.Fatalf("DownloadComplete calls = %d, want 0", got)
 		}
 	})
 
@@ -1002,22 +1148,31 @@ func TestFTPStopAndClose(t *testing.T) {
 		}
 	})
 
+	var stoppedCalls atomic.Int32
+	handlers := &Handlers{
+		DownloadStoppedHandler: func() {
+			stoppedCalls.Add(1)
+		},
+	}
 	t.Run("Download returns nil when stopped", func(t *testing.T) {
 		// Manually set probed to skip probe check
 		ftpd := pd.(*ftpProtocolDownloader)
 		ftpd.probed = true
-		err := pd.Download(context.Background(), nil)
+		err := pd.Download(context.Background(), handlers)
 		if err != nil {
 			t.Errorf("Download when stopped = %v, want nil", err)
 		}
 	})
 
 	t.Run("Resume returns nil when stopped", func(t *testing.T) {
-		err := pd.Resume(context.Background(), nil, nil)
+		err := pd.Resume(context.Background(), nil, handlers)
 		if err != nil {
 			t.Errorf("Resume when stopped = %v, want nil", err)
 		}
 	})
+	if got := stoppedCalls.Load(); got != 1 {
+		t.Fatalf("DownloadStopped calls = %d, want exactly 1", got)
+	}
 
 	t.Run("Close does not panic", func(t *testing.T) {
 		err := pd.Close()
@@ -1025,6 +1180,66 @@ func TestFTPStopAndClose(t *testing.T) {
 			t.Errorf("Close() = %v, want nil", err)
 		}
 	})
+}
+
+func TestFTPStopCancelsBlockedDownload(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen: %v", err)
+	}
+	defer listener.Close()
+	accepted := make(chan struct{})
+	releaseServer := make(chan struct{})
+	defer close(releaseServer)
+	go func() {
+		conn, acceptErr := listener.Accept()
+		if acceptErr != nil {
+			return
+		}
+		defer conn.Close()
+		close(accepted)
+		<-releaseServer
+	}()
+
+	pd, err := newFTPProtocolDownloader(
+		fmt.Sprintf("ftp://%s/file.bin", listener.Addr()),
+		&DownloaderOpts{DownloadDirectory: t.TempDir()},
+	)
+	if err != nil {
+		t.Fatalf("factory: %v", err)
+	}
+	d := pd.(*ftpProtocolDownloader)
+	d.probed = true
+	d.fileSize = 10
+	var stoppedCalls, completeCalls atomic.Int32
+	handlers := &Handlers{
+		DownloadStoppedHandler:  func() { stoppedCalls.Add(1) },
+		DownloadCompleteHandler: func(string, int64) { completeCalls.Add(1) },
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- d.Download(context.Background(), handlers)
+	}()
+	select {
+	case <-accepted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("FTP connection was not established")
+	}
+	d.Stop()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Download after Stop = %v, want nil", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Stop did not unblock FTP download")
+	}
+	if got := stoppedCalls.Load(); got != 1 {
+		t.Fatalf("DownloadStopped calls = %d, want 1", got)
+	}
+	if got := completeCalls.Load(); got != 0 {
+		t.Fatalf("DownloadComplete calls = %d, want 0", got)
+	}
 }
 
 func TestFTPGetters(t *testing.T) {
@@ -1155,6 +1370,14 @@ func TestResumeDownloadFTP(t *testing.T) {
 		if _, ok := dAlloc.(*ftpProtocolDownloader); !ok {
 			t.Errorf("expected *ftpProtocolDownloader, got %T", dAlloc)
 		}
+		restartSnapshot := resumedItem.Snapshot()
+		if restartSnapshot.Downloaded != 0 {
+			t.Errorf("Downloaded after conservative reconstruction = %d, want 0", restartSnapshot.Downloaded)
+		}
+		if len(restartSnapshot.Parts) != 1 || restartSnapshot.Parts[0] == nil ||
+			restartSnapshot.Parts[0].Compiled {
+			t.Errorf("restart part state = %#v, want one noncompiled marker", restartSnapshot.Parts)
+		}
 	})
 
 	t.Run("FTPS item dispatches through SchemeRouter", func(t *testing.T) {
@@ -1258,10 +1481,11 @@ func TestResumeDownloadFTP(t *testing.T) {
 			t.Error("DownloadProgressHandler was not wrapped by patchProtocolHandlers")
 		}
 
-		// Verify item.Downloaded was updated by the wrapped handler
+		// Conservative protocol reconstruction resets persisted progress before
+		// a full restart; subsequent progress is counted from zero.
 		item = m.GetItem(hash)
-		if item.Downloaded < 256 {
-			t.Errorf("item.Downloaded = %d, expected >= 256 after resume setup", item.Downloaded)
+		if item.Downloaded != 100 {
+			t.Errorf("item.Downloaded = %d, want 100 after restart progress", item.Downloaded)
 		}
 	})
 }

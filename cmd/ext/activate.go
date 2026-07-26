@@ -21,19 +21,16 @@ func activate(ctx *cli.Context) error {
 	}
 	client, err := newClient()
 	if err != nil {
-		common.PrintRuntimeErr(ctx, "ext-activate", "new_client", err)
-		return nil
+		return common.PrintRuntimeErr(ctx, "ext-activate", "new_client", err)
 	}
 	defer client.Close()
 	id, err = resolveExtensionID(client, id)
 	if err != nil {
-		common.PrintRuntimeErr(ctx, "ext-activate", "resolve-extension", err)
-		return nil
+		return common.PrintRuntimeErr(ctx, "ext-activate", "resolve-extension", err)
 	}
 	ext, err := client.ActivateExtension(id)
 	if err != nil {
-		common.PrintRuntimeErr(ctx, "ext-activate", "activate-extension", err)
-		return nil
+		return common.PrintRuntimeErr(ctx, "ext-activate", "activate-extension", err)
 	}
 	fmt.Printf("Successfully activated extension: %s (%s)\n", ext.Name, ext.Version)
 	return nil

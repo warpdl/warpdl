@@ -17,28 +17,66 @@ import (
 //
 // Returns ErrDownloadDataMissing if any check fails.
 func validateDownloadIntegrity(item *Item) error {
+	return validateDownloadIntegritySnapshot(item.Snapshot())
+}
+
+// validateDownloadIntegritySnapshot operates only on an immutable deep
+// snapshot. Manager resume already owns such a snapshot, avoiding unlocked
+// reads of Item fields while API and progress callbacks mutate them.
+func validateDownloadIntegritySnapshot(item ItemSnapshot) error {
 	// Check 1: Download data directory
 	dlPath := filepath.Join(DlDataDir, item.Hash)
 	if !dirExists(dlPath) {
 		return fmt.Errorf("%w: download data directory missing: %s", ErrDownloadDataMissing, dlPath)
 	}
 
-	// Check 2: Part files for non-compiled parts
-	for _, part := range item.Parts {
-		if part.Compiled {
-			continue
-		}
-		partFile := getFileName(dlPath, part.Hash)
-		if !fileExists(partFile) {
-			return fmt.Errorf("%w: part file missing: %s", ErrDownloadDataMissing, partFile)
-		}
-	}
-
 	hasCompiledPart := false
-	for _, part := range item.Parts {
+	allPartsCompiled := len(item.Parts) > 0
+	maxCompiledOffset := int64(-1)
+
+	// Check 2: Part files for non-compiled parts, while calculating the
+	// minimum physical destination extent required by compiled ranges.
+	for start, part := range item.Parts {
+		if part == nil {
+			return fmt.Errorf("%w: nil part at offset %d", ErrDownloadDataMissing, start)
+		}
 		if part.Compiled {
 			hasCompiledPart = true
-			break
+			if start < 0 || part.FinalOffset < start {
+				return fmt.Errorf("%w: invalid compiled range %d-%d",
+					ErrDownloadDataMissing, start, part.FinalOffset)
+			}
+			if part.FinalOffset > maxCompiledOffset {
+				maxCompiledOffset = part.FinalOffset
+			}
+			continue
+		}
+		allPartsCompiled = false
+		partFile := getFileName(dlPath, part.Hash)
+		stat, err := WarpLstat(partFile)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return fmt.Errorf("%w: part file missing: %s", ErrDownloadDataMissing, partFile)
+			}
+			return fmt.Errorf("%w: cannot access part file %s: %v",
+				ErrDownloadDataMissing, partFile, err)
+		}
+		if !stat.Mode().IsRegular() {
+			return fmt.Errorf("%w: part file is not regular: %s", ErrDownloadDataMissing, partFile)
+		}
+		if start < 0 || part.FinalOffset < start {
+			return fmt.Errorf("%w: invalid part range %d-%d",
+				ErrDownloadDataMissing, start, part.FinalOffset)
+		}
+		expectedSize := part.FinalOffset - start + 1
+		if stat.Size() > expectedSize {
+			return fmt.Errorf(
+				"%w: part file %s contains %d bytes, declared range permits at most %d",
+				ErrDownloadDataMissing,
+				partFile,
+				stat.Size(),
+				expectedSize,
+			)
 		}
 	}
 
@@ -49,7 +87,7 @@ func validateDownloadIntegrity(item *Item) error {
 	}
 
 	if hasCompiledPart {
-		mainFile := item.GetAbsolutePath()
+		mainFile := GetPath(item.AbsoluteLocation, item.Name)
 		stat, err := os.Stat(mainFile)
 		if err != nil {
 			if os.IsNotExist(err) {
@@ -57,8 +95,37 @@ func validateDownloadIntegrity(item *Item) error {
 			}
 			return fmt.Errorf("%w: cannot access main file: %s: %v", ErrDownloadDataMissing, mainFile, err)
 		}
-		if stat.Size() == 0 {
-			return fmt.Errorf("%w: main file exists but is empty: %s", ErrDownloadDataMissing, mainFile)
+		if !stat.Mode().IsRegular() {
+			return fmt.Errorf("%w: main destination is not a regular file: %s", ErrDownloadDataMissing, mainFile)
+		}
+		requiredSize := maxCompiledOffset + 1
+		if stat.Size() < requiredSize {
+			return fmt.Errorf(
+				"%w: main file is truncated: %s has %d bytes, compiled ranges require at least %d",
+				ErrDownloadDataMissing,
+				mainFile,
+				stat.Size(),
+				requiredSize,
+			)
+		}
+		totalSize := item.TotalSize.v()
+		if totalSize > 0 && stat.Size() > totalSize {
+			return fmt.Errorf(
+				"%w: main file has %d bytes, expected at most %d while resuming: %s",
+				ErrDownloadDataMissing,
+				stat.Size(),
+				totalSize,
+				mainFile,
+			)
+		}
+		if allPartsCompiled && (totalSize <= 0 || stat.Size() != totalSize) {
+			return fmt.Errorf(
+				"%w: fully compiled main file has %d bytes, expected exactly %d: %s",
+				ErrDownloadDataMissing,
+				stat.Size(),
+				totalSize,
+				mainFile,
+			)
 		}
 	}
 

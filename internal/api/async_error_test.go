@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
@@ -8,13 +9,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/warpdl/warpdl/common"
 	"github.com/warpdl/warpdl/internal/server"
 	"github.com/warpdl/warpdl/pkg/warplib"
 )
 
 // ReportAsyncDownloadError is the seam daemon-side code (queue auto-start,
 // scheduler) uses to surface async errors to the CLI. This test locks in
-// the three things it MUST do: broadcast an InitError frame on the pool,
+// the three things it MUST do: broadcast a typed error update on the pool,
 // record a critical error keyed by uid, and stop the download. Without
 // all three the CLI polls forever showing 0 B/s.
 func TestReportAsyncDownloadError_BroadcastsStopsAndRecords(t *testing.T) {
@@ -50,6 +52,23 @@ func TestReportAsyncDownloadError_BroadcastsStopsAndRecords(t *testing.T) {
 		if !contains(r.msg, "file already exists") {
 			t.Fatalf("broadcast missing underlying error: %s", r.msg)
 		}
+		var frame struct {
+			Ok     bool `json:"ok"`
+			Update struct {
+				Type    common.UpdateType            `json:"type"`
+				Message common.DownloadErrorResponse `json:"message"`
+			} `json:"update"`
+		}
+		if err := json.Unmarshal(r.msg, &frame); err != nil {
+			t.Fatalf("decode broadcast: %v", err)
+		}
+		if !frame.Ok || frame.Update.Type != common.UPDATE_DOWNLOAD_ERROR {
+			t.Fatalf("broadcast was not a typed async error: %s", r.msg)
+		}
+		if frame.Update.Message.DownloadId != "hash1" ||
+			frame.Update.Message.Error != "file already exists" {
+			t.Fatalf("unexpected async error payload: %+v", frame.Update.Message)
+		}
 	case <-time.After(time.Second):
 		t.Fatal("no broadcast within 1s")
 	}
@@ -64,6 +83,53 @@ func TestReportAsyncDownloadError_BroadcastsStopsAndRecords(t *testing.T) {
 	if rec.Type != server.ErrorTypeCritical {
 		t.Errorf("recorded type = %v, want Critical", rec.Type)
 	}
+}
+
+func TestReportAsyncDownloadError_ReplacesProgressBacklog(t *testing.T) {
+	pool := server.NewPool(nil)
+	serverConn, clientConn := net.Pipe()
+	defer serverConn.Close()
+	defer clientConn.Close()
+	pool.AddDownload("hash1", server.NewSyncConn(serverConn))
+
+	progress := server.MakeResult(common.UPDATE_DOWNLOADING, &common.DownloadingResponse{
+		DownloadId: "hash1",
+		Action:     common.DownloadProgress,
+		Value:      1,
+	})
+	// With no reader, this deterministically fills the bounded pool queue.
+	for range 128 {
+		pool.Broadcast("hash1", progress)
+	}
+	ReportAsyncDownloadError(pool, "hash1", errors.New("disk is full"), nil)
+
+	if err := clientConn.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatalf("set read deadline: %v", err)
+	}
+	peer := server.NewSyncConn(clientConn)
+	for range 2 {
+		msg, err := peer.Read()
+		if err != nil {
+			t.Fatalf("terminal error was replaced by transport failure: %v", err)
+		}
+		var frame struct {
+			Update struct {
+				Type    common.UpdateType            `json:"type"`
+				Message common.DownloadErrorResponse `json:"message"`
+			} `json:"update"`
+		}
+		if err := json.Unmarshal(msg, &frame); err != nil {
+			t.Fatalf("decode frame: %v", err)
+		}
+		if frame.Update.Type != common.UPDATE_DOWNLOAD_ERROR {
+			continue
+		}
+		if frame.Update.Message.Error != "disk is full" {
+			t.Fatalf("terminal error = %q, want disk is full", frame.Update.Message.Error)
+		}
+		return
+	}
+	t.Fatal("terminal error did not replace queued progress")
 }
 
 // A failed download that never wrote a byte must be purged from the

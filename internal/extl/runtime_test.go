@@ -25,8 +25,19 @@ func TestRuntimeHelpers(t *testing.T) {
 	if !ok || name != "bar" {
 		t.Fatalf("expected string name bar, got %q", name)
 	}
-	print(goja.FunctionCall{Arguments: []goja.Value{runtime.ToValue("hi")}})
-	throw(runtime, "boom")
+	jsPrint(goja.FunctionCall{Arguments: []goja.Value{runtime.ToValue("hi")}})
+	if err := runtime.Set("boom", func(goja.FunctionCall) goja.Value {
+		throw(runtime, `boom'); globalThis.injected = true; //`)
+		return nil
+	}); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if _, err := runtime.RunString("boom()"); err == nil {
+		t.Fatal("expected thrown error")
+	}
+	if value := runtime.Get("injected"); value != nil && !goja.IsUndefined(value) {
+		t.Fatal("error text was evaluated as JavaScript")
+	}
 }
 
 func TestInputWithCallback(t *testing.T) {
@@ -35,20 +46,7 @@ func TestInputWithCallback(t *testing.T) {
 		t.Fatalf("RunString: %v", err)
 	}
 
-	oldStdin := os.Stdin
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("Pipe: %v", err)
-	}
-	_, _ = w.Write([]byte("answer\n"))
-	_ = w.Close()
-	os.Stdin = r
-	defer func() {
-		os.Stdin = oldStdin
-		_ = r.Close()
-	}()
-
-	fn := input(runtime)
+	fn := inputWithScanner(runtime, func() (string, error) { return "answer", nil })
 	out := fn(goja.FunctionCall{Arguments: []goja.Value{runtime.ToValue("Q? "), runtime.ToValue("cb")}})
 	if out.String() != "answer!" {
 		t.Fatalf("unexpected callback output: %s", out.String())
@@ -57,20 +55,7 @@ func TestInputWithCallback(t *testing.T) {
 
 func TestInputWithoutCallback(t *testing.T) {
 	runtime := goja.New()
-	oldStdin := os.Stdin
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("Pipe: %v", err)
-	}
-	_, _ = w.Write([]byte("plain\n"))
-	_ = w.Close()
-	os.Stdin = r
-	defer func() {
-		os.Stdin = oldStdin
-		_ = r.Close()
-	}()
-
-	fn := input(runtime)
+	fn := inputWithScanner(runtime, func() (string, error) { return "plain", nil })
 	out := fn(goja.FunctionCall{Arguments: []goja.Value{runtime.ToValue("Q? ")}})
 	if out.String() != "plain" {
 		t.Fatalf("unexpected input output: %s", out.String())
@@ -100,9 +85,9 @@ func TestRuntimeRequireMissingModule(t *testing.T) {
 		t.Fatalf("NewRuntime: %v", err)
 	}
 	req := rt.require(dir)
-	if v := req(goja.FunctionCall{Arguments: []goja.Value{rt.ToValue("missing.js")}}); v != nil {
-		t.Fatalf("expected nil for missing module")
-	}
+	assertPanics(t, func() {
+		req(goja.FunctionCall{Arguments: []goja.Value{rt.ToValue("missing.js")}})
+	})
 	if len(rt.imported) != 0 {
 		t.Fatalf("expected no imported modules")
 	}
@@ -114,4 +99,14 @@ func TestGetFunctionNameNonMatch(t *testing.T) {
 	if _, ok := getFunctionName(runtime, val); ok {
 		t.Fatalf("expected non-function name to return false")
 	}
+}
+
+func assertPanics(t *testing.T, fn func()) {
+	t.Helper()
+	defer func() {
+		if recover() == nil {
+			t.Fatal("expected panic")
+		}
+	}()
+	fn()
 }

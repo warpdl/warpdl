@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/urfave/cli"
 	"github.com/warpdl/warpdl/cmd"
 )
 
@@ -31,7 +32,12 @@ func run(args []string) error {
 
 func runMain(args []string, runFunc func([]string) error) int {
 	if err := runFunc(args); err != nil {
-		fmt.Printf("warpdl: %s\n", err.Error())
+		if err.Error() != "" {
+			fmt.Fprintf(os.Stderr, "warpdl: %s\n", err.Error())
+		}
+		if exitErr, ok := err.(cli.ExitCoder); ok {
+			return exitErr.ExitCode()
+		}
 		return 1
 	}
 	return 0

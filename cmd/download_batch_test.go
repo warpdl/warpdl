@@ -470,37 +470,29 @@ magnet:?xt=urn:btih:abc123`
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Only 2 valid URLs should be downloaded
-	if len(mock.Calls) != 2 {
-		t.Errorf("expected 2 download calls (valid URLs only), got %d", len(mock.Calls))
+	// HTTP(S), FTP(S), and SFTP are supported by the daemon; only the
+	// magnet URL should be skipped.
+	if len(mock.Calls) != 3 {
+		t.Errorf("expected 3 download calls (supported URLs only), got %d", len(mock.Calls))
 	}
 
-	// Result should track 2 valid URLs
-	if result.Total != 2 {
-		t.Errorf("expected total 2 (valid URLs), got %d", result.Total)
+	if result.Total != 3 {
+		t.Errorf("expected total 3 (supported URLs), got %d", result.Total)
 	}
-	if result.Succeeded != 2 {
-		t.Errorf("expected 2 succeeded, got %d", result.Succeeded)
+	if result.Succeeded != 3 {
+		t.Errorf("expected 3 succeeded, got %d", result.Succeeded)
 	}
 
-	// 2 invalid URLs should be tracked as skipped
-	if len(result.SkippedURLs) != 2 {
-		t.Errorf("expected 2 skipped URLs, got %d", len(result.SkippedURLs))
+	if len(result.SkippedURLs) != 1 {
+		t.Errorf("expected 1 skipped URL, got %d", len(result.SkippedURLs))
 	}
 
 	// Verify skipped URLs have correct line numbers
-	foundFTP := false
 	foundMagnet := false
 	for _, s := range result.SkippedURLs {
-		if s.LineNumber == 2 && s.Content == "ftp://example.com/invalid.zip" {
-			foundFTP = true
-		}
 		if s.LineNumber == 4 && s.Content == "magnet:?xt=urn:btih:abc123" {
 			foundMagnet = true
 		}
-	}
-	if !foundFTP {
-		t.Error("did not find expected skipped URL for ftp:// at line 2")
 	}
 	if !foundMagnet {
 		t.Error("did not find expected skipped URL for magnet: at line 4")
@@ -920,7 +912,7 @@ func TestIsBatchSubmissionComplete(t *testing.T) {
 		}
 	})
 
-	t.Run("zero ContentLength treats any existing file as complete", func(t *testing.T) {
+	t.Run("zero ContentLength cannot infer completion from file existence", func(t *testing.T) {
 		f, err := os.CreateTemp("", "batch-test-*.bin")
 		if err != nil {
 			t.Fatalf("CreateTemp: %v", err)
@@ -932,8 +924,8 @@ func TestIsBatchSubmissionComplete(t *testing.T) {
 			SavePath:      f.Name(),
 			ContentLength: 0,
 		}
-		if !isBatchSubmissionComplete(sub) {
-			t.Error("expected true when ContentLength is zero and file exists")
+		if isBatchSubmissionComplete(sub) {
+			t.Error("expected false when ContentLength is unknown")
 		}
 	})
 }

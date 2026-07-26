@@ -27,16 +27,18 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic(fmt.Sprintf("failed to create temp dir: %v", err))
 	}
-	defer os.RemoveAll(tmpDir)
 
 	binaryPath = filepath.Join(tmpDir, "warpdl")
 	cmd := exec.Command("go", "build", "-o", binaryPath, ".")
 	cmd.Dir = getProjectRoot()
 	if out, err := cmd.CombinedOutput(); err != nil {
+		_ = os.RemoveAll(tmpDir)
 		panic(fmt.Sprintf("failed to build binary: %s: %v", string(out), err))
 	}
 
-	os.Exit(m.Run())
+	code := m.Run()
+	_ = os.RemoveAll(tmpDir)
+	os.Exit(code)
 }
 
 func testCLIDownload(t *testing.T, url string) {
@@ -141,13 +143,19 @@ func runWithTimeout(cmd *exec.Cmd, timeout time.Duration) (string, error) {
 }
 
 func isNetworkError(err error, output string) bool {
-	combined := strings.ToLower(err.Error() + output)
+	errText := ""
+	if err != nil {
+		errText = err.Error()
+	}
+	combined := strings.ToLower(errText + output)
 	keywords := []string{
 		"connection refused",
 		"no such host",
 		"timeout",
 		"deadline exceeded",
 		"connection reset",
+		"unexpected eof",
+		"error processing: eof",
 		"network is unreachable",
 		"i/o timeout",
 		"dial tcp",
@@ -155,6 +163,14 @@ func isNetworkError(err error, output string) bool {
 		"no route to host",
 		"name resolution",
 		"dns",
+		"http 429",
+		"too many requests",
+		"http 502",
+		"bad gateway",
+		"http 503",
+		"service unavailable",
+		"http 504",
+		"gateway timeout",
 	}
 	for _, kw := range keywords {
 		if strings.Contains(combined, kw) {
@@ -162,6 +178,24 @@ func isNetworkError(err error, output string) bool {
 		}
 	}
 	return false
+}
+
+func TestIsNetworkErrorHandlesNilError(t *testing.T) {
+	if isNetworkError(nil, "") {
+		t.Fatal("empty successful command was classified as a network error")
+	}
+	for _, output := range []string{
+		"server returned HTTP 429 Too Many Requests",
+		"upstream returned 502 Bad Gateway",
+		"upstream returned 503 Service Unavailable",
+		"upstream returned 504 Gateway Timeout",
+		"TLS peer closed with unexpected EOF",
+		"warpdl: error processing: EOF",
+	} {
+		if !isNetworkError(nil, output) {
+			t.Fatalf("network failure in command output was not classified: %q", output)
+		}
+	}
 }
 
 func getProjectRoot() string {

@@ -35,6 +35,20 @@ func MakeResult(utype common.UpdateType, res any) []byte {
 	return b
 }
 
+// MakeDownloadError creates a typed asynchronous download-error update.
+// Keeping this as a successful update envelope distinguishes it from an
+// ok=false RPC reply, which always belongs to the request currently in flight.
+func MakeDownloadError(downloadID string, err error) []byte {
+	message := "Unknown"
+	if err != nil {
+		message = err.Error()
+	}
+	return MakeResult(common.UPDATE_DOWNLOAD_ERROR, &common.DownloadErrorResponse{
+		DownloadId: downloadID,
+		Error:      message,
+	})
+}
+
 // InitError creates a JSON-encoded error response from the given error.
 // If err is nil, it returns an error response with "Unknown" as the message.
 func InitError(err error) []byte {

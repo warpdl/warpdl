@@ -131,15 +131,15 @@ func GetVersion(ctx *cli.Context) error {
 	return nil
 }
 
-// PrintRuntimeErr formats and prints a runtime error message to stdout.
+// PrintRuntimeErr formats and prints a runtime error message to stderr and
+// returns an ExitCoder so callers cannot accidentally report success.
 // It includes the application name, command name, action identifier, and
 // the error message. If err is nil, it prints a diagnostic message indicating
 // no error was present. The ctx parameter may be nil, in which case the
 // application name is derived from os.Args[0].
-func PrintRuntimeErr(ctx *cli.Context, cmd, action string, err error) {
+func PrintRuntimeErr(ctx *cli.Context, cmd, action string, err error) error {
 	if err == nil {
-		fmt.Println("err is nil", "[", cmd, "|", action, "]")
-		return
+		return nil
 	}
 	var name string
 	if ctx != nil {
@@ -147,7 +147,10 @@ func PrintRuntimeErr(ctx *cli.Context, cmd, action string, err error) {
 	} else {
 		name = os.Args[0]
 	}
-	fmt.Printf("%s: %s[%s]: %s\n", name, cmd, action, err.Error())
+	fmt.Fprintf(os.Stderr, "%s: %s[%s]: %s\n", name, cmd, action, err.Error())
+	// The diagnostic has already been rendered above. Returning an empty
+	// ExitError preserves the non-zero status without printing it twice.
+	return cli.NewExitError("", 1)
 }
 
 // PrintErrWithCmdHelp prints the error message followed by the current
@@ -187,8 +190,8 @@ func printErrWithCallback(ctx *cli.Context, err error, callback func()) error {
 	if estr == "flag: help requested" {
 		return Help(ctx)
 	}
-	if strings.Contains(estr, "-version") ||
-		strings.Contains(estr, "-v") {
+	if estr == "flag provided but not defined: -version" ||
+		estr == "flag provided but not defined: -v" {
 		return GetVersion(ctx)
 	}
 	fmt.Printf("%s: %s\n\n", ctx.App.HelpName, err.Error())
@@ -213,7 +216,13 @@ func UsageErrorCallback(ctx *cli.Context, err error, _ bool) error {
 // If n minus the string length is odd, an extra space is appended at the end.
 // This is useful for creating centered text in fixed-width displays.
 func Beaut(s string, n int) (b string) {
+	if n <= 0 {
+		return ""
+	}
 	n1 := len(s)
+	if n1 >= n {
+		return s
+	}
 	x := n - n1
 	x1 := x / 2
 	w := string(

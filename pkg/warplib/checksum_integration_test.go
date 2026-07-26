@@ -7,6 +7,7 @@ import (
 	"crypto/sha512"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -76,6 +77,8 @@ func newChecksumServer(t *testing.T, content []byte, algo ChecksumAlgorithm) *ht
 
 		chunk := content[start : end+1]
 		w.Header().Set("Content-Length", strconv.Itoa(len(chunk)))
+		w.Header().Set("Content-Range",
+			fmt.Sprintf("bytes %d-%d/%d", start, end, len(content)))
 		w.WriteHeader(http.StatusPartialContent)
 		_, _ = w.Write(chunk)
 	}))
@@ -137,6 +140,8 @@ func newChecksumServerWrong(t *testing.T, content []byte, algo ChecksumAlgorithm
 
 		chunk := content[start : end+1]
 		w.Header().Set("Content-Length", strconv.Itoa(len(chunk)))
+		w.Header().Set("Content-Range",
+			fmt.Sprintf("bytes %d-%d/%d", start, end, len(content)))
 		w.WriteHeader(http.StatusPartialContent)
 		_, _ = w.Write(chunk)
 	}))
@@ -186,6 +191,8 @@ func newChecksumServerMultiple(t *testing.T, content []byte) *httptest.Server {
 
 		chunk := content[start : end+1]
 		w.Header().Set("Content-Length", strconv.Itoa(len(chunk)))
+		w.Header().Set("Content-Range",
+			fmt.Sprintf("bytes %d-%d/%d", start, end, len(content)))
 		w.WriteHeader(http.StatusPartialContent)
 		_, _ = w.Write(chunk)
 	}))
@@ -663,6 +670,64 @@ func TestDownloaderChecksumValidation_ChecksumProgress(t *testing.T) {
 	}
 	if lastBytesHashed != int64(len(content)) {
 		t.Errorf("Expected final bytes hashed to be %d, got %d", len(content), lastBytesHashed)
+	}
+}
+
+func TestDownloaderRejectsMutationFromChecksumCallback(t *testing.T) {
+	base := t.TempDir()
+	if err := SetConfigDir(base); err != nil {
+		t.Fatalf("SetConfigDir: %v", err)
+	}
+
+	content := bytes.Repeat([]byte("checksum-boundary"), 1024)
+	srv := newChecksumServer(t, content, ChecksumSHA256)
+	defer srv.Close()
+
+	var (
+		d             *Downloader
+		callbackErr   error
+		completeCalls int
+	)
+	d, err := NewDownloader(srv.Client(), srv.URL+"/file.bin", &DownloaderOpts{
+		DownloadDirectory: base,
+		ChecksumConfig: &ChecksumConfig{
+			Enabled:        true,
+			FailOnMismatch: true,
+		},
+		Handlers: &Handlers{
+			ChecksumValidationHandler: func(ChecksumResult) {
+				f, err := os.OpenFile(d.GetSavePath(), os.O_WRONLY|os.O_APPEND, 0)
+				if err != nil {
+					callbackErr = err
+					return
+				}
+				if _, err = f.Write([]byte("tail")); err != nil {
+					callbackErr = err
+				}
+				if err = f.Close(); callbackErr == nil {
+					callbackErr = err
+				}
+			},
+			DownloadCompleteHandler: func(hash string, _ int64) {
+				if hash == MAIN_HASH {
+					completeCalls++
+				}
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewDownloader: %v", err)
+	}
+
+	err = d.Start()
+	if callbackErr != nil {
+		t.Fatalf("append corrupting tail: %v", callbackErr)
+	}
+	if !errors.Is(err, ErrDownloadSizeMismatch) {
+		t.Fatalf("Start error = %v, want %v", err, ErrDownloadSizeMismatch)
+	}
+	if completeCalls != 0 {
+		t.Fatalf("DownloadComplete calls = %d, want 0", completeCalls)
 	}
 }
 

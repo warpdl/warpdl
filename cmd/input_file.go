@@ -61,7 +61,7 @@ type ParseResult struct {
 // ParseInputFile reads an input file and extracts URLs.
 // It skips empty lines and comment lines (starting with #).
 // Leading and trailing whitespace is trimmed from each line.
-// URLs are validated to ensure they start with http:// or https://.
+// URLs are validated against the protocols supported by the daemon.
 // Invalid URLs are tracked with line numbers for error reporting.
 //
 // Errors returned:
@@ -96,12 +96,12 @@ func ParseInputFile(filePath string) (*ParseResult, error) {
 			continue
 		}
 
-		// Validate URL scheme (must be http or https)
+		// Validate URL scheme against the protocol router.
 		if !isValidURLScheme(trimmed) {
 			result.InvalidLines = append(result.InvalidLines, InvalidLine{
 				LineNumber: lineNumber,
 				Content:    trimmed,
-				Reason:     "URL must start with http:// or https://",
+				Reason:     "unsupported URL scheme (expected http, https, ftp, ftps, or sftp)",
 			})
 			continue
 		}
@@ -118,10 +118,15 @@ func ParseInputFile(filePath string) (*ParseResult, error) {
 	return result, nil
 }
 
-// isValidURLScheme checks if the URL starts with http:// or https://.
+// isValidURLScheme checks whether the URL uses a supported download protocol.
 func isValidURLScheme(url string) bool {
 	lowerURL := strings.ToLower(url)
-	return strings.HasPrefix(lowerURL, "http://") || strings.HasPrefix(lowerURL, "https://")
+	for _, prefix := range []string{"http://", "https://", "ftp://", "ftps://", "sftp://"} {
+		if strings.HasPrefix(lowerURL, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // wrapInputFileError converts OS-level errors to domain-specific errors.

@@ -4,8 +4,11 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/warpdl/warpdl/pkg/warplib"
 )
@@ -24,8 +27,6 @@ var (
 	DEBUG_MODULE_STORE = DEBUG_ENGINE_STORE + "/extstore/"
 )
 
-const FUNCTION_REGEXP = `function\s(\w+)\(.*\)\s{(?:\n?.*)+}`
-
 const (
 	DEF_MODULE_ENTRY = "main.js"
 	DEF_MODULE_HASH  = 16
@@ -33,6 +34,9 @@ const (
 	EXTRACT_CALLBACK = "extract"
 
 	EXPORTED_END = "end"
+
+	defaultExecutionTimeout = 30 * time.Second
+	defaultRequestTimeout   = 30 * time.Second
 )
 
 // Error variables define sentinel errors for extension-related failures.
@@ -55,7 +59,71 @@ var (
 
 	// ErrModuleNotFound is returned when a requested module does not exist in the engine.
 	ErrModuleNotFound = errors.New("module not found")
+
+	// ErrExecutionTimeout is returned when extension JavaScript exceeds its
+	// execution budget.
+	ErrExecutionTimeout = errors.New("extension execution timed out")
+
+	// ErrEngineClosed is returned when an operation requiring the extension
+	// engine's state file is attempted after Close.
+	ErrEngineClosed = errors.New("extension engine is closed")
+
+	// ErrPathOutsideModule is returned when a manifest or require path escapes
+	// the extension's directory.
+	ErrPathOutsideModule = errors.New("path escapes module directory")
 )
+
+// modulePath resolves name below base and rejects absolute paths, traversal,
+// and symlinks that escape the module directory. The target must exist.
+func modulePath(base, name string) (string, error) {
+	clean, err := cleanModuleRelativePath(name)
+	if err != nil {
+		return "", err
+	}
+
+	baseAbs, err := filepath.Abs(base)
+	if err != nil {
+		return "", err
+	}
+	baseReal, err := filepath.EvalSymlinks(baseAbs)
+	if err != nil {
+		return "", err
+	}
+	targetReal, err := filepath.EvalSymlinks(filepath.Join(baseAbs, clean))
+	if err != nil {
+		return "", err
+	}
+	if !pathWithin(baseReal, targetReal) {
+		return "", fmt.Errorf("%w: %s", ErrPathOutsideModule, name)
+	}
+	return targetReal, nil
+}
+
+func cleanModuleRelativePath(name string) (string, error) {
+	if name == "" || filepath.IsAbs(name) || filepath.VolumeName(name) != "" {
+		return "", ErrPathOutsideModule
+	}
+	clean := filepath.Clean(filepath.FromSlash(name))
+	if clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return "", ErrPathOutsideModule
+	}
+	return clean, nil
+}
+
+func pathWithin(base, target string) bool {
+	rel, err := filepath.Rel(base, target)
+	if err != nil {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+func validModuleID(moduleID string) bool {
+	if moduleID == "" || moduleID == "." || moduleID == ".." || filepath.IsAbs(moduleID) {
+		return false
+	}
+	return filepath.Base(moduleID) == moduleID && filepath.VolumeName(moduleID) == ""
+}
 
 func generateHash(n int) string {
 	t := make([]byte, n/2)

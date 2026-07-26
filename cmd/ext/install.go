@@ -25,19 +25,16 @@ func install(ctx *cli.Context) error {
 	}
 	cwd, err := getwd()
 	if err != nil {
-		common.PrintRuntimeErr(ctx, "ext-install", "getwd", err)
-		return nil
+		return common.PrintRuntimeErr(ctx, "ext-install", "getwd", err)
 	}
 	client, err := newClient()
 	if err != nil {
-		common.PrintRuntimeErr(ctx, "ext-install", "new_client", err)
-		return nil
+		return common.PrintRuntimeErr(ctx, "ext-install", "new_client", err)
 	}
 	defer client.Close()
 	ext, err := client.AddExtension(filepath.Join(cwd, path))
 	if err != nil {
-		common.PrintRuntimeErr(ctx, "ext-install", "load-extension", err)
-		return nil
+		return common.PrintRuntimeErr(ctx, "ext-install", "load-extension", err)
 	}
 	fmt.Printf("Successfully installed extension: %s (%s)\n", ext.Name, ext.Version)
 	return nil

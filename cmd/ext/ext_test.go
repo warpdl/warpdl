@@ -191,6 +191,17 @@ func assertContains(t *testing.T, output, expected string) {
 	}
 }
 
+func assertExitError(t *testing.T, err error) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("expected non-zero CLI error, got nil")
+	}
+	var exitCoder cli.ExitCoder
+	if !errors.As(err, &exitCoder) || exitCoder.ExitCode() == 0 {
+		t.Fatalf("expected non-zero cli.ExitCoder, got %T: %v", err, err)
+	}
+}
+
 func TestExtCommands(t *testing.T) {
 	srv := startFakeServer(t)
 	defer srv.close()
@@ -302,29 +313,17 @@ func TestExtCommandsErrorResponse(t *testing.T) {
 
 	app := cli.NewApp()
 	ctx := newContext(app, []string{"."}, "install")
-	if err := install(ctx); err != nil {
-		t.Fatalf("install: %v", err)
-	}
+	assertExitError(t, install(ctx))
 	ctx = newContext(app, []string{"ext1"}, "info")
-	if err := info(ctx); err != nil {
-		t.Fatalf("info: %v", err)
-	}
+	assertExitError(t, info(ctx))
 	ctx = newContext(app, nil, "list")
-	if err := list(ctx); err != nil {
-		t.Fatalf("list: %v", err)
-	}
+	assertExitError(t, list(ctx))
 	ctx = newContext(app, []string{"ext1"}, "activate")
-	if err := activate(ctx); err != nil {
-		t.Fatalf("activate: %v", err)
-	}
+	assertExitError(t, activate(ctx))
 	ctx = newContext(app, []string{"ext1"}, "deactivate")
-	if err := deactivate(ctx); err != nil {
-		t.Fatalf("deactivate: %v", err)
-	}
+	assertExitError(t, deactivate(ctx))
 	ctx = newContext(app, []string{"ext1"}, "uninstall")
-	if err := uninstall(ctx); err != nil {
-		t.Fatalf("uninstall: %v", err)
-	}
+	assertExitError(t, uninstall(ctx))
 }
 
 func TestExtInstallGetwdError(t *testing.T) {
@@ -336,9 +335,7 @@ func TestExtInstallGetwdError(t *testing.T) {
 
 	app := cli.NewApp()
 	ctx := newContext(app, []string{"."}, "install")
-	if err := install(ctx); err != nil {
-		t.Fatalf("install: %v", err)
-	}
+	assertExitError(t, install(ctx))
 }
 
 func TestExtInstallClientError(t *testing.T) {
@@ -350,9 +347,7 @@ func TestExtInstallClientError(t *testing.T) {
 
 	app := cli.NewApp()
 	ctx := newContext(app, []string{"."}, "install")
-	if err := install(ctx); err != nil {
-		t.Fatalf("install: %v", err)
-	}
+	assertExitError(t, install(ctx))
 }
 
 // Extension Command Output Tests

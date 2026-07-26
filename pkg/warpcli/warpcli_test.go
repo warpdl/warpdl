@@ -30,6 +30,41 @@ func TestBufioRoundTrip(t *testing.T) {
 	}
 }
 
+type shortWriteConn struct {
+	net.Conn
+	max int
+}
+
+func (c *shortWriteConn) Write(buf []byte) (int, error) {
+	if len(buf) > c.max {
+		buf = buf[:c.max]
+	}
+	return c.Conn.Write(buf)
+}
+
+func TestBufioWriteHandlesShortWrites(t *testing.T) {
+	c1, c2 := net.Pipe()
+	defer c1.Close()
+	defer c2.Close()
+
+	payload := []byte("a payload larger than each write")
+	writeDone := make(chan error, 1)
+	go func() {
+		writeDone <- write(&shortWriteConn{Conn: c1, max: 2}, payload)
+	}()
+
+	got, err := read(c2)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if string(got) != string(payload) {
+		t.Fatalf("payload mismatch: got %q want %q", got, payload)
+	}
+	if err := <-writeDone; err != nil {
+		t.Fatalf("write: %v", err)
+	}
+}
+
 func TestDispatcherProcess(t *testing.T) {
 	d := &Dispatcher{Handlers: make(map[common.UpdateType][]Handler)}
 	if err := d.process([]byte(`{"ok":true,"update":{"type":"download","message":{}}}`)); err == nil {
@@ -198,6 +233,36 @@ func TestBufioRead_PayloadReadFails(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "payload read error") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestReadAvailable_PartialFrameCannotBlockForever(t *testing.T) {
+	clientConn, peerConn := net.Pipe()
+	defer clientConn.Close()
+	defer peerConn.Close()
+
+	go func() {
+		_, _ = peerConn.Write([]byte{0})
+	}()
+
+	start := time.Now()
+	_, available, err := readAvailableWithFrameTimeout(
+		clientConn,
+		time.Second,
+		25*time.Millisecond,
+	)
+	if err == nil {
+		t.Fatal("expected a timeout for a stalled partial frame")
+	}
+	if available {
+		t.Fatal("stalled partial frame reported as available")
+	}
+	var netErr net.Error
+	if !errors.As(err, &netErr) || !netErr.Timeout() {
+		t.Fatalf("error = %v, want network timeout", err)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("partial frame remained blocked for %v", elapsed)
 	}
 }
 

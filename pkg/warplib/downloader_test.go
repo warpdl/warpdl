@@ -2,6 +2,7 @@ package warplib
 
 import (
 	"bytes"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -16,6 +17,7 @@ func newRangeServer(t *testing.T, content []byte) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Accept-Ranges", "bytes")
 		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("ETag", `"test-representation"`)
 		if r.Header.Get("Range") == "" {
 			w.Header().Set("Content-Length", strconv.Itoa(len(content)))
 			w.WriteHeader(http.StatusOK)
@@ -37,6 +39,8 @@ func newRangeServer(t *testing.T, content []byte) *httptest.Server {
 		}
 		chunk := content[start : end+1]
 		w.Header().Set("Content-Length", strconv.Itoa(len(chunk)))
+		w.Header().Set("Content-Range",
+			fmt.Sprintf("bytes %d-%d/%d", start, end, len(content)))
 		w.WriteHeader(http.StatusPartialContent)
 		_, _ = w.Write(chunk)
 	}))
@@ -101,8 +105,16 @@ func TestDownloaderUnknownSize(t *testing.T) {
 	srv := newChunkedServer(t, content, 0)
 	defer srv.Close()
 
+	var completedSize int64 = -1
 	d, err := NewDownloader(&http.Client{}, srv.URL+"/file.bin", &DownloaderOpts{
 		DownloadDirectory: base,
+		Handlers: &Handlers{
+			DownloadCompleteHandler: func(hash string, tread int64) {
+				if hash == MAIN_HASH {
+					completedSize = tread
+				}
+			},
+		},
 	})
 	if err != nil {
 		t.Fatalf("NewDownloader: %v", err)
@@ -116,6 +128,12 @@ func TestDownloaderUnknownSize(t *testing.T) {
 	}
 	if !bytes.Equal(got, content) {
 		t.Fatalf("downloaded content mismatch")
+	}
+	if got := d.GetContentLengthAsInt(); got != int64(len(content)) {
+		t.Fatalf("final content length = %d, want %d", got, len(content))
+	}
+	if completedSize != int64(len(content)) {
+		t.Fatalf("completion size = %d, want %d", completedSize, len(content))
 	}
 }
 

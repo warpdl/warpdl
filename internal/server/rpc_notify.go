@@ -2,24 +2,43 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"sync"
+	"time"
 
 	"github.com/creachadair/jrpc2"
 )
+
+const (
+	rpcNotificationQueueSize = 64
+	rpcNotificationTimeout   = 2 * time.Second
+)
+
+type rpcNotification struct {
+	method    string
+	params    json.RawMessage
+	hasParams bool
+}
+
+type rpcSubscriber struct {
+	queue    chan rpcNotification
+	done     chan struct{}
+	stopOnce sync.Once
+}
 
 // RPCNotifier maintains a set of connected jrpc2 WebSocket servers
 // and broadcasts push notifications to all of them.
 type RPCNotifier struct {
 	mu      sync.RWMutex
-	servers map[*jrpc2.Server]struct{}
+	servers map[*jrpc2.Server]*rpcSubscriber
 	log     *log.Logger
 }
 
 // NewRPCNotifier creates a new notifier.
 func NewRPCNotifier(l *log.Logger) *RPCNotifier {
 	return &RPCNotifier{
-		servers: make(map[*jrpc2.Server]struct{}),
+		servers: make(map[*jrpc2.Server]*rpcSubscriber),
 		log:     l,
 	}
 }
@@ -27,43 +46,99 @@ func NewRPCNotifier(l *log.Logger) *RPCNotifier {
 // Register adds a server to the broadcast set.
 func (n *RPCNotifier) Register(srv *jrpc2.Server) {
 	n.mu.Lock()
-	defer n.mu.Unlock()
-	n.servers[srv] = struct{}{}
+	if _, ok := n.servers[srv]; ok {
+		n.mu.Unlock()
+		return
+	}
+	sub := &rpcSubscriber{
+		queue: make(chan rpcNotification, rpcNotificationQueueSize),
+		done:  make(chan struct{}),
+	}
+	n.servers[srv] = sub
+	n.mu.Unlock()
+	go n.runSubscriber(srv, sub)
 }
 
 // Unregister removes a server from the broadcast set.
 func (n *RPCNotifier) Unregister(srv *jrpc2.Server) {
 	n.mu.Lock()
-	defer n.mu.Unlock()
-	delete(n.servers, srv)
+	sub := n.servers[srv]
+	if sub != nil {
+		delete(n.servers, srv)
+		sub.stopOnce.Do(func() { close(sub.done) })
+	}
+	n.mu.Unlock()
 }
 
 // Broadcast sends a push notification to all registered servers.
 // Servers that fail to receive (e.g., disconnected) are unregistered.
 func (n *RPCNotifier) Broadcast(method string, params any) {
-	n.mu.RLock()
-	servers := make([]*jrpc2.Server, 0, len(n.servers))
-	for srv := range n.servers {
-		servers = append(servers, srv)
+	var encoded json.RawMessage
+	if params != nil {
+		var err error
+		encoded, err = json.Marshal(params)
+		if err != nil {
+			if n.log != nil {
+				n.log.Printf("RPC push encoding failed: %v", err)
+			}
+			return
+		}
 	}
-	n.mu.RUnlock()
+	notification := rpcNotification{
+		method:    method,
+		params:    encoded,
+		hasParams: params != nil,
+	}
 
-	var failed []*jrpc2.Server
-	for _, srv := range servers {
-		if err := srv.Notify(context.Background(), method, params); err != nil {
+	n.mu.Lock()
+	for srv, sub := range n.servers {
+		select {
+		case sub.queue <- notification:
+		default:
+			delete(n.servers, srv)
+			sub.stopOnce.Do(func() { close(sub.done) })
+			go srv.Stop()
+			if n.log != nil {
+				n.log.Printf("RPC push queue full; evicting slow client")
+			}
+		}
+	}
+	n.mu.Unlock()
+}
+
+func (n *RPCNotifier) runSubscriber(srv *jrpc2.Server, sub *rpcSubscriber) {
+	for {
+		select {
+		case <-sub.done:
+			return
+		default:
+		}
+		select {
+		case <-sub.done:
+			return
+		case notification := <-sub.queue:
+			ctx, cancel := context.WithTimeout(context.Background(), rpcNotificationTimeout)
+			var params any
+			if notification.hasParams {
+				params = notification.params
+			}
+			err := srv.Notify(ctx, notification.method, params)
+			cancel()
+			if err == nil {
+				continue
+			}
 			if n.log != nil {
 				n.log.Printf("RPC push failed: %v", err)
 			}
-			failed = append(failed, srv)
+			srv.Stop()
+			n.mu.Lock()
+			if n.servers[srv] == sub {
+				delete(n.servers, srv)
+				sub.stopOnce.Do(func() { close(sub.done) })
+			}
+			n.mu.Unlock()
+			return
 		}
-	}
-
-	if len(failed) > 0 {
-		n.mu.Lock()
-		for _, srv := range failed {
-			delete(n.servers, srv)
-		}
-		n.mu.Unlock()
 	}
 }
 

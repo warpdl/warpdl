@@ -109,6 +109,18 @@ func TestResponseHelpers(t *testing.T) {
 	if resp.Ok || resp.Error == "" {
 		t.Fatalf("expected unknown error response")
 	}
+
+	b = MakeDownloadError("download-id", errors.New("disk full"))
+	if err := json.Unmarshal(b, &resp); err != nil {
+		t.Fatalf("Unmarshal download error: %v", err)
+	}
+	if !resp.Ok || resp.Update == nil || resp.Update.Type != common.UPDATE_DOWNLOAD_ERROR {
+		t.Fatalf("unexpected async download error response: %+v", resp)
+	}
+	payload, ok := resp.Update.Message.(map[string]any)
+	if !ok || payload["download_id"] != "download-id" || payload["error"] != "disk full" {
+		t.Fatalf("unexpected async download error payload: %#v", resp.Update.Message)
+	}
 }
 
 func TestErrorString(t *testing.T) {

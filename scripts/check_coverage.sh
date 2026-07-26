@@ -15,7 +15,7 @@ go test ./... -coverprofile="$profile" -count=1 2>&1 | tee "$output"
 test_exit=${PIPESTATUS[0]}
 
 # Check if any tests actually failed (not just cleanup errors)
-if grep -q "^FAIL\s" "$output" || grep -q "^\-\-\- FAIL:" "$output"; then
+if grep -Eq '^FAIL[[:space:]]|^--- FAIL:' "$output"; then
   echo "Tests failed"
   exit 1
 fi

@@ -49,15 +49,13 @@ func queueStatusAction(ctx *cli.Context) error {
 	}
 	client, err := getClient()
 	if err != nil {
-		common.PrintRuntimeErr(ctx, "queue", "new_client", err)
-		return nil
+		return common.PrintRuntimeErr(ctx, "queue", "new_client", err)
 	}
 	defer client.Close()
 
 	status, err := client.QueueStatus()
 	if err != nil {
-		common.PrintRuntimeErr(ctx, "queue", "get_status", err)
-		return nil
+		return common.PrintRuntimeErr(ctx, "queue", "get_status", err)
 	}
 
 	// Print queue status
@@ -93,14 +91,12 @@ func queuePauseAction(ctx *cli.Context) error {
 	}
 	client, err := getClient()
 	if err != nil {
-		common.PrintRuntimeErr(ctx, "queue pause", "new_client", err)
-		return nil
+		return common.PrintRuntimeErr(ctx, "queue pause", "new_client", err)
 	}
 	defer client.Close()
 
 	if err := client.QueuePause(); err != nil {
-		common.PrintRuntimeErr(ctx, "queue pause", "pause", err)
-		return nil
+		return common.PrintRuntimeErr(ctx, "queue pause", "pause", err)
 	}
 	fmt.Println("Queue paused. No new downloads will start automatically.")
 	return nil
@@ -112,14 +108,12 @@ func queueResumeAction(ctx *cli.Context) error {
 	}
 	client, err := getClient()
 	if err != nil {
-		common.PrintRuntimeErr(ctx, "queue resume", "new_client", err)
-		return nil
+		return common.PrintRuntimeErr(ctx, "queue resume", "new_client", err)
 	}
 	defer client.Close()
 
 	if err := client.QueueResume(); err != nil {
-		common.PrintRuntimeErr(ctx, "queue resume", "resume", err)
-		return nil
+		return common.PrintRuntimeErr(ctx, "queue resume", "resume", err)
 	}
 	fmt.Println("Queue resumed. Waiting downloads will start automatically.")
 	return nil
@@ -146,17 +140,21 @@ func queueMoveAction(ctx *cli.Context) error {
 			fmt.Errorf("invalid position '%s': must be a number", posStr),
 		)
 	}
+	if position < 1 {
+		return common.PrintErrWithCmdHelp(
+			ctx,
+			fmt.Errorf("invalid position '%s': positions start at 1", posStr),
+		)
+	}
 
 	client, err := getClient()
 	if err != nil {
-		common.PrintRuntimeErr(ctx, "queue move", "new_client", err)
-		return nil
+		return common.PrintRuntimeErr(ctx, "queue move", "new_client", err)
 	}
 	defer client.Close()
 
-	if err := client.QueueMove(hash, position); err != nil {
-		common.PrintRuntimeErr(ctx, "queue move", "move", err)
-		return nil
+	if err := client.QueueMove(hash, position-1); err != nil {
+		return common.PrintRuntimeErr(ctx, "queue move", "move", err)
 	}
 	fmt.Printf("Moved %s to position %d.\n", hash, position)
 	return nil

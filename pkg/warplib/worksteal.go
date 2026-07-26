@@ -110,18 +110,19 @@ func shouldAttemptWorkSteal(completionSpeed, adjacentRemaining int64) bool {
 // All fields accessed across goroutines are either guarded by mu or stored in
 // atomic-capable types.
 type activePartInfo struct {
-	hash   string        // Unique identifier for the part
-	offset int64         // Initial byte offset (starting position, never mutated)
-	foff   *atomic.Int64 // Final offset - reduced atomically by stealer
-	read   *int64        // Pointer to part's atomic read counter
-	mu     sync.Mutex    // Protects stolen transitions
-	stolen atomic.Bool   // True if work was already stolen from this part
+	hash            string        // Unique identifier for the part
+	offset          int64         // Initial byte offset (starting position, never mutated)
+	foff            *atomic.Int64 // Final offset - reduced atomically by stealer
+	read            *int64        // Pointer to part's atomic read counter
+	reservedThrough *atomic.Int64 // Inclusive end of an in-flight owner read
+	mu              sync.Mutex    // Serializes reservations and boundary reductions
+	stolen          atomic.Bool   // True if work was already stolen from this part
 }
 
 // getRemaining calculates the remaining bytes to download for this part.
 // Returns the number of bytes left to download.
 func (a *activePartInfo) getRemaining() int64 {
-	currentPos := a.getCurrentPos()
+	currentPos := a.getSafeCurrentPos()
 	foff := a.foff.Load()
 	remaining := foff - currentPos + 1
 	if remaining < 0 {
@@ -133,6 +134,18 @@ func (a *activePartInfo) getRemaining() int64 {
 // getCurrentPos returns the current byte position (offset + bytes read).
 func (a *activePartInfo) getCurrentPos() int64 {
 	return a.offset + atomic.LoadInt64(a.read)
+}
+
+// getSafeCurrentPos returns the first byte that is neither completed nor
+// reserved by the victim's in-flight read.
+func (a *activePartInfo) getSafeCurrentPos() int64 {
+	currentPos := a.getCurrentPos()
+	if a.reservedThrough != nil {
+		if reservedNext := a.reservedThrough.Load() + 1; reservedNext > currentPos {
+			currentPos = reservedNext
+		}
+	}
+	return currentPos
 }
 
 // findBestVictimForStealing finds the best part to steal work from.
@@ -180,12 +193,21 @@ func (d *Downloader) registerActivePart(part *Part, foff *atomic.Int64) {
 	if !d.enableWorkStealing {
 		return
 	}
-	d.activeParts.Set(part.hash, &activePartInfo{
-		hash:   part.hash,
-		offset: part.offset,
-		foff:   foff,
-		read:   &part.read,
-	})
+	reservedThrough := new(atomic.Int64)
+	reservedThrough.Store(part.offset - 1)
+	info := &activePartInfo{
+		hash:            part.hash,
+		offset:          part.offset,
+		foff:            foff,
+		read:            &part.read,
+		reservedThrough: reservedThrough,
+	}
+	// The owner briefly takes this mutex to publish the inclusive end of its
+	// next read. A stealer takes the same lock and starts strictly after that
+	// reservation, so the mutex is never held while network I/O may stall.
+	part.boundaryMu = &info.mu
+	part.reservedThrough = reservedThrough
+	d.activeParts.Set(part.hash, info)
 }
 
 // unregisterActivePart removes a completed part from the work stealing pool.
@@ -245,11 +267,14 @@ func (d *Downloader) attemptWorkSteal(stealerHash string, partSpeed int64) bool 
 		return false
 	}
 
-	// Calculate steal range using 50/50 split
+	// Calculate the steal range using the first byte that is neither
+	// completed nor reserved by an in-flight owner read. This guarantees the
+	// new victim boundary never cuts through a read already in progress.
+	safeCurrentPos := victim.getSafeCurrentPos()
 	stealStart, stealEnd, canSteal := calculateStealWork(
 		victim.offset,
 		victim.foff.Load(),
-		atomic.LoadInt64(victim.read),
+		safeCurrentPos-victim.offset,
 	)
 	if !canSteal {
 		return false
@@ -263,6 +288,14 @@ func (d *Downloader) attemptWorkSteal(stealerHash string, partSpeed int64) bool 
 	victim.stolen.Store(true)
 
 	d.Log("%s: stealing work from %s | bytes %d-%d", stealerHash, victim.hash, stealStart, stealEnd)
+	// Persist the victim's shortened boundary before recording the stolen
+	// part. Without this callback, a daemon restart sees overlapping ranges.
+	d.handlers.RespawnPartHandler(
+		victim.hash,
+		victim.offset,
+		victim.getCurrentPos(),
+		newVictimFoff,
+	)
 	d.handlers.WorkStealHandler(stealerHash, victim.hash, stealStart, stealEnd)
 
 	// Spawn new part to handle stolen range
@@ -271,9 +304,7 @@ func (d *Downloader) attemptWorkSteal(stealerHash string, partSpeed int64) bool 
 		defer func() {
 			if r := recover(); r != nil {
 				d.Log("PANIC in work steal newPartDownload: %v", r)
-				d.handlers.ErrorHandler("work-steal-part", fmt.Errorf("panic: %v", r))
-				atomic.StoreInt32(&d.stopped, 1)
-				d.cancel()
+				d.failWorker("work-steal-part", fmt.Errorf("panic: %v", r))
 			}
 		}()
 		// Use half the speed threshold as expected speed for stolen part

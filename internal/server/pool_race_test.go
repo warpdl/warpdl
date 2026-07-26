@@ -121,6 +121,7 @@ func TestAddConnectionNoTOCTOU(t *testing.T) {
 
 	p := NewPool(log.New(os.Stderr, "", 0))
 	uid := "toctou-test"
+	p.AddDownload(uid, nil)
 
 	var wg sync.WaitGroup
 
@@ -316,20 +317,24 @@ func TestPoolMultipleUIDs(t *testing.T) {
 	}
 }
 
-// TestAddConnectionEmptySlice tests that AddConnection works even when slice doesn't exist yet
-func TestAddConnectionEmptySlice(t *testing.T) {
+// TestAddConnectionDoesNotRecreateTerminatedDownload fixes the attach-vs-
+// terminal TOCTOU: once terminal removal wins, a later attach must fail
+// instead of manufacturing a new active UID.
+func TestAddConnectionDoesNotRecreateTerminatedDownload(t *testing.T) {
 	p := NewPool(log.New(os.Stderr, "", 0))
-	uid := "new-uid"
+	uid := "terminated-uid"
+	p.AddDownload(uid, nil)
+	p.BroadcastTerminal(uid, []byte("done"))
 
-	// AddConnection on non-existent UID should create the slice
-	p.AddConnection(uid, &SyncConn{})
+	if p.AddConnection(uid, &SyncConn{}) {
+		t.Fatal("attach succeeded after terminal removal")
+	}
 
 	p.mu.RLock()
-	conns := p.m[uid]
+	_, exists := p.m[uid]
 	p.mu.RUnlock()
-
-	if len(conns) != 1 {
-		t.Errorf("expected 1 connection, got %d", len(conns))
+	if exists {
+		t.Fatal("failed attach recreated terminated UID")
 	}
 }
 
@@ -395,6 +400,7 @@ func TestPoolInitialState(t *testing.T) {
 func TestAddConnectionOrderPreservation(t *testing.T) {
 	p := NewPool(log.New(os.Stderr, "", 0))
 	uid := "order-test"
+	p.AddDownload(uid, nil)
 
 	// Add connections sequentially
 	var conns []*SyncConn

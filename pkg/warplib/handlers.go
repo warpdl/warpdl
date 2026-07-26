@@ -17,7 +17,9 @@ type (
 	// This handler is called when a part is respawned with new part size.
 	RespawnPartHandlerFunc func(hash string, partIoff, ioffNew, foffNew int64)
 	// DownloadProgressHandlerFunc is a function that handles the progress of a download.
-	// It takes a hash string and the number of bytes read as arguments.
+	// It takes a hash string and the number of bytes read as arguments. A
+	// negative value compensates bytes discarded when a non-range stream is
+	// restarted from byte zero after a retry.
 	DownloadProgressHandlerFunc func(hash string, nread int)
 	// ResumeProgressHandlerFunc is a function that handles the progress of a resume.
 	// It takes a hash string and the number of bytes read as arguments.
@@ -39,6 +41,10 @@ type (
 	CompileCompleteHandlerFunc func(hash string, tread int64)
 	// DownloadStoppedHandlerFunc is a function that handles the stopping of a download.
 	DownloadStoppedHandlerFunc func()
+	// DestinationClaimedHandlerFunc runs immediately after the final
+	// destination has been opened for a fresh HTTP download, before any part
+	// state is spawned. Returning an error aborts the start.
+	DestinationClaimedHandlerFunc func() error
 
 	// RetryHandlerFunc is called when a part retry is attempted.
 	// Parameters: hash (part id), attempt (current attempt number), maxAttempts, delay (wait time), err (triggering error)
@@ -67,17 +73,18 @@ type (
 // Handlers holds callback functions for various download lifecycle events.
 // Each handler is invoked at the corresponding stage of the download process.
 type Handlers struct {
-	SpawnPartHandler        SpawnPartHandlerFunc
-	RespawnPartHandler      RespawnPartHandlerFunc
-	DownloadProgressHandler DownloadProgressHandlerFunc
-	ResumeProgressHandler   ResumeProgressHandlerFunc
-	ErrorHandler            ErrorHandlerFunc
-	DownloadCompleteHandler DownloadCompleteHandlerFunc
-	CompileStartHandler     CompileStartHandlerFunc
-	CompileProgressHandler  CompileProgressHandlerFunc
-	CompileSkippedHandler   CompileSkippedHandlerFunc
-	CompileCompleteHandler  CompileCompleteHandlerFunc
-	DownloadStoppedHandler  DownloadStoppedHandlerFunc
+	SpawnPartHandler          SpawnPartHandlerFunc
+	RespawnPartHandler        RespawnPartHandlerFunc
+	DownloadProgressHandler   DownloadProgressHandlerFunc
+	ResumeProgressHandler     ResumeProgressHandlerFunc
+	ErrorHandler              ErrorHandlerFunc
+	DownloadCompleteHandler   DownloadCompleteHandlerFunc
+	CompileStartHandler       CompileStartHandlerFunc
+	CompileProgressHandler    CompileProgressHandlerFunc
+	CompileSkippedHandler     CompileSkippedHandlerFunc
+	CompileCompleteHandler    CompileCompleteHandlerFunc
+	DownloadStoppedHandler    DownloadStoppedHandlerFunc
+	DestinationClaimedHandler DestinationClaimedHandlerFunc
 
 	RetryHandler          RetryHandlerFunc
 	RetryExhaustedHandler RetryExhaustedHandlerFunc
@@ -130,6 +137,9 @@ func (h *Handlers) setDefault(l *log.Logger) {
 	}
 	if h.DownloadStoppedHandler == nil {
 		h.DownloadStoppedHandler = func() {}
+	}
+	if h.DestinationClaimedHandler == nil {
+		h.DestinationClaimedHandler = func() error { return nil }
 	}
 	if h.RetryHandler == nil {
 		h.RetryHandler = func(hash string, attempt, maxAttempts int, delay time.Duration, err error) {}

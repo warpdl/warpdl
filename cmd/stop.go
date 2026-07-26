@@ -23,14 +23,12 @@ func stop(ctx *cli.Context) (err error) {
 	}
 	client, err := getClient()
 	if err != nil {
-		common.PrintRuntimeErr(ctx, "stop", "new_client", err)
-		return nil
+		return common.PrintRuntimeErr(ctx, "stop", "new_client", err)
 	}
 	defer client.Close()
 	_, err = client.StopDownload(hash)
 	if err != nil {
-		common.PrintRuntimeErr(ctx, "stop", "stop-download", err)
-		return nil
+		return common.PrintRuntimeErr(ctx, "stop", "stop-download", err)
 	}
 	fmt.Println("Downloading stopped.")
 	return nil

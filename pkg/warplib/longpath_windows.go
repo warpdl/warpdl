@@ -2,7 +2,11 @@
 
 package warplib
 
-import "os"
+import (
+	"os"
+
+	"golang.org/x/sys/windows"
+)
 
 // WarpOpen opens a file, normalizing the path for long path support
 func WarpOpen(path string) (*os.File, error) {
@@ -45,9 +49,27 @@ func WarpStat(path string) (os.FileInfo, error) {
 	return os.Stat(NormalizePath(path))
 }
 
+// WarpLstat returns file info without following symbolic links, normalizing
+// the path for long path support.
+func WarpLstat(path string) (os.FileInfo, error) {
+	return os.Lstat(NormalizePath(path))
+}
+
 // WarpRename renames a file or directory, normalizing both paths for long path support
 func WarpRename(src, dst string) error {
-	return os.Rename(NormalizePath(src), NormalizePath(dst))
+	srcPtr, err := windows.UTF16PtrFromString(NormalizePath(src))
+	if err != nil {
+		return err
+	}
+	dstPtr, err := windows.UTF16PtrFromString(NormalizePath(dst))
+	if err != nil {
+		return err
+	}
+	return windows.MoveFileEx(
+		srcPtr,
+		dstPtr,
+		windows.MOVEFILE_REPLACE_EXISTING|windows.MOVEFILE_WRITE_THROUGH,
+	)
 }
 
 // WarpChmod changes file permissions, normalizing the path for long path support

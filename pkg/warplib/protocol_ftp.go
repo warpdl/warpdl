@@ -11,9 +11,10 @@ import (
 	"net"
 	"net/textproto"
 	"net/url"
-	"os"
 	"path"
+	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -44,6 +45,7 @@ type ftpProtocolDownloader struct {
 	cleanURL string // URL with credentials stripped — safe to persist
 	ctx      context.Context
 	cancel   context.CancelFunc
+	stopOnce sync.Once
 }
 
 // newFTPProtocolDownloader creates an ftpProtocolDownloader for ftp:// or ftps:// URLs.
@@ -56,7 +58,7 @@ func newFTPProtocolDownloader(rawURL string, opts *DownloaderOpts) (ProtocolDown
 
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
-		return nil, NewPermanentError("ftp", "factory:parse", err)
+		return nil, NewPermanentError("ftp", "factory:parse", sanitizeHTTPError(err))
 	}
 
 	scheme := strings.ToLower(parsed.Scheme)
@@ -80,6 +82,9 @@ func newFTPProtocolDownloader(rawURL string, opts *DownloaderOpts) (ProtocolDown
 	// Use explicit FileName from opts if provided
 	if opts.FileName != "" {
 		fileName = opts.FileName
+	}
+	if err := validateDownloadFileName(fileName); err != nil {
+		return nil, NewPermanentError("ftp", "factory:filename", err)
 	}
 
 	// Extract credentials (default to anonymous)
@@ -111,11 +116,19 @@ func newFTPProtocolDownloader(rawURL string, opts *DownloaderOpts) (ProtocolDown
 	if dlDir == "" {
 		dlDir = "."
 	}
+	dlDir, err = filepath.Abs(dlDir)
+	if err != nil {
+		return nil, NewPermanentError("ftp", "factory:directory", err)
+	}
+	savePath, err := confinedDownloadPath(dlDir, fileName)
+	if err != nil {
+		return nil, NewPermanentError("ftp", "factory:filename", err)
+	}
 
 	// Strip credentials from URL for safe persistence
 	cleanURL := StripURLCredentials(rawURL)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(downloaderParentContext(opts))
 
 	return &ftpProtocolDownloader{
 		rawURL:   rawURL,
@@ -128,7 +141,7 @@ func newFTPProtocolDownloader(rawURL string, opts *DownloaderOpts) (ProtocolDown
 		fileName: fileName,
 		hash:     hash,
 		dlDir:    dlDir,
-		savePath: GetPath(dlDir, fileName),
+		savePath: savePath,
 		cleanURL: cleanURL,
 		ctx:      ctx,
 		cancel:   cancel,
@@ -136,13 +149,13 @@ func newFTPProtocolDownloader(rawURL string, opts *DownloaderOpts) (ProtocolDown
 }
 
 // StripURLCredentials removes userinfo (username:password) from a URL string.
-// Returns the cleaned URL string. If parsing fails (should not happen for
-// already-validated URLs), returns the original URL unchanged.
+// Returns the cleaned URL string. Parse failures return a fixed marker rather
+// than reflecting a possibly credential-bearing malformed URL.
 // Exported because internal/api calls it cross-package in Plan 03-03.
 func StripURLCredentials(rawURL string) string {
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
-		return rawURL
+		return "[invalid URL redacted]"
 	}
 	parsed.User = nil
 	return parsed.String()
@@ -150,9 +163,31 @@ func StripURLCredentials(rawURL string) string {
 
 // connect establishes a connection to the FTP server with optional TLS.
 func (d *ftpProtocolDownloader) connect(ctx context.Context) (*ftp.ServerConn, error) {
+	dialer := &net.Dialer{Timeout: 30 * time.Second}
+	netConn, err := dialer.DialContext(ctx, "tcp", d.host)
+	if err != nil {
+		return nil, err
+	}
+	stopRawClose := context.AfterFunc(ctx, func() {
+		_ = netConn.Close()
+	})
+	var (
+		dialMu         sync.Mutex
+		controlClaimed bool
+	)
 	dialOpts := []ftp.DialOption{
-		ftp.DialWithTimeout(30 * time.Second),
-		ftp.DialWithContext(ctx),
+		ftp.DialWithDialFunc(func(network, address string) (net.Conn, error) {
+			dialMu.Lock()
+			if !controlClaimed {
+				controlClaimed = true
+				dialMu.Unlock()
+				return netConn, nil
+			}
+			dialMu.Unlock()
+			// Passive data connections must get a distinct socket. Reusing
+			// the pre-dialed control connection here corrupts the FTP stream.
+			return dialer.DialContext(ctx, network, address)
+		}),
 	}
 
 	if d.useTLS {
@@ -169,12 +204,26 @@ func (d *ftpProtocolDownloader) connect(ctx context.Context) (*ftp.ServerConn, e
 
 	conn, err := ftp.Dial(d.host, dialOpts...)
 	if err != nil {
+		stopRawClose()
+		_ = netConn.Close()
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		return nil, err
 	}
 
 	if err := conn.Login(d.user, d.password); err != nil {
+		stopRawClose()
 		conn.Quit()
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		return nil, err
+	}
+	stopRawClose()
+	if ctx.Err() != nil {
+		_ = conn.Quit()
+		return nil, ctx.Err()
 	}
 
 	return conn, nil
@@ -183,11 +232,15 @@ func (d *ftpProtocolDownloader) connect(ctx context.Context) (*ftp.ServerConn, e
 // Probe fetches file metadata from the FTP server without downloading content.
 // Must be called before Download or Resume.
 func (d *ftpProtocolDownloader) Probe(ctx context.Context) (ProbeResult, error) {
-	conn, err := d.connect(ctx)
+	opCtx, release := protocolOperationContext(ctx, d.ctx)
+	defer release()
+	conn, err := d.connect(opCtx)
 	if err != nil {
 		return ProbeResult{}, classifyFTPError("ftp", "probe:connect", err)
 	}
 	defer conn.Quit()
+	stopConn := context.AfterFunc(opCtx, func() { _ = conn.Quit() })
+	defer stopConn()
 
 	size, err := conn.FileSize(d.ftpPath)
 	if err != nil {
@@ -207,20 +260,32 @@ func (d *ftpProtocolDownloader) Probe(ctx context.Context) (ProbeResult, error) 
 
 // Download starts a fresh FTP download. Probe must have been called first.
 // ALL handler calls are nil-guarded to prevent panics with nil/partial Handlers.
-func (d *ftpProtocolDownloader) Download(ctx context.Context, handlers *Handlers) error {
+func (d *ftpProtocolDownloader) Download(ctx context.Context, handlers *Handlers) (err error) {
 	if !d.probed {
 		return ErrProbeRequired
 	}
 
 	if atomic.LoadInt32(&d.stopped) == 1 {
+		notifyProtocolStopped(&d.stopOnce, handlers)
 		return nil
 	}
+	opCtx, release := protocolOperationContext(ctx, d.ctx)
+	defer release()
+	completed := false
+	defer func() {
+		err = finishProtocolOperation(
+			completed, atomic.LoadInt32(&d.stopped) == 1,
+			err, &d.stopOnce, handlers,
+		)
+	}()
 
-	conn, err := d.connect(ctx)
+	conn, err := d.connect(opCtx)
 	if err != nil {
 		return classifyFTPError("ftp", "download:connect", err)
 	}
 	defer conn.Quit()
+	stopConn := context.AfterFunc(opCtx, func() { _ = conn.Quit() })
+	defer stopConn()
 
 	if err := conn.Type(ftp.TransferTypeBinary); err != nil {
 		return NewPermanentError("ftp", "download:type", err)
@@ -235,23 +300,57 @@ func (d *ftpProtocolDownloader) Download(ctx context.Context, handlers *Handlers
 	if err != nil {
 		return classifyFTPError("ftp", "download:retr", err)
 	}
-	defer resp.Close()
+	stopData := context.AfterFunc(opCtx, func() {
+		_ = resp.SetDeadline(time.Now())
+	})
+	defer stopData()
+	remoteFinalized := false
+	defer func() {
+		if !remoteFinalized {
+			_ = resp.Close()
+		}
+	}()
 
 	// Create destination file
-	f, err := WarpOpenFile(d.savePath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, DefaultFileMode)
+	f, err := openFreshDownloadFile(d.savePath, d.opts.Overwrite)
 	if err != nil {
 		return NewPermanentError("ftp", "download:create", err)
 	}
-	defer f.Close()
+	localFinalized := false
+	defer func() {
+		if !localFinalized {
+			_ = f.Close()
+		}
+	}()
 
 	// Progress-tracking copy
 	pw := &ftpProgressWriter{handlers: handlers, hash: d.hash}
-	_, err = io.Copy(io.MultiWriter(f, pw), resp)
+	written, err := io.Copy(io.MultiWriter(f, pw), &contextReadCloser{
+		Context:    opCtx,
+		ReadCloser: resp,
+	})
 	if err != nil {
 		return classifyFTPError("ftp", "download:copy", err)
 	}
+	if written != d.fileSize {
+		return NewPermanentError("ftp", "download:size",
+			fmt.Errorf("%w: expected %d bytes, received %d", ErrDownloadSizeMismatch, d.fileSize, written))
+	}
+	if err := validatePhysicalFileSize(f, d.fileSize); err != nil {
+		return NewPermanentError("ftp", "download:size", err)
+	}
+	finalizeErr := finalizeProtocolTransfer(f, resp)
+	localFinalized = true
+	remoteFinalized = true
+	if finalizeErr != nil {
+		return NewPermanentError("ftp", "download:finalize", finalizeErr)
+	}
+	if atomic.LoadInt32(&d.stopped) == 1 {
+		return nil
+	}
 
 	// Signal download completion
+	completed = true
 	if handlers != nil && handlers.DownloadCompleteHandler != nil {
 		handlers.DownloadCompleteHandler(MAIN_HASH, d.fileSize)
 	}
@@ -259,17 +358,32 @@ func (d *ftpProtocolDownloader) Download(ctx context.Context, handlers *Handlers
 	return nil
 }
 
-// Resume continues a previously interrupted FTP download.
+// Resume restarts a previously interrupted FTP download from byte zero.
 // Probe must have been called first.
-// The resume offset is derived from the destination file size on disk.
-func (d *ftpProtocolDownloader) Resume(ctx context.Context, parts map[int64]*ItemPart, handlers *Handlers) error {
+//
+// FTP SIZE and REST do not identify a representation. Reusing a local prefix
+// after only comparing sizes could therefore combine bytes from an old remote
+// object with bytes from a same-size replacement. Until a strong remote
+// identity can be persisted and revalidated, a resumed FTP transfer
+// deliberately redownloads the complete object.
+func (d *ftpProtocolDownloader) Resume(ctx context.Context, parts map[int64]*ItemPart, handlers *Handlers) (err error) {
 	if !d.probed {
 		return ErrProbeRequired
 	}
 
 	if atomic.LoadInt32(&d.stopped) == 1 {
+		notifyProtocolStopped(&d.stopOnce, handlers)
 		return nil
 	}
+	opCtx, release := protocolOperationContext(ctx, d.ctx)
+	defer release()
+	completed := false
+	defer func() {
+		err = finishProtocolOperation(
+			completed, atomic.LoadInt32(&d.stopped) == 1,
+			err, &d.stopOnce, handlers,
+		)
+	}()
 
 	// Check if all parts are compiled (download complete)
 	allCompiled := true
@@ -280,71 +394,90 @@ func (d *ftpProtocolDownloader) Resume(ctx context.Context, parts map[int64]*Ite
 		}
 	}
 	if allCompiled && len(parts) > 0 {
+		completed = true
 		return nil // Nothing to resume
 	}
 
-	// Determine resume offset from destination file size
-	var startOffset int64
-	info, err := WarpStat(d.savePath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			startOffset = 0 // File doesn't exist — start from beginning
-		} else {
-			return NewPermanentError("ftp", "resume:stat", err)
-		}
-	} else {
-		startOffset = info.Size()
-	}
-
-	// Guard against negative offset (prevent uint64 wraparound)
-	if startOffset < 0 {
-		return NewPermanentError("ftp", "resume:offset",
-			fmt.Errorf("invalid resume offset: %d", startOffset))
-	}
-
-	// If offset >= fileSize, download is complete
-	if startOffset >= d.fileSize {
-		if handlers != nil && handlers.DownloadCompleteHandler != nil {
-			handlers.DownloadCompleteHandler(MAIN_HASH, d.fileSize)
-		}
-		return nil
-	}
-
-	conn, err := d.connect(ctx)
+	conn, err := d.connect(opCtx)
 	if err != nil {
 		return classifyFTPError("ftp", "resume:connect", err)
 	}
 	defer conn.Quit()
+	stopConn := context.AfterFunc(opCtx, func() { _ = conn.Quit() })
+	defer stopConn()
 
 	if err := conn.Type(ftp.TransferTypeBinary); err != nil {
 		return NewPermanentError("ftp", "resume:type", err)
 	}
 
-	// Open file for writing at offset — uses WarpOpenFile for cross-platform support
-	f, err := WarpOpenFile(d.savePath, os.O_WRONLY|os.O_CREATE, DefaultFileMode)
+	// Always request the object from byte zero. FTP REST cannot prove that a
+	// persisted prefix belongs to the currently served representation.
+	resp, err := conn.Retr(d.ftpPath)
+	if err != nil {
+		return classifyFTPError("ftp", "resume:retr", err)
+	}
+	stopData := context.AfterFunc(opCtx, func() {
+		_ = resp.SetDeadline(time.Now())
+	})
+	defer stopData()
+	remoteFinalized := false
+	defer func() {
+		if !remoteFinalized {
+			_ = resp.Close()
+		}
+	}()
+
+	// Establish the remote stream before discarding recoverable local data.
+	// The confined resume opener rejects symlinks and non-regular targets.
+	f, err := openDownloadFileForResume(d.savePath)
 	if err != nil {
 		return NewPermanentError("ftp", "resume:open", err)
 	}
-	defer f.Close()
-
-	if _, err := f.Seek(startOffset, io.SeekStart); err != nil {
+	localFinalized := false
+	defer func() {
+		if !localFinalized {
+			_ = f.Close()
+		}
+	}()
+	if err := f.Truncate(0); err != nil {
+		return NewPermanentError("ftp", "resume:truncate", err)
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
 		return NewPermanentError("ftp", "resume:seek", err)
 	}
 
-	// RetrFrom issues REST <offset> before RETR
-	resp, err := conn.RetrFrom(d.ftpPath, uint64(startOffset))
-	if err != nil {
-		return classifyFTPError("ftp", "resume:retrfrom", err)
+	if handlers != nil && handlers.SpawnPartHandler != nil {
+		handlers.SpawnPartHandler(d.hash, 0, d.fileSize-1)
 	}
-	defer resp.Close()
 
 	// Progress-tracking copy
 	pw := &ftpProgressWriter{handlers: handlers, hash: d.hash}
-	_, err = io.Copy(io.MultiWriter(f, pw), resp)
+	written, err := io.Copy(io.MultiWriter(f, pw), &contextReadCloser{
+		Context:    opCtx,
+		ReadCloser: resp,
+	})
 	if err != nil {
 		return classifyFTPError("ftp", "resume:copy", err)
 	}
+	if written != d.fileSize {
+		return NewPermanentError("ftp", "resume:size",
+			fmt.Errorf("%w: expected %d bytes, received %d",
+				ErrDownloadSizeMismatch, d.fileSize, written))
+	}
+	if err := validatePhysicalFileSize(f, d.fileSize); err != nil {
+		return NewPermanentError("ftp", "resume:size", err)
+	}
+	finalizeErr := finalizeProtocolTransfer(f, resp)
+	localFinalized = true
+	remoteFinalized = true
+	if finalizeErr != nil {
+		return NewPermanentError("ftp", "resume:finalize", finalizeErr)
+	}
+	if atomic.LoadInt32(&d.stopped) == 1 {
+		return nil
+	}
 
+	completed = true
 	if handlers != nil && handlers.DownloadCompleteHandler != nil {
 		handlers.DownloadCompleteHandler(MAIN_HASH, d.fileSize)
 	}

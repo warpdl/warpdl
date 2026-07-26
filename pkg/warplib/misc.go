@@ -76,6 +76,12 @@ const (
 	// DefaultDirMode is the permission mode for created directories.
 	// Owner has full access, group and others can read and traverse.
 	DefaultDirMode = 0755
+
+	// PrivateFileMode is used for state, credentials, and logs.
+	PrivateFileMode = 0600
+
+	// PrivateDirMode is used for configuration and temporary segment trees.
+	PrivateDirMode = 0700
 )
 
 // MAIN_HASH is the identifier used for the main download hash.
@@ -106,14 +112,20 @@ func initConfigDir(dir string) error {
 		dir, err = defaultConfigDir()
 		if err != nil {
 			log.Printf("warning: failed to get default config dir: %v, falling back to temp dir", err)
-			dir = os.TempDir()
+			dir, err = os.MkdirTemp(os.TempDir(), "warpdl-")
+			if err != nil {
+				return fmt.Errorf("create private temporary config dir: %w", err)
+			}
 		}
 	}
 
 	if err := setConfigDir(dir); err != nil {
 		// Fallback to temp directory
 		log.Printf("warning: failed to set config dir to %s: %v, falling back to temp dir", dir, err)
-		tempDir := os.TempDir()
+		tempDir, tempErr := os.MkdirTemp(os.TempDir(), "warpdl-")
+		if tempErr != nil {
+			return fmt.Errorf("failed to initialize config: %w (create fallback temp dir: %v)", err, tempErr)
+		}
 		if err2 := setConfigDir(tempDir); err2 != nil {
 			return fmt.Errorf("failed to initialize config: %w (fallback to temp dir also failed: %v)", err, err2)
 		}
@@ -131,7 +143,7 @@ func defaultConfigDir() (string, error) {
 		return "", fmt.Errorf("get user config dir: %w", err)
 	}
 	if !dirExists(cdr) {
-		if err := WarpMkdirAll(cdr, 0755); err != nil {
+		if err := WarpMkdirAll(cdr, PrivateDirMode); err != nil {
 			return "", fmt.Errorf("create config parent dir: %w", err)
 		}
 	}
@@ -146,12 +158,18 @@ func setConfigDir(dir string) error {
 	if err != nil {
 		return err
 	}
-	if err := WarpMkdirAll(abs, 0755); err != nil {
+	if err := WarpMkdirAll(abs, PrivateDirMode); err != nil {
+		return err
+	}
+	if err := WarpChmod(abs, PrivateDirMode); err != nil {
 		return err
 	}
 	ConfigDir = abs
 	DlDataDir = filepath.Join(abs, "dldata")
-	if err := WarpMkdirAll(DlDataDir, 0755); err != nil {
+	if err := WarpMkdirAll(DlDataDir, PrivateDirMode); err != nil {
+		return err
+	}
+	if err := WarpChmod(DlDataDir, PrivateDirMode); err != nil {
 		return err
 	}
 	__USERDATA_FILE_NAME = filepath.Join(abs, "userdata.warp")

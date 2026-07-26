@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,13 +9,56 @@ import (
 	"strings"
 	"time"
 
-	"github.com/adhocore/gronx"
 	"github.com/warpdl/warpdl/common"
 	"github.com/warpdl/warpdl/internal/cookies"
 	"github.com/warpdl/warpdl/internal/scheduler"
 	"github.com/warpdl/warpdl/internal/server"
 	"github.com/warpdl/warpdl/pkg/warplib"
 )
+
+func resolveDownloadSchedule(m *common.DownloadParams, now time.Time) (time.Time, string, bool, error) {
+	if m.Schedule == "" && m.StartAt == "" && m.StartIn == "" {
+		return time.Time{}, "", false, nil
+	}
+	if m.StartAt != "" && m.StartIn != "" {
+		return time.Time{}, "", false, errors.New("start_at and start_in are mutually exclusive")
+	}
+
+	var startAt time.Time
+	if m.StartAt != "" {
+		parsed, err := time.ParseInLocation("2006-01-02 15:04", m.StartAt, time.Local)
+		if err != nil {
+			return time.Time{}, "", false, fmt.Errorf("invalid start time: %w", err)
+		}
+		if !parsed.After(now) {
+			return time.Time{}, "", false, errors.New("start time must be in the future")
+		}
+		startAt = parsed
+	} else if m.StartIn != "" {
+		delay, err := time.ParseDuration(m.StartIn)
+		if err != nil {
+			return time.Time{}, "", false, fmt.Errorf("invalid start delay: %w", err)
+		}
+		if delay <= 0 {
+			return time.Time{}, "", false, errors.New("start delay must be greater than zero")
+		}
+		startAt = now.Add(delay)
+	}
+
+	if m.Schedule == "" {
+		return startAt, "", true, nil
+	}
+	if startAt.IsZero() {
+		next, err := scheduler.NextOccurrence(m.Schedule, now)
+		if err != nil {
+			return time.Time{}, "", false, fmt.Errorf("invalid schedule: %w", err)
+		}
+		startAt = next
+	} else if _, err := scheduler.NextOccurrence(m.Schedule, now); err != nil {
+		return time.Time{}, "", false, fmt.Errorf("invalid schedule: %w", err)
+	}
+	return startAt, m.Schedule, true, nil
+}
 
 func (s *Api) downloadHandler(sconn *server.SyncConn, pool *server.Pool, body json.RawMessage) (common.UpdateType, any, error) {
 	var m common.DownloadParams
@@ -55,7 +97,10 @@ func (s *Api) downloadHandler(sconn *server.SyncConn, pool *server.Pool, body js
 	// Detect scheme to choose code path
 	parsed, parseErr := url.Parse(dlURL)
 	if parseErr != nil {
-		return common.UPDATE_DOWNLOAD, nil, fmt.Errorf("invalid URL: %w", parseErr)
+		// net/url parse errors can include the complete input, including
+		// credentials and query-string secrets. Keep the client-facing error
+		// deliberately generic.
+		return common.UPDATE_DOWNLOAD, nil, errors.New("invalid URL")
 	}
 	scheme := strings.ToLower(parsed.Scheme)
 
@@ -84,11 +129,13 @@ func ReportAsyncDownloadError(pool *server.Pool, uid string, err error, mgr *war
 	if err == nil {
 		return
 	}
-	pool.Broadcast(uid, server.InitError(err))
+	pool.BroadcastTerminal(uid, server.MakeDownloadError(uid, err))
 	pool.WriteError(uid, server.ErrorTypeCritical, err.Error())
-	pool.StopDownload(uid)
 	if mgr != nil {
-		if item := mgr.GetItem(uid); item != nil && item.Downloaded == 0 {
+		mgr.ReleaseQueueSlot(uid)
+		info, scheduled := mgr.GetScheduleInfo(uid)
+		if item := mgr.GetItem(uid); item != nil && item.GetDownloaded() == 0 &&
+			(!scheduled || info.CronExpr == "") {
 			_ = mgr.PurgeFailedDownload(uid)
 		}
 	}
@@ -101,6 +148,74 @@ func (s *Api) reportAsyncDownloadError(pool *server.Pool, uid string, err error)
 	ReportAsyncDownloadError(pool, uid, err, s.manager)
 }
 
+// cleanupDownloadRegistration releases resources after a request has already
+// registered a downloader with the pool and possibly the manager. It is used
+// only before a successful response is returned, so queue work that the
+// caller never learned about cannot start later.
+func cleanupDownloadRegistration(
+	manager *warplib.Manager,
+	pool *server.Pool,
+	hash string,
+	fallback interface{ Close() error },
+	generations ...*server.TransferGeneration,
+) error {
+	var generation *server.TransferGeneration
+	if len(generations) > 0 {
+		generation = generations[0]
+	}
+	var closeErr error
+	if fallback != nil {
+		closeErr = fallback.Close()
+	} else if item := manager.GetItem(hash); item != nil {
+		closeErr = item.CloseDownloader()
+	}
+	cleanupErr := errors.Join(
+		closeErr,
+		cleanupDownloadRegistrationState(manager, hash),
+	)
+	// Keep the exact generation registered until all hash-keyed manager and
+	// queue cleanup has finished. A same-hash replacement cannot publish in
+	// the gap and be closed, released, or purged by this rejected request.
+	if generation != nil {
+		generation.Abort()
+	} else if pool != nil {
+		// Compatibility path for callers that have not reserved an exact
+		// generation (principally setup cleanup and legacy tests).
+		pool.StopDownload(hash)
+	}
+	return cleanupErr
+}
+
+// cleanupUnpublishedDownloadRegistration releases only resources owned by a
+// request whose Manager AddDownload/AddProtocolDownload call failed. Add
+// errors occur before publication, so hash-wide queue/manager cleanup could
+// delete an unrelated same-hash replacement. Keep the exact pool generation
+// reserved until the local pointer is closed, then abort only that generation.
+func cleanupUnpublishedDownloadRegistration(
+	fallback interface{ Close() error },
+	generation *server.TransferGeneration,
+) error {
+	var closeErr error
+	if fallback != nil {
+		closeErr = fallback.Close()
+	}
+	if generation != nil {
+		generation.Abort()
+	}
+	return closeErr
+}
+
+// cleanupDownloadRegistrationState removes only non-allocation registration
+// state. Callers that already closed an exact RunLease use this to avoid a
+// second shared allocation close.
+func cleanupDownloadRegistrationState(
+	manager *warplib.Manager,
+	hash string,
+) error {
+	manager.ReleaseQueueSlot(hash)
+	return manager.PurgeFailedDownload(hash)
+}
+
 // downloadHTTPHandler handles HTTP and HTTPS downloads.
 // pluginHeaders carries headers sourced from a plugin's extract() result;
 // they are routed through DownloaderOpts.PluginHeaders so the downloader
@@ -109,10 +224,24 @@ func (s *Api) reportAsyncDownloadError(pool *server.Pool, uid string, err error)
 // (vs. a name supplied by a plugin or derived from the URL); the
 // downloader uses it to decide whether to auto-rename on collision.
 func (s *Api) downloadHTTPHandler(sconn *server.SyncConn, pool *server.Pool, dlURL string, m *common.DownloadParams, pluginHeaders warplib.Headers, userExplicitFileName bool) (common.UpdateType, any, error) {
+	scheduledAt, cronExpr, scheduled, err := resolveDownloadSchedule(m, time.Now())
+	if err != nil {
+		return common.UPDATE_DOWNLOAD, nil, err
+	}
+	queue := s.manager.GetQueue()
+
 	// Determine which client to use based on proxy setting
 	dlClient := s.client
+	safeProxyURL, proxyCredentialsRequired, err := warplib.SanitizeProxyURLForPersistence(m.Proxy)
+	if err != nil {
+		return common.UPDATE_DOWNLOAD, nil, fmt.Errorf("invalid proxy URL: %w", err)
+	}
+	if proxyCredentialsRequired && (scheduled || queue != nil) {
+		return common.UPDATE_DOWNLOAD, nil, errors.New(
+			"queued or scheduled downloads cannot use proxy credentials because proxy secrets are not persisted",
+		)
+	}
 	if m.Proxy != "" {
-		var err error
 		dlClient, err = warplib.NewHTTPClientWithProxy(m.Proxy)
 		if err != nil {
 			return common.UPDATE_DOWNLOAD, nil, fmt.Errorf("invalid proxy URL: %w", err)
@@ -123,7 +252,10 @@ func (s *Api) downloadHTTPHandler(sconn *server.SyncConn, pool *server.Pool, dlU
 		}
 	}
 
-	var d *warplib.Downloader
+	var (
+		d          *warplib.Downloader
+		generation *server.TransferGeneration
+	)
 
 	// Build retry config from params
 	var retryConfig *warplib.RetryConfig
@@ -146,7 +278,7 @@ func (s *Api) downloadHTTPHandler(sconn *server.SyncConn, pool *server.Pool, dlU
 
 	// Parse speed limit
 	var speedLimit int64
-	var err error
+	err = nil
 	if m.SpeedLimit != "" {
 		speedLimit, err = warplib.ParseSpeedLimit(m.SpeedLimit)
 		if err != nil {
@@ -182,199 +314,141 @@ func (s *Api) downloadHTTPHandler(sconn *server.SyncConn, pool *server.Pool, dlU
 		}
 	}
 
+	transferCtx := s.manager.TransferContext()
+	handlers := managedTransferHandlers(
+		func() *server.TransferGeneration { return generation },
+		func() bool { return d != nil && d.IsStopped() },
+		transferCtx,
+	)
 	d, err = warplib.NewDownloader(dlClient, dlURL, &warplib.DownloaderOpts{
-		Headers:           m.Headers,
-		PluginHeaders:     pluginHeaders,
-		LockFileName:      userExplicitFileName,
-		ForceParts:        m.ForceParts,
-		FileName:          m.FileName,
-		DownloadDirectory: m.DownloadDirectory,
-		MaxConnections:    m.MaxConnections,
-		MaxSegments:       m.MaxSegments,
-		Overwrite:         m.Overwrite,
-		RetryConfig:       retryConfig,
-		RequestTimeout:    requestTimeout,
-		SpeedLimit:        speedLimit,
-		Handlers: &warplib.Handlers{
-			ErrorHandler: func(_ string, err error) {
-				if errors.Is(err, context.Canceled) && d.IsStopped() {
-					return
-				}
-				uid := d.GetHash()
-				pool.Broadcast(uid, server.InitError(err))
-				pool.WriteError(uid, server.ErrorTypeCritical, err.Error())
-				pool.StopDownload(uid)
-				s.manager.GetItem(uid).StopDownload()
-			},
-			DownloadProgressHandler: func(hash string, nread int) {
-				uid := d.GetHash()
-				pool.Broadcast(uid, server.MakeResult(common.UPDATE_DOWNLOADING, &common.DownloadingResponse{
-					DownloadId: uid,
-					Action:     common.DownloadProgress,
-					Value:      int64(nread),
-					Hash:       hash,
-				}))
-			},
-			DownloadCompleteHandler: func(hash string, tread int64) {
-				uid := d.GetHash()
-				pool.Broadcast(uid, server.MakeResult(common.UPDATE_DOWNLOADING, &common.DownloadingResponse{
-					DownloadId: uid,
-					Action:     common.DownloadComplete,
-					Value:      tread,
-					Hash:       hash,
-				}))
-				pool.StopDownload(uid)
-			},
-			DownloadStoppedHandler: func() {
-				uid := d.GetHash()
-				pool.Broadcast(uid, server.MakeResult(common.UPDATE_DOWNLOADING, &common.DownloadingResponse{
-					DownloadId: uid,
-					Action:     common.DownloadStopped,
-				}))
-				pool.StopDownload(uid)
-			},
-			CompileStartHandler: func(hash string) {
-				uid := d.GetHash()
-				pool.Broadcast(uid, server.MakeResult(common.UPDATE_DOWNLOADING, &common.DownloadingResponse{
-					DownloadId: uid,
-					Action:     common.CompileStart,
-					Hash:       hash,
-				}))
-			},
-			CompileProgressHandler: func(hash string, nread int) {
-				uid := d.GetHash()
-				pool.Broadcast(uid, server.MakeResult(common.UPDATE_DOWNLOADING, &common.DownloadingResponse{
-					DownloadId: uid,
-					Action:     common.CompileProgress,
-					Value:      int64(nread),
-					Hash:       hash,
-				}))
-			},
-			CompileCompleteHandler: func(hash string, tread int64) {
-				uid := d.GetHash()
-				pool.Broadcast(uid, server.MakeResult(common.UPDATE_DOWNLOADING, &common.DownloadingResponse{
-					DownloadId: uid,
-					Action:     common.CompileComplete,
-					Value:      tread,
-					Hash:       hash,
-				}))
-			},
-		},
+		Context:             transferCtx,
+		Headers:             m.Headers,
+		PluginHeaders:       pluginHeaders,
+		LockFileName:        userExplicitFileName,
+		ForceParts:          m.ForceParts,
+		FileName:            m.FileName,
+		DownloadDirectory:   m.DownloadDirectory,
+		MaxConnections:      m.MaxConnections,
+		MaxSegments:         m.MaxSegments,
+		Overwrite:           m.Overwrite,
+		RetryConfig:         retryConfig,
+		RequestTimeout:      requestTimeout,
+		SpeedLimit:          speedLimit,
+		DisableWorkStealing: m.DisableWorkStealing,
+		Handlers:            handlers,
 	})
 	if err != nil {
 		return common.UPDATE_DOWNLOAD, nil, err
 	}
-	pool.AddDownload(d.GetHash(), sconn)
-	skipQueue := m.Schedule != "" || m.StartAt != ""
+	var reserved bool
+	generation, reserved = pool.BeginDownload(d.GetHash(), sconn)
+	if !reserved {
+		return common.UPDATE_DOWNLOAD, nil, errors.Join(
+			errors.New("download is already running or still stopping"),
+			d.Close(),
+		)
+	}
 	err = s.manager.AddDownload(d, &warplib.AddDownloadOpts{
 		ChildHash:        m.ChildHash,
 		IsHidden:         m.IsHidden,
 		IsChildren:       m.IsChildren,
 		AbsoluteLocation: d.GetDownloadDirectory(),
 		Priority:         warplib.Priority(m.Priority),
-		SkipQueue:        skipQueue,
+		// Queue registration is deliberately deferred until all metadata
+		// (including cookie-source state) has been durably recorded below.
+		// Queue.Add may synchronously invoke the daemon's start callback.
+		SkipQueue:               scheduled || queue != nil,
+		ExcludePersistedHeaders: importedHeaderExclusions(m),
+		TransferConfig: warplib.TransferConfig{
+			ProxyURL:                 safeProxyURL,
+			ProxyCredentialsRequired: proxyCredentialsRequired,
+		},
 	})
 	if err != nil {
-		return common.UPDATE_DOWNLOAD, nil, err
+		cleanupErr := cleanupUnpublishedDownloadRegistration(d, generation)
+		return common.UPDATE_DOWNLOAD, nil, errors.Join(err, cleanupErr)
 	}
 
 	// Store cookie source path on item for re-import on resume
 	if m.CookiesFrom != "" {
-		item := s.manager.GetItem(d.GetHash())
-		if item != nil {
-			item.CookieSourcePath = m.CookiesFrom
-			s.manager.UpdateItem(item)
+		if err := s.manager.SetCookieSourcePath(d.GetHash(), m.CookiesFrom); err != nil {
+			cleanupErr := cleanupDownloadRegistration(s.manager, pool, d.GetHash(), d, generation)
+			return common.UPDATE_DOWNLOAD, nil, errors.Join(err, cleanupErr)
 		}
 	}
 
-	// T067/T068: Apply scheduling if Schedule (cron) is set.
-	// Schedule takes priority for triggering; StartAt/StartIn can specify the first occurrence.
-	if m.Schedule != "" {
+	if scheduled {
+		if err := s.manager.ConfigureSchedule(d.GetHash(), scheduledAt, cronExpr, warplib.ScheduleStateScheduled); err != nil {
+			cleanupErr := cleanupDownloadRegistration(s.manager, pool, d.GetHash(), d, generation)
+			return common.UPDATE_DOWNLOAD, nil, errors.Join(err, cleanupErr)
+		}
+		// A validator-less response body is deliberately retained by
+		// NewDownloader so an immediate transfer consumes the exact metadata
+		// representation. A schedule may wait arbitrarily long, so release
+		// that body now and leave only persisted metadata. The trigger path
+		// observes the nil allocation and Fresh-reconstructs/re-probes.
 		item := s.manager.GetItem(d.GetHash())
-		if item != nil {
-			item.CronExpr = m.Schedule
-
-			// Determine first trigger time:
-			// If StartAt is also set, use it; otherwise compute from cron expression.
-			var firstTrigger time.Time
-			if m.StartAt != "" {
-				t, parseErr := time.ParseInLocation("2006-01-02 15:04", m.StartAt, time.Local)
-				if parseErr == nil && t.After(time.Now()) {
-					firstTrigger = t
-				}
-			}
-			if firstTrigger.IsZero() {
-				next, cronErr := gronx.NextTickAfter(m.Schedule, time.Now(), false)
-				if cronErr == nil {
-					firstTrigger = next
-				}
-			}
-
-			if !firstTrigger.IsZero() {
-				item.ScheduledAt = firstTrigger
-				item.ScheduleState = warplib.ScheduleStateScheduled
-				s.manager.UpdateItem(item)
-				// Add to scheduler heap
-				if s.scheduler != nil {
-					s.scheduler.Add(scheduler.ScheduleEvent{
-						ItemHash:  item.Hash,
-						TriggerAt: firstTrigger,
-						CronExpr:  m.Schedule,
-					})
-				}
-				// Do NOT start the download; the scheduler will trigger it.
-				return common.UPDATE_DOWNLOAD, &common.DownloadResponse{
-					ContentLength:     d.GetContentLength(),
-					DownloadId:        d.GetHash(),
-					FileName:          d.GetFileName(),
-					SavePath:          d.GetSavePath(),
-					DownloadDirectory: d.GetDownloadDirectory(),
-					MaxConnections:    d.GetMaxConnections(),
-					MaxSegments:       d.GetMaxParts(),
-				}, nil
-			}
+		if item == nil {
+			cleanupErr := cleanupDownloadRegistration(s.manager, pool, d.GetHash(), d, generation)
+			return common.UPDATE_DOWNLOAD, nil, errors.Join(warplib.ErrDownloadNotFound, cleanupErr)
 		}
-	}
-
-	// Apply scheduling if StartAt is set (one-shot schedule)
-	if m.StartAt != "" {
-		scheduledAt, parseErr := time.ParseInLocation("2006-01-02 15:04", m.StartAt, time.Local)
-		if parseErr == nil {
-			item := s.manager.GetItem(d.GetHash())
-			if item != nil {
-				item.ScheduledAt = scheduledAt
-				item.ScheduleState = warplib.ScheduleStateScheduled
-				s.manager.UpdateItem(item)
-				// Add to scheduler if available
-				if s.scheduler != nil {
-					s.scheduler.Add(scheduler.ScheduleEvent{
-						ItemHash:  item.Hash,
-						TriggerAt: scheduledAt,
-					})
-				}
-			}
-			// Do NOT start the download; the scheduler will trigger it.
-			return common.UPDATE_DOWNLOAD, &common.DownloadResponse{
-				ContentLength:     d.GetContentLength(),
-				DownloadId:        d.GetHash(),
-				FileName:          d.GetFileName(),
-				SavePath:          d.GetSavePath(),
-				DownloadDirectory: d.GetDownloadDirectory(),
-				MaxConnections:    d.GetMaxConnections(),
-				MaxSegments:       d.GetMaxParts(),
-			}, nil
+		if closeErr := item.CloseDownloader(); closeErr != nil {
+			cleanupErr := cleanupDownloadRegistration(s.manager, pool, d.GetHash(), d, generation)
+			return common.UPDATE_DOWNLOAD, nil, errors.Join(
+				fmt.Errorf("close scheduled downloader: %w", closeErr),
+				cleanupErr,
+			)
 		}
+		if s.scheduler != nil {
+			s.scheduler.Add(scheduler.ScheduleEvent{
+				ItemHash:  d.GetHash(),
+				TriggerAt: scheduledAt,
+				CronExpr:  cronExpr,
+			})
+		}
+		// Do not start the download; scheduler owns its first activation.
+		return common.UPDATE_DOWNLOAD, &common.DownloadResponse{
+			ContentLength:     d.GetContentLength(),
+			DownloadId:        d.GetHash(),
+			FileName:          d.GetFileName(),
+			SavePath:          d.GetSavePath(),
+			DownloadDirectory: d.GetDownloadDirectory(),
+			MaxConnections:    d.GetMaxConnections(),
+			MaxSegments:       d.GetMaxParts(),
+		}, nil
 	}
 
 	// Queue-enabled daemons start downloads through the queue callback.
 	// Without a queue, start immediately.
-	if s.manager.GetQueue() == nil {
-		go func() {
-			if err := d.Start(); err != nil {
-				s.reportAsyncDownloadError(pool, d.GetHash(), err)
-				_ = d.Close()
-			}
-		}()
+	if queue == nil {
+		runLease, leaseErr := s.manager.AcquireDownloadRunLease(d.GetHash(), d)
+		if leaseErr != nil {
+			// A failed exact claim means ownership may already have moved to
+			// an ABA replacement. Abort only this pool generation; closing or
+			// purging by hash could destroy the replacement.
+			generation.Abort()
+			return common.UPDATE_DOWNLOAD, nil, leaseErr
+		}
+		if launchErr := s.launchInitialRunLease(
+			generation,
+			d.GetHash(),
+			runLease,
+		); launchErr != nil {
+			return common.UPDATE_DOWNLOAD, nil, launchErr
+		}
+	} else {
+		queue.Add(d.GetHash(), warplib.Priority(m.Priority))
+		waiting, closeErr := s.manager.CloseWaitingDownloader(d.GetHash())
+		if closeErr != nil {
+			cleanupErr := cleanupDownloadRegistration(s.manager, pool, d.GetHash(), d, generation)
+			return common.UPDATE_DOWNLOAD, nil, errors.Join(
+				fmt.Errorf("close queued downloader: %w", closeErr),
+				cleanupErr,
+			)
+		}
+		if waiting {
+			s.log.Printf("Queued download %s will be freshly probed when promoted\n", d.GetHash())
+		}
 	}
 	return common.UPDATE_DOWNLOAD, &common.DownloadResponse{
 		ContentLength:     d.GetContentLength(),
@@ -392,22 +466,45 @@ func (s *Api) downloadProtocolHandler(sconn *server.SyncConn, pool *server.Pool,
 	if s.schemeRouter == nil {
 		return common.UPDATE_DOWNLOAD, nil, fmt.Errorf("%s downloads not available: scheme router not initialized", scheme)
 	}
+	scheduledAt, cronExpr, scheduled, err := resolveDownloadSchedule(m, time.Now())
+	if err != nil {
+		return common.UPDATE_DOWNLOAD, nil, err
+	}
+	queue := s.manager.GetQueue()
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil {
+		return common.UPDATE_DOWNLOAD, nil, fmt.Errorf("invalid %s URL: %w", scheme, err)
+	}
+	var protocolUsername string
+	protocolCredentialsRequired := false
+	if parsedURL.User != nil {
+		protocolUsername = parsedURL.User.Username()
+		_, protocolCredentialsRequired = parsedURL.User.Password()
+	}
+	if protocolCredentialsRequired && (scheduled || queue != nil) {
+		return common.UPDATE_DOWNLOAD, nil, fmt.Errorf(
+			"%s credentials cannot be used with queued or scheduled downloads because protocol secrets are not persisted",
+			scheme,
+		)
+	}
 
 	// Create protocol downloader via SchemeRouter
+	transferCtx := s.manager.TransferContext()
 	pd, err := s.schemeRouter.NewDownloader(rawURL, &warplib.DownloaderOpts{
+		Context:           transferCtx,
 		FileName:          m.FileName,
 		DownloadDirectory: m.DownloadDirectory,
 		SSHKeyPath:        m.SSHKeyPath,
+		Overwrite:         m.Overwrite,
 	})
 	if err != nil {
 		return common.UPDATE_DOWNLOAD, nil, err
 	}
 
 	// Probe to get file metadata
-	probe, err := pd.Probe(context.Background())
+	probe, err := pd.Probe(transferCtx)
 	if err != nil {
-		pd.Close()
-		return common.UPDATE_DOWNLOAD, nil, err
+		return common.UPDATE_DOWNLOAD, nil, errors.Join(err, pd.Close())
 	}
 
 	// Determine protocol
@@ -421,77 +518,107 @@ func (s *Api) downloadProtocolHandler(sconn *server.SyncConn, pool *server.Pool,
 		proto = warplib.ProtoFTP
 	}
 
-	// Build handlers for protocol download (no compile handlers — single-stream protocols)
-	handlers := &warplib.Handlers{
-		ErrorHandler: func(_ string, err error) {
-			if errors.Is(err, context.Canceled) && pd.IsStopped() {
-				return
-			}
-			uid := pd.GetHash()
-			pool.Broadcast(uid, server.InitError(err))
-			pool.WriteError(uid, server.ErrorTypeCritical, err.Error())
-			pool.StopDownload(uid)
-			s.manager.GetItem(uid).StopDownload()
-		},
-		DownloadProgressHandler: func(hash string, nread int) {
-			uid := pd.GetHash()
-			pool.Broadcast(uid, server.MakeResult(common.UPDATE_DOWNLOADING, &common.DownloadingResponse{
-				DownloadId: uid,
-				Action:     common.DownloadProgress,
-				Value:      int64(nread),
-				Hash:       hash,
-			}))
-		},
-		DownloadCompleteHandler: func(hash string, tread int64) {
-			uid := pd.GetHash()
-			pool.Broadcast(uid, server.MakeResult(common.UPDATE_DOWNLOADING, &common.DownloadingResponse{
-				DownloadId: uid,
-				Action:     common.DownloadComplete,
-				Value:      tread,
-				Hash:       hash,
-			}))
-			pool.StopDownload(uid)
-		},
-		DownloadStoppedHandler: func() {
-			uid := pd.GetHash()
-			pool.Broadcast(uid, server.MakeResult(common.UPDATE_DOWNLOADING, &common.DownloadingResponse{
-				DownloadId: uid,
-				Action:     common.DownloadStopped,
-			}))
-			pool.StopDownload(uid)
-		},
-	}
+	var generation *server.TransferGeneration
+	// Build handlers for protocol download (no compile handlers — single-stream protocols).
+	handlers := managedTransferHandlers(
+		func() *server.TransferGeneration { return generation },
+		func() bool { return pd.IsStopped() },
+		transferCtx,
+	)
 
 	// Get credential-stripped URL for safe persistence
 	cleanURL := warplib.StripURLCredentials(rawURL)
 
-	pool.AddDownload(pd.GetHash(), sconn)
-	skipQueue := m.Schedule != "" || m.StartAt != ""
+	var reserved bool
+	generation, reserved = pool.BeginDownload(pd.GetHash(), sconn)
+	if !reserved {
+		return common.UPDATE_DOWNLOAD, nil, errors.Join(
+			errors.New("download is already running or still stopping"),
+			pd.Close(),
+		)
+	}
 	err = s.manager.AddProtocolDownload(pd, probe, cleanURL, proto, handlers, &warplib.AddDownloadOpts{
 		ChildHash:        m.ChildHash,
 		IsHidden:         m.IsHidden,
 		IsChildren:       m.IsChildren,
 		AbsoluteLocation: pd.GetDownloadDirectory(),
 		Priority:         warplib.Priority(m.Priority),
-		SkipQueue:        skipQueue,
+		SkipQueue:        scheduled || queue != nil,
 		SSHKeyPath:       m.SSHKeyPath,
+		TransferConfig: warplib.TransferConfig{
+			ProtocolUsername:            protocolUsername,
+			Overwrite:                   m.Overwrite,
+			ProtocolCredentialsRequired: protocolCredentialsRequired,
+		},
 	})
 	if err != nil {
-		return common.UPDATE_DOWNLOAD, nil, err
+		cleanupErr := cleanupUnpublishedDownloadRegistration(pd, generation)
+		return common.UPDATE_DOWNLOAD, nil, errors.Join(err, cleanupErr)
+	}
+
+	if scheduled {
+		if err := s.manager.ConfigureSchedule(pd.GetHash(), scheduledAt, cronExpr, warplib.ScheduleStateScheduled); err != nil {
+			cleanupErr := cleanupDownloadRegistration(s.manager, pool, pd.GetHash(), pd, generation)
+			return common.UPDATE_DOWNLOAD, nil, errors.Join(err, cleanupErr)
+		}
+		item := s.manager.GetItem(pd.GetHash())
+		if item == nil {
+			cleanupErr := cleanupDownloadRegistration(s.manager, pool, pd.GetHash(), pd, generation)
+			return common.UPDATE_DOWNLOAD, nil, errors.Join(warplib.ErrDownloadNotFound, cleanupErr)
+		}
+		if closeErr := item.CloseDownloader(); closeErr != nil {
+			cleanupErr := cleanupDownloadRegistration(s.manager, pool, pd.GetHash(), pd, generation)
+			return common.UPDATE_DOWNLOAD, nil, errors.Join(
+				fmt.Errorf("close scheduled downloader: %w", closeErr),
+				cleanupErr,
+			)
+		}
+		if s.scheduler != nil {
+			s.scheduler.Add(scheduler.ScheduleEvent{
+				ItemHash:  pd.GetHash(),
+				TriggerAt: scheduledAt,
+				CronExpr:  cronExpr,
+			})
+		}
+		// Scheduled transfers always reconstruct and re-probe at trigger time.
+		// This keeps in-process behavior identical to restart behavior and
+		// avoids holding protocol connections across an arbitrary delay.
+		return common.UPDATE_DOWNLOAD, protocolDownloadResponse(pd), nil
 	}
 
 	// Queue-enabled daemons start downloads through the queue callback.
 	// Without a queue, start immediately.
-	if s.manager.GetQueue() == nil {
-		go func() {
-			if err := pd.Download(context.Background(), handlers); err != nil {
-				s.reportAsyncDownloadError(pool, pd.GetHash(), err)
-				_ = pd.Close()
-			}
-		}()
+	if queue == nil {
+		runLease, leaseErr := s.manager.AcquireProtocolRunLease(pd.GetHash(), pd)
+		if leaseErr != nil {
+			// Lost exact ownership: do not close or purge a possible
+			// replacement registered under the same hash.
+			generation.Abort()
+			return common.UPDATE_DOWNLOAD, nil, leaseErr
+		}
+		if launchErr := s.launchInitialRunLease(
+			generation,
+			pd.GetHash(),
+			runLease,
+		); launchErr != nil {
+			return common.UPDATE_DOWNLOAD, nil, launchErr
+		}
+	} else {
+		queue.Add(pd.GetHash(), warplib.Priority(m.Priority))
+		if _, closeErr := s.manager.CloseWaitingDownloader(pd.GetHash()); closeErr != nil {
+			cleanupErr := cleanupDownloadRegistration(s.manager, pool, pd.GetHash(), pd, generation)
+			return common.UPDATE_DOWNLOAD, nil, errors.Join(
+				fmt.Errorf("close queued downloader: %w", closeErr),
+				cleanupErr,
+			)
+		}
 	}
 
-	return common.UPDATE_DOWNLOAD, &common.DownloadResponse{
+	return common.UPDATE_DOWNLOAD, protocolDownloadResponse(pd), nil
+}
+
+func protocolDownloadResponse(pd warplib.ProtocolDownloader) *common.DownloadResponse {
+	return &common.DownloadResponse{
 		ContentLength:     pd.GetContentLength(),
 		DownloadId:        pd.GetHash(),
 		FileName:          pd.GetFileName(),
@@ -499,7 +626,14 @@ func (s *Api) downloadProtocolHandler(sconn *server.SyncConn, pool *server.Pool,
 		DownloadDirectory: pd.GetDownloadDirectory(),
 		MaxConnections:    pd.GetMaxConnections(),
 		MaxSegments:       pd.GetMaxParts(),
-	}, nil
+	}
+}
+
+func importedHeaderExclusions(m *common.DownloadParams) []string {
+	if m.CookiesFrom == "" {
+		return nil
+	}
+	return []string{"Cookie"}
 }
 
 // applyTimestampSuffix adds a timestamp suffix to a filename before the last extension.
