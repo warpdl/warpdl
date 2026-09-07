@@ -77,30 +77,6 @@ The input file format:
 warpdl download -i urls.txt https://example.com/extra-file.zip
 ```
 
-## Cookie Import
-
-Import cookies from browser cookie stores for authenticated downloads:
-
-### Auto-detect browser cookies
-
-```bash
-warpdl download --cookies-from auto https://example.com/protected-file.zip
-```
-
-### Import from specific cookie file
-
-```bash
-warpdl download --cookies-from ~/.mozilla/firefox/xxx.default/cookies.sqlite https://example.com/protected-file.zip
-warpdl download --cookies-from "~/Library/Application Support/Google/Chrome/Default/Cookies" https://example.com/protected-file.zip
-```
-
-Supported formats:
-- **Firefox** (SQLite `cookies.sqlite` or `webappsstore.sqlite`)
-- **Chrome/Chromium** (SQLite `Cookies` file)
-- **Netscape** cookie file format (text-based)
-
-Use `auto` to automatically detect and use the default cookie store from installed browsers.
-
 ## SFTP/SSH Downloads
 
 Download files from SFTP servers with SSH key authentication:

@@ -23,7 +23,6 @@ func newSingleDownloadContext(app *cli.App, flagArgs, args []string) *cli.Contex
 	set.String("priority", "normal", "")
 	set.String("ssh-key", "", "")
 	set.String("speed-limit", "", "")
-	set.String("cookies-from", "", "")
 	set.String("start-at", "", "")
 	set.String("start-in", "", "")
 	set.String("schedule", "", "")
@@ -70,31 +69,6 @@ func TestDownload_UserAgentHeader(t *testing.T) {
 	})
 	if !strings.Contains(stdout, "Started download") {
 		t.Fatalf("expected background success, got:\n%s", stdout)
-	}
-}
-
-// TestDownload_CookiesFromInvalid covers the validateCookiesFrom error
-// branch: a --cookies-from pointing at a nonexistent file aborts the
-// download with a non-zero cookies_from runtime error.
-func TestDownload_CookiesFromInvalid(t *testing.T) {
-	socketPath := getShortSocketPath(t)
-	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
-	srv := startFakeServer(t, socketPath)
-	defer srv.close()
-
-	app := cli.NewApp()
-	ctx := newSingleDownloadContext(app,
-		[]string{"-cookies-from", "/nonexistent/cookies.txt"},
-		[]string{"http://example.com/f.bin"})
-
-	restore := withDownloadDefaults(t)
-	defer restore()
-
-	var gotErr error
-	stdout, stderr := captureOutput(func() { gotErr = download(ctx) })
-	assertExitError(t, gotErr)
-	if !strings.Contains(stdout+stderr, "cookies_from") {
-		t.Fatalf("expected cookies_from error, got:\nstdout=%s\nstderr=%s", stdout, stderr)
 	}
 }
 

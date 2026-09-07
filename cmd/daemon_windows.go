@@ -192,7 +192,7 @@ func runServiceWithLogger(log logger.Logger) error {
 
 // fullDaemonHandler implements svc.Handler with full daemon functionality.
 // Unlike the previous implementation that used a bare Runner, this handler
-// manages all daemon components (cookie manager, extensions, API, server).
+// manages all daemon components (extensions, API, server).
 type fullDaemonHandler struct {
 	components *DaemonComponents
 	logger     logger.Logger

@@ -54,13 +54,6 @@ type RPCServer struct {
 	transferMu        sync.Mutex
 	transferTerminals map[string]*atomic.Bool
 
-	// Test seams for the adaptive YouTube download path. Nil in production;
-	// see (*RPCServer).legDownloaderFn and (*RPCServer).muxerFn for the
-	// defaults. Instance fields rather than package globals so stubbing in
-	// tests requires no global write-back (which would race with reads from
-	// the adaptive download goroutine).
-	legDownloader    func(ctx context.Context, rs *RPCServer, streamURL, outPath string, connections int32, progressFn func(int64)) error
-	muxer            func(ctx context.Context, videoIn, audioIn, out string) error
 	transferLauncher func(func(context.Context)) bool
 }
 
@@ -70,6 +63,16 @@ func (rs *RPCServer) logf(format string, args ...any) {
 	if rs.log != nil {
 		rs.log.Printf(format, args...)
 	}
+}
+
+func (rs *RPCServer) broadcastError(gid, msg string) {
+	if rs.notifier == nil {
+		return
+	}
+	rs.notifier.Broadcast("download.error", &DownloadErrorNotification{
+		GID:   gid,
+		Error: msg,
+	})
 }
 
 func (rs *RPCServer) launchTransfer(fn func(context.Context)) bool {
@@ -529,15 +532,6 @@ func (rs *RPCServer) methods() handler.Map {
 		"download.remove":   handler.New(rs.downloadRemove),
 		"download.status":   handler.New(rs.downloadStatus),
 		"download.list":     handler.New(rs.downloadList),
-		// resolve.url uses github.com/kkdai/youtube/v2 to resolve YouTube
-		// page URLs into a list of downloadable formats. URLs are decoded
-		// lazily by youtube.download. See internal/server/rpc_resolve.go.
-		"resolve.url": handler.New(rs.resolveURL),
-		// youtube.download downloads a chosen format. Progressive itags
-		// (audio+video bundled) flow through the existing download manager.
-		// Adaptive (video-only + audio-only) downloads run a parallel-leg
-		// download then ffmpeg remux. See internal/server/rpc_youtube_download.go.
-		"youtube.download": handler.New(rs.youtubeDownload),
 	}
 }
 

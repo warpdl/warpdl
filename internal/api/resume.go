@@ -5,12 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"sync"
 	"time"
 
 	"github.com/warpdl/warpdl/common"
-	"github.com/warpdl/warpdl/internal/cookies"
 	"github.com/warpdl/warpdl/internal/server"
 	"github.com/warpdl/warpdl/pkg/warplib"
 )
@@ -33,45 +31,6 @@ func closeReconstructionLease(lease *warplib.ReconstructionLease) error {
 	}
 	_, err := lease.Close()
 	return err
-}
-
-func (s *Api) reimportCookieHeader(snapshot warplib.ItemSnapshot, operation string) warplib.Headers {
-	if snapshot.CookieSourcePath == "" {
-		return nil
-	}
-	parsedURL, err := url.Parse(snapshot.URL)
-	if err != nil {
-		s.log.Printf("warning: failed to parse URL for cookie re-import on %s: %s\n", operation, err.Error())
-		return nil
-	}
-
-	domain := parsedURL.Hostname()
-	var (
-		importedCookies []cookies.Cookie
-		source          *cookies.CookieSource
-	)
-	if snapshot.CookieSourcePath == "auto" {
-		importedCookies, source, err = cookies.DetectBrowserCookies(domain)
-	} else {
-		importedCookies, source, err = cookies.ImportCookies(snapshot.CookieSourcePath, domain)
-	}
-	if err != nil {
-		s.log.Printf("warning: failed to re-import cookies on %s: %s\n", operation, err.Error())
-		return nil
-	}
-	if len(importedCookies) == 0 {
-		return nil
-	}
-
-	sourceName := snapshot.CookieSourcePath
-	if source != nil {
-		sourceName = source.Browser
-	}
-	s.log.Printf("Re-imported %d cookies for %s from %s\n", len(importedCookies), domain, sourceName)
-	return warplib.Headers{{
-		Key:   "Cookie",
-		Value: cookies.BuildCookieHeader(importedCookies),
-	}}
 }
 
 func (s *Api) resumeHandler(sconn *server.SyncConn, pool *server.Pool, body json.RawMessage) (common.UpdateType, any, error) {
@@ -141,9 +100,6 @@ func (s *Api) resumeHandler(sconn *server.SyncConn, pool *server.Pool, body json
 	var item *warplib.Item
 	var parentLease *warplib.ReconstructionLease
 	var transientHeaders warplib.Headers
-	if existing := s.manager.GetItem(m.DownloadId); existing != nil {
-		transientHeaders = s.reimportCookieHeader(existing.Snapshot(), "resume")
-	}
 	parentHandlers := managedTransferHandlers(
 		func() *server.TransferGeneration { return generation },
 		func() bool { return item != nil && item.IsStopped() },
@@ -182,9 +138,6 @@ func (s *Api) resumeHandler(sconn *server.SyncConn, pool *server.Pool, body json
 			)
 		}
 		var childTransientHeaders warplib.Headers
-		if existingChild := s.manager.GetItem(childHash); existingChild != nil {
-			childTransientHeaders = s.reimportCookieHeader(existingChild.Snapshot(), "child resume")
-		}
 		childHandlers := managedTransferHandlers(
 			func() *server.TransferGeneration { return childGeneration },
 			func() bool { return cItem != nil && cItem.IsStopped() },

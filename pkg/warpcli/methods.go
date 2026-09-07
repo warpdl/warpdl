@@ -63,9 +63,6 @@ type DownloadOpts struct {
 	// StartAt specifies an absolute start time in "YYYY-MM-DD HH:MM" format.
 	// Empty means start immediately.
 	StartAt string `json:"start_at,omitempty"`
-	// CookiesFrom specifies the cookie source: file path, "auto", or "".
-	// Empty means no cookie import. "auto" triggers browser auto-detection.
-	CookiesFrom string `json:"cookies_from,omitempty"`
 	// Schedule specifies a 5-field cron expression for recurring downloads
 	// (e.g., "0 2 * * *" = daily at 2 AM). May be combined with StartAt or
 	// StartIn to delay the first occurrence. Empty means no recurring schedule.
@@ -101,7 +98,6 @@ func (c *Client) Download(url, fileName, downloadDirectory string, opts *Downloa
 		Priority:            opts.Priority,
 		SSHKeyPath:          opts.SSHKeyPath,
 		StartAt:             opts.StartAt,
-		CookiesFrom:         opts.CookiesFrom,
 		Schedule:            opts.Schedule,
 	})
 }
