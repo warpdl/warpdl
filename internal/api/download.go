@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/warpdl/warpdl/common"
-	"github.com/warpdl/warpdl/internal/cookies"
 	"github.com/warpdl/warpdl/internal/scheduler"
 	"github.com/warpdl/warpdl/internal/server"
 	"github.com/warpdl/warpdl/pkg/warplib"
@@ -286,34 +285,6 @@ func (s *Api) downloadHTTPHandler(sconn *server.SyncConn, pool *server.Pool, dlU
 		}
 	}
 
-	// Import cookies if requested
-	if m.CookiesFrom != "" {
-		parsedURL, urlErr := url.Parse(dlURL)
-		if urlErr == nil {
-			domain := parsedURL.Hostname()
-			var importedCookies []cookies.Cookie
-			var source *cookies.CookieSource
-			var cookieErr error
-
-			if m.CookiesFrom == "auto" {
-				importedCookies, source, cookieErr = cookies.DetectBrowserCookies(domain)
-				if cookieErr == nil {
-					s.log.Printf("Auto-detected %s cookie store\n", source.Browser)
-				}
-			} else {
-				importedCookies, source, cookieErr = cookies.ImportCookies(m.CookiesFrom, domain)
-			}
-
-			if cookieErr != nil {
-				s.log.Printf("warning: failed to import cookies: %s\n", cookieErr.Error())
-			} else if len(importedCookies) > 0 {
-				cookieHeader := cookies.BuildCookieHeader(importedCookies)
-				m.Headers.Update("Cookie", cookieHeader)
-				s.log.Printf("Imported %d cookies for %s from %s\n", len(importedCookies), domain, source.Browser)
-			}
-		}
-	}
-
 	transferCtx := s.manager.TransferContext()
 	handlers := managedTransferHandlers(
 		func() *server.TransferGeneration { return generation },
@@ -355,10 +326,9 @@ func (s *Api) downloadHTTPHandler(sconn *server.SyncConn, pool *server.Pool, dlU
 		AbsoluteLocation: d.GetDownloadDirectory(),
 		Priority:         warplib.Priority(m.Priority),
 		// Queue registration is deliberately deferred until all metadata
-		// (including cookie-source state) has been durably recorded below.
+		// has been durably recorded below.
 		// Queue.Add may synchronously invoke the daemon's start callback.
-		SkipQueue:               scheduled || queue != nil,
-		ExcludePersistedHeaders: importedHeaderExclusions(m),
+		SkipQueue: scheduled || queue != nil,
 		TransferConfig: warplib.TransferConfig{
 			ProxyURL:                 safeProxyURL,
 			ProxyCredentialsRequired: proxyCredentialsRequired,
@@ -367,14 +337,6 @@ func (s *Api) downloadHTTPHandler(sconn *server.SyncConn, pool *server.Pool, dlU
 	if err != nil {
 		cleanupErr := cleanupUnpublishedDownloadRegistration(d, generation)
 		return common.UPDATE_DOWNLOAD, nil, errors.Join(err, cleanupErr)
-	}
-
-	// Store cookie source path on item for re-import on resume
-	if m.CookiesFrom != "" {
-		if err := s.manager.SetCookieSourcePath(d.GetHash(), m.CookiesFrom); err != nil {
-			cleanupErr := cleanupDownloadRegistration(s.manager, pool, d.GetHash(), d, generation)
-			return common.UPDATE_DOWNLOAD, nil, errors.Join(err, cleanupErr)
-		}
 	}
 
 	if scheduled {
@@ -627,13 +589,6 @@ func protocolDownloadResponse(pd warplib.ProtocolDownloader) *common.DownloadRes
 		MaxConnections:    pd.GetMaxConnections(),
 		MaxSegments:       pd.GetMaxParts(),
 	}
-}
-
-func importedHeaderExclusions(m *common.DownloadParams) []string {
-	if m.CookiesFrom == "" {
-		return nil
-	}
-	return []string{"Cookie"}
 }
 
 // applyTimestampSuffix adds a timestamp suffix to a filename before the last extension.

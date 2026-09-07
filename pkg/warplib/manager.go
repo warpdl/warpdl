@@ -12,7 +12,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -387,14 +386,6 @@ type AddDownloadOpts struct {
 	AbsoluteLocation string
 	Priority         Priority
 	SkipQueue        bool
-	// ExcludePersistedHeaders lists request-header names that must remain
-	// available to the live downloader but must not be copied into Item or
-	// userdata.warp. Header names are matched case-insensitively.
-	//
-	// The API uses this for browser-imported Cookie values: the initial
-	// request still receives the cookie, while only CookieSourcePath is
-	// persisted so later runs can safely re-import it.
-	ExcludePersistedHeaders []string
 	// SSHKeyPath is the SSH key path to persist in Item for SFTP resume.
 	// Empty means default key paths are tried on resume.
 	SSHKeyPath string
@@ -404,24 +395,6 @@ type AddDownloadOpts struct {
 	TransferConfig TransferConfig
 }
 
-func filterPersistedHeaders(headers Headers, excluded []string) Headers {
-	if len(headers) == 0 {
-		return nil
-	}
-	excludedNames := make(map[string]struct{}, len(excluded))
-	for _, key := range excluded {
-		excludedNames[strings.ToLower(strings.TrimSpace(key))] = struct{}{}
-	}
-
-	filtered := make(Headers, 0, len(headers))
-	for _, header := range headers {
-		if _, omit := excludedNames[strings.ToLower(strings.TrimSpace(header.Key))]; omit {
-			continue
-		}
-		filtered = append(filtered, header)
-	}
-	return filtered
-}
 
 func transferConfigFromDownloader(d *Downloader) TransferConfig {
 	config := TransferConfig{
@@ -483,7 +456,7 @@ func (m *Manager) AddDownload(d *Downloader, opts *AddDownloadOpts) (err error) 
 			Child:             opts.IsChildren,
 			Hide:              opts.IsHidden,
 			ChildHash:         opts.ChildHash,
-			Headers:           filterPersistedHeaders(d.persistedHeaders(), opts.ExcludePersistedHeaders),
+			Headers:           d.persistedHeaders(),
 			PluginHeaderNames: sortedPluginHeaderNames(d.pluginHeaderNames),
 			ResourceETag:      d.resourceETag,
 			TransferConfig:    transferConfig,
@@ -1023,7 +996,6 @@ type ScheduleInfo struct {
 	Hash             string
 	Name             string
 	URL              string
-	CookieSourcePath string
 	ScheduledAt      time.Time
 	CronExpr         string
 	State            ScheduleState
@@ -1043,7 +1015,6 @@ func (m *Manager) GetScheduleInfo(hash string) (ScheduleInfo, bool) {
 		Hash:             item.Hash,
 		Name:             item.Name,
 		URL:              item.Url,
-		CookieSourcePath: item.CookieSourcePath,
 		ScheduledAt:      item.ScheduledAt,
 		CronExpr:         item.CronExpr,
 		State:            item.ScheduleState,
@@ -1124,14 +1095,6 @@ func (m *Manager) SetScheduleStateIf(hash string, state ScheduleState, expected 
 	return true, m.encodeLocked()
 }
 
-// SetCookieSourcePath records the browser cookie source used for future
-// scheduled or resumed requests.
-func (m *Manager) SetCookieSourcePath(hash, sourcePath string) error {
-	return m.mutateItem(hash, func(item *Item) {
-		item.CookieSourcePath = sourcePath
-	})
-}
-
 // RenameItem updates the persisted output name under the Item lock.
 func (m *Manager) RenameItem(hash, name string) error {
 	return m.mutateItem(hash, func(item *Item) {
@@ -1155,8 +1118,8 @@ type ResumeDownloadOpts struct {
 	MaxSegments int32
 	Headers     Headers
 	// TransientHeaders are applied to the reconstructed downloader without
-	// mutating Item.Headers or userdata.warp. Use this for freshly imported
-	// credentials such as browser cookies.
+	// mutating Item.Headers or userdata.warp. Use this for credentials that
+	// must stay out of persistence (e.g. refreshed auth headers).
 	TransientHeaders Headers
 	Handlers         *Handlers
 	// RetryConfig configures retry behavior for transient errors.

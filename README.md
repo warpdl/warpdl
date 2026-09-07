@@ -20,7 +20,7 @@
 
 [![CI](https://github.com/warpdl/warpdl/actions/workflows/ci.yml/badge.svg)](https://github.com/warpdl/warpdl/actions/workflows/ci.yml) [![Release](https://github.com/warpdl/warpdl/actions/workflows/release.yml/badge.svg)](https://github.com/warpdl/warpdl/actions/workflows/release.yml)
 
-![Downloads](https://img.shields.io/github/downloads/warpdl/warpdl/total?style=flat-square) ![Contributors](https://img.shields.io/github/contributors/warpdl/warpdl?color=dark-green&style=flat-square) ![Issues](https://img.shields.io/github/issues/warpdl/warpdl?style=flat-square) ![License](https://img.shields.io/github/license/warpdl/warpdl?style=flat-square) [![Hosted By: Cloudsmith](https://img.shields.io/badge/OSS%20hosting%20by-cloudsmith-blue?logo=cloudsmith&style=flat-square)](https://cloudsmith.com)
+![Downloads](https://img.shields.io/github/downloads/warpdl/warpdl/total?style=flat-square) ![Contributors](https://img.shields.io/github/contributors/warpdl/warpdl?color=dark-green&style=flat-square) ![Issues](https://img.shields.io/github/issues/warpdl/warpdl?style=flat-square) ![License](https://img.shields.io/github/license/warpdl/warpdl?style=flat-square)
 
 </div>
 
@@ -48,12 +48,12 @@ Warp is a powerful and versatile cross-platform download manager. With its advan
 
 | Platform | Support Level | Notes |
 |----------|--------------|-------|
-| Linux | Full | Tested on CI, native packages (deb/rpm) |
+| Linux | Full | Tested on CI, install script available |
 | macOS | Full | Tested on CI, Homebrew available |
 | Windows | Best Effort | Builds provided, not tested on CI |
 | FreeBSD/OpenBSD/NetBSD | Best Effort | Builds provided |
 
-**Windows users:** Binaries are provided via [Releases](https://github.com/warpdl/warpdl/releases) and Scoop. Core functionality works, but Windows-specific bugs should be reported via [issues](https://github.com/warpdl/warpdl/issues).
+**Windows users:** Binaries are provided via [Releases](https://github.com/warpdl/warpdl/releases). Core functionality works, but Windows-specific bugs should be reported via [issues](https://github.com/warpdl/warpdl/issues).
 
 
 
@@ -78,9 +78,9 @@ curl -fsSL https://raw.githubusercontent.com/warpdl/warpdl/dev/scripts/install.s
 ```
 
 This automatically:
-- **Linux (Debian/Ubuntu/Fedora/RHEL):** Sets up Cloudsmith repo for auto-updates + systemd service
+- **Linux:** Downloads the binary for your distro and architecture
 - **macOS/BSD:** Downloads binary directly (suggests Homebrew)
-- **Windows (Git Bash):** Downloads binary directly (suggests Scoop)
+- **Windows (Git Bash):** Downloads binary directly
 
 #### Alternative Methods
 
@@ -93,35 +93,10 @@ brew install warpdl/tap/warpdl
 </details>
 
 <details>
-<summary>Scoop (Windows)</summary>
+<summary>Binary Only (no install)</summary>
 
 ```bash
-scoop bucket add warpdl https://github.com/warpdl/scoop-bucket
-scoop install warpdl
-```
-</details>
-
-<details>
-<summary>Manual Package Manager Setup</summary>
-
-**Debian/Ubuntu:**
-```bash
-curl -1sLf 'https://dl.cloudsmith.io/public/warpdl/warpdl/setup.deb.sh' | sudo bash
-sudo apt install warpdl
-```
-
-**Fedora/RHEL/CentOS:**
-```bash
-curl -1sLf 'https://dl.cloudsmith.io/public/warpdl/warpdl/setup.rpm.sh' | sudo bash
-sudo dnf install warpdl
-```
-</details>
-
-<details>
-<summary>Binary Only (no repo setup)</summary>
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/warpdl/warpdl/dev/scripts/install.sh | sh -s -- --no-repo
+curl -fsSL https://raw.githubusercontent.com/warpdl/warpdl/dev/scripts/install.sh | sh -s -- --no-install
 ```
 </details>
 
@@ -158,6 +133,8 @@ xattr -cr /path/to/warpdl
 
 WarpDL can optionally run as a systemd user service for auto-start on login:
 
+Create the unit file as described in [Service Setup](docs/src/content/docs/configuration/service-setup.mdx), then:
+
 ```bash
 # Reload systemd user daemon to discover new service
 systemctl --user daemon-reload
@@ -186,12 +163,6 @@ The WarpDL daemon runs in the background to manage downloads. Before uninstallin
 - **Homebrew:**
   ```
   brew uninstall warpdl
-  ```
-  Note: The daemon is automatically stopped during uninstallation.
-
-- **Scoop:**
-  ```
-  scoop uninstall warpdl
   ```
   Note: The daemon is automatically stopped during uninstallation.
 
@@ -239,5 +210,3 @@ Contributions are what make the open source community such an amazing place to b
 
 Distributed under the MIT License. See [LICENSE](https://github.com/warpdl/warpdl/blob/dev/LICENSE) for more information.
 
-## Acknowledgements
-Package repository hosting is graciously provided by https://cloudsmith.com.

@@ -5,7 +5,7 @@
 WarpDL is a cross-platform download manager written in Go. Key directories:
 
 - `cmd/` - CLI commands, client code, and extension handling
-- `internal/` - Private packages: `api`, `cookies`, `daemon`, `extl`, `nativehost`, `scheduler`, `server`, `service`
+- `internal/` - Private packages: `api`, `daemon`, `extl`, `scheduler`, `server`, `service`
 - `pkg/` - Public packages: `credman` (credential manager), `logger`, `warpcli` (client library), `warplib` (core download library)
 - `common/` - Shared types and constants
 - `tests/e2e/` - End-to-end test suite

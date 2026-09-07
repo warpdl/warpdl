@@ -3,7 +3,6 @@
 package e2e
 
 import (
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -161,40 +160,5 @@ func TestExt_UninstallNotFound(t *testing.T) {
 		!strings.Contains(output, "failed") &&
 		!strings.Contains(output, "not found") {
 		t.Fatalf("expected error output when uninstalling nonexistent extension, got:\n%s", output)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Native host tests
-// ---------------------------------------------------------------------------
-
-// TestNativeHost_Status verifies that "native-host status" exits cleanly and
-// prints the expected header and per-browser status lines. No daemon is
-// required — the command only inspects filesystem paths.
-func TestNativeHost_Status(t *testing.T) {
-	// Ensure a real home directory is available; skip in environments where
-	// os.UserHomeDir() would fail (e.g. containers with no /etc/passwd).
-	if _, err := os.UserHomeDir(); err != nil {
-		t.Skipf("no home directory available: %v", err)
-	}
-
-	e := newTestEnv(t)
-
-	output := e.run(t, "native-host", "status")
-
-	// Header must be present.
-	assertOutputContains(t, output, "Native Messaging Host Status")
-
-	// Each supported browser must appear in the output.
-	for _, browser := range []string{"Chrome", "Firefox", "Chromium", "Edge", "Brave"} {
-		if !strings.Contains(output, browser) {
-			t.Errorf("expected browser %q to appear in status output, got:\n%s", browser, output)
-		}
-	}
-
-	// Every browser line must report either "Installed" or "Not installed".
-	hasStatus := strings.Contains(output, "Installed") || strings.Contains(output, "Not installed")
-	if !hasStatus {
-		t.Errorf("expected status lines with 'Installed' or 'Not installed', got:\n%s", output)
 	}
 }

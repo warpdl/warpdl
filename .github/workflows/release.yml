@@ -79,7 +79,6 @@ jobs:
     needs: [validate, validate-windows]
     permissions:
       contents: write
-      packages: write
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -97,16 +96,6 @@ jobs:
         with:
           go-version: stable
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Import GPG key
         uses: crazy-max/ghaction-import-gpg@v7
         with:
@@ -123,100 +112,3 @@ jobs:
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
           GORELEASER_CURRENT_TAG: ${{ github.event.inputs.tag || github.ref_name }}
 
-      - name: Upload native packages to Cloudsmith
-        env:
-          CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
-        run: |
-          # Determine version based on trigger type
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            # Manual trigger - use the provided tag input
-            VERSION="${{ github.event.inputs.tag }}"
-            VERSION="${VERSION#v}"
-          else
-            # Tag push trigger - use the ref name
-            VERSION="${GITHUB_REF_NAME#v}"
-          fi
-
-          echo "Release version: $VERSION"
-          pip install cloudsmith-cli
-
-          # Track upload success/failure
-          SUCCESS=0
-          FAILED=0
-
-          # Note: Raw archives (tar.gz, zip) are available on GitHub Releases
-          # Cloudsmith is used only for native package repositories (deb/rpm)
-
-          # Upload deb packages (universal - works on any Debian/Ubuntu)
-          for file in dist/*.deb; do
-            [ -f "$file" ] || continue
-            filename=$(basename "$file")
-            echo "Uploading deb: $filename"
-            if cloudsmith push deb "warpdl/warpdl/any-distro/any-version" "$file" \
-              --republish --no-wait-for-sync; then
-              SUCCESS=$((SUCCESS + 1))
-            else
-              echo "::warning::Failed to upload: $filename"
-              FAILED=$((FAILED + 1))
-            fi
-          done
-
-          # Upload rpm packages (any-distro/any-version for universal compatibility)
-          for file in dist/*.rpm; do
-            [ -f "$file" ] || continue
-            filename=$(basename "$file")
-            echo "Uploading rpm: $filename"
-            if cloudsmith push rpm warpdl/warpdl/any-distro/any-version "$file" \
-              --republish --no-wait-for-sync; then
-              SUCCESS=$((SUCCESS + 1))
-            else
-              echo "::warning::Failed to upload: $filename"
-              FAILED=$((FAILED + 1))
-            fi
-          done
-
-          echo "========================================"
-          echo "Cloudsmith upload summary: $SUCCESS succeeded, $FAILED failed"
-          echo "========================================"
-          if [ "$FAILED" -gt 0 ]; then
-            echo "::warning::Some Cloudsmith uploads failed ($FAILED). Check logs above for details."
-          fi
-
-      - name: Patch Scoop manifest with pre_uninstall hook
-        run: |
-          # Clone the scoop bucket repository
-          git clone "https://${{ secrets.GH_PAT }}@github.com/warpdl/scoop-bucket.git" /tmp/scoop-bucket
-
-          # Wait for manifest to appear with retry logic (max 60 seconds)
-          echo "Waiting for GoReleaser to push manifest..."
-          for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
-            cd /tmp/scoop-bucket
-            git pull --quiet
-            if [ -f warpdl.json ]; then
-              echo "Manifest found after attempt $i"
-              break
-            fi
-            echo "Manifest not found, retrying in 5 seconds... ($i/12)"
-            sleep 5
-          done
-
-          if [ ! -f /tmp/scoop-bucket/warpdl.json ]; then
-            echo "Error: Manifest not found after 60 seconds, skipping patch"
-            exit 0
-          fi
-
-          # Patch the manifest
-          chmod +x "$GITHUB_WORKSPACE/scripts/patch-scoop-manifest.sh"
-          "$GITHUB_WORKSPACE/scripts/patch-scoop-manifest.sh" /tmp/scoop-bucket/warpdl.json
-
-          # Commit and push if there are changes
-          cd /tmp/scoop-bucket
-          if git diff --quiet; then
-            echo "No changes to commit"
-          else
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add warpdl.json
-            git commit -m "Add pre_uninstall hook for daemon cleanup"
-            git push
-          fi

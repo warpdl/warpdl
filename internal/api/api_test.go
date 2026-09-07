@@ -664,64 +664,6 @@ func TestResumeHandlerNotResumable(t *testing.T) {
 	}
 }
 
-func TestResumeHandlerCookieAuto(t *testing.T) {
-	api, pool, cleanup := newTestApi(t)
-	defer cleanup()
-
-	item := &warplib.Item{
-		Hash:             "cookie-auto",
-		Name:             "file.bin",
-		Url:              "http://example.com/file.bin",
-		TotalSize:        100,
-		DownloadLocation: warplib.ConfigDir,
-		AbsoluteLocation: warplib.ConfigDir,
-		Resumable:        true,
-		CookieSourcePath: "auto",
-		Parts:            make(map[int64]*warplib.ItemPart),
-	}
-	api.manager.UpdateItem(item)
-	if err := os.MkdirAll(filepath.Join(warplib.DlDataDir, item.Hash), 0755); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
-	}
-	body, _ := json.Marshal(common.ResumeParams{DownloadId: item.Hash})
-	_, msg, err := api.resumeHandler(nil, pool, body)
-	if err != nil {
-		t.Fatalf("resumeHandler: %v", err)
-	}
-	if msg.(*common.ResumeResponse).FileName != item.Name {
-		t.Fatalf("unexpected file name in response")
-	}
-}
-
-func TestResumeHandlerCookieExplicitPath(t *testing.T) {
-	api, pool, cleanup := newTestApi(t)
-	defer cleanup()
-
-	item := &warplib.Item{
-		Hash:             "cookie-explicit",
-		Name:             "file.bin",
-		Url:              "http://example.com/file.bin",
-		TotalSize:        100,
-		DownloadLocation: warplib.ConfigDir,
-		AbsoluteLocation: warplib.ConfigDir,
-		Resumable:        true,
-		CookieSourcePath: "/nonexistent/path/cookies.txt",
-		Parts:            make(map[int64]*warplib.ItemPart),
-	}
-	api.manager.UpdateItem(item)
-	if err := os.MkdirAll(filepath.Join(warplib.DlDataDir, item.Hash), 0755); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
-	}
-	body, _ := json.Marshal(common.ResumeParams{DownloadId: item.Hash})
-	_, msg, err := api.resumeHandler(nil, pool, body)
-	if err != nil {
-		t.Fatalf("resumeHandler: %v", err)
-	}
-	if msg.(*common.ResumeResponse).FileName != item.Name {
-		t.Fatalf("unexpected file name in response")
-	}
-}
-
 func TestDownloadHandlerBadJSON(t *testing.T) {
 	api, pool, cleanup := newTestApi(t)
 	defer cleanup()
@@ -1604,51 +1546,6 @@ func TestDownloadHandlerWithScheduleAndStartAt(t *testing.T) {
 	}
 	if item.ScheduleState != warplib.ScheduleStateScheduled {
 		t.Errorf("expected ScheduleStateScheduled, got %q", item.ScheduleState)
-	}
-}
-
-// CookiesFrom: non-existent path → logs warning, continues download normally
-
-func TestDownloadHandlerWithCookiesFrom_Error(t *testing.T) {
-	api, pool, cleanup := newTestApi(t)
-	defer cleanup()
-
-	content := bytes.Repeat([]byte("c"), 512)
-	srv := newRangeServer(content)
-	defer srv.Close()
-
-	params := common.DownloadParams{
-		Url:               srv.URL + "/cookie-test.bin",
-		DownloadDirectory: warplib.ConfigDir,
-		MaxConnections:    1,
-		MaxSegments:       1,
-		CookiesFrom:       "/nonexistent/path/cookies.sqlite",
-	}
-	body, _ := json.Marshal(params)
-	_, msg, err := api.downloadHandler(nil, pool, body)
-	if err != nil {
-		t.Fatalf("downloadHandler with CookiesFrom: %v", err)
-	}
-	resp := msg.(*common.DownloadResponse)
-	if resp.DownloadId == "" {
-		t.Fatalf("expected download id")
-	}
-	// Verify cookie source path stored on item
-	item := api.manager.GetItem(resp.DownloadId)
-	if item == nil {
-		t.Fatalf("expected item in manager")
-	}
-	if item.CookieSourcePath != "/nonexistent/path/cookies.sqlite" {
-		t.Errorf("expected CookieSourcePath set, got %q", item.CookieSourcePath)
-	}
-	// Wait for download to complete
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		info, err := os.Stat(resp.SavePath)
-		if err == nil && info.Size() == int64(resp.ContentLength) {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
 	}
 }
 

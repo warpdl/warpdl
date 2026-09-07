@@ -11,7 +11,6 @@ import (
 	"github.com/urfave/cli"
 	"github.com/warpdl/warpdl/cmd/common"
 	"github.com/warpdl/warpdl/cmd/ext"
-	"github.com/warpdl/warpdl/cmd/nativehost"
 	sharedcommon "github.com/warpdl/warpdl/common"
 )
 
@@ -65,11 +64,6 @@ func GetApp(bArgs BuildArgs) *cli.App {
 			Subcommands: ext.Commands,
 		},
 		authCmd(),
-		{
-			Name:        "native-host",
-			Usage:       "manage native messaging host for browser extensions",
-			Subcommands: nativehost.Commands,
-		},
 		{
 			Name:   "daemon",
 			Action: getDaemonAction(),
