@@ -437,22 +437,23 @@ func TestInitDaemonComponents_RestoredQueueFailureRecordsPoolError(t *testing.T)
 	case <-time.After(5 * time.Second):
 		t.Fatal("restored queue transfer did not start")
 	}
-	deadline := time.Now().Add(5 * time.Second)
-	for components.Server.Pool().GetError(hash) == nil {
+	// Pool errors are recorded for intermediate retry failures too, so poll
+	// until the terminal state holds conjunctively: critical error recorded,
+	// transfer detached from the pool, queue slot released.
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		recorded := components.Server.Pool().GetError(hash)
+		terminal := recorded != nil && recorded.Type == server.ErrorTypeCritical && recorded.Message != ""
+		detached := !components.Server.Pool().HasDownload(hash)
+		queue := components.Manager.GetQueue()
+		released := queue == nil || !queue.IsActive(hash)
+		if terminal && detached && released {
+			break
+		}
 		if time.Now().After(deadline) {
-			t.Fatal("restored queue failure was not recorded in the pool")
+			t.Fatalf("restored queue failure did not reach terminal state (error=%+v detached=%v released=%v)", recorded, detached, released)
 		}
 		time.Sleep(10 * time.Millisecond)
-	}
-	recorded := components.Server.Pool().GetError(hash)
-	if recorded.Type != server.ErrorTypeCritical || recorded.Message == "" {
-		t.Fatalf("recorded pool error = %+v", recorded)
-	}
-	if components.Server.Pool().HasDownload(hash) {
-		t.Fatal("failed reconstructed transfer remained attachable")
-	}
-	if queue := components.Manager.GetQueue(); queue != nil && queue.IsActive(hash) {
-		t.Fatal("failed reconstructed transfer retained its queue slot")
 	}
 }
 
