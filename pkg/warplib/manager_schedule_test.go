@@ -223,27 +223,3 @@ func TestScheduleFieldsGOBRoundTrip_AllStates(t *testing.T) {
 	}
 }
 
-func TestScheduleFieldsGOBRoundTrip_CookieSourcePath(t *testing.T) {
-	original := ItemsMap{
-		"h1": {
-			Hash:             "h1",
-			CookieSourcePath: "/tmp/cookies.sqlite",
-		},
-	}
-	data := ManagerData{Items: original}
-
-	var buf bytes.Buffer
-	if err := gob.NewEncoder(&buf).Encode(data); err != nil {
-		t.Fatalf("encode: %v", err)
-	}
-
-	var decoded ManagerData
-	if err := gob.NewDecoder(&buf).Decode(&decoded); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-
-	item := decoded.Items["h1"]
-	if item.CookieSourcePath != "/tmp/cookies.sqlite" {
-		t.Errorf("CookieSourcePath: want '/tmp/cookies.sqlite', got %q", item.CookieSourcePath)
-	}
-}

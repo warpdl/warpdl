@@ -351,62 +351,6 @@ func TestRecurringAsyncFailureKeepsFutureSchedule(t *testing.T) {
 	}
 }
 
-func TestImportedBrowserCookieIsNotPersistedInItemOrUserdata(t *testing.T) {
-	api, pool, cleanup := newTestApi(t)
-	defer cleanup()
-
-	content := bytes.Repeat([]byte("cookie-test"), 32)
-	server := newRangeServer(content)
-	defer server.Close()
-
-	cookiePath := filepath.Join(t.TempDir(), "cookies.txt")
-	cookieValue := "super-secret-browser-cookie"
-	cookieFile := "# Netscape HTTP Cookie File\n" +
-		"127.0.0.1\tFALSE\t/\tFALSE\t0\tsession\t" + cookieValue + "\n"
-	if err := os.WriteFile(cookiePath, []byte(cookieFile), 0600); err != nil {
-		t.Fatalf("WriteFile cookies: %v", err)
-	}
-
-	params := common.DownloadParams{
-		Url:               server.URL + "/protected.bin",
-		DownloadDirectory: warplib.ConfigDir,
-		CookiesFrom:       cookiePath,
-		StartIn:           "1h",
-		Headers: warplib.Headers{
-			{Key: "X-Test", Value: "retained"},
-		},
-	}
-	body, err := json.Marshal(params)
-	if err != nil {
-		t.Fatalf("Marshal: %v", err)
-	}
-	_, response, err := api.downloadHandler(nil, pool, body)
-	if err != nil {
-		t.Fatalf("downloadHandler: %v", err)
-	}
-	downloadResponse := response.(*common.DownloadResponse)
-	item := api.manager.GetItem(downloadResponse.DownloadId)
-	if item == nil {
-		t.Fatal("download item not found")
-	}
-
-	snapshot := item.Snapshot()
-	if _, found := snapshot.Headers.Get("Cookie"); found {
-		t.Fatalf("imported Cookie persisted in Item: %v", snapshot.Headers.LogSafe())
-	}
-	if _, found := snapshot.Headers.Get("X-Test"); !found {
-		t.Fatalf("ordinary explicit header was not persisted: %v", snapshot.Headers)
-	}
-
-	userdata, err := os.ReadFile(filepath.Join(warplib.ConfigDir, "userdata.warp"))
-	if err != nil {
-		t.Fatalf("ReadFile userdata: %v", err)
-	}
-	if bytes.Contains(userdata, []byte(cookieValue)) {
-		t.Fatal("browser cookie value was written to userdata.warp")
-	}
-}
-
 func TestScheduledHTTPClosesValidatorlessProbeAndFreshlyReconstructs(t *testing.T) {
 	api, pool, cleanup := newTestApi(t)
 	defer cleanup()

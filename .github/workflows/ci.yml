@@ -163,7 +163,7 @@ jobs:
           cache: true
 
       - name: Run local E2E tests
-        run: go test -v -tags=e2e -run "^(TestDownload_|TestResume_|TestList_|TestFlush_|TestStop_|TestInfo_|TestQueue_|TestVersion_|TestHelp_|TestLifecycle_|TestDaemon_|TestError_|TestExt_|TestNativeHost_|TestDownloadAlias|TestListAlias)" -timeout=10m ./tests/e2e/
+        run: go test -v -tags=e2e -run "^(TestDownload_|TestResume_|TestList_|TestFlush_|TestStop_|TestInfo_|TestQueue_|TestVersion_|TestHelp_|TestLifecycle_|TestDaemon_|TestError_|TestExt_|TestDownloadAlias|TestListAlias)" -timeout=10m ./tests/e2e/
 
   # E2E download tests - matrix with any-pass logic (external network)
   e2e:

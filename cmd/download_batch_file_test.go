@@ -25,7 +25,6 @@ func newBatchDownloadContext(app *cli.App, rawArgs []string) *cli.Context {
 	set.String("priority", "normal", "")
 	set.String("ssh-key", "", "")
 	set.String("speed-limit", "", "")
-	set.String("cookies-from", "", "")
 	set.String("start-at", "", "")
 	set.String("start-in", "", "")
 	set.String("schedule", "", "")
@@ -57,7 +56,7 @@ func TestBuildDownloadOptsIncludesBatchFlags(t *testing.T) {
 		maxRetries, retryDelay = oldRetries, oldDelay
 	}()
 
-	opts := buildDownloadOpts(ctx, nil, "2030-01-01 10:00", "auto", "0 2 * * *")
+	opts := buildDownloadOpts(ctx, nil, "2030-01-01 10:00", "0 2 * * *")
 	if !opts.Overwrite || !opts.DisableWorkStealing || !opts.ForceParts {
 		t.Fatalf("boolean batch flags not propagated: %+v", opts)
 	}
@@ -70,8 +69,8 @@ func TestBuildDownloadOptsIncludesBatchFlags(t *testing.T) {
 	if opts.Priority != 2 || opts.SSHKeyPath != "/keys/id" || opts.Proxy != proxyURL {
 		t.Fatalf("priority/transport flags not propagated: %+v", opts)
 	}
-	if opts.StartAt != "2030-01-01 10:00" || opts.CookiesFrom != "auto" || opts.Schedule != "0 2 * * *" {
-		t.Fatalf("schedule/cookie flags not propagated: %+v", opts)
+	if opts.StartAt != "2030-01-01 10:00" || opts.Schedule != "0 2 * * *" {
+		t.Fatalf("schedule flags not propagated: %+v", opts)
 	}
 }
 

@@ -24,7 +24,6 @@ func TestItemMarshalJSONExcludesRequestSecrets(t *testing.T) {
 		PluginHeaderNames: []string{"X-Plugin-Token"},
 		ResourceETag:      `"private-etag"`,
 		SSHKeyPath:        "/home/user/.ssh/id_private",
-		CookieSourcePath:  "/home/user/browser/Cookies",
 	}
 
 	buf, err := json.Marshal(item)
@@ -36,7 +35,6 @@ func TestItemMarshalJSONExcludesRequestSecrets(t *testing.T) {
 		"session=top-secret",
 		"Bearer private-token",
 		"id_private",
-		"browser/Cookies",
 		"url-user",
 		"url-password",
 		"url-secret",
@@ -254,7 +252,6 @@ func TestItemSchedulingFieldsGOBRoundTrip(t *testing.T) {
 					ScheduledAt:      time.Date(2026, 3, 1, 2, 0, 0, 0, time.UTC),
 					CronExpr:         "0 2 * * *",
 					ScheduleState:    state,
-					CookieSourcePath: "/home/user/.mozilla/firefox/profile/cookies.sqlite",
 				},
 			}
 
@@ -281,15 +278,12 @@ func TestItemSchedulingFieldsGOBRoundTrip(t *testing.T) {
 			if item.ScheduleState != state {
 				t.Errorf("ScheduleState: got %q, want %q", item.ScheduleState, state)
 			}
-			if item.CookieSourcePath != "/home/user/.mozilla/firefox/profile/cookies.sqlite" {
-				t.Errorf("CookieSourcePath: got %q", item.CookieSourcePath)
-			}
 		})
 	}
 }
 
 // TestItemSchedulingFieldsGOBBackwardCompat verifies that pre-existing GOB data
-// (without scheduling/cookie fields) decodes to safe zero values.
+// (without scheduling fields) decodes to safe zero values.
 func TestItemSchedulingFieldsGOBBackwardCompat(t *testing.T) {
 	// Encode an item WITHOUT the new fields (simulate pre-existing GOB data)
 	// by encoding a map with a struct that only has legacy fields.
@@ -333,8 +327,5 @@ func TestItemSchedulingFieldsGOBBackwardCompat(t *testing.T) {
 	}
 	if item.ScheduleState != ScheduleStateNone {
 		t.Errorf("ScheduleState should be empty, got %q", item.ScheduleState)
-	}
-	if item.CookieSourcePath != "" {
-		t.Errorf("CookieSourcePath should be empty, got %q", item.CookieSourcePath)
 	}
 }

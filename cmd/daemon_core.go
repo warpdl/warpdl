@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/cookiejar"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,7 +14,6 @@ import (
 
 	"github.com/warpdl/warpdl/common"
 	"github.com/warpdl/warpdl/internal/api"
-	"github.com/warpdl/warpdl/internal/cookies"
 	"github.com/warpdl/warpdl/internal/extl"
 	"github.com/warpdl/warpdl/internal/extl/auth"
 	"github.com/warpdl/warpdl/internal/scheduler"
@@ -449,32 +447,6 @@ var initDaemonComponents = func(log logger.Logger, maxConcurrent int, rpcCfg *se
 			// Recurring occurrences use the newly persisted timestamped name,
 			// so they must reconstruct rather than reuse the prior downloader.
 			forceFresh = true
-		}
-		if scheduled && scheduleInfo.CookieSourcePath != "" {
-			parsedURL, urlErr := url.Parse(scheduleInfo.URL)
-			if urlErr != nil {
-				log.Error("%s: parse cookie URL for %s: %v", source, hash, urlErr)
-			} else {
-				domain := parsedURL.Hostname()
-				var importedCookies []cookies.Cookie
-				var cookieErr error
-				if scheduleInfo.CookieSourcePath == "auto" {
-					importedCookies, _, cookieErr = cookies.DetectBrowserCookies(domain)
-				} else {
-					importedCookies, _, cookieErr = cookies.ImportCookies(scheduleInfo.CookieSourcePath, domain)
-				}
-				if cookieErr != nil {
-					log.Error("%s: failed to re-import cookies for %s: %v", source, hash, cookieErr)
-				} else if len(importedCookies) > 0 {
-					transientHeaders.Update("Cookie", cookies.BuildCookieHeader(importedCookies))
-					// Reconstruct so the fresh transient cookie reaches the
-					// live downloader without ever entering Item persistence.
-					if !hasParts {
-						forceFresh = true
-					}
-					log.Info("%s: re-imported %d cookies for %s", source, len(importedCookies), domain)
-				}
-			}
 		}
 		// Newly-created scheduled/queued items still have their original,
 		// fully configured downloader in this process. Use it so its client

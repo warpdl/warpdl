@@ -127,11 +127,6 @@ type Item struct {
 	// ScheduleState tracks the lifecycle of a scheduled download.
 	// Zero value (ScheduleStateNone) means not scheduled. GOB backward-compatible.
 	ScheduleState ScheduleState `json:"schedule_state,omitempty"`
-	// CookieSourcePath is the path to the cookie file or "auto" for auto-detection.
-	// Persisted so cookies can be re-imported on resume/retry/recurring (FR-024).
-	// Cookie VALUES are never persisted (FR-023). Empty means no cookies.
-	// GOB backward-compatible: missing field decodes as empty string (zero value).
-	CookieSourcePath string `json:"cookie_source_path,omitempty"`
 	// DestinationClaimed records that this manager successfully opened the
 	// final HTTP destination before any part metadata was persisted. It lets a
 	// crash-recovered fresh start reuse only its own empty stub, while an
@@ -196,7 +191,6 @@ type ItemSnapshot struct {
 	ScheduledAt        time.Time
 	CronExpr           string
 	ScheduleState      ScheduleState
-	CookieSourcePath   string
 	DestinationClaimed bool
 	TransferConfig     TransferConfig
 }
@@ -243,7 +237,6 @@ func (i *Item) Snapshot() ItemSnapshot {
 		ScheduledAt:        i.ScheduledAt,
 		CronExpr:           i.CronExpr,
 		ScheduleState:      i.ScheduleState,
-		CookieSourcePath:   i.CookieSourcePath,
 		DestinationClaimed: i.DestinationClaimed,
 		TransferConfig:     cloneTransferConfig(i.TransferConfig),
 	}

@@ -17,7 +17,6 @@ warpdl
 ```
 [--background|-b]
 [--cookie]=[value]
-[--cookies-from]=[value]
 [--daemon-uri]=[value]
 [--debug|-d]
 [--download-path|-l]=[value]
@@ -57,8 +56,6 @@ warpdl [GLOBAL OPTIONS] command [COMMAND OPTIONS] [ARGUMENTS...]
 **--background, -b**: run download in background (exit immediately without progress display)
 
 **--cookie**="": HTTP cookie(s) for authentication (format: 'name=value', can be specified multiple times)
-
-**--cookies-from**="": import cookies from browser cookie file (Firefox, Chrome, Netscape) or 'auto' for auto-detection
 
 **--daemon-uri**="": daemon URI (unix:///path, tcp://host:port, pipe://name)
 
@@ -169,32 +166,6 @@ Report whether a plugin has stored credentials (exit 0 iff authenticated and not
 
 **--as**="": account label (default "default")
 
-## native-host
-
-manage native messaging host for browser extensions
-
-### install
-
-install native messaging manifest for browsers
-
-**--auto**: use default extension IDs (for package manager hooks)
-
-**--browser**="": browser to install for (chrome, firefox, chromium, edge, brave, all) (default: all)
-
-**--chrome-extension-id**="": Chrome extension ID (required for Chrome-based browsers)
-
-**--firefox-extension-id**="": Firefox extension ID (required for Firefox)
-
-### uninstall
-
-remove native messaging manifest from browsers
-
-**--browser**="": browser to uninstall from (chrome, firefox, chromium, edge, brave, all) (default: all)
-
-### status
-
-show installation status for all browsers
-
 ## daemon
 
 start the warpdl daemon
@@ -248,8 +219,6 @@ fastly download a file
 **--background, -b**: run download in background (exit immediately without progress display)
 
 **--cookie**="": HTTP cookie(s) for authentication (format: 'name=value', can be specified multiple times)
-
-**--cookies-from**="": import cookies from browser cookie file (Firefox, Chrome, Netscape) or 'auto' for auto-detection
 
 **--daemon-uri**="": daemon URI (unix:///path, tcp://host:port, pipe://name)
 

@@ -42,8 +42,7 @@ If you missed the prompt or need to reconfigure, first find your WarpDL executab
 Get-Command warpdl | Select-Object -ExpandProperty Source
 
 # If warpdl is not in PATH, check common installation locations:
-# - C:\Program Files\warpdl\warpdl.exe (Scoop/manual install)
-# - C:\Users\$env:USERNAME\scoop\apps\warpdl\current\warpdl.exe (Scoop user install)
+# - C:\Program Files\warpdl\warpdl.exe (manual install)
 ```
 
 Then create the firewall rule:
@@ -164,7 +163,7 @@ Unblock-File -Path "C:\Program Files\warpdl\warpdl.exe"
 
 ### Preventing SmartScreen Warnings
 
-- **Use official releases**: Download from [GitHub Releases](https://github.com/warpdl/warpdl/releases) or via package managers (Scoop)
+- **Use official releases**: Download from [GitHub Releases](https://github.com/warpdl/warpdl/releases)
 - **Build from source**: Compile locally to avoid download flags
 - **Wait for reputation**: SmartScreen learns from usage patterns over time
 

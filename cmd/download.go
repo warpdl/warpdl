@@ -78,29 +78,8 @@ var (
 			Name:  "schedule",
 			Usage: "cron expression for recurring download schedule (e.g., \"0 2 * * *\" = daily 2 AM)",
 		},
-		cli.StringFlag{
-			Name:  "cookies-from",
-			Usage: "import cookies from browser cookie file (Firefox, Chrome, Netscape) or 'auto' for auto-detection",
-		},
 	}
 )
-
-// validateCookiesFrom validates the --cookies-from flag value.
-// Empty string and "auto" are accepted without file checks.
-// Otherwise, the path must exist and not be a directory.
-func validateCookiesFrom(value string) error {
-	if value == "" || value == "auto" {
-		return nil
-	}
-	info, err := os.Stat(value)
-	if err != nil {
-		return fmt.Errorf("cookie file not found: %s", value)
-	}
-	if info.IsDir() {
-		return fmt.Errorf("%s is a directory, expected a cookie file path or 'auto'", value)
-	}
-	return nil
-}
 
 // parsePriority converts a priority string to the corresponding integer value.
 // Returns 1 (normal) for invalid values.
@@ -158,7 +137,7 @@ func resolveDownloadPath(cliPath string) (string, error) {
 func buildDownloadOpts(
 	ctx *cli.Context,
 	headers warplib.Headers,
-	startAtValue, cookiesFrom, scheduleValue string,
+	startAtValue, scheduleValue string,
 ) *warpcli.DownloadOpts {
 	return &warpcli.DownloadOpts{
 		ForceParts:          forceParts,
@@ -175,7 +154,6 @@ func buildDownloadOpts(
 		Priority:            parsePriority(ctx.String("priority")),
 		SSHKeyPath:          ctx.String("ssh-key"),
 		StartAt:             startAtValue,
-		CookiesFrom:         cookiesFrom,
 		Schedule:            scheduleValue,
 	}
 }
@@ -238,11 +216,6 @@ func download(ctx *cli.Context) (err error) {
 			return cmdcommon.PrintRuntimeErr(ctx, "download", "invalid_proxy", err)
 		}
 	}
-	// Validate --cookies-from flag
-	cookiesFrom := ctx.String("cookies-from")
-	if err := validateCookiesFrom(cookiesFrom); err != nil {
-		return cmdcommon.PrintRuntimeErr(ctx, "download", "cookies_from", err)
-	}
 	// Validate mutual exclusion: --start-at and --start-in are mutually exclusive
 	startAtValue := ctx.String("start-at")
 	startInValue := ctx.String("start-in")
@@ -284,7 +257,7 @@ func download(ctx *cli.Context) (err error) {
 		url,
 		fileName,
 		dlPath,
-		buildDownloadOpts(ctx, headers, startAtValue, cookiesFrom, scheduleValue),
+		buildDownloadOpts(ctx, headers, startAtValue, scheduleValue),
 	)
 	if err != nil {
 		if isAuthRequiredError(err) {
@@ -444,11 +417,6 @@ func downloadBatchFromFile(ctx *cli.Context, client *warpcli.Client, inputFile s
 		}
 	}
 
-	cookiesFrom := ctx.String("cookies-from")
-	if err := validateCookiesFrom(cookiesFrom); err != nil {
-		return cmdcommon.PrintRuntimeErr(ctx, "download", "cookies_from", err)
-	}
-
 	startAtValue := ctx.String("start-at")
 	startInValue := ctx.String("start-in")
 	if err := validateStartAtStartInExclusion(startAtValue, startInValue); err != nil {
@@ -484,7 +452,7 @@ func downloadBatchFromFile(ctx *cli.Context, client *warpcli.Client, inputFile s
 	// Build download options
 	opts := &BatchDownloadOpts{
 		DownloadDir:  resolvedPath,
-		DownloadOpts: buildDownloadOpts(ctx, headers, startAtValue, cookiesFrom, scheduleValue),
+		DownloadOpts: buildDownloadOpts(ctx, headers, startAtValue, scheduleValue),
 	}
 
 	// Collect direct URLs from positional arguments
