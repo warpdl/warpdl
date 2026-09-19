@@ -3,19 +3,14 @@ package server
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"io"
 	"log"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/warpdl/warpdl/pkg/warplib"
-	"golang.org/x/net/websocket"
 )
 
 func newRangeServer(content []byte) *httptest.Server {
@@ -47,231 +42,6 @@ func newRangeServer(content []byte) *httptest.Server {
 		w.WriteHeader(http.StatusPartialContent)
 		_, _ = w.Write(chunk)
 	}))
-}
-
-func TestWebServerProcessDownload(t *testing.T) {
-	base := t.TempDir()
-	t.Chdir(base) // Ensure downloads go to temp dir, not source tree
-	if err := warplib.SetConfigDir(base); err != nil {
-		t.Fatalf("SetConfigDir: %v", err)
-	}
-	m, err := warplib.InitManager()
-	if err != nil {
-		t.Fatalf("InitManager: %v", err)
-	}
-	defer m.Close()
-
-	content := bytes.Repeat([]byte("c"), 1024)
-	srv := newRangeServer(content)
-	defer srv.Close()
-
-	pool := NewPool(log.New(io.Discard, "", 0))
-	ws := NewWebServer(log.New(io.Discard, "", 0), m, pool, 0, nil, nil, nil)
-	if err := ws.processDownload(&capturedDownload{Url: srv.URL + "/file.bin"}); err != nil {
-		t.Fatalf("processDownload: %v", err)
-	}
-
-	var item *warplib.Item
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
-		items := m.GetItems()
-		if len(items) > 0 {
-			item = items[0]
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if item == nil {
-		t.Fatalf("expected item to be created")
-	}
-	deadline = time.Now().Add(2 * time.Second)
-	complete := false
-	for time.Now().Before(deadline) {
-		info, err := os.Stat(item.GetSavePath())
-		if err == nil && info.Size() == int64(len(content)) {
-			complete = true
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if !complete {
-		t.Fatalf("download did not complete")
-	}
-	info, err := os.Stat(item.GetSavePath())
-	if err != nil {
-		t.Fatalf("Stat: %v", err)
-	}
-	if info.Size() != int64(len(content)) {
-		t.Fatalf("downloaded size mismatch")
-	}
-}
-
-func TestWebServerProcessDownloadCancellationIsTrackedAndNonCritical(t *testing.T) {
-	base := t.TempDir()
-	t.Chdir(base)
-	if err := warplib.SetConfigDir(base); err != nil {
-		t.Fatalf("SetConfigDir: %v", err)
-	}
-	manager, err := warplib.InitManager()
-	if err != nil {
-		t.Fatalf("InitManager: %v", err)
-	}
-	t.Cleanup(func() { _ = manager.Close() })
-
-	requestDone := make(chan struct{})
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		defer close(requestDone)
-		w.Header().Set("Content-Length", "1024")
-		w.WriteHeader(http.StatusOK)
-		w.(http.Flusher).Flush()
-		<-r.Context().Done()
-	}))
-	defer server.Close()
-
-	pool := NewPool(log.New(io.Discard, "", 0))
-	webServer := NewWebServer(log.New(io.Discard, "", 0), manager, pool, 0, nil, nil, nil)
-	if err := webServer.processDownload(&capturedDownload{Url: server.URL + "/cancel.bin"}); err != nil {
-		t.Fatalf("processDownload: %v", err)
-	}
-	items := manager.GetItems()
-	if len(items) != 1 {
-		t.Fatalf("managed items = %d, want 1", len(items))
-	}
-	hash := items[0].Hash
-
-	manager.CancelTransfers()
-	waitCtx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	if err := manager.WaitTransfers(waitCtx); err != nil {
-		t.Fatalf("WaitTransfers: %v", err)
-	}
-	select {
-	case <-requestDone:
-	case <-time.After(time.Second):
-		t.Fatal("manager cancellation did not cancel retained HTTP response")
-	}
-	if pool.HasDownload(hash) {
-		t.Fatal("cancelled captured download remained active")
-	}
-	if critical := pool.GetError(hash); critical != nil {
-		t.Fatalf("cancelled captured download recorded a critical error: %+v", critical)
-	}
-	if item := manager.GetItem(hash); item == nil {
-		t.Fatal("shutdown cancellation purged captured download history")
-	}
-}
-
-func TestWebServerProcessDownloadHonorsPausedQueue(t *testing.T) {
-	base := t.TempDir()
-	t.Chdir(base)
-	if err := warplib.SetConfigDir(base); err != nil {
-		t.Fatalf("SetConfigDir: %v", err)
-	}
-	manager, err := warplib.InitManager()
-	if err != nil {
-		t.Fatalf("InitManager: %v", err)
-	}
-	defer manager.Close()
-	manager.SetMaxConcurrentDownloads(1, nil)
-	manager.GetQueue().Pause()
-
-	server := newRangeServer(bytes.Repeat([]byte("queued-web"), 64))
-	defer server.Close()
-	pool := NewPool(log.New(io.Discard, "", 0))
-	webServer := NewWebServer(log.New(io.Discard, "", 0), manager, pool, 0, nil, nil, nil)
-	if err := webServer.processDownload(&capturedDownload{Url: server.URL + "/queued.bin"}); err != nil {
-		t.Fatalf("processDownload: %v", err)
-	}
-	items := manager.GetItems()
-	if len(items) != 1 {
-		t.Fatalf("items = %d, want 1", len(items))
-	}
-	item := items[0]
-	if !manager.GetQueue().IsWaiting(item.Hash) || item.IsDownloading() {
-		t.Fatalf("waiting=%v downloading=%v",
-			manager.GetQueue().IsWaiting(item.Hash), item.IsDownloading())
-	}
-	if !pool.HasDownload(item.Hash) {
-		t.Fatal("waiting WebSocket capture was not registered in the pool")
-	}
-}
-
-func TestWebServerRejectsCookieCaptureThatWouldWait(t *testing.T) {
-	base := t.TempDir()
-	t.Chdir(base)
-	if err := warplib.SetConfigDir(base); err != nil {
-		t.Fatalf("SetConfigDir: %v", err)
-	}
-	manager, err := warplib.InitManager()
-	if err != nil {
-		t.Fatalf("InitManager: %v", err)
-	}
-	defer manager.Close()
-	manager.SetMaxConcurrentDownloads(1, nil)
-	manager.GetQueue().Pause()
-
-	server := newRangeServer([]byte("protected"))
-	defer server.Close()
-	pool := NewPool(log.New(io.Discard, "", 0))
-	webServer := NewWebServer(log.New(io.Discard, "", 0), manager, pool, 0, nil, nil, nil)
-	err = webServer.processDownload(&capturedDownload{
-		Url: server.URL + "/protected.bin",
-		Cookies: []*http.Cookie{{
-			Name:  "session",
-			Value: "secret",
-			Path:  "/",
-		}},
-	})
-	if err == nil || !strings.Contains(err.Error(), "cookie secrets are not persisted") {
-		t.Fatalf("cookie queue error = %v", err)
-	}
-	if len(manager.GetItems()) != 0 ||
-		manager.GetQueue().ActiveCount() != 0 ||
-		manager.GetQueue().WaitingCount() != 0 {
-		t.Fatal("rejected cookie capture left manager or queue state")
-	}
-}
-
-func TestWebServerHandleConnection(t *testing.T) {
-	base := t.TempDir()
-	t.Chdir(base) // Ensure downloads go to temp dir, not source tree
-	if err := warplib.SetConfigDir(base); err != nil {
-		t.Fatalf("SetConfigDir: %v", err)
-	}
-	m, err := warplib.InitManager()
-	if err != nil {
-		t.Fatalf("InitManager: %v", err)
-	}
-	defer m.Close()
-
-	content := bytes.Repeat([]byte("z"), 64)
-	srv := newRangeServer(content)
-	defer srv.Close()
-
-	pool := NewPool(log.New(io.Discard, "", 0))
-	ws := NewWebServer(log.New(io.Discard, "", 0), m, pool, 0, nil, nil, nil)
-	wsSrv := httptest.NewServer(websocket.Handler(ws.handleConnection))
-	defer wsSrv.Close()
-
-	wsURL := "ws" + strings.TrimPrefix(wsSrv.URL, "http")
-	conn, err := websocket.Dial(wsURL, "", wsSrv.URL)
-	if err != nil {
-		t.Fatalf("Dial: %v", err)
-	}
-	payload, _ := json.Marshal(capturedDownload{Url: srv.URL + "/file.bin"})
-	if err := websocket.Message.Send(conn, payload); err != nil {
-		t.Fatalf("Send: %v", err)
-	}
-	_ = conn.Close()
-
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if len(m.GetItems()) > 0 {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	t.Fatalf("expected websocket download to start")
 }
 
 func TestWebServerHandler(t *testing.T) {
@@ -332,6 +102,16 @@ func TestWebServerHandler_WithRPC(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
+
+	// The legacy capture WebSocket at "/" is gone: unregistered paths 404.
+	rootResp, err := http.Get(srv.URL + "/")
+	if err != nil {
+		t.Fatalf("root request failed: %v", err)
+	}
+	defer rootResp.Body.Close()
+	if rootResp.StatusCode != http.StatusNotFound {
+		t.Fatalf("GET / status = %d, want 404", rootResp.StatusCode)
+	}
 }
 
 func TestWebServerHandler_WithoutRPC(t *testing.T) {
@@ -341,103 +121,18 @@ func TestWebServerHandler_WithoutRPC(t *testing.T) {
 	srv := httptest.NewServer(ws.handler())
 	defer srv.Close()
 
-	// /jsonrpc should not exist (404 or handled by "/" fallback)
 	body := []byte(`{"jsonrpc":"2.0","method":"system.getVersion","id":1}`)
-	req, _ := http.NewRequest("POST", srv.URL+"/jsonrpc", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
-	}
-	defer resp.Body.Close()
-
-	// Without RPC, /jsonrpc falls through to "/" handler (websocket handler)
-	// which won't handle a plain POST properly -- should not return 200 with RPC response
-	if resp.StatusCode == http.StatusOK {
-		// Read body to check it's not a valid JSON-RPC response
-		respBody, _ := io.ReadAll(resp.Body)
-		var rpcResp map[string]any
-		if err := json.Unmarshal(respBody, &rpcResp); err == nil {
-			if _, hasResult := rpcResp["result"]; hasResult {
-				t.Fatal("expected no RPC response when RPC is not configured")
-			}
+	for _, path := range []string{"/jsonrpc", "/jsonrpc/ws"} {
+		req, _ := http.NewRequest("POST", srv.URL+path, bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("%s request failed: %v", path, err)
 		}
-	}
-}
-
-func TestWebServerHandleConnectionInvalidJSON(t *testing.T) {
-	pool := NewPool(log.New(io.Discard, "", 0))
-	ws := NewWebServer(log.New(io.Discard, "", 0), nil, pool, 0, nil, nil, nil)
-	wsSrv := httptest.NewServer(websocket.Handler(ws.handleConnection))
-	defer wsSrv.Close()
-
-	wsURL := "ws" + strings.TrimPrefix(wsSrv.URL, "http")
-	conn, err := websocket.Dial(wsURL, "", wsSrv.URL)
-	if err != nil {
-		t.Fatalf("Dial: %v", err)
-	}
-	// Send invalid JSON to trigger unmarshal error
-	if err := websocket.Message.Send(conn, []byte("not valid json")); err != nil {
-		t.Fatalf("Send: %v", err)
-	}
-	_ = conn.Close()
-}
-
-func TestWebServerHandleConnectionInvalidURL(t *testing.T) {
-	base := t.TempDir()
-	t.Chdir(base) // Ensure downloads go to temp dir, not source tree
-	if err := warplib.SetConfigDir(base); err != nil {
-		t.Fatalf("SetConfigDir: %v", err)
-	}
-	m, err := warplib.InitManager()
-	if err != nil {
-		t.Fatalf("InitManager: %v", err)
-	}
-	defer m.Close()
-
-	pool := NewPool(log.New(io.Discard, "", 0))
-	ws := NewWebServer(log.New(io.Discard, "", 0), m, pool, 0, nil, nil, nil)
-	wsSrv := httptest.NewServer(websocket.Handler(ws.handleConnection))
-	defer wsSrv.Close()
-
-	wsURL := "ws" + strings.TrimPrefix(wsSrv.URL, "http")
-	conn, err := websocket.Dial(wsURL, "", wsSrv.URL)
-	if err != nil {
-		t.Fatalf("Dial: %v", err)
-	}
-	// Send valid JSON with invalid URL to trigger processDownload error
-	payload, _ := json.Marshal(capturedDownload{Url: "http://invalid.invalid/file"})
-	if err := websocket.Message.Send(conn, payload); err != nil {
-		t.Fatalf("Send: %v", err)
-	}
-	time.Sleep(50 * time.Millisecond) // Give time for error to be processed
-	_ = conn.Close()
-}
-
-func TestWebServerProcessDownloadInvalidURL(t *testing.T) {
-	base := t.TempDir()
-	t.Chdir(base) // Ensure downloads go to temp dir, not source tree
-	if err := warplib.SetConfigDir(base); err != nil {
-		t.Fatalf("SetConfigDir: %v", err)
-	}
-	m, err := warplib.InitManager()
-	if err != nil {
-		t.Fatalf("InitManager: %v", err)
-	}
-	defer m.Close()
-
-	pool := NewPool(log.New(io.Discard, "", 0))
-	ws := NewWebServer(log.New(io.Discard, "", 0), m, pool, 0, nil, nil, nil)
-	// Test with malformed URL
-	const secret = "web-url-password"
-	err = ws.processDownload(&capturedDownload{
-		Url: "http://user:" + secret + "@example.invalid/%zz",
-	})
-	if err == nil {
-		t.Fatalf("expected error for invalid URL")
-	}
-	if strings.Contains(err.Error(), secret) {
-		t.Fatalf("invalid URL error exposed userinfo secret: %q", err)
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusNotFound {
+			t.Fatalf("%s status = %d, want 404 without RPC", path, resp.StatusCode)
+		}
 	}
 }
 

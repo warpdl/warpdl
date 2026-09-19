@@ -2,15 +2,11 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"net/http"
-	"net/http/cookiejar"
-	"net/url"
 	"sync"
 	"time"
 
@@ -18,7 +14,6 @@ import (
 	"github.com/creachadair/jrpc2"
 	"github.com/warpdl/warpdl/common"
 	"github.com/warpdl/warpdl/pkg/warplib"
-	"golang.org/x/net/websocket"
 )
 
 type WebServer struct {
@@ -50,12 +45,6 @@ type webHandlerState struct {
 
 type webHandlerContextKey struct{}
 
-type capturedDownload struct {
-	Url     string          `json:"url"`
-	Headers warplib.Headers `json:"headers"`
-	Cookies []*http.Cookie  `json:"cookies"`
-}
-
 func NewWebServer(l *log.Logger, m *warplib.Manager, pool *Pool, port int, client *http.Client, router *warplib.SchemeRouter, rpcCfg *RPCConfig) *WebServer {
 	ws := &WebServer{
 		port:           port,
@@ -71,287 +60,8 @@ func NewWebServer(l *log.Logger, m *warplib.Manager, pool *Pool, port int, clien
 	return ws
 }
 
-func (s *WebServer) processDownload(cd *capturedDownload) error {
-	parsedURL, err := url.Parse(cd.Url)
-	if err != nil {
-		// net/url parse errors can embed the original input, including URL
-		// userinfo. Do not wrap or return them across the extension boundary.
-		return errors.New("invalid download URL")
-	}
-	jar, err := cookiejar.New(nil)
-	if err != nil {
-		return fmt.Errorf("create cookie jar: %w", err)
-	}
-	client := &http.Client{
-		Jar:           jar,
-		CheckRedirect: warplib.RedirectPolicy(warplib.DefaultMaxRedirects),
-	}
-	if len(cd.Cookies) > 0 {
-		s.l.Printf("[WS] Setting %d cookies for %s", len(cd.Cookies), parsedURL.Host)
-		for i, c := range cd.Cookies {
-			s.l.Printf("[WS]   cookie[%d]: Name=%q Domain=%q Path=%q", i, c.Name, c.Domain, c.Path)
-		}
-	}
-	client.Jar.SetCookies(parsedURL, cd.Cookies)
-	var (
-		d              *warplib.Downloader
-		poolGeneration *TransferGeneration
-	)
-	d, err = warplib.NewDownloader(client, cd.Url, &warplib.DownloaderOpts{
-		Context:        s.m.TransferContext(),
-		Headers:        cd.Headers,
-		MaxConnections: 24,
-		MaxSegments:    200,
-		Handlers: &warplib.Handlers{
-			DownloadProgressHandler: func(hash string, nread int) {
-				uid := d.GetHash()
-				if poolGeneration == nil || !poolGeneration.IsRunnable() {
-					return
-				}
-				poolGeneration.Broadcast(MakeResult(common.UPDATE_DOWNLOADING, &common.DownloadingResponse{
-					DownloadId: uid,
-					Action:     common.DownloadProgress,
-					Value:      int64(nread),
-					Hash:       hash,
-				}))
-			},
-			DownloadCompleteHandler: func(hash string, tread int64) {
-				uid := d.GetHash()
-				if poolGeneration == nil || !poolGeneration.IsRunnable() {
-					return
-				}
-				poolGeneration.RecordTerminal(MakeResult(common.UPDATE_DOWNLOADING, &common.DownloadingResponse{
-					DownloadId: uid,
-					Action:     common.DownloadComplete,
-					Value:      tread,
-					Hash:       hash,
-				}))
-			},
-			DownloadStoppedHandler: func() {
-				uid := d.GetHash()
-				if poolGeneration == nil || !poolGeneration.IsRunnable() {
-					return
-				}
-				poolGeneration.RecordTerminal(MakeResult(common.UPDATE_DOWNLOADING, &common.DownloadingResponse{
-					DownloadId: uid,
-					Action:     common.DownloadStopped,
-				}))
-			},
-			CompileStartHandler: func(hash string) {
-				uid := d.GetHash()
-				if poolGeneration == nil || !poolGeneration.IsRunnable() {
-					return
-				}
-				poolGeneration.Broadcast(MakeResult(common.UPDATE_DOWNLOADING, &common.DownloadingResponse{
-					DownloadId: uid,
-					Action:     common.CompileStart,
-					Hash:       hash,
-				}))
-			},
-			CompileProgressHandler: func(hash string, nread int) {
-				uid := d.GetHash()
-				if poolGeneration == nil || !poolGeneration.IsRunnable() {
-					return
-				}
-				poolGeneration.Broadcast(MakeResult(common.UPDATE_DOWNLOADING, &common.DownloadingResponse{
-					DownloadId: uid,
-					Action:     common.CompileProgress,
-					Value:      int64(nread),
-					Hash:       hash,
-				}))
-			},
-			CompileCompleteHandler: func(hash string, tread int64) {
-				uid := d.GetHash()
-				if poolGeneration == nil || !poolGeneration.IsRunnable() {
-					return
-				}
-				poolGeneration.Broadcast(MakeResult(common.UPDATE_DOWNLOADING, &common.DownloadingResponse{
-					DownloadId: uid,
-					Action:     common.CompileComplete,
-					Value:      tread,
-					Hash:       hash,
-				}))
-			},
-		},
-	})
-	if err != nil {
-		return err
-	}
-	queue := s.m.GetQueue()
-	poolGeneration, reserved := s.pool.beginLegacyDownload(d.GetHash(), nil)
-	if !reserved {
-		return errors.Join(
-			errors.New("download is already running or still stopping"),
-			d.Close(),
-		)
-	}
-	err = s.m.AddDownload(d, &warplib.AddDownloadOpts{
-		AbsoluteLocation: d.GetDownloadDirectory(),
-		// Queue callbacks may run synchronously. Finish pool registration
-		// before explicitly enqueuing below.
-		SkipQueue: queue != nil,
-	})
-	if err != nil {
-		poolGeneration.Abort()
-		return errors.Join(err, d.Close())
-	}
-	var runLease *warplib.RunLease
-	if queue == nil {
-		runLease, err = s.m.AcquireDownloadRunLease(d.GetHash(), d)
-		if err != nil {
-			poolGeneration.Abort()
-			return err
-		}
-	}
-	if queue != nil {
-		queue.Add(d.GetHash(), warplib.PriorityNormal)
-		waiting, closeErr := s.m.CloseWaitingDownloader(d.GetHash())
-		if closeErr != nil {
-			cleanupErr := s.cleanupDownloadRegistration(d, poolGeneration)
-			return errors.Join(closeErr, cleanupErr)
-		}
-		if waiting && len(cd.Cookies) > 0 {
-			cleanupErr := s.cleanupDownloadRegistration(d, poolGeneration)
-			return errors.Join(
-				errors.New("captured download with cookies cannot wait in the queue because cookie secrets are not persisted"),
-				cleanupErr,
-			)
-		}
-		return nil
-	}
-	if !s.m.GoTransfer(func(ctx context.Context) {
-		s.startDownload(ctx, d, poolGeneration, runLease)
-	}) {
-		cleanupErr := errors.Join(
-			runLease.Close(),
-			s.cleanupDownloadRegistration(d, poolGeneration),
-		)
-		return errors.Join(warplib.ErrManagerShuttingDown, cleanupErr)
-	}
-	return nil
-}
-
-func (s *WebServer) cleanupManagedDownloadRegistration(d *warplib.Downloader) error {
-	hash := d.GetHash()
-	var closeErr error
-	if item := s.m.GetItem(hash); item != nil {
-		closeErr = item.CloseDownloader()
-	} else {
-		closeErr = d.Close()
-	}
-	s.m.ReleaseQueueSlot(hash)
-	return errors.Join(closeErr, s.m.PurgeFailedDownload(hash))
-}
-
-func (s *WebServer) cleanupDownloadRegistration(d *warplib.Downloader, generation *TransferGeneration) error {
-	hash := d.GetHash()
-	cleanupErr := s.cleanupManagedDownloadRegistration(d)
-	if generation != nil {
-		generation.Abort()
-	} else if s.pool != nil {
-		s.pool.StopDownload(hash)
-	}
-	return cleanupErr
-}
-
-func (s *WebServer) startDownload(
-	ctx context.Context,
-	d *warplib.Downloader,
-	generation *TransferGeneration,
-	lease *warplib.RunLease,
-) {
-	err := normalizeServerTransferError(ctx, lease.StartContext(ctx))
-	hash := d.GetHash()
-	if err != nil {
-		err = errors.Join(err, lease.Close())
-	}
-	if generation != nil && !generation.IsCurrent() {
-		return
-	}
-	if err == nil {
-		s.m.ReleaseQueueSlot(hash)
-		if generation != nil {
-			// Completion/stopped handlers normally remove the registration.
-			// This covers a pre-start daemon cancellation with no callback.
-			generation.Finish(nil)
-		}
-		return
-	}
-	s.l.Printf("Download %s failed (%T)", hash, err)
-	if generation != nil {
-		generation.WriteError(ErrorTypeCritical, err.Error())
-	} else if s.pool != nil {
-		s.pool.WriteError(hash, ErrorTypeCritical, err.Error())
-	}
-	s.m.ReleaseQueueSlot(hash)
-	if item := s.m.GetItem(hash); item != nil && item.GetDownloaded() == 0 {
-		_ = s.m.PurgeFailedDownload(hash)
-	}
-	if generation != nil {
-		generation.Finish(MakeDownloadError(hash, err))
-	} else if s.pool != nil {
-		s.pool.BroadcastTerminal(hash, MakeDownloadError(hash, err))
-	}
-}
-
-func (s *WebServer) handleConnection(conn *websocket.Conn) {
-	if request := conn.Request(); request != nil {
-		if !s.attachWebHandler(webHandlerFromContext(request.Context()), conn.Close) {
-			return
-		}
-	}
-	s.l.Println("[WS] New extension connection from:", conn.Request().RemoteAddr)
-	defer func() {
-		s.l.Println("[WS] Connection closed")
-		conn.Close()
-	}()
-	for {
-		var data []byte
-		err := websocket.Message.Receive(conn, &data)
-		if err != nil {
-			if err == io.EOF {
-				s.l.Println("[WS] Client disconnected (EOF)")
-				return
-			}
-			s.l.Println("[WS] Error receiving message:", err)
-			return
-		}
-		s.l.Printf("[WS] Received %d bytes", len(data))
-		var cd capturedDownload
-		err = json.Unmarshal(data, &cd)
-		if err != nil {
-			s.l.Printf("[WS] Error unmarshalling %d-byte payload: %v", len(data), err)
-			continue
-		}
-		safeURL := sanitizedURL(cd.Url)
-		s.l.Printf("[WS] Parsed download - URL: %s, Headers: %d, Cookies: %d", safeURL, len(cd.Headers), len(cd.Cookies))
-		err = s.processDownload(&cd)
-		if err != nil {
-			s.l.Printf("[WS] Error processing download for %s", safeURL)
-			continue
-		}
-		s.l.Printf("[WS] Download queued successfully: %s", safeURL)
-	}
-}
-
-func sanitizedURL(rawURL string) string {
-	parsed, err := url.Parse(rawURL)
-	if err != nil {
-		return "<invalid-url>"
-	}
-	if parsed.Opaque != "" {
-		return parsed.Scheme + ":<opaque>"
-	}
-	parsed.User = nil
-	parsed.RawQuery = ""
-	parsed.ForceQuery = false
-	parsed.Fragment = ""
-	return parsed.String()
-}
-
 func (s *WebServer) handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.Handle("/", websocket.Handler(s.handleConnection))
 	if s.rpc != nil {
 		mux.Handle("/jsonrpc", s.rpc.bridge)
 		mux.HandleFunc("/jsonrpc/ws", s.handleJSONRPCWebSocket)
