@@ -135,17 +135,30 @@ type Downloader struct {
 	activeHasher hash.Hash
 	// activeAlgorithm is the algorithm being used for validation
 	activeAlgorithm ChecksumAlgorithm
-	// speedLimit is the maximum download speed in bytes per second.
-	// If zero, no limit is applied.
-	speedLimit int64
+	// speedLimit is the effective live cap pushed to part readers.
+	// baseSpeedLimit is the persisted per-download cap; ApplySpeedSchedule
+	// recomputes speedLimit as min(base, schedule) so lifting the schedule
+	// never erases the base. Both zero = unlimited.
+	speedLimit     atomic.Int64
+	baseSpeedLimit atomic.Int64
 
+	// unknownLimiter tracks the single-stream throttle reader used by the
+	// unknown-size fallback, so schedule passes can reach it. Guarded by
+	// limiterMu; SetLimit itself is thread-safe.
+	limiterMu      sync.Mutex
+	unknownLimiter *RateLimitedReadCloser
+
+	// speedMu guards speedRegistry: the set of parts with a registered live
+	// throttle reader. SetSpeedLimit snapshots it without holding the lock
+	// across SetLimit calls.
+	speedMu       sync.Mutex
+	speedRegistry map[*Part]struct{}
 	// enableWorkStealing controls whether completed parts can steal
 	// work from slower adjacent parts. Enabled by default.
 	enableWorkStealing bool
 	// activeParts tracks currently downloading parts for work stealing lookup.
 	// Maps part hash to *activePartInfo for O(1) access.
 	activeParts VMap[string, *activePartInfo]
-
 	// workerErrs records terminal errors from every download/compile worker.
 	// WaitGroup completion by itself only means goroutines exited; it does not
 	// mean their work succeeded.
@@ -161,6 +174,119 @@ func WithOverwrite(overwrite bool) DownloaderOptsFunc {
 	return func(d *Downloader) {
 		d.overwrite = overwrite
 	}
+}
+
+// currentPartSpeedLimit divides the total cap across base parts, matching the
+// construction-time split. Work-steal children re-derive it at spawn, and
+// live readers get SetLimit mid-transfer — no connection restart needed.
+func (d *Downloader) currentPartSpeedLimit() int64 {
+	if d == nil {
+		return 0
+	}
+	total := d.speedLimit.Load()
+	if total <= 0 {
+		return 0
+	}
+	if d.numBaseParts > 1 {
+		return total / int64(d.numBaseParts)
+	}
+	return total
+}
+
+// setSpeedLimits stores base and effective separately, then fans the
+// effective share out to live part readers and the single-stream fallback.
+func (d *Downloader) setSpeedLimits(base, effective int64) {
+	d.baseSpeedLimit.Store(base)
+	d.speedLimit.Store(effective)
+	share := d.currentPartSpeedLimit()
+	for _, part := range d.snapshotSpeedParts() {
+		part.applySpeedLimit(share)
+	}
+	d.limiterMu.Lock()
+	limiter := d.unknownLimiter
+	d.limiterMu.Unlock()
+	if limiter != nil {
+		limiter.SetLimit(effective)
+	}
+}
+
+// snapshotSpeedParts snapshots registered parts without holding the registry
+// lock across SetLimit calls.
+func (d *Downloader) snapshotSpeedParts() []*Part {
+	if d == nil {
+		return nil
+	}
+	d.speedMu.Lock()
+	defer d.speedMu.Unlock()
+	parts := make([]*Part, 0, len(d.speedRegistry))
+	for part := range d.speedRegistry {
+		parts = append(parts, part)
+	}
+	return parts
+}
+
+// registerSpeedPart tracks a part with a live throttle reader.
+func (d *Downloader) registerSpeedPart(part *Part) {
+	if d == nil || part == nil {
+		return
+	}
+	d.speedMu.Lock()
+	defer d.speedMu.Unlock()
+	if d.speedRegistry == nil {
+		d.speedRegistry = make(map[*Part]struct{})
+	}
+	d.speedRegistry[part] = struct{}{}
+}
+
+// unregisterSpeedPart stops live throttle updates to a finished part.
+func (d *Downloader) unregisterSpeedPart(part *Part) {
+	if d == nil || part == nil {
+		return
+	}
+	d.speedMu.Lock()
+	defer d.speedMu.Unlock()
+	delete(d.speedRegistry, part)
+}
+
+// setUnknownLimiter tracks the single-stream reader so schedule passes can
+// reach it. Nil clears it at stream end; the deferred Close runs first
+// (LIFO), which is safe because SetLimit only mutates the limiter's own
+// fields and never touches the closed body.
+func (d *Downloader) setUnknownLimiter(limiter *RateLimitedReadCloser) {
+	if d == nil {
+		return
+	}
+	d.limiterMu.Lock()
+	defer d.limiterMu.Unlock()
+	d.unknownLimiter = limiter
+}
+
+// ApplySpeedSchedule recomputes the effective live cap from the stored base
+// and the daemon schedule at now. The base is untouched, so leaving the
+// window restores the per-download cap instead of unlimited.
+func (d *Downloader) ApplySpeedSchedule(schedule *SpeedSchedule, now time.Time) {
+	if d == nil {
+		return
+	}
+	d.setSpeedLimits(d.baseSpeedLimit.Load(), CombineSpeedLimits(d.baseSpeedLimit.Load(), schedule.LimitAt(now)))
+}
+
+// GetSpeedLimit returns the effective live cap. Zero = unlimited.
+func (d *Downloader) GetSpeedLimit() int64 {
+	if d == nil {
+		return 0
+	}
+	return d.speedLimit.Load()
+}
+
+// GetBaseSpeedLimit returns the persisted per-download cap. The schedule
+// pass reads this (not the live value) so chained applications stay
+// idempotent.
+func (d *Downloader) GetBaseSpeedLimit() int64 {
+	if d == nil {
+		return 0
+	}
+	return d.baseSpeedLimit.Load()
 }
 
 // withResumable restores the range capability persisted on an Item. It is
@@ -393,34 +519,32 @@ func NewDownloader(client *http.Client, url string, opts *DownloaderOpts, optFun
 	// strip set. The shared http.Client CheckRedirect consults this when
 	// handling cross-origin redirects.
 	ctx = WithPluginHeaderNames(ctx, pluginHeaderNames)
-	d = &Downloader{
-		ctx:                ctx,
-		cancel:             cancel,
-		wg:                 &sync.WaitGroup{},
-		client:             client,
-		sourceURL:          url,
-		url:                url,
-		maxConn:            opts.MaxConnections,
-		chunk:              int(DEF_CHUNK_SIZE),
-		force:              opts.ForceParts,
-		handlers:           opts.Handlers,
-		fileName:           opts.FileName,
-		dlLoc:              opts.DownloadDirectory,
-		maxParts:           opts.MaxSegments,
-		headers:            opts.Headers,
-		sourceHeaders:      sourceHeaders,
-		pluginHeaderNames:  pluginHeaderNames,
-		resourceETag:       strongETag(opts.ResourceETag),
-		lockFileName:       opts.LockFileName,
-		resumable:          true,
-		retryConfig:        retryConfig,
-		overwrite:          opts.Overwrite,
-		requestTimeout:     opts.RequestTimeout,
-		maxFileSize:        opts.MaxFileSize,
-		checksumConfig:     opts.ChecksumConfig,
-		speedLimit:         opts.SpeedLimit,
-		enableWorkStealing: !opts.DisableWorkStealing,
-	}
+	d = &Downloader{ctx: ctx}
+	d.cancel = cancel
+	d.wg = &sync.WaitGroup{}
+	d.client = client
+	d.sourceURL = url
+	d.url = url
+	d.maxConn = opts.MaxConnections
+	d.chunk = int(DEF_CHUNK_SIZE)
+	d.force = opts.ForceParts
+	d.handlers = opts.Handlers
+	d.fileName = opts.FileName
+	d.dlLoc = opts.DownloadDirectory
+	d.maxParts = opts.MaxSegments
+	d.headers = opts.Headers
+	d.sourceHeaders = sourceHeaders
+	d.pluginHeaderNames = pluginHeaderNames
+	d.resourceETag = strongETag(opts.ResourceETag)
+	d.lockFileName = opts.LockFileName
+	d.resumable = true
+	d.retryConfig = retryConfig
+	d.overwrite = opts.Overwrite
+	d.requestTimeout = opts.RequestTimeout
+	d.maxFileSize = opts.MaxFileSize
+	d.checksumConfig = opts.ChecksumConfig
+	d.setSpeedLimits(opts.SpeedLimit, opts.SpeedLimit)
+	d.enableWorkStealing = !opts.DisableWorkStealing
 
 	// Apply functional options
 	for _, optFunc := range optFuncs {
@@ -572,9 +696,9 @@ func initDownloader(client *http.Client, hash, url string, cLength ContentLength
 		requestTimeout:     opts.RequestTimeout,
 		maxFileSize:        opts.MaxFileSize,
 		checksumConfig:     opts.ChecksumConfig,
-		speedLimit:         opts.SpeedLimit,
 		enableWorkStealing: !opts.DisableWorkStealing,
 	}
+	d.setSpeedLimits(opts.SpeedLimit, opts.SpeedLimit)
 
 	// Apply functional options
 	for _, optFunc := range optFuncs {
@@ -1105,10 +1229,7 @@ func (d *Downloader) closeLogWriter() error {
 
 func (d *Downloader) spawnPart(ioff, foff int64) (part *Part, err error) {
 	// Calculate per-part speed limit: total limit / number of parts
-	partSpeedLimit := d.speedLimit
-	if partSpeedLimit > 0 && d.numBaseParts > 1 {
-		partSpeedLimit = d.speedLimit / int64(d.numBaseParts)
-	}
+	partSpeedLimit := d.currentPartSpeedLimit()
 	part, err = newPart(
 		d.ctx,
 		d.client,
@@ -1139,13 +1260,9 @@ func (d *Downloader) spawnPart(ioff, foff int64) (part *Part, err error) {
 	d.handlers.SpawnPartHandler(part.hash, ioff, foff)
 	return
 }
-
 func (d *Downloader) initPart(hash string, ioff, foff int64) (part *Part, err error) {
 	// Calculate per-part speed limit: total limit / number of parts
-	partSpeedLimit := d.speedLimit
-	if partSpeedLimit > 0 && d.numBaseParts > 1 {
-		partSpeedLimit = d.speedLimit / int64(d.numBaseParts)
-	}
+	partSpeedLimit := d.currentPartSpeedLimit()
 	part, err = initPart(
 		d.ctx,
 		d.client,
@@ -1283,8 +1400,12 @@ func (d *Downloader) newPartDownloadWithBody(ioff, foff, espeed int64, body io.R
 	hash := part.hash
 	workerHash = hash
 	defer part.close()
-	if body != nil && part.speedLimit > 0 {
-		body = NewRateLimitedReadCloser(body, part.speedLimit)
+	part.applySpeedLimit(d.currentPartSpeedLimit())
+	if body != nil {
+		limiter := NewRateLimitedReadCloser(body, part.loadSpeedLimit())
+		part.setLimiter(limiter)
+		body = limiter
+		d.registerSpeedPart(part)
 	}
 	// CHANGE IMPL
 	err = d.runPart(part, ioff, foff, espeed, false, body)
@@ -1339,9 +1460,11 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 	foffAtomic := new(atomic.Int64)
 	foffAtomic.Store(foff)
 
-	// Register part for work stealing
+	// Register part for work stealing and live throttle updates.
 	d.registerActivePart(part, foffAtomic)
+	d.registerSpeedPart(part)
 	defer d.unregisterActivePart(hash)
+	defer d.unregisterSpeedPart(part)
 
 	loadFoff := func() int64 { return foffAtomic.Load() }
 	useRange := d.resumable || d.contentLength.v() <= 0
@@ -1431,6 +1554,9 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 
 			// Resume from where we left off — close old body to release
 			// the HTTP connection and stop any stall detection timer.
+			// Refresh the stored share first: a schedule boundary may have
+			// moved it while the backoff slept.
+			part.applySpeedLimit(d.currentPartSpeedLimit())
 			if body != nil {
 				body.Close()
 			}
@@ -2216,11 +2342,11 @@ func (d *Downloader) downloadUnknownSizeWorker(initialBody io.ReadCloser) {
 
 func (d *Downloader) downloadUnknownSizeFile(initialBody io.ReadCloser) error {
 	if initialBody != nil {
-		if d.speedLimit > 0 {
-			initialBody = NewRateLimitedReadCloser(initialBody, d.speedLimit)
-		}
-		defer initialBody.Close()
-		proxiedBody := NewCallbackProxyReader(initialBody, func(n int) {
+		limiter := NewRateLimitedReadCloser(initialBody, d.GetSpeedLimit())
+		d.setUnknownLimiter(limiter)
+		defer d.setUnknownLimiter(nil)
+		defer func() { _ = limiter.Close() }()
+		proxiedBody := NewCallbackProxyReader(limiter, func(n int) {
 			atomic.AddInt64(&d.nread, int64(n))
 			d.handlers.DownloadProgressHandler(MAIN_HASH, n)
 		})
@@ -2244,11 +2370,10 @@ func (d *Downloader) downloadUnknownSizeFile(initialBody io.ReadCloser) error {
 		}
 		return fmt.Errorf("unknown-size download expected HTTP 200, got %s", resp.Status)
 	}
-	var responseBody io.ReadCloser = resp.Body
-	if d.speedLimit > 0 {
-		responseBody = NewRateLimitedReadCloser(responseBody, d.speedLimit)
-	}
-	proxiedBody := NewCallbackProxyReader(responseBody, func(n int) {
+	limiter := NewRateLimitedReadCloser(resp.Body, d.GetSpeedLimit())
+	d.setUnknownLimiter(limiter)
+	defer d.setUnknownLimiter(nil)
+	proxiedBody := NewCallbackProxyReader(limiter, func(n int) {
 		atomic.AddInt64(&d.nread, int64(n))
 		d.handlers.DownloadProgressHandler(MAIN_HASH, n)
 	})

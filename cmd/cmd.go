@@ -75,6 +75,11 @@ func GetApp(bArgs BuildArgs) *cli.App {
 					Value:  3,
 					EnvVar: "WARPDL_MAX_CONCURRENT",
 				},
+				cli.StringFlag{
+					Name:   "speed-schedule",
+					Usage:  "throttle downloads during a daily window HH:MM-HH:MM:SPEED (e.g. 09:00-17:00:512KB)",
+					EnvVar: "WARPDL_SPEED_SCHEDULE",
+				},
 				cli.BoolFlag{
 					Name:  "rpc-listen-all",
 					Usage: "bind RPC to all interfaces instead of localhost only (unauthenticated; behind a reverse proxy only)",

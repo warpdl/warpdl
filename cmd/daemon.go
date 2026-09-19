@@ -9,6 +9,7 @@ import (
 	"github.com/warpdl/warpdl/cmd/common"
 	"github.com/warpdl/warpdl/internal/server"
 	"github.com/warpdl/warpdl/pkg/logger"
+	"github.com/warpdl/warpdl/pkg/warplib"
 )
 
 var (
@@ -26,6 +27,15 @@ func daemon(ctx *cli.Context) (err error) {
 			"max_concurrent",
 			errors.New("max-concurrent must be zero or greater"),
 		)
+	}
+	// --speed-schedule wins over WARPDL_SPEED_SCHEDULE (urfave/cli resolves
+	// flag first, env as fallback). Parse once and hand the result to shared
+	// initialization so the effective window is installed before restored
+	// transfers can start, and so an invalid env value cannot veto a valid
+	// flag.
+	schedule, err := parseSpeedScheduleFlag(ctx.String("speed-schedule"))
+	if err != nil {
+		return common.PrintRuntimeErr(ctx, "daemon", "speed_schedule", err)
 	}
 
 	// Clean up stale PID file or fail if daemon already running
@@ -53,7 +63,7 @@ func daemon(ctx *cli.Context) (err error) {
 	}
 
 	// Initialize all daemon components using shared initialization
-	components, err := initDaemonComponents(stdLog, maxConcurrent, rpcCfg)
+	components, err := initDaemonComponents(stdLog, maxConcurrent, rpcCfg, schedule)
 	if err != nil {
 		return common.PrintRuntimeErr(ctx, "daemon", "init_components", err)
 	}
@@ -72,4 +82,14 @@ func daemon(ctx *cli.Context) (err error) {
 	}()
 
 	return startServerFunc(components.Server, shutdownCtx)
+}
+
+// parseSpeedScheduleFlag parses --speed-schedule (or WARPDL_SPEED_SCHEDULE).
+// Empty means no daemon-wide throttle. Invalid input is a startup error, not
+// a silent unlimited fallback.
+func parseSpeedScheduleFlag(raw string) (*warplib.SpeedSchedule, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	return warplib.ParseSpeedSchedule(raw)
 }

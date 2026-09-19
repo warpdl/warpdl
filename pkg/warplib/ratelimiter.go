@@ -6,14 +6,18 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 // RateLimitedReader wraps an io.Reader and limits the read rate.
 // A limit of 0 or negative means unlimited (no throttling).
 type RateLimitedReader struct {
-	r        io.Reader
-	limit    int64 // bytes per second, 0 or negative = unlimited
+	r io.Reader
+	// limit is read per Read and updated live (daemon speed schedules call
+	// SetLimit from another goroutine), so it must stay atomic: the unlocked
+	// fast path below cannot be synchronized with mu.
+	limit    atomic.Int64 // bytes per second, 0 or negative = unlimited
 	mu       sync.Mutex
 	lastRead time.Time
 	tokens   int64 // available tokens (bytes)
@@ -22,22 +26,31 @@ type RateLimitedReader struct {
 // NewRateLimitedReader creates a rate-limited reader.
 // limit is in bytes per second. 0 or negative means unlimited.
 func NewRateLimitedReader(r io.Reader, limit int64) *RateLimitedReader {
-	return &RateLimitedReader{
+	lr := &RateLimitedReader{
 		r:        r,
-		limit:    limit,
 		lastRead: time.Now(),
 		tokens:   0, // start with empty bucket - no initial burst
 	}
+	lr.limit.Store(limit)
+	return lr
 }
 
 // Read implements io.Reader with rate limiting using a token bucket algorithm.
 func (r *RateLimitedReader) Read(b []byte) (n int, err error) {
 	// No limit - pass through directly
-	if r.limit <= 0 {
+	if r.limit.Load() <= 0 {
 		return r.r.Read(b)
 	}
 
 	r.mu.Lock()
+
+	// Re-check under the lock: a concurrent SetLimit can lift the cap between
+	// the fast path above and here.
+	limit := r.limit.Load()
+	if limit <= 0 {
+		r.mu.Unlock()
+		return r.r.Read(b)
+	}
 
 	// Refill tokens based on elapsed time
 	now := time.Now()
@@ -45,18 +58,18 @@ func (r *RateLimitedReader) Read(b []byte) (n int, err error) {
 	r.lastRead = now
 
 	// Add tokens for elapsed time (bytes per second * seconds elapsed)
-	tokensToAdd := int64(float64(r.limit) * elapsed.Seconds())
+	tokensToAdd := int64(float64(limit) * elapsed.Seconds())
 	r.tokens += tokensToAdd
 
 	// Cap tokens at limit (1 second worth of data max burst)
-	if r.tokens > r.limit {
-		r.tokens = r.limit
+	if r.tokens > limit {
+		r.tokens = limit
 	}
 
 	// Determine how many bytes we want to read
 	wantToRead := int64(len(b))
-	if wantToRead > r.limit {
-		wantToRead = r.limit // never read more than 1 second worth
+	if wantToRead > limit {
+		wantToRead = limit // never read more than 1 second worth
 	}
 
 	// If we don't have enough tokens, calculate wait time
@@ -64,21 +77,31 @@ func (r *RateLimitedReader) Read(b []byte) (n int, err error) {
 		// How many more tokens do we need?
 		needed := wantToRead - r.tokens
 		// How long to wait for those tokens?
-		waitTime := time.Duration(float64(time.Second) * float64(needed) / float64(r.limit))
+		waitTime := time.Duration(float64(time.Second) * float64(needed) / float64(limit))
 
 		if waitTime > 0 {
 			r.mu.Unlock()
 			time.Sleep(waitTime)
 			r.mu.Lock()
 
-			// After sleeping, recalculate tokens
+			// The cap may have moved while sleeping: re-read it before
+			// refilling so a lifted limit is not held back by the old one.
+			limit = r.limit.Load()
+			if limit <= 0 {
+				r.mu.Unlock()
+				return r.r.Read(b)
+			}
 			now = time.Now()
 			elapsed = now.Sub(r.lastRead)
 			r.lastRead = now
-			tokensToAdd = int64(float64(r.limit) * elapsed.Seconds())
+			tokensToAdd = int64(float64(limit) * elapsed.Seconds())
 			r.tokens += tokensToAdd
-			if r.tokens > r.limit {
-				r.tokens = r.limit
+			if r.tokens > limit {
+				r.tokens = limit
+			}
+			wantToRead = int64(len(b))
+			if wantToRead > limit {
+				wantToRead = limit
 			}
 		}
 	}
@@ -105,12 +128,13 @@ func (r *RateLimitedReader) Read(b []byte) (n int, err error) {
 	return n, err
 }
 
-// SetLimit updates the rate limit dynamically.
+// SetLimit updates the rate limit dynamically. Safe to call while another
+// goroutine is blocked in Read.
 // 0 or negative means unlimited.
 func (r *RateLimitedReader) SetLimit(limit int64) {
+	r.limit.Store(limit)
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.limit = limit
 	if limit > 0 && r.tokens > limit {
 		r.tokens = limit
 	}
@@ -118,9 +142,7 @@ func (r *RateLimitedReader) SetLimit(limit int64) {
 
 // GetLimit returns the current rate limit in bytes per second.
 func (r *RateLimitedReader) GetLimit() int64 {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.limit
+	return r.limit.Load()
 }
 
 // RateLimitedReadCloser wraps an io.ReadCloser with rate limiting.

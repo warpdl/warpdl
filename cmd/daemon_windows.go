@@ -17,6 +17,7 @@ import (
 	daemonpkg "github.com/warpdl/warpdl/internal/daemon"
 	"github.com/warpdl/warpdl/internal/server"
 	"github.com/warpdl/warpdl/pkg/logger"
+	"github.com/warpdl/warpdl/pkg/warplib"
 	"golang.org/x/sys/windows/svc"
 )
 
@@ -102,6 +103,14 @@ func getRPCConfigFromEnv() *server.RPCConfig {
 	}
 }
 
+// parseDaemonSpeedSchedule resolves the service-mode throttle window from
+// WARPDL_SPEED_SCHEDULE. Console mode resolves the same value through
+// --speed-schedule (env fallback), so an explicit flag can override the
+// environment. Empty means no throttle; invalid input is a startup error.
+func parseDaemonSpeedSchedule() (*warplib.SpeedSchedule, error) {
+	return parseSpeedScheduleFlag(os.Getenv("WARPDL_SPEED_SCHEDULE"))
+}
+
 // runServiceWithLogger runs the Windows service handler with full daemon functionality.
 func runServiceWithLogger(log logger.Logger) error {
 	// Read max concurrent from env var (no CLI context in service mode)
@@ -114,8 +123,15 @@ func runServiceWithLogger(log logger.Logger) error {
 	// Build RPC config from env vars (no CLI context in service mode)
 	rpcCfg := getRPCConfigFromEnv()
 
+	// Service mode has no CLI context: the throttle window is env-only.
+	schedule, err := parseDaemonSpeedSchedule()
+	if err != nil {
+		log.Error("Invalid service configuration: %v", err)
+		return err
+	}
+
 	// Initialize all daemon components using shared initialization
-	components, err := initDaemonComponents(log, maxConcurrent, rpcCfg)
+	components, err := initDaemonComponents(log, maxConcurrent, rpcCfg, schedule)
 	if err != nil {
 		log.Error("Failed to initialize daemon components: %v", err)
 		return err

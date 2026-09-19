@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/urfave/cli"
 	"github.com/warpdl/warpdl/internal/extl"
@@ -30,7 +31,7 @@ func TestDaemonStartStub(t *testing.T) {
 	var cm *credman.CookieManager
 	oldInit := initDaemonComponents
 	oldStart := startServerFunc
-	initDaemonComponents = func(log logger.Logger, maxConcurrent int, rpcCfg *server.RPCConfig) (*DaemonComponents, error) {
+	initDaemonComponents = func(log logger.Logger, maxConcurrent int, rpcCfg *server.RPCConfig, _ *warplib.SpeedSchedule) (*DaemonComponents, error) {
 		key := bytes.Repeat([]byte{0x11}, 32)
 		m, err := credman.NewCookieManager(filepath.Join(base, "cookies.warp"), key)
 		if err != nil {
@@ -57,6 +58,82 @@ func TestDaemonStartStub(t *testing.T) {
 	}
 }
 
+// runDaemonCommand runs the daemon action through the real CLI app so flag
+// and environment resolution behave exactly as in production, and reports
+// the schedule handed to shared initialization.
+func runDaemonCommand(t *testing.T, args ...string) (*warplib.SpeedSchedule, error) {
+	t.Helper()
+
+	oldInit := initDaemonComponents
+	oldStart := startServerFunc
+	var got *warplib.SpeedSchedule
+	initDaemonComponents = func(_ logger.Logger, _ int, _ *server.RPCConfig, schedule *warplib.SpeedSchedule) (*DaemonComponents, error) {
+		got = schedule
+		return &DaemonComponents{Server: &server.Server{}}, nil
+	}
+	startServerFunc = func(*server.Server, context.Context) error { return nil }
+	defer func() {
+		initDaemonComponents = oldInit
+		startServerFunc = oldStart
+	}()
+
+	app := GetApp(BuildArgs{})
+	err := app.Run(append([]string{"warpdl"}, args...))
+	return got, err
+}
+
+func assertScheduleWindow(t *testing.T, schedule *warplib.SpeedSchedule, insideHour, outsideHour int, want int64) {
+	t.Helper()
+	if schedule == nil {
+		t.Fatal("daemon handed no schedule to initialization")
+	}
+	day := time.Date(2026, time.March, 2, 0, 0, 0, 0, time.Local)
+	if got := schedule.LimitAt(day.Add(time.Duration(insideHour) * time.Hour)); got != want {
+		t.Fatalf("in-window limit = %d, want %d", got, want)
+	}
+	if got := schedule.LimitAt(day.Add(time.Duration(outsideHour) * time.Hour)); got != 0 {
+		t.Fatalf("out-of-window limit = %d, want unlimited", got)
+	}
+}
+
+// TestDaemonSpeedScheduleResolution pins the CLI contract: the flag wins over
+// WARPDL_SPEED_SCHEDULE (so an invalid environment value cannot veto a valid
+// flag), and the environment still applies when no flag is given.
+func TestDaemonSpeedScheduleResolution(t *testing.T) {
+	setup := func(t *testing.T) {
+		t.Helper()
+		base := t.TempDir()
+		if err := warplib.SetConfigDir(base); err != nil {
+			t.Fatalf("SetConfigDir: %v", err)
+		}
+		if err := extl.SetEngineStore(base); err != nil {
+			t.Fatalf("SetEngineStore: %v", err)
+		}
+	}
+
+	t.Run("flag overrides invalid env", func(t *testing.T) {
+		setup(t)
+		t.Setenv("WARPDL_SPEED_SCHEDULE", "not-a-schedule")
+
+		got, err := runDaemonCommand(t, "daemon", "--speed-schedule", "09:00-17:00:512KB")
+		if err != nil {
+			t.Fatalf("daemon: %v", err)
+		}
+		assertScheduleWindow(t, got, 10, 18, 512*1024)
+	})
+
+	t.Run("env applies without flag", func(t *testing.T) {
+		setup(t)
+		t.Setenv("WARPDL_SPEED_SCHEDULE", "22:00-06:00:1MB")
+
+		got, err := runDaemonCommand(t, "daemon")
+		if err != nil {
+			t.Fatalf("daemon: %v", err)
+		}
+		assertScheduleWindow(t, got, 23, 12, 1024*1024)
+	})
+}
+
 func TestDaemonRejectsNegativeMaxConcurrent(t *testing.T) {
 	set := flag.NewFlagSet("daemon", flag.ContinueOnError)
 	set.Int("max-concurrent", 0, "")
@@ -68,7 +145,7 @@ func TestDaemonRejectsNegativeMaxConcurrent(t *testing.T) {
 
 	oldInit := initDaemonComponents
 	initCalled := false
-	initDaemonComponents = func(logger.Logger, int, *server.RPCConfig) (*DaemonComponents, error) {
+	initDaemonComponents = func(logger.Logger, int, *server.RPCConfig, *warplib.SpeedSchedule) (*DaemonComponents, error) {
 		initCalled = true
 		return nil, nil
 	}
@@ -98,7 +175,7 @@ func TestDaemonShutdownFailureReturnsExitError(t *testing.T) {
 	oldStart := startServerFunc
 	oldClose := closeDaemonComponentsFn
 	shutdownErr := errors.New("final snapshot failed")
-	initDaemonComponents = func(logger.Logger, int, *server.RPCConfig) (*DaemonComponents, error) {
+	initDaemonComponents = func(logger.Logger, int, *server.RPCConfig, *warplib.SpeedSchedule) (*DaemonComponents, error) {
 		return &DaemonComponents{Server: &server.Server{}}, nil
 	}
 	startServerFunc = func(*server.Server, context.Context) error { return nil }
@@ -153,7 +230,7 @@ func TestDaemonClosesComponentsOnlyAfterProvenServerDrain(t *testing.T) {
 			oldStart := startServerFunc
 			oldClose := closeDaemonComponentsFn
 			closeCalls := 0
-			initDaemonComponents = func(logger.Logger, int, *server.RPCConfig) (*DaemonComponents, error) {
+			initDaemonComponents = func(logger.Logger, int, *server.RPCConfig, *warplib.SpeedSchedule) (*DaemonComponents, error) {
 				return &DaemonComponents{Server: &server.Server{}}, nil
 			}
 			startServerFunc = func(*server.Server, context.Context) error {
@@ -191,7 +268,7 @@ func TestDaemonInitComponentsError(t *testing.T) {
 	}
 
 	oldInit := initDaemonComponents
-	initDaemonComponents = func(log logger.Logger, maxConcurrent int, rpcCfg *server.RPCConfig) (*DaemonComponents, error) {
+	initDaemonComponents = func(log logger.Logger, maxConcurrent int, rpcCfg *server.RPCConfig, _ *warplib.SpeedSchedule) (*DaemonComponents, error) {
 		return nil, errors.New("init components error")
 	}
 	defer func() {
@@ -230,7 +307,7 @@ func TestDaemonExtEngineError(t *testing.T) {
 
 	var cm *credman.CookieManager
 	oldInit := initDaemonComponents
-	initDaemonComponents = func(log logger.Logger, maxConcurrent int, rpcCfg *server.RPCConfig) (*DaemonComponents, error) {
+	initDaemonComponents = func(log logger.Logger, maxConcurrent int, rpcCfg *server.RPCConfig, _ *warplib.SpeedSchedule) (*DaemonComponents, error) {
 		key := bytes.Repeat([]byte{0x11}, 32)
 		m, err := credman.NewCookieManager(filepath.Join(base, "cookies.warp"), key)
 		if err != nil {
@@ -288,7 +365,7 @@ func TestDaemonInitManagerError(t *testing.T) {
 	var cm *credman.CookieManager
 	oldInit := initDaemonComponents
 	oldStart := startServerFunc
-	initDaemonComponents = func(log logger.Logger, maxConcurrent int, rpcCfg *server.RPCConfig) (*DaemonComponents, error) {
+	initDaemonComponents = func(log logger.Logger, maxConcurrent int, rpcCfg *server.RPCConfig, _ *warplib.SpeedSchedule) (*DaemonComponents, error) {
 		key := bytes.Repeat([]byte{0x11}, 32)
 		m, err := credman.NewCookieManager(filepath.Join(base, "cookies.warp"), key)
 		if err != nil {

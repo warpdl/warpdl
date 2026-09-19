@@ -138,7 +138,7 @@ func TestInitDaemonComponents_WithCookieKey(t *testing.T) {
 	}
 	defer func() { currentBuildArgs = oldBuildArgs }()
 
-	components, err := initDaemonComponents(logger.NewNopLogger(), 0, nil)
+	components, err := initDaemonComponents(logger.NewNopLogger(), 0, nil, nil)
 	if err != nil {
 		t.Fatalf("initDaemonComponents: %v", err)
 	}
@@ -220,7 +220,7 @@ func TestInitDaemonComponents_MissedScheduleHonorsPausedQueue(t *testing.T) {
 	currentBuildArgs = BuildArgs{Version: "1.0.0", Commit: "test", BuildType: "test"}
 	defer func() { currentBuildArgs = oldBuildArgs }()
 
-	components, err := initDaemonComponents(logger.NewNopLogger(), 1, nil)
+	components, err := initDaemonComponents(logger.NewNopLogger(), 1, nil, nil)
 	if err != nil {
 		t.Fatalf("initDaemonComponents: %v", err)
 	}
@@ -345,7 +345,7 @@ func TestInitDaemonComponents_RestoresTriggeredUnlimitedItemIntoPool(t *testing.
 	oldBuildArgs := currentBuildArgs
 	currentBuildArgs = BuildArgs{Version: "1.0.0", Commit: "test", BuildType: "test"}
 	defer func() { currentBuildArgs = oldBuildArgs }()
-	components, err := initDaemonComponents(logger.NewNopLogger(), 0, nil)
+	components, err := initDaemonComponents(logger.NewNopLogger(), 0, nil, nil)
 	if err != nil {
 		t.Fatalf("initDaemonComponents: %v", err)
 	}
@@ -427,7 +427,7 @@ func TestInitDaemonComponents_RestoredQueueFailureRecordsPoolError(t *testing.T)
 	oldBuildArgs := currentBuildArgs
 	currentBuildArgs = BuildArgs{Version: "1.0.0", Commit: "test", BuildType: "test"}
 	defer func() { currentBuildArgs = oldBuildArgs }()
-	components, err := initDaemonComponents(logger.NewNopLogger(), 0, nil)
+	components, err := initDaemonComponents(logger.NewNopLogger(), 0, nil, nil)
 	if err != nil {
 		t.Fatalf("initDaemonComponents: %v", err)
 	}
