@@ -32,6 +32,11 @@ func TestWebServerShutdownDrainsHijackedWebSockets(t *testing.T) {
 	webServer.mu.Unlock()
 
 	conns := make([]*cws.Conn, 0, 2)
+	defer func() {
+		for _, conn := range conns {
+			_ = conn.CloseNow()
+		}
+	}()
 	for i := range 2 {
 		dialCtx, cancelDial := context.WithTimeout(context.Background(), time.Second)
 		conn, _, err := cws.Dial(dialCtx, "ws://"+address+"/jsonrpc/ws", nil)
@@ -39,7 +44,6 @@ func TestWebServerShutdownDrainsHijackedWebSockets(t *testing.T) {
 		if err != nil {
 			t.Fatalf("dial JSON-RPC WebSocket %d: %v", i+1, err)
 		}
-		defer func() { _ = conn.CloseNow() }()
 		conns = append(conns, conn)
 	}
 
