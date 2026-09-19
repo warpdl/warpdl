@@ -145,7 +145,7 @@ func TestTokenManagerDirectorySyncFailureKeepsCommittedState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reopen: %v", err)
 	}
-	defer reopened.Close()
+	defer func() { _ = reopened.Close() }()
 	got, err = reopened.Get(k)
 	if err != nil {
 		t.Fatalf("Get after reload: %v", err)

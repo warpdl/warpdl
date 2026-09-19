@@ -115,7 +115,7 @@ func (tm *TokenManager) save() error {
 			_ = os.Remove(tmpPath)
 		}
 	}()
-	if err := tmp.Chmod(0600); err != nil {
+	if err := tmp.Chmod(0o600); err != nil {
 		_ = tmp.Close()
 		return err
 	}
@@ -136,12 +136,12 @@ func (tm *TokenManager) save() error {
 	}
 	tm.f = nil
 	if err := replaceFile(tmpPath, tm.filePath); err != nil {
-		tm.f, _ = os.OpenFile(tm.filePath, os.O_RDWR, 0600)
+		tm.f, _ = os.OpenFile(tm.filePath, os.O_RDWR, 0o600)
 		return err
 	}
 	cleanup = false
 	dirSyncErr := syncTokenParentDirectory(dir)
-	f, reopenErr := os.OpenFile(tm.filePath, os.O_RDWR, 0600)
+	f, reopenErr := os.OpenFile(tm.filePath, os.O_RDWR, 0o600)
 	if reopenErr == nil {
 		tm.f = f
 	}
