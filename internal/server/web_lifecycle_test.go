@@ -10,7 +10,6 @@ import (
 	"time"
 
 	cws "github.com/coder/websocket"
-	"golang.org/x/net/websocket"
 )
 
 func TestWebServerShutdownDrainsHijackedWebSockets(t *testing.T) {
@@ -32,23 +31,21 @@ func TestWebServerShutdownDrainsHijackedWebSockets(t *testing.T) {
 	address := webServer.listener.Addr().String()
 	webServer.mu.Unlock()
 
-	extensionConn, err := websocket.Dial(
-		"ws://"+address+"/",
-		"",
-		"http://"+address,
-	)
-	if err != nil {
-		t.Fatalf("dial extension WebSocket: %v", err)
+	conns := make([]*cws.Conn, 0, 2)
+	defer func() {
+		for _, conn := range conns {
+			_ = conn.CloseNow()
+		}
+	}()
+	for i := range 2 {
+		dialCtx, cancelDial := context.WithTimeout(context.Background(), time.Second)
+		conn, _, err := cws.Dial(dialCtx, "ws://"+address+"/jsonrpc/ws", nil)
+		cancelDial()
+		if err != nil {
+			t.Fatalf("dial JSON-RPC WebSocket %d: %v", i+1, err)
+		}
+		conns = append(conns, conn)
 	}
-	defer extensionConn.Close()
-
-	dialCtx, cancelDial := context.WithTimeout(context.Background(), time.Second)
-	defer cancelDial()
-	rpcConn, _, err := cws.Dial(dialCtx, "ws://"+address+"/jsonrpc/ws", nil)
-	if err != nil {
-		t.Fatalf("dial JSON-RPC WebSocket: %v", err)
-	}
-	defer rpcConn.CloseNow()
 
 	waitForLifecycleCondition(t, func() bool {
 		webServer.mu.Lock()
@@ -77,16 +74,16 @@ func TestWebServerShutdownDrainsHijackedWebSockets(t *testing.T) {
 		t.Fatalf("active web handlers = %d, want 0", activeHandlers)
 	}
 
-	if err := extensionConn.SetReadDeadline(time.Now().Add(100 * time.Millisecond)); err != nil {
-		t.Fatalf("set extension read deadline: %v", err)
-	}
-	if _, err := extensionConn.Read(make([]byte, 1)); err == nil {
-		t.Fatal("extension WebSocket remained open after shutdown")
-	}
-	readCtx, cancelRead := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancelRead()
-	if _, _, err := rpcConn.Read(readCtx); err == nil {
-		t.Fatal("JSON-RPC WebSocket remained open after shutdown")
+	for i, conn := range conns {
+		readCtx, cancelRead := context.WithTimeout(context.Background(), 2*time.Second)
+		_, _, err := conn.Read(readCtx)
+		cancelRead()
+		if err == nil {
+			t.Fatalf("JSON-RPC WebSocket %d remained open after shutdown", i+1)
+		}
+		if errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("JSON-RPC WebSocket %d was not closed by shutdown: %v", i+1, err)
+		}
 	}
 
 	repeatCtx, cancelRepeat := context.WithTimeout(context.Background(), time.Second)
