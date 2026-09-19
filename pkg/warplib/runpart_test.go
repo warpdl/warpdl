@@ -175,7 +175,7 @@ func TestRunPartSlowMaxPartsLimit(t *testing.T) {
 	}
 
 	d := newRunPartDownloader(t, client, partsDir, mainFile)
-	d.contentLength = ContentLength(dataSize)
+	d.contentLength.Store(int64(dataSize))
 	d.maxParts = 1 // Set limit
 	d.numParts = 1 // Already at limit
 	d.maxConn = 10 // High so this doesn't trigger first
@@ -241,7 +241,7 @@ func TestRunPartSlowMaxConnLimit(t *testing.T) {
 	}
 
 	d := newRunPartDownloader(t, client, partsDir, mainFile)
-	d.contentLength = ContentLength(dataSize)
+	d.contentLength.Store(int64(dataSize))
 	d.maxConn = 1    // Set limit
 	d.numConn = 1    // Already at limit
 	d.maxParts = 100 // High limit so this doesn't trigger
@@ -308,7 +308,7 @@ func TestRunPartWorkStealingDisabled(t *testing.T) {
 	}
 
 	d := newRunPartDownloader(t, client, partsDir, mainFile)
-	d.contentLength = ContentLength(dataSize)
+	d.contentLength.Store(int64(dataSize))
 	d.enableWorkStealing = false // Disabled
 	d.activeParts.Make()
 
@@ -362,7 +362,7 @@ func TestRunPartWorkStealingSuccess(t *testing.T) {
 	d := newRunPartDownloader(t, client, partsDir, mainFile)
 	d.ctx = ctx
 	d.cancel = cancel
-	d.contentLength = ContentLength(100 * MB) // Large file for work stealing context
+	d.contentLength.Store(int64(100 * MB)) // Large file for work stealing context
 	d.enableWorkStealing = true
 	d.maxConn = 10
 	d.maxParts = 10
@@ -436,7 +436,7 @@ func TestRunPartSlowRespawn(t *testing.T) {
 	d := newRunPartDownloader(t, client, partsDir, mainFile)
 	d.ctx = ctx
 	d.cancel = cancel
-	d.contentLength = ContentLength(dataSize)
+	d.contentLength.Store(int64(dataSize))
 	d.resumable = true // This test exercises ranged slow-part splitting.
 	d.maxParts = 100   // High limit - won't trigger
 	d.maxConn = 100    // High limit - won't trigger

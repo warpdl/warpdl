@@ -52,8 +52,10 @@ type Downloader struct {
 	url string
 	// File name to be used while saving it
 	fileName string
-	// Size of file, wrapped inside ContentLength
-	contentLength ContentLength
+	// Size of file, wrapped inside ContentLength. Published with an atomic
+	// store when an unknown-size transfer completes, while the RPC layer may
+	// read it concurrently from another goroutine.
+	contentLength atomic.Int64
 	// Download location (directory) of the file.
 	dlLoc string
 	// Size of 1 chunk of bytes to download during
@@ -583,7 +585,7 @@ func NewDownloader(client *http.Client, url string, opts *DownloaderOpts, optFun
 		return
 	}
 	d.l.Println("GET:", logSafeURL(d.url))
-	d.l.Println("CONTENT-LENGTH:", d.contentLength.v(), "(", d.contentLength, ")")
+	d.l.Println("CONTENT-LENGTH:", d.GetContentLength().v(), "(", d.GetContentLength(), ")")
 	d.l.Println("FILE-NAME:", d.fileName)
 	d.handlers.setDefault(d.l)
 	if !d.resumable {
@@ -687,7 +689,6 @@ func initDownloader(client *http.Client, hash, url string, cLength ContentLength
 		pluginHeaderNames:  pluginHeaderNames,
 		resourceETag:       strongETag(opts.ResourceETag),
 		lockFileName:       opts.LockFileName,
-		contentLength:      cLength,
 		hash:               hash,
 		dlPath:             filepath.Join(DlDataDir, hash),
 		resumable:          cLength.v() > 0 && strongETag(opts.ResourceETag) != "",
@@ -699,6 +700,7 @@ func initDownloader(client *http.Client, hash, url string, cLength ContentLength
 		enableWorkStealing: !opts.DisableWorkStealing,
 	}
 	d.setSpeedLimits(opts.SpeedLimit, opts.SpeedLimit)
+	d.contentLength.Store(int64(cLength))
 
 	// Apply functional options
 	for _, optFunc := range optFuncs {
@@ -848,7 +850,7 @@ func (d *Downloader) Start() (err error) {
 		// err = os.Rename(d.fName, d.GetSavePath())
 	}()
 	// Check disk space before starting download
-	err = checkDiskSpace(d.dlLoc, d.contentLength.v())
+	err = checkDiskSpace(d.dlLoc, d.GetContentLength().v())
 	if err != nil {
 		d.Log("Insufficient disk space: %v", err)
 		return
@@ -886,14 +888,14 @@ func (d *Downloader) Start() (err error) {
 	if terminal, terminalErr := d.finishWorkers(); terminal {
 		return terminalErr
 	}
-	if v, nread := d.contentLength.v(), atomic.LoadInt64(&d.nread); v != -1 && v != nread {
+	if v, nread := d.contentLength.Load(), atomic.LoadInt64(&d.nread); v != -1 && v != nread {
 		return fmt.Errorf("%w: expected %d bytes, wrote %d", ErrDownloadSizeMismatch, v, nread)
 	}
-	if d.contentLength.v() == -1 {
+	if d.contentLength.Load() == -1 {
 		// A successful EOF is authoritative for a response whose size was not
 		// advertised. Publish it before checksum/completion handlers so Manager
 		// can persist an internally consistent completed Item.
-		d.contentLength = ContentLength(atomic.LoadInt64(&d.nread))
+		d.contentLength.Store(atomic.LoadInt64(&d.nread))
 	}
 	// Validate checksum before declaring completion
 	if err = d.validateChecksum(); err != nil {
@@ -908,7 +910,7 @@ func (d *Downloader) Start() (err error) {
 	if err = d.closeMainFile(); err != nil {
 		return
 	}
-	d.handlers.DownloadCompleteHandler(MAIN_HASH, d.contentLength.v())
+	d.handlers.DownloadCompleteHandler(MAIN_HASH, d.GetContentLength().v())
 	d.Log("All segments downloaded!")
 	return
 }
@@ -946,7 +948,7 @@ func (d *Downloader) Resume(parts map[int64]*ItemPart) (err error) {
 		partCopy := *v
 		partsSnapshot[k] = &partCopy
 	}
-	if err = validateResumePartCoverage(partsSnapshot, d.contentLength.v()); err != nil {
+	if err = validateResumePartCoverage(partsSnapshot, d.GetContentLength().v()); err != nil {
 		return
 	}
 
@@ -964,7 +966,7 @@ func (d *Downloader) Resume(parts map[int64]*ItemPart) (err error) {
 	// Calculate remaining bytes to download using an atomic read of nread —
 	// other resume goroutines update this counter concurrently in a few
 	// edge paths (e.g. already-compiled parts).
-	remainingBytes := d.contentLength.v() - atomic.LoadInt64(&d.nread)
+	remainingBytes := d.GetContentLength().v() - atomic.LoadInt64(&d.nread)
 	if remainingBytes < 0 {
 		// This indicates potential data corruption or resume error
 		d.Log("Warning: negative remaining bytes detected (%d). This may indicate corruption.", remainingBytes)
@@ -999,7 +1001,7 @@ func (d *Downloader) Resume(parts map[int64]*ItemPart) (err error) {
 	if terminal, terminalErr := d.finishWorkers(); terminal {
 		return terminalErr
 	}
-	if cl, nread := d.contentLength.v(), atomic.LoadInt64(&d.nread); cl != nread {
+	if cl, nread := d.GetContentLength().v(), atomic.LoadInt64(&d.nread); cl != nread {
 		return fmt.Errorf("%w: expected %d bytes, wrote %d", ErrDownloadSizeMismatch, cl, nread)
 	}
 	// Validate checksum before declaring completion
@@ -1015,7 +1017,7 @@ func (d *Downloader) Resume(parts map[int64]*ItemPart) (err error) {
 	if err = d.closeMainFile(); err != nil {
 		return
 	}
-	d.handlers.DownloadCompleteHandler(MAIN_HASH, d.contentLength.v())
+	d.handlers.DownloadCompleteHandler(MAIN_HASH, d.GetContentLength().v())
 	d.Log("All segments downloaded!")
 	return
 }
@@ -1215,7 +1217,7 @@ func (d *Downloader) syncMainFile() error {
 // tail, so matching nread alone cannot prove that the completed file has the
 // advertised representation length.
 func (d *Downloader) validateFinalFileSize() error {
-	return validatePhysicalFileSize(d.f, d.contentLength.v())
+	return validatePhysicalFileSize(d.f, d.GetContentLength().v())
 }
 
 func (d *Downloader) closeLogWriter() error {
@@ -1243,7 +1245,7 @@ func (d *Downloader) spawnPart(ioff, foff int64) (part *Part, err error) {
 			cpHandler:     d.handlers.CompileProgressHandler,
 			logger:        d.l,
 			offset:        ioff,
-			contentLength: d.contentLength.v(),
+			contentLength: d.GetContentLength().v(),
 			resourceETag:  d.resourceETag,
 			f:             d.f,
 			speedLimit:    partSpeedLimit,
@@ -1277,7 +1279,7 @@ func (d *Downloader) initPart(hash string, ioff, foff int64) (part *Part, err er
 			cpHandler:     d.handlers.CompileProgressHandler,
 			logger:        d.l,
 			offset:        ioff,
-			contentLength: d.contentLength.v(),
+			contentLength: d.GetContentLength().v(),
 			resourceETag:  d.resourceETag,
 			f:             d.f,
 			speedLimit:    partSpeedLimit,
@@ -1467,7 +1469,7 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 	defer d.unregisterSpeedPart(part)
 
 	loadFoff := func() int64 { return foffAtomic.Load() }
-	useRange := d.resumable || d.contentLength.v() <= 0
+	useRange := d.resumable || d.GetContentLength().v() <= 0
 
 	for {
 		if !repeated {
@@ -1685,13 +1687,16 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 
 // reserveSlowPartSplit divides the currently unreserved tail of part while
 // serializing with work stealing. The parent boundary is stored and persisted
-// before the child range is returned to the caller for spawning.
+// before the child range is returned to the caller for spawning. Persistence
+// stays under boundaryMu: releasing first lets a concurrent steal persist a
+// smaller boundary that this stale callback then overwrites, overlapping the
+// stolen child on restart. The handler only takes item.mu + manager persist
+// (no run drain), so the copy loop simply waits one persist per 32KB chunk.
 func (d *Downloader) reserveSlowPartSplit(part *Part, foff *atomic.Int64) (childIoff, childFoff int64, ok bool) {
 	if part.boundaryMu != nil {
 		part.boundaryMu.Lock()
 		defer part.boundaryMu.Unlock()
 	}
-
 	currentPos := part.offset + part.getRead()
 	if part.reservedThrough != nil {
 		if reservedNext := part.reservedThrough.Load() + 1; reservedNext > currentPos {
@@ -1702,7 +1707,6 @@ func (d *Downloader) reserveSlowPartSplit(part *Part, foff *atomic.Int64) (child
 	if currentEnd-currentPos <= 2*d.getMinPartSize() {
 		return 0, 0, false
 	}
-
 	div := (currentEnd - currentPos) / 2
 	childIoff = currentPos + div
 	if childIoff <= currentPos || childIoff > currentEnd {
@@ -1824,7 +1828,7 @@ func (d *Downloader) GetSavePath() (svPath string) {
 
 // GetContentLength returns the content length (size of the downloading item).
 func (d *Downloader) GetContentLength() ContentLength {
-	return d.contentLength
+	return ContentLength(d.contentLength.Load())
 }
 
 // GetContentLengthAsInt returns the content length as int64.
@@ -1834,7 +1838,7 @@ func (d *Downloader) GetContentLengthAsInt() int64 {
 
 // GetContentLengthAsString returns the content length as a string.
 func (d *Downloader) GetContentLengthAsString() string {
-	return d.contentLength.String()
+	return d.GetContentLength().String()
 }
 
 // GetHash returns the unique identifier hash for this download.
@@ -1845,7 +1849,7 @@ func (d *Downloader) GetHash() string {
 // NumConnections returns the number of connections
 // running currently.
 func (d *Downloader) NumConnections() int32 {
-	return d.numConn
+	return atomic.LoadInt32(&d.numConn)
 }
 
 // IsStopped returns true if the download was intentionally stopped.
@@ -1871,7 +1875,7 @@ func (d *Downloader) Log(s string, a ...any) {
 // partSize variable is the general size of each part
 // rPartSize variable contains the size of last part
 func (d *Downloader) getPartSize() (partSize, rpartSize int64) {
-	switch cl := d.contentLength.v(); cl {
+	switch cl := d.GetContentLength().v(); cl {
 	case -1, 0:
 		partSize = -1
 	default:
@@ -1910,14 +1914,14 @@ func (d *Downloader) setContentLength(cl int64) error {
 				ContentLength(maxSize))
 		}
 	}
-	d.contentLength = ContentLength(cl)
+	d.contentLength.Store(cl)
 	return nil
 }
 
 // getMinPartSize returns the minimum part size for this download
 // based on the content length.
 func (d *Downloader) getMinPartSize() int64 {
-	return getMinPartSize(d.contentLength.v())
+	return getMinPartSize(d.GetContentLength().v())
 }
 
 // setFileName sets up file name and other flags, along with the headers
@@ -2223,12 +2227,12 @@ func (d *Downloader) makeRequest(method string, hdrs ...Header) (*http.Response,
 // It makes an initial request and downloads first chunk and sets up all
 // the things like part size, content length, initial number of parts, etc.
 func (d *Downloader) prepareDownloader() (err error) {
-	if d.contentLength.v() <= 1 {
+	if d.GetContentLength().v() <= 1 {
 		d.numBaseParts = 1
 		// A one-byte resource has nothing useful to probe or split. Treat it
 		// as a full-stream download so servers that correctly return 200 (and
 		// ignore Range) are not rejected by strict segment validation.
-		if d.contentLength.v() == 1 {
+		if d.GetContentLength().v() == 1 {
 			d.resumable = false
 		}
 		return nil
@@ -2242,7 +2246,7 @@ func (d *Downloader) prepareDownloader() (err error) {
 		return nil
 	}
 	probeEnd := int64(d.chunk)
-	if maxEnd := d.contentLength.v() - 1; probeEnd > maxEnd {
+	if maxEnd := d.GetContentLength().v() - 1; probeEnd > maxEnd {
 		probeEnd = maxEnd
 	}
 	probeHeaders := []Header{
@@ -2274,7 +2278,7 @@ func (d *Downloader) prepareDownloader() (err error) {
 		return newHTTPStatusError(resp)
 	}
 	size := d.chunk
-	if d.contentLength.v() < int64(size) {
+	if d.GetContentLength().v() < int64(size) {
 		d.numBaseParts = 1
 		return
 	}

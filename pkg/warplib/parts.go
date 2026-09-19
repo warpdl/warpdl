@@ -46,12 +46,10 @@ type Part struct {
 	// resourceETag binds ranged requests to one HTTP representation.
 	resourceETag string
 	// boundaryMu serializes publishing an in-flight read reservation with
-	// work-steal and slow-split boundary reductions. It is never held across
-	// network I/O, disk writes, or callbacks.
-	boundaryMu *sync.Mutex
-	// reservedThrough is the inclusive absolute offset that the current copy
-	// iteration may write. A stealer must leave this reservation in the
-	// victim's range even while the network Read is blocked.
+	// work-steal and slow-split boundary reductions. Boundary callbacks that
+	// persist via item.mu stay under it so concurrent reducers cannot persist
+	// out of order; it is never held across network I/O or disk writes.
+	boundaryMu      *sync.Mutex
 	reservedThrough *atomic.Int64
 	// expected speed
 	etime time.Duration
@@ -660,7 +658,7 @@ func setRange(header http.Header, ioff, foff int64) {
 }
 
 func (p *Part) setHash() {
-	t := make([]byte, 2)
+	t := make([]byte, 4)
 	rand.Read(t)
 	p.hash = hex.EncodeToString(t)
 }

@@ -97,6 +97,7 @@ func isTransferShutdownError(err error) bool {
 		errors.Is(err, net.ErrClosed) ||
 		errors.Is(err, ErrItemDownloaderNotFound) ||
 		errors.Is(err, ErrReconstructionSuperseded) ||
+		errors.Is(err, ErrTransferInProgress) ||
 		errors.Is(err, ErrManagerShuttingDown)
 }
 

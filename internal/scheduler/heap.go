@@ -33,14 +33,25 @@ func heapPop(h *scheduleHeap) ScheduleEvent {
 	return heap.Pop(h).(ScheduleEvent)
 }
 
-// heapRemoveByHash removes the first ScheduleEvent with the given ItemHash.
-// Returns true if the event was found and removed, false otherwise.
+// heapRemoveByHash removes every ScheduleEvent with the given ItemHash.
+// Returns true if at least one event was found and removed.
 func heapRemoveByHash(h *scheduleHeap, itemHash string) bool {
-	for i, e := range *h {
+	kept := make(scheduleHeap, 0, len(*h))
+	removed := false
+	for _, e := range *h {
 		if e.ItemHash == itemHash {
-			heap.Remove(h, i)
-			return true
+			removed = true
+			continue
 		}
+		kept = append(kept, e)
 	}
-	return false
+	if !removed {
+		return false
+	}
+	// Rebuild instead of removing in place: heap.Remove relocates the tail
+	// element into the removed slot and sifts it up past already-scanned
+	// indices, so an in-place forward scan can leave matches behind.
+	*h = kept
+	heap.Init(h)
+	return true
 }

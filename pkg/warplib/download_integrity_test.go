@@ -1035,12 +1035,12 @@ func TestPrepareDownloaderClosesProbeBodyOnEarlyReturn(t *testing.T) {
 		}, nil
 	})}
 	d := &Downloader{
-		client:        client,
-		url:           "http://example.test/file.bin",
-		chunk:         int(DEF_CHUNK_SIZE),
-		contentLength: ContentLength(1024),
-		resourceETag:  `"probe-close-test"`,
+		client:       client,
+		url:          "http://example.test/file.bin",
+		chunk:        int(DEF_CHUNK_SIZE),
+		resourceETag: `"probe-close-test"`,
 	}
+	d.contentLength.Store(1024)
 	if err := d.prepareDownloader(); err != nil {
 		t.Fatalf("prepareDownloader: %v", err)
 	}
@@ -1568,11 +1568,11 @@ func TestSlowSplitAndWorkStealReservationsNeverOverlap(t *testing.T) {
 			reservedThrough: reservedThrough,
 		}
 		d := &Downloader{
-			contentLength: ContentLength(64 * MB),
 			handlers: &Handlers{
 				RespawnPartHandler: func(string, int64, int64, int64) {},
 			},
 		}
+		d.contentLength.Store(int64(64 * MB))
 
 		start := make(chan struct{})
 		var ownerChild, stolenChild byteRange
@@ -1614,6 +1614,79 @@ func TestSlowSplitAndWorkStealReservationsNeverOverlap(t *testing.T) {
 			t.Fatalf("iteration %d: parent=%+v overlaps owner=%+v or steal=%+v",
 				iteration, parent, ownerChild, stolenChild)
 		}
+	}
+}
+
+func TestSlowSplitCallbackCannotOverwriteNewerStealBoundary(t *testing.T) {
+	type persistedRange struct {
+		start int64
+		end   int64
+		ok    bool
+	}
+	const totalSize = int64(64 * MB)
+	finalOffset := new(atomic.Int64)
+	finalOffset.Store(totalSize - 1)
+	read := int64(0)
+	reservedThrough := new(atomic.Int64)
+	reservedThrough.Store(-1)
+	info := &activePartInfo{
+		hash:            "victim",
+		offset:          0,
+		foff:            finalOffset,
+		read:            &read,
+		reservedThrough: reservedThrough,
+	}
+	part := &Part{
+		hash:            "victim",
+		offset:          0,
+		boundaryMu:      &info.mu,
+		reservedThrough: reservedThrough,
+	}
+	persisted := make(chan int64, 2)
+	releasePersist := make(chan struct{})
+	first := make(chan struct{})
+	var once sync.Once
+	d := &Downloader{
+		handlers: &Handlers{
+			RespawnPartHandler: func(string, int64, int64, int64) {},
+		},
+	}
+	d.contentLength.Store(totalSize)
+	d.handlers.RespawnPartHandler = func(_ string, _, _ int64, foffNew int64) {
+		persisted <- foffNew
+		once.Do(func() { close(first) })
+		<-releasePersist
+	}
+
+	splitDone := make(chan persistedRange, 1)
+	go func() {
+		start, end, ok := d.reserveSlowPartSplit(part, finalOffset)
+		splitDone <- persistedRange{start: start, end: end, ok: ok}
+	}()
+	<-first // slow split stored A and is persisting it; steal must serialize
+	secondDone := make(chan persistedRange, 1)
+	go func() {
+		start, end, ok := d.reserveSlowPartSplit(part, finalOffset)
+		secondDone <- persistedRange{start: start, end: end, ok: ok}
+	}()
+	select {
+	case <-secondDone:
+		t.Fatal("concurrent split overtook in-progress persist; boundaries can persist out of order")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(releasePersist)
+	splitChild := <-splitDone
+	stolen := <-secondDone
+	if !splitChild.ok || !stolen.ok {
+		t.Fatalf("split results %+v steal %+v", splitChild, stolen)
+	}
+	firstPersist := <-persisted
+	secondPersist := <-persisted
+	if secondPersist >= firstPersist {
+		t.Fatalf("persisted boundaries out of order: %d then %d", firstPersist, secondPersist)
+	}
+	if finalOffset.Load() != secondPersist {
+		t.Fatalf("live boundary %d != last persisted %d", finalOffset.Load(), secondPersist)
 	}
 }
 

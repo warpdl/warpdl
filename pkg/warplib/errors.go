@@ -34,6 +34,10 @@ var (
 	// ErrRunLeaseUsed reports that a one-shot RunLease was already started or
 	// closed and therefore cannot admit another invocation.
 	ErrRunLeaseUsed = errors.New("download run lease was already used")
+	// ErrTransferInProgress reports that the item's allocation is already
+	// running a transfer. Callers must wait for or stop the active run
+	// instead of starting a second concurrent Download/Resume on it.
+	ErrTransferInProgress = errors.New("download transfer is already in progress")
 
 	// ErrFlushHashNotFound is returned when attempting to flush a download item that does not exist.
 	ErrFlushHashNotFound = errors.New("item you are trying to flush is not found")

@@ -38,9 +38,9 @@ func TestHandlerWrapperUnknownMethod(t *testing.T) {
 
 func TestHandlerWrapperError(t *testing.T) {
 	s := &Server{handler: make(map[common.UpdateType]HandlerFunc), pool: NewPool(nil)}
-	s.handler[common.UPDATE_LIST] = func(conn *SyncConn, pool *Pool, body json.RawMessage) (common.UpdateType, any, error) {
+	s.RegisterHandler(common.UPDATE_LIST, func(conn *SyncConn, pool *Pool, body json.RawMessage) (common.UpdateType, any, error) {
 		return common.UPDATE_LIST, nil, errors.New("boom")
-	}
+	})
 	c1, c2 := net.Pipe()
 	defer c1.Close()
 	defer c2.Close()
@@ -63,9 +63,9 @@ func TestHandlerWrapperError(t *testing.T) {
 
 func TestHandlerWrapperSuccess(t *testing.T) {
 	s := &Server{handler: make(map[common.UpdateType]HandlerFunc), pool: NewPool(nil)}
-	s.handler[common.UPDATE_LIST] = func(conn *SyncConn, pool *Pool, body json.RawMessage) (common.UpdateType, any, error) {
+	s.RegisterHandler(common.UPDATE_LIST, func(conn *SyncConn, pool *Pool, body json.RawMessage) (common.UpdateType, any, error) {
 		return common.UPDATE_LIST, map[string]string{"ok": "1"}, nil
-	}
+	})
 	c1, c2 := net.Pipe()
 	defer c1.Close()
 	defer c2.Close()
@@ -145,7 +145,10 @@ func TestNewServerRegisterHandler(t *testing.T) {
 		called = true
 		return common.UPDATE_LIST, map[string]string{"ok": "1"}, nil
 	})
-	if _, ok := s.handler[common.UPDATE_LIST]; !ok {
+	s.handlerMu.RLock()
+	_, ok := s.handler[common.UPDATE_LIST]
+	s.handlerMu.RUnlock()
+	if !ok {
 		t.Fatalf("expected handler to be registered")
 	}
 	if called {
@@ -159,9 +162,9 @@ func TestHandleConnection(t *testing.T) {
 		pool:    NewPool(nil),
 		log:     log.New(io.Discard, "", 0),
 	}
-	s.handler[common.UPDATE_LIST] = func(conn *SyncConn, pool *Pool, body json.RawMessage) (common.UpdateType, any, error) {
+	s.RegisterHandler(common.UPDATE_LIST, func(conn *SyncConn, pool *Pool, body json.RawMessage) (common.UpdateType, any, error) {
 		return common.UPDATE_LIST, map[string]string{"ok": "1"}, nil
-	}
+	})
 	c1, c2 := net.Pipe()
 	defer c1.Close()
 	defer c2.Close()
@@ -352,9 +355,9 @@ func TestHandlerWrapper_WriteErrorOnHandlerError(t *testing.T) {
 		handler: make(map[common.UpdateType]HandlerFunc),
 		pool:    NewPool(nil),
 	}
-	s.handler[common.UPDATE_LIST] = func(conn *SyncConn, pool *Pool, body json.RawMessage) (common.UpdateType, any, error) {
+	s.RegisterHandler(common.UPDATE_LIST, func(conn *SyncConn, pool *Pool, body json.RawMessage) (common.UpdateType, any, error) {
 		return common.UPDATE_LIST, nil, errors.New("handler error")
-	}
+	})
 	c1, _ := net.Pipe()
 	c1.Close() // Close to cause write error
 
@@ -370,9 +373,9 @@ func TestHandlerWrapper_WriteErrorOnSuccess(t *testing.T) {
 		handler: make(map[common.UpdateType]HandlerFunc),
 		pool:    NewPool(nil),
 	}
-	s.handler[common.UPDATE_LIST] = func(conn *SyncConn, pool *Pool, body json.RawMessage) (common.UpdateType, any, error) {
+	s.RegisterHandler(common.UPDATE_LIST, func(conn *SyncConn, pool *Pool, body json.RawMessage) (common.UpdateType, any, error) {
 		return common.UPDATE_LIST, map[string]string{"ok": "1"}, nil
-	}
+	})
 	c1, _ := net.Pipe()
 	c1.Close() // Close to cause write error
 

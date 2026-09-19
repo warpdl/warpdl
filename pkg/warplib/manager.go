@@ -70,7 +70,8 @@ type Manager struct {
 	// published atomically because completion/progress callbacks read it while
 	// daemon startup or reconfiguration may install/disable the queue.
 	queue atomic.Pointer[QueueManager]
-	// queueState stores persisted queue state until queue is initialized
+	// queueState stores persisted queue state until queue is initialized.
+	// Guarded by mu; InitManager writes it pre-publication.
 	queueState *QueueState
 	// schemeRouter dispatches URL schemes to protocol factories during resume.
 	schemeRouter atomic.Pointer[SchemeRouter]
@@ -352,9 +353,16 @@ func (m *Manager) setMaxConcurrentDownloads(
 	})
 	m.queue.Store(queue)
 
+	// Steal the pending restore snapshot under mu so concurrent
+	// reconfigurations cannot restore it twice.
+	m.mu.Lock()
+	pending := m.queueState
+	m.queueState = nil
+	m.mu.Unlock()
+
 	// Restore persisted queue state if available
-	if m.queueState != nil {
-		restoredState, _ := m.reconcileQueueState(*m.queueState)
+	if pending != nil {
+		restoredState, _ := m.reconcileQueueState(*pending)
 		// Override maxConcurrent with persisted value if it was set
 		// (but keep the new onStartDownload callback)
 		// LoadState persists the reconciled waiting snapshot synchronously
@@ -368,7 +376,6 @@ func (m *Manager) setMaxConcurrentDownloads(
 			queue.mu.Unlock()
 			queue.notifyChange()
 		}
-		m.queueState = nil // Clear after restoring
 
 		// LoadState converts prior active items to waiting. If the queue was
 		// running before shutdown, immediately fill available slots so the
@@ -397,10 +404,11 @@ func (m *Manager) ReleaseQueueSlot(hash string) bool {
 }
 
 // CloseWaitingDownloader closes and clears an item's live downloader only if
-// it is still waiting for a queue slot. Queue membership is held stable for
-// the duration of CloseDownloader, so a concurrent slot release cannot start
-// the downloader while it is being detached. The item remains queued and is
-// freshly reconstructed by the queue's onStart callback when promoted.
+// it is still waiting for a queue slot. The queue lock is released during
+// teardown, so a concurrent promotion can win: then the detached allocation
+// is already stale and CloseDownloader reports superseded, which the caller
+// must treat as active. The item remains queued and is freshly reconstructed
+// by the queue's onStart callback when promoted.
 func (m *Manager) CloseWaitingDownloader(hash string) (bool, error) {
 	queue := m.queue.Load()
 	if queue == nil {
@@ -410,12 +418,17 @@ func (m *Manager) CloseWaitingDownloader(hash string) (bool, error) {
 	if item == nil {
 		return false, ErrDownloadNotFound
 	}
-	return queue.runIfWaiting(hash, item.CloseDownloader)
+	allocation := item.getDAlloc()
+	return queue.runIfWaiting(hash, func() error {
+		return item.closeSpecificDownloader(allocation)
+	})
 }
 
 // RemoveWaitingDownloader atomically removes a waiting queue entry and closes
 // its allocation. If promotion already won, it returns false without touching
 // the now-active allocation so the caller can request a normal active stop.
+// The allocation is captured before removal so a concurrent re-add/promotion
+// that publishes a replacement is left untouched (superseded maps to nil).
 func (m *Manager) RemoveWaitingDownloader(hash string) (bool, error) {
 	queue := m.queue.Load()
 	if queue == nil {
@@ -425,7 +438,10 @@ func (m *Manager) RemoveWaitingDownloader(hash string) (bool, error) {
 	if item == nil {
 		return false, ErrDownloadNotFound
 	}
-	return queue.removeIfWaiting(hash, item.CloseDownloader)
+	allocation := item.getDAlloc()
+	return queue.removeIfWaiting(hash, func() error {
+		return item.closeSpecificDownloader(allocation)
+	})
 }
 
 // AddDownloadOpts contains optional parameters for AddDownload.
@@ -498,7 +514,7 @@ func (m *Manager) AddDownload(d *Downloader, opts *AddDownloadOpts) (err error) 
 		d.persistedURL(),
 		d.dlLoc,
 		d.hash,
-		d.contentLength,
+		d.GetContentLength(),
 		d.resumable,
 		&itemOpts{
 			AbsoluteLocation:  opts.AbsoluteLocation,
@@ -1097,13 +1113,47 @@ func (m *Manager) mutateItem(hash string, mutate func(*Item)) error {
 	return m.encodeLocked()
 }
 
+// ConfigureScheduleIf atomically updates all persisted schedule fields only
+// when the current state is one of expected. The trigger path uses it so a
+// stop that wins the manager lock first keeps Cancelled instead of being
+// overwritten by a stale scheduler snapshot.
+func (m *Manager) ConfigureScheduleIf(hash string, scheduledAt time.Time, cronExpr string, state ScheduleState, expected ...ScheduleState) (bool, error) {
+	m.mu.Lock()
+	item := m.items[hash]
+	if item == nil {
+		m.mu.Unlock()
+		return false, ErrDownloadNotFound
+	}
+	matches := false
+	for _, candidate := range expected {
+		if item.ScheduleState == candidate {
+			matches = true
+			break
+		}
+	}
+	if !matches {
+		m.mu.Unlock()
+		return false, nil
+	}
+	item.ScheduledAt = scheduledAt
+	item.CronExpr = cronExpr
+	item.ScheduleState = state
+	m.mu.Unlock()
+
+	if p := m.persister.Load(); p != nil {
+		p.markDirty()
+		if err := p.flush(); err != nil {
+			return true, fmt.Errorf("persist item mutation: %w", err)
+		}
+		return true, nil
+	}
+	return true, m.encodeLocked()
+}
+
 // ConfigureSchedule atomically updates all persisted schedule fields.
 func (m *Manager) ConfigureSchedule(hash string, scheduledAt time.Time, cronExpr string, state ScheduleState) error {
-	return m.mutateItem(hash, func(item *Item) {
-		item.ScheduledAt = scheduledAt
-		item.CronExpr = cronExpr
-		item.ScheduleState = state
-	})
+	_, err := m.ConfigureScheduleIf(hash, scheduledAt, cronExpr, state, ScheduleStateNone, ScheduleStateScheduled, ScheduleStateMissed, ScheduleStateTriggered, ScheduleStateCancelled)
+	return err
 }
 
 // SetScheduleState atomically transitions a schedule without changing its
@@ -1507,7 +1557,7 @@ func (m *Manager) resumeDownload(
 				item.memPart = make(map[string]int64)
 				item.Name = d.fileName
 				item.Url = d.persistedURL()
-				item.TotalSize = d.contentLength
+				item.TotalSize = d.GetContentLength()
 				item.Resumable = d.resumable
 				item.ResourceETag = d.resourceETag
 			}
@@ -1534,7 +1584,7 @@ func finishFreshHTTPDownloader(d *Downloader, hash string, opts *DownloaderOpts)
 		return err
 	}
 	d.l.Println("GET:", logSafeURL(d.url))
-	d.l.Println("CONTENT-LENGTH:", d.contentLength.v(), "(", d.contentLength, ")")
+	d.l.Println("CONTENT-LENGTH:", d.GetContentLength().v(), "(", d.GetContentLength(), ")")
 	d.l.Println("FILE-NAME:", d.fileName)
 	d.handlers.setDefault(d.l)
 	if !d.resumable {

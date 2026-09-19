@@ -45,7 +45,7 @@ func (o *allocationOwner) close() error {
 
 func sameProtocolDownloader(left, right ProtocolDownloader) bool {
 	if left == nil || right == nil {
-		return false
+		return left == nil && right == nil
 	}
 	leftType := reflect.TypeOf(left)
 	if leftType != reflect.TypeOf(right) || !leftType.Comparable() {
@@ -119,8 +119,11 @@ func (i *Item) acquireRunLease(
 	generation := i.dAllocGeneration
 	i.dAllocMu.Unlock()
 	release := i.claimRunLocked()
+	if release == nil {
+		i.reconstructionMu.Unlock()
+		return nil, ErrTransferInProgress
+	}
 	i.reconstructionMu.Unlock()
-
 	return &RunLease{
 		item:       i,
 		owner:      owner,

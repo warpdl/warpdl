@@ -2,6 +2,7 @@ package credman
 
 import (
 	"crypto/rand"
+	"errors"
 	"os"
 	"path/filepath"
 	"sync"
@@ -10,6 +11,8 @@ import (
 
 	"github.com/warpdl/warpdl/pkg/credman/types"
 )
+
+var errTestTokenSync = errors.New("simulated token directory sync failure")
 
 func newTestTokenMgr(t *testing.T) *TokenManager {
 	t.Helper()
@@ -98,6 +101,101 @@ func TestTokenMgrList(t *testing.T) {
 	got := tm.List()
 	if len(got) != 3 {
 		t.Fatalf("List len=%d, want 3", len(got))
+	}
+}
+
+func TestTokenManagerDirectorySyncFailureKeepsCommittedState(t *testing.T) {
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		t.Fatalf("rand: %v", err)
+	}
+	path := filepath.Join(t.TempDir(), "tokens.gob")
+	tm, err := NewTokenManager(path, key)
+	if err != nil {
+		t.Fatalf("NewTokenManager: %v", err)
+	}
+
+	originalSync := syncTokenParentDirectory
+	t.Cleanup(func() { syncTokenParentDirectory = originalSync })
+	syncFailure := errTestTokenSync
+	syncTokenParentDirectory = func(string) error { return syncFailure }
+
+	k := types.TokenKey{PluginID: "gdrive", Account: "default"}
+	want := &types.OAuth2Token{AccessToken: "ACCESS", ExpiresAt: time.Now().Add(time.Hour)}
+	err = tm.Set(k, want)
+	if err == nil {
+		t.Fatal("Set unexpectedly succeeded under sync failure")
+	}
+	if !tokenStoreCommitSucceeded(err) {
+		t.Fatalf("Set error does not report a committed replacement: %v", err)
+	}
+	got, err := tm.Get(k)
+	if err != nil {
+		t.Fatalf("Get after committed error: %v", err)
+	}
+	if got.AccessToken != "ACCESS" {
+		t.Fatalf("committed token lost: %+v", got)
+	}
+
+	syncTokenParentDirectory = originalSync
+	if err := tm.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	reopened, err := NewTokenManager(path, key)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	defer reopened.Close()
+	got, err = reopened.Get(k)
+	if err != nil {
+		t.Fatalf("Get after reload: %v", err)
+	}
+	if got.AccessToken != "ACCESS" {
+		t.Fatalf("reload lost committed token: %+v", got)
+	}
+}
+
+func TestTokenManagerMutationsRollBackBeforeCommit(t *testing.T) {
+	tm := newTestTokenMgr(t)
+	k := types.TokenKey{PluginID: "gdrive", Account: "default"}
+	original := &types.OAuth2Token{AccessToken: "ORIGINAL", ExpiresAt: time.Now().Add(time.Hour)}
+	if err := tm.Set(k, original); err != nil {
+		t.Fatalf("seed token: %v", err)
+	}
+	if err := tm.f.Close(); err != nil {
+		t.Fatalf("close store: %v", err)
+	}
+	tm.f = nil
+
+	overwrite := &types.OAuth2Token{AccessToken: "UNCOMMITTED", ExpiresAt: time.Now().Add(time.Hour)}
+	if err := tm.Set(k, overwrite); err == nil {
+		t.Fatal("Set overwrite unexpectedly succeeded")
+	}
+	got, err := tm.Get(k)
+	if err != nil {
+		t.Fatalf("Get after failed overwrite: %v", err)
+	}
+	if got.AccessToken != "ORIGINAL" {
+		t.Fatalf("failed overwrite leaked: %+v", got)
+	}
+
+	added := types.TokenKey{PluginID: "gdrive", Account: "work"}
+	if err := tm.Set(added, overwrite); err == nil {
+		t.Fatal("Set add unexpectedly succeeded")
+	}
+	if _, err := tm.Get(added); err == nil {
+		t.Fatal("failed Set left a new in-memory token")
+	}
+
+	if err := tm.Delete(k); err == nil {
+		t.Fatal("Delete unexpectedly succeeded")
+	}
+	got, err = tm.Get(k)
+	if err != nil {
+		t.Fatalf("Get after failed delete: %v", err)
+	}
+	if got.AccessToken != "ORIGINAL" {
+		t.Fatalf("failed delete leaked: %+v", got)
 	}
 }
 

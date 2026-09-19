@@ -2,6 +2,7 @@ package warplib
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"sync"
 )
@@ -544,41 +545,69 @@ func (qm *QueueManager) IsWaiting(hash string) bool {
 	return false
 }
 
-// runIfWaiting invokes fn while the queue lock proves hash is still waiting.
-// This is used to release a probed downloader before a backlog promotion: a
-// concurrent completion cannot promote the item between the membership check
-// and resource teardown.
+// runIfWaiting invokes fn only while hash is still waiting. It releases the
+// queue lock before teardown: CloseDownloader blocks on a run drain whose
+// exit path re-enters the queue (DownloadStoppedHandler -> OnStopped), so
+// holding qm.mu across fn deadlocks the daemon. Detachment is exact: fn
+// clears only the allocation observed under the first check, so a concurrent
+// promotion that publishes a new allocation is left untouched and the second
+// check reports the promotion win. A superseded close means promotion won
+// the race: the live replacement must be kept, so it maps to (false, nil).
 func (qm *QueueManager) runIfWaiting(hash string, fn func() error) (bool, error) {
+	qm.mu.Lock()
+	waiting := false
+	for _, item := range qm.waiting {
+		if item.hash == hash {
+			waiting = true
+			break
+		}
+	}
+	qm.mu.Unlock()
+	if !waiting {
+		return false, nil
+	}
+	err := fn()
+	if errors.Is(err, ErrReconstructionSuperseded) {
+		return false, nil
+	}
 	qm.mu.Lock()
 	defer qm.mu.Unlock()
 	for _, item := range qm.waiting {
 		if item.hash == hash {
-			return true, fn()
+			return true, err
 		}
 	}
-	return false, nil
+	return false, err
 }
 
-// removeIfWaiting removes hash and invokes fn while the queue lock proves the
-// item has not been promoted. The callback is used to detach its allocation
-// before another completion can start it.
+// removeIfWaiting removes hash and invokes fn after the queue lock proves the
+// item has not been promoted. Teardown runs without qm.mu: CloseDownloader
+// blocks on a run drain whose exit path re-enters the queue, so holding the
+// lock across fn deadlocks the daemon (same cycle as runIfWaiting).
 func (qm *QueueManager) removeIfWaiting(hash string, fn func() error) (bool, error) {
 	qm.mu.Lock()
+	removed := false
 	for index, item := range qm.waiting {
 		if item.hash != hash {
 			continue
 		}
 		qm.waiting = append(qm.waiting[:index], qm.waiting[index+1:]...)
-		var err error
-		if fn != nil {
-			err = fn()
-		}
-		qm.mu.Unlock()
-		qm.notifyChange()
-		return true, err
+		removed = true
+		break
 	}
 	qm.mu.Unlock()
-	return false, nil
+	if !removed {
+		return false, nil
+	}
+	var err error
+	if fn != nil {
+		err = fn()
+		if errors.Is(err, ErrReconstructionSuperseded) {
+			err = nil
+		}
+	}
+	qm.notifyChange()
+	return true, err
 }
 
 // MaxConcurrent returns the maximum number of concurrent downloads.

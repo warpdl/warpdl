@@ -37,15 +37,15 @@ func TestPrepareDownloaderSlowSpeed(t *testing.T) {
 		}),
 	}
 	d := &Downloader{
-		client:        client,
-		url:           "http://example.com/file.bin",
-		chunk:         8,
-		force:         false,
-		numBaseParts:  0,
-		contentLength: 1000,
-		headers:       Headers{},
-		resourceETag:  `"speed-test"`,
+		client:       client,
+		url:          "http://example.com/file.bin",
+		chunk:        8,
+		force:        false,
+		numBaseParts: 0,
+		headers:      Headers{},
+		resourceETag: `"speed-test"`,
 	}
+	d.contentLength.Store(1000)
 	if err := d.prepareDownloader(); err != nil {
 		t.Fatalf("prepareDownloader: %v", err)
 	}
@@ -119,15 +119,15 @@ func TestPrepareDownloaderSpeedAllocation(t *testing.T) {
 				}),
 			}
 			d := &Downloader{
-				client:        client,
-				url:           "http://example.com/file.bin",
-				chunk:         tt.chunkSize,
-				force:         false,
-				numBaseParts:  0,
-				contentLength: 1048576, // 1MB
-				headers:       Headers{},
-				resourceETag:  `"speed-test"`,
+				client:       client,
+				url:          "http://example.com/file.bin",
+				chunk:        tt.chunkSize,
+				force:        false,
+				numBaseParts: 0,
+				headers:      Headers{},
+				resourceETag: `"speed-test"`,
 			}
+			d.contentLength.Store(1048576) // 1MB
 			if err := d.prepareDownloader(); err != nil {
 				t.Fatalf("prepareDownloader: %v", err)
 			}
@@ -182,15 +182,15 @@ func TestPrepareDownloaderNoAcceptRanges(t *testing.T) {
 		}),
 	}
 	d := &Downloader{
-		client:        client,
-		url:           "http://example.com/file.bin",
-		chunk:         1024,
-		force:         false, // Not forcing range requests
-		numBaseParts:  0,
-		contentLength: 1048576,
-		headers:       Headers{},
-		resourceETag:  `"no-ranges-test"`,
+		client:       client,
+		url:          "http://example.com/file.bin",
+		chunk:        1024,
+		force:        false, // Not forcing range requests
+		numBaseParts: 0,
+		headers:      Headers{},
+		resourceETag: `"no-ranges-test"`,
 	}
+	d.contentLength.Store(1048576)
 	if err := d.prepareDownloader(); err != nil {
 		t.Fatalf("prepareDownloader: %v", err)
 	}
@@ -218,15 +218,15 @@ func TestPrepareDownloaderSmallContent(t *testing.T) {
 		}),
 	}
 	d := &Downloader{
-		client:        client,
-		url:           "http://example.com/file.bin",
-		chunk:         1024, // Larger than content
-		force:         false,
-		numBaseParts:  0,
-		contentLength: 100, // Content smaller than chunk
-		headers:       Headers{},
-		resourceETag:  `"small-test"`,
+		client:       client,
+		url:          "http://example.com/file.bin",
+		chunk:        1024, // Larger than content
+		force:        false,
+		numBaseParts: 0,
+		headers:      Headers{},
+		resourceETag: `"small-test"`,
 	}
+	d.contentLength.Store(100) // Content smaller than chunk
 	if err := d.prepareDownloader(); err != nil {
 		t.Fatalf("prepareDownloader: %v", err)
 	}
@@ -251,15 +251,15 @@ func TestPrepareDownloaderNumBasePartsPreset(t *testing.T) {
 		}),
 	}
 	d := &Downloader{
-		client:        client,
-		url:           "http://example.com/file.bin",
-		chunk:         1024,
-		force:         false,
-		numBaseParts:  7, // Already set
-		contentLength: 1048576,
-		headers:       Headers{},
-		resourceETag:  `"preset-test"`,
+		client:       client,
+		url:          "http://example.com/file.bin",
+		chunk:        1024,
+		force:        false,
+		numBaseParts: 7, // Already set
+		headers:      Headers{},
+		resourceETag: `"preset-test"`,
 	}
+	d.contentLength.Store(1048576)
 	if err := d.prepareDownloader(); err != nil {
 		t.Fatalf("prepareDownloader: %v", err)
 	}

@@ -152,10 +152,12 @@ type Item struct {
 	reconstructionTransition sync.Mutex
 	reconstructionGeneration uint64
 	dAllocGeneration         uint64
-	// activeRuns and runsDrained form the invocation side of the reconstruction
-	// lease. A run claim is acquired while reconstructionMu still proves the
-	// allocation identity, then retained across Download/Resume. Replacement
-	// waits for runsDrained before it may return a new reconstruction lease.
+	// runActive tracks whether a Download/Resume call is currently using the
+	// published allocation. claimRunLocked rejects a second concurrent run so
+	// two goroutines cannot open, write, and Wait on one Downloader's
+	// unguarded file handle and WaitGroup at the same time. Guarded by
+	// reconstructionMu alongside activeRuns.
+	runActive   bool
 	activeRuns  int
 	runsDrained chan struct{}
 	// memPart is an internal map for managing memory allocation of parts.
@@ -465,10 +467,18 @@ func (i *Item) claimDAllocLocked(
 		}
 		return nil, nil, nil, ErrItemDownloaderNotFound
 	}
-	return d, h, i.claimRunLocked(), nil
+	release := i.claimRunLocked()
+	if release == nil {
+		return nil, nil, nil, ErrTransferInProgress
+	}
+	return d, h, release, nil
 }
 
 func (i *Item) claimRunLocked() func() {
+	if i.runActive {
+		return nil
+	}
+	i.runActive = true
 	if i.activeRuns == 0 {
 		i.runsDrained = make(chan struct{})
 	}
@@ -477,6 +487,7 @@ func (i *Item) claimRunLocked() func() {
 	release := func() {
 		once.Do(func() {
 			i.reconstructionMu.Lock()
+			i.runActive = false
 			i.activeRuns--
 			if i.activeRuns == 0 {
 				close(i.runsDrained)
@@ -715,13 +726,34 @@ func (i *Item) StopDownload() error {
 // CloseDownloader closes the downloader and releases all file handles.
 // Use this when a download is aborted before Start()/Resume() completes.
 func (i *Item) CloseDownloader() error {
+	return i.closeSpecificDownloader(i.getDAlloc())
+}
+
+// closeSpecificDownloader detaches and closes only the allocation observed by
+// the caller. A concurrent promotion that already published a replacement is
+// left untouched, so unlocking the queue during teardown cannot destroy the
+// active run that won the promotion race.
+func (i *Item) closeSpecificDownloader(allocation ProtocolDownloader) error {
 	i.reconstructionTransition.Lock()
 	defer i.reconstructionTransition.Unlock()
 	i.reconstructionMu.Lock()
 	i.dAllocMu.Lock()
-	i.reconstructionGeneration++
-	allocation := i.dAlloc
+	current := i.dAlloc
 	owner := i.allocationOwnerLocked()
+	if current != allocation && !sameProtocolDownloader(current, allocation) {
+		i.dAllocMu.Unlock()
+		i.reconstructionMu.Unlock()
+		return ErrReconstructionSuperseded
+	}
+	if allocation == nil {
+		// Nothing published: a promotion probe may be running outside the
+		// locks. Bumping here would invalidate its exact generation on a
+		// no-op close and turn the probe into a spurious superseded error.
+		i.dAllocMu.Unlock()
+		i.reconstructionMu.Unlock()
+		return nil
+	}
+	i.reconstructionGeneration++
 	i.dAlloc = nil
 	i.dAllocOwner = nil
 	i.resumeHandlers = nil
@@ -729,9 +761,6 @@ func (i *Item) CloseDownloader() error {
 	i.dAllocMu.Unlock()
 	drained := i.runsDrainedLocked()
 	i.reconstructionMu.Unlock()
-	if allocation == nil {
-		return nil
-	}
 	owner.stop()
 	<-drained
 	return owner.close()

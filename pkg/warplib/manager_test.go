@@ -29,18 +29,18 @@ func newTestManager(t *testing.T) *Manager {
 
 func newTestDownloader() *Downloader {
 	d := &Downloader{
-		fileName:      "file.bin",
-		url:           "http://example.com/file.bin",
-		dlLoc:         ".",
-		hash:          "hash1",
-		contentLength: 100,
-		resumable:     true,
-		maxConn:       2,
-		maxParts:      2,
-		headers:       Headers{{Key: "X-Test", Value: "one"}},
-		handlers:      &Handlers{},
-		wg:            &sync.WaitGroup{},
+		fileName:  "file.bin",
+		url:       "http://example.com/file.bin",
+		dlLoc:     ".",
+		hash:      "hash1",
+		resumable: true,
+		maxConn:   2,
+		maxParts:  2,
+		headers:   Headers{{Key: "X-Test", Value: "one"}},
+		handlers:  &Handlers{},
+		wg:        &sync.WaitGroup{},
 	}
+	d.contentLength.Store(100)
 	d.handlers.setDefault(log.New(io.Discard, "", 0))
 	return d
 }

@@ -49,7 +49,9 @@ func (s *Scheduler) Add(event ScheduleEvent) {
 	}
 }
 
-// Remove cancels a scheduled event by item hash.
+// Remove cancels every pending event for itemHash. The scheduler goroutine
+// owns the heap, so cancellation is delivered as a request it applies
+// between triggers.
 func (s *Scheduler) Remove(itemHash string) {
 	select {
 	case s.removeChan <- itemHash:
