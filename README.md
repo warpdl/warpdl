@@ -74,7 +74,7 @@ You will need the following things for building warpdl binary:
 #### Quick Install (Recommended)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/warpdl/warpdl/dev/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/warpdl/warpdl/main/scripts/install.sh | sh
 ```
 
 This automatically:
@@ -96,7 +96,7 @@ brew install warpdl/tap/warpdl
 <summary>Binary Only (no install)</summary>
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/warpdl/warpdl/dev/scripts/install.sh | sh -s -- --no-install
+curl -fsSL https://raw.githubusercontent.com/warpdl/warpdl/main/scripts/install.sh | sh -s -- --no-install
 ```
 </details>
 
@@ -168,7 +168,7 @@ The WarpDL daemon runs in the background to manage downloads. Before uninstallin
 
 - **Script/Manual Installation:**
   ```
-  curl -fsSL https://raw.githubusercontent.com/warpdl/warpdl/dev/scripts/uninstall.sh | sh
+  curl -fsSL https://raw.githubusercontent.com/warpdl/warpdl/main/scripts/uninstall.sh | sh
   ```
 
 - **Complete Manual Cleanup:**

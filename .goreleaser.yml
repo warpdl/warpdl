@@ -20,7 +20,7 @@ release:
 
     **Linux/macOS/BSD (Direct install):**
     ```bash
-    curl -fsSL https://raw.githubusercontent.com/warpdl/warpdl/dev/scripts/install.sh | sh
+    curl -fsSL https://raw.githubusercontent.com/warpdl/warpdl/main/scripts/install.sh | sh
     ```
 
 gomod:
