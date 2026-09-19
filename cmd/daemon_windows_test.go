@@ -47,7 +47,7 @@ func TestDaemonWindows_ConsoleMode(t *testing.T) {
 	var cm *credman.CookieManager
 	oldInit := initDaemonComponents
 	oldStart := startServerFunc
-	initDaemonComponents = func(log logger.Logger, maxConcurrent int, rpcCfg *server.RPCConfig) (*DaemonComponents, error) {
+	initDaemonComponents = func(log logger.Logger, maxConcurrent int, rpcCfg *server.RPCConfig, _ *warplib.SpeedSchedule) (*DaemonComponents, error) {
 		key := bytes.Repeat([]byte{0x11}, 32)
 		m, err := credman.NewCookieManager(filepath.Join(base, "cookies.warp"), key)
 		if err != nil {
@@ -117,7 +117,7 @@ func TestRunAsWindowsService_UsesEventLog(t *testing.T) {
 	// Mock initDaemonComponents
 	var cm *credman.CookieManager
 	oldInit := initDaemonComponents
-	initDaemonComponents = func(log logger.Logger, maxConcurrent int, rpcCfg *server.RPCConfig) (*DaemonComponents, error) {
+	initDaemonComponents = func(log logger.Logger, maxConcurrent int, rpcCfg *server.RPCConfig, _ *warplib.SpeedSchedule) (*DaemonComponents, error) {
 		usedLogger = log
 		key := bytes.Repeat([]byte{0x11}, 32)
 		m, err := credman.NewCookieManager(filepath.Join(base, "cookies.warp"), key)
@@ -186,7 +186,7 @@ func TestRunAsWindowsService_FallsBackToConsole(t *testing.T) {
 	// Mock initDaemonComponents
 	var cm *credman.CookieManager
 	oldInit := initDaemonComponents
-	initDaemonComponents = func(log logger.Logger, maxConcurrent int, rpcCfg *server.RPCConfig) (*DaemonComponents, error) {
+	initDaemonComponents = func(log logger.Logger, maxConcurrent int, rpcCfg *server.RPCConfig, _ *warplib.SpeedSchedule) (*DaemonComponents, error) {
 		usedLogger = log
 		key := bytes.Repeat([]byte{0x11}, 32)
 		m, err := credman.NewCookieManager(filepath.Join(base, "cookies.warp"), key)
@@ -232,7 +232,7 @@ func TestRunServiceWithLogger_InitError(t *testing.T) {
 	expectedErr := errors.New("init error")
 
 	oldInit := initDaemonComponents
-	initDaemonComponents = func(log logger.Logger, maxConcurrent int, rpcCfg *server.RPCConfig) (*DaemonComponents, error) {
+	initDaemonComponents = func(log logger.Logger, maxConcurrent int, rpcCfg *server.RPCConfig, _ *warplib.SpeedSchedule) (*DaemonComponents, error) {
 		return nil, expectedErr
 	}
 	defer func() { initDaemonComponents = oldInit }()
@@ -281,7 +281,7 @@ func TestRunServiceWithLoggerRejectsNegativeMaxConcurrent(t *testing.T) {
 	t.Setenv("WARPDL_MAX_CONCURRENT", "-1")
 	initCalled := false
 	oldInit := initDaemonComponents
-	initDaemonComponents = func(logger.Logger, int, *server.RPCConfig) (*DaemonComponents, error) {
+	initDaemonComponents = func(logger.Logger, int, *server.RPCConfig, *warplib.SpeedSchedule) (*DaemonComponents, error) {
 		initCalled = true
 		return nil, nil
 	}
@@ -319,7 +319,7 @@ func TestRunServiceWithLoggerClosesComponentsOnlyAfterProvenServerDrain(t *testi
 			oldSvcRun := svcRun
 			oldClose := closeDaemonComponentsFn
 			closeCalls := 0
-			initDaemonComponents = func(logger.Logger, int, *server.RPCConfig) (*DaemonComponents, error) {
+			initDaemonComponents = func(logger.Logger, int, *server.RPCConfig, *warplib.SpeedSchedule) (*DaemonComponents, error) {
 				return &DaemonComponents{Server: &server.Server{}}, nil
 			}
 			windowsServerStartFunc = func(*server.Server, context.Context) error {

@@ -30,8 +30,20 @@ warpdl daemon
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--max-concurrent` | `3` | Maximum number of concurrent downloads (0 = unlimited) |
+| `--speed-schedule` | - | Throttle window `HH:MM-HH:MM:SPEED` (e.g. `09:00-17:00:512KB`) |
 | `--rpc-secret` | - | Secret token for JSON-RPC API authentication (required to enable RPC) |
 | `--rpc-listen-all` | `false` | Bind RPC to all interfaces instead of localhost only |
+
+Throttle example (full speed overnight, 512 KB/s during work hours):
+
+```bash
+# Via flag
+warpdl daemon --speed-schedule 09:00-17:00:512KB
+
+# Via environment variable (used when the flag is not set)
+export WARPDL_SPEED_SCHEDULE=09:00-17:00:512KB
+warpdl daemon
+```
 
 Examples:
 

@@ -44,6 +44,7 @@ WarpDL can be configured using environment variables. These take precedence over
 	"| `WARPDL_RETRY_DELAY` | Base retry delay in milliseconds | `500` |\n" +
 	"| `WARPDL_DEFAULT_DL_DIR` | Default download directory | current directory |\n" +
 	"| `WARPDL_SPEED_LIMIT` | Default speed limit (e.g., 1MB, 512KB) | unlimited |\n" +
+	"| `WARPDL_SPEED_SCHEDULE` | Daemon throttle window HH:MM-HH:MM:SPEED (e.g., 09:00-17:00:512KB) | none |\n" +
 	"| `WARPDL_NO_WORK_STEAL` | Disable work stealing (set to \"1\") | `false` |\n" +
 	"| `WARPDL_PRIORITY` | Default download priority: high, normal, low | `normal` |\n" +
 	"| `WARP_MAX_PARTS` | Maximum file segments (legacy prefix) | `200` |\n" +

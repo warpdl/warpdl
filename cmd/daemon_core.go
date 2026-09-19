@@ -27,6 +27,27 @@ import (
 // It can be overridden in tests for deterministic behavior.
 var timeNow = time.Now
 
+// startSpeedScheduleTicker re-applies the daemon throttle window every 15s
+// until ctx ends. A nil schedule makes ApplySpeedSchedule a no-op pass over
+// active items, so the ticker is cheap when unset.
+func startSpeedScheduleTicker(ctx context.Context, m *warplib.Manager) {
+	if ctx == nil || m == nil {
+		return
+	}
+	go func() {
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case now := <-ticker.C:
+				m.ApplySpeedSchedule(now)
+			}
+		}
+	}()
+}
+
 type loggerKeyringAdapter struct {
 	log logger.Logger
 }
@@ -261,10 +282,14 @@ func (c *DaemonComponents) CloseContext(ctx context.Context) error {
 // initDaemonComponents initializes all daemon components with the provided logger.
 // This is the shared initialization used by both console mode and Windows service mode.
 // maxConcurrent sets the maximum concurrent downloads (0 = unlimited).
+// speedSchedule is the resolved daemon throttle window (nil = no throttle),
+// installed before any restored transfer can start.
 // Returns the initialized components or an error if initialization fails.
 //
 // On error, any partially initialized components are cleaned up before returning.
-var initDaemonComponents = func(log logger.Logger, maxConcurrent int, rpcCfg *server.RPCConfig) (*DaemonComponents, error) {
+//
+//nolint:gocyclo // long sequential daemon wiring; the complexity predates the speed-schedule parameter
+var initDaemonComponents = func(log logger.Logger, maxConcurrent int, rpcCfg *server.RPCConfig, speedSchedule *warplib.SpeedSchedule) (*DaemonComponents, error) {
 	stdLog := logger.ToStdLogger(log)
 
 	// Resolve the shared credman master key (env or keyring) once so
@@ -329,6 +354,11 @@ var initDaemonComponents = func(log logger.Logger, maxConcurrent int, rpcCfg *se
 		_ = tm.Close()
 		cm.Close()
 		return nil, err
+	}
+	if speedSchedule != nil {
+		m.SetSpeedSchedule(speedSchedule)
+		m.ApplySpeedSchedule(timeNow())
+		log.Info("Speed schedule active: %s", speedSchedule)
 	}
 
 	// Queue setup is deferred until after the Server is constructed
@@ -647,6 +677,11 @@ var initDaemonComponents = func(log logger.Logger, maxConcurrent int, rpcCfg *se
 		startManagedItem(hash, freshOccurrence, "scheduler trigger", nil, nil)
 	}
 	sched := scheduler.New(schedCtx, triggerFn)
+
+	// Re-apply the daemon-wide throttle window every 15s so clock crossings
+	// (09:00 in, 17:00 out) reach live part readers without restarting
+	// transfers. Stops with the scheduler context at daemon shutdown.
+	startSpeedScheduleTicker(schedCtx, m)
 
 	// Load schedules: detect missed (daemon was down) and future events.
 	allItems := make(warplib.ItemsMap)

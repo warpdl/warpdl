@@ -61,8 +61,13 @@ type Part struct {
 	// main download file
 	f *os.File
 	// speedLimit is the maximum download speed for this part in bytes per second.
-	// If zero, no limit is applied.
-	speedLimit int64
+	// If zero, no limit is applied. It is atomic because a daemon-wide
+	// speed schedule changes it while the part is downloading.
+	speedLimit atomic.Int64
+	// limiterMu guards limiter; SetLimit itself is thread-safe, this only
+	// protects register/replace of the reader across wrap sites.
+	limiterMu sync.Mutex
+	limiter   *RateLimitedReadCloser
 }
 
 type partArgs struct {
@@ -96,8 +101,8 @@ func initPart(ctx context.Context, client *http.Client, hash, url string, args p
 		resourceETag:  args.resourceETag,
 		hash:          hash,
 		f:             args.f,
-		speedLimit:    args.speedLimit,
 	}
+	p.speedLimit.Store(args.speedLimit)
 	err := p.openPartFile()
 	if err != nil {
 		return nil, err
@@ -125,10 +130,51 @@ func newPart(ctx context.Context, client *http.Client, url string, args partArgs
 		contentLength: args.contentLength,
 		resourceETag:  args.resourceETag,
 		f:             args.f,
-		speedLimit:    args.speedLimit,
 	}
+	p.speedLimit.Store(args.speedLimit)
 	p.setHash()
 	return &p, p.createPartFile()
+}
+
+// loadSpeedLimit returns the part's current throttle in bytes per second.
+// Zero means unlimited. Updated live by Downloader.SetSpeedLimit while the
+// part is downloading, so a schedule boundary takes effect mid-transfer.
+func (p *Part) loadSpeedLimit() int64 {
+	if p == nil {
+		return 0
+	}
+	return p.speedLimit.Load()
+}
+
+// setLimiter registers the in-flight throttle reader so schedule passes can
+// reach it. Registering under limiterMu and then adopting the stored share
+// closes the race with a concurrent applySpeedLimit: whichever side wins the
+// lock, the newly published reader ends up on the current cap instead of the
+// one captured at construction.
+func (p *Part) setLimiter(limiter *RateLimitedReadCloser) {
+	if p == nil || limiter == nil {
+		return
+	}
+	p.limiterMu.Lock()
+	defer p.limiterMu.Unlock()
+	p.limiter = limiter
+	limiter.SetLimit(p.speedLimit.Load())
+}
+
+// applySpeedLimit pushes a new per-part cap to the live reader and the
+// stored value (used if the part retries and re-wraps). perPart is the
+// caller's already-divided share; it never back-computes.
+func (p *Part) applySpeedLimit(perPart int64) {
+	if p == nil {
+		return
+	}
+	p.speedLimit.Store(perPart)
+	p.limiterMu.Lock()
+	limiter := p.limiter
+	p.limiterMu.Unlock()
+	if limiter != nil {
+		limiter.SetLimit(perPart)
+	}
 }
 
 func (p *Part) setEpeed(espeed int64) {
@@ -243,9 +289,9 @@ func (p *Part) downloadTo(
 	}
 
 	var reader io.ReadCloser = resp.Body
-	if p.speedLimit > 0 {
-		reader = NewRateLimitedReadCloser(resp.Body, p.speedLimit)
-	}
+	limiter := NewRateLimitedReadCloser(resp.Body, p.loadSpeedLimit())
+	p.setLimiter(limiter)
+	reader = limiter
 
 	// Wrap reader with stall detection
 	if sr != nil {
@@ -257,11 +303,13 @@ func (p *Part) downloadTo(
 
 	// Return the stallReader as body for potential reuse by the caller.
 	// The stall timer continues to protect against stalls in reuse calls.
+	// Either way the returned reader sits behind the limiter registered
+	// above, so schedule passes reach it through the part.
 	if sr != nil {
 		sr.resetTimer()
 		body = sr
 	} else {
-		body = resp.Body
+		body = limiter
 	}
 	return
 }

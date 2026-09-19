@@ -269,6 +269,32 @@ func TestRateLimitedReader_ConcurrentReads(t *testing.T) {
 	wg.Wait()
 }
 
+// Live cap updates run on another goroutine in the daemon (speed schedule
+// passes call SetLimit while a part reader is blocked in Read). Run under
+// -race: the limit field must not be read unsynchronized.
+func TestRateLimitedReader_LiveSetLimitDuringRead(t *testing.T) {
+	reader := NewRateLimitedReader(bytes.NewReader(bytes.Repeat([]byte("x"), 256*1024)), 1*MB)
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		_, _ = io.Copy(io.Discard, reader)
+	}()
+	go func() {
+		defer wg.Done()
+		for i := range 200 {
+			if i%2 == 0 {
+				reader.SetLimit(0)
+			} else {
+				reader.SetLimit(1 * MB)
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}()
+	wg.Wait()
+}
+
 func TestRateLimitedReader_UpdateLimit(t *testing.T) {
 	data := bytes.Repeat([]byte("x"), 1024)
 	reader := NewRateLimitedReader(bytes.NewReader(data), 0)

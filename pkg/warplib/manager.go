@@ -90,12 +90,62 @@ type Manager struct {
 	transferCancel  context.CancelFunc
 	transferActive  int
 	transferClosing bool
+	// speedSchedule is the daemon-wide throttle window (nil = none).
+	// Guarded by speedMu; ApplySpeedSchedule reads it without holding
+	// the item lock across SetLimit calls.
+	speedMu       sync.Mutex
+	speedSchedule *SpeedSchedule
 }
 
 // SetSchemeRouter sets the scheme router for protocol dispatch during resume.
 // Used by daemon startup to provide the router to the Manager.
 func (m *Manager) SetSchemeRouter(r *SchemeRouter) {
 	m.schemeRouter.Store(r)
+}
+
+// SetSpeedSchedule installs the daemon-wide throttle window parsed from
+// --speed-schedule. Nil clears it. Callers then invoke ApplySpeedSchedule to
+// push the current boundary value into live transfers.
+func (m *Manager) SetSpeedSchedule(schedule *SpeedSchedule) {
+	if m == nil {
+		return
+	}
+	m.speedMu.Lock()
+	defer m.speedMu.Unlock()
+	m.speedSchedule = schedule
+}
+
+// ApplySpeedSchedule pushes the schedule's current limit into every active
+// HTTP transfer. Base caps stay in TransferConfig; ApplySpeedSchedule on the
+// live Downloader recomputes min(stored base, schedule), so repeated passes
+// are idempotent and leaving the window restores the base instead of
+// unlimited. FTP/SFTP allocs have no throttle plumbing and are skipped.
+func (m *Manager) ApplySpeedSchedule(now time.Time) {
+	if m == nil {
+		return
+	}
+	schedule := m.currentSpeedSchedule()
+	for _, item := range m.GetItems() {
+		if item == nil || !item.IsDownloading() {
+			continue
+		}
+		adapter, ok := item.getDAlloc().(*httpProtocolDownloader)
+		if !ok || adapter == nil {
+			continue
+		}
+		adapter.ApplySpeedSchedule(schedule, now)
+	}
+}
+
+// currentSpeedSchedule snapshots the daemon throttle window for new
+// transfers. Nil means no schedule.
+func (m *Manager) currentSpeedSchedule() *SpeedSchedule {
+	if m == nil {
+		return nil
+	}
+	m.speedMu.Lock()
+	defer m.speedMu.Unlock()
+	return m.speedSchedule
 }
 
 // InitManager creates a new manager instance.
@@ -395,7 +445,6 @@ type AddDownloadOpts struct {
 	TransferConfig TransferConfig
 }
 
-
 func transferConfigFromDownloader(d *Downloader) TransferConfig {
 	config := TransferConfig{
 		ForceParts:          d.force,
@@ -406,7 +455,7 @@ func transferConfigFromDownloader(d *Downloader) TransferConfig {
 		LockFileName:        d.lockFileName,
 		RequestTimeout:      d.requestTimeout,
 		MaxFileSize:         d.maxFileSize,
-		SpeedLimit:          d.speedLimit,
+		SpeedLimit:          d.GetBaseSpeedLimit(),
 		DisableWorkStealing: !d.enableWorkStealing,
 	}
 	if d.retryConfig != nil {
@@ -477,6 +526,11 @@ func (m *Manager) AddDownload(d *Downloader, opts *AddDownloadOpts) (err error) 
 	}
 	item.setDAlloc(adapter)
 	m.UpdateItem(item)
+
+	// New transfers start under the current schedule window: blend the base
+	// into the live cap now so the first bytes obey it. The persisted
+	// TransferConfig keeps the unblended base for later passes.
+	d.ApplySpeedSchedule(m.currentSpeedSchedule(), time.Now())
 
 	// Register with queue if enabled
 	if queue := m.queue.Load(); queue != nil && !opts.SkipQueue {
@@ -993,14 +1047,14 @@ func (m *Manager) GetItem(hash string) (item *Item) {
 // orchestration. It prevents callers from racing the manager's GOB encoder by
 // reading mutable Item fields directly.
 type ScheduleInfo struct {
-	Hash             string
-	Name             string
-	URL              string
-	ScheduledAt      time.Time
-	CronExpr         string
-	State            ScheduleState
-	Downloaded       ContentLength
-	TotalSize        ContentLength
+	Hash        string
+	Name        string
+	URL         string
+	ScheduledAt time.Time
+	CronExpr    string
+	State       ScheduleState
+	Downloaded  ContentLength
+	TotalSize   ContentLength
 }
 
 // GetScheduleInfo returns a consistent scheduling snapshot.
@@ -1012,14 +1066,14 @@ func (m *Manager) GetScheduleInfo(hash string) (ScheduleInfo, bool) {
 		return ScheduleInfo{}, false
 	}
 	return ScheduleInfo{
-		Hash:             item.Hash,
-		Name:             item.Name,
-		URL:              item.Url,
-		ScheduledAt:      item.ScheduledAt,
-		CronExpr:         item.CronExpr,
-		State:            item.ScheduleState,
-		Downloaded:       item.Downloaded,
-		TotalSize:        item.TotalSize,
+		Hash:        item.Hash,
+		Name:        item.Name,
+		URL:         item.Url,
+		ScheduledAt: item.ScheduledAt,
+		CronExpr:    item.CronExpr,
+		State:       item.ScheduleState,
+		Downloaded:  item.Downloaded,
+		TotalSize:   item.TotalSize,
 	}, true
 }
 
@@ -1432,6 +1486,10 @@ func (m *Manager) resumeDownload(
 			}
 			return
 		}
+
+		// Reconstructed transfers start under the current schedule window,
+		// same as AddDownload. Base stays in TransferConfig.
+		d.ApplySpeedSchedule(m.currentSpeedSchedule(), time.Now())
 		m.patchHandlers(d, item)
 		// Wrap the concrete *Downloader in an httpProtocolDownloader adapter.
 		adapter := &httpProtocolDownloader{

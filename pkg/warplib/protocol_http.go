@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"sync"
+	"time"
 )
 
 // Compile-time interface check: httpProtocolDownloader must implement ProtocolDownloader.
@@ -174,6 +175,16 @@ func (h *httpProtocolDownloader) IsStopped() bool {
 		return true
 	}
 	return h.inner.IsStopped()
+}
+
+// ApplySpeedSchedule recomputes the live cap from the stored per-download
+// base and the daemon schedule. Nil-safe: returns before touching a missing
+// inner downloader.
+func (h *httpProtocolDownloader) ApplySpeedSchedule(schedule *SpeedSchedule, now time.Time) {
+	if h == nil || h.inner == nil {
+		return
+	}
+	h.inner.ApplySpeedSchedule(schedule, now)
 }
 
 // GetMaxConnections delegates to the inner downloader.
