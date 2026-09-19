@@ -120,3 +120,39 @@ func TestHeapRemoveFirst(t *testing.T) {
 		t.Errorf("expected empty heap after removal, got %d", h.Len())
 	}
 }
+
+func TestHeapRemoveByHashRemovesRelocatedMatches(t *testing.T) {
+	// heap.Remove moves the tail element into the removed slot and sifts it
+	// up past already-scanned indices, so an in-place forward scan can leave
+	// a relocated match behind. Build the exact layout: priorities
+	// [1,5,2,6,7,3,4] with the target on priorities 6 and 4.
+	base := time.Now()
+	h := &scheduleHeap{
+		{ItemHash: "other1", TriggerAt: base.Add(1 * time.Hour)},
+		{ItemHash: "other2", TriggerAt: base.Add(5 * time.Hour)},
+		{ItemHash: "other3", TriggerAt: base.Add(2 * time.Hour)},
+		{ItemHash: "target", TriggerAt: base.Add(6 * time.Hour)},
+		{ItemHash: "other4", TriggerAt: base.Add(7 * time.Hour)},
+		{ItemHash: "other5", TriggerAt: base.Add(3 * time.Hour)},
+		{ItemHash: "target", TriggerAt: base.Add(4 * time.Hour)},
+	}
+	if !heapRemoveByHash(h, "target") {
+		t.Fatal("expected removal to succeed")
+	}
+	for _, e := range *h {
+		if e.ItemHash == "target" {
+			t.Fatalf("relocated match survived removal: %+v", e)
+		}
+	}
+	if h.Len() != 5 {
+		t.Fatalf("expected 5 items after removal, got %d", h.Len())
+	}
+	prev := time.Time{}
+	for h.Len() > 0 {
+		e := heapPop(h)
+		if e.TriggerAt.Before(prev) {
+			t.Fatalf("heap order violated after rebuild: %+v", e)
+		}
+		prev = e.TriggerAt
+	}
+}

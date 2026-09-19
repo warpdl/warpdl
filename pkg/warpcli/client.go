@@ -40,16 +40,20 @@ type Client struct {
 // spin (and accumulate memory) forever.
 const maxInvokeSkew = 1024
 
-// listenPollInterval bounds how long Listen owns the connection while no
-// frame is available. This lets invoke take ownership without waiting behind
-// an indefinitely blocked read.
-const listenPollInterval = 50 * time.Millisecond
+// invokeReadTimeout bounds each reply read inside invoke. A var (not const)
+// so tests can shrink it; production value matches the Listen frame timeout.
+var invokeReadTimeout = listenFrameReadTimeout
 
 var (
 	ensureDaemonFunc = ensureDaemon
 	dialFunc         = net.Dial
 	dialURIFunc      = dialURI
 )
+
+// listenPollInterval bounds how long Listen owns the connection while no
+// frame is available. This lets invoke take ownership without waiting behind
+// an indefinitely blocked read.
+const listenPollInterval = 50 * time.Millisecond
 
 // NewClient creates a new client connection to the WarpDL daemon.
 // It connects to the daemon using platform-specific IPC and returns a ready-to-use client.
@@ -236,9 +240,20 @@ func (c *Client) invoke(method common.UpdateType, message any) (json.RawMessage,
 	if err != nil {
 		return nil, fmt.Errorf("failed to invoke %s: %s", method, err.Error())
 	}
+	// Bound each reply read: without a deadline a daemon that accepts the
+	// request but never replies would hold mu forever and starve Listen.
 	for skipped := 0; skipped <= maxInvokeSkew; skipped++ {
+		if err := c.conn.SetReadDeadline(time.Now().Add(invokeReadTimeout)); err != nil {
+			return nil, fmt.Errorf("failed to invoke %s: set read deadline: %w", method, err)
+		}
 		buf, err = read(c.conn)
+		_ = c.conn.SetReadDeadline(time.Time{})
 		if err != nil {
+			// A timeout mid-frame leaves framing bytes stranded, and a late
+			// reply for this request could be consumed as the next call's.
+			// Without request IDs neither is recoverable: close the
+			// connection so the next invoke redials instead of misrouting.
+			_ = c.conn.Close()
 			return nil, fmt.Errorf("failed to invoke %s: %s", method, err.Error())
 		}
 		var res Response

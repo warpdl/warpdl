@@ -27,13 +27,14 @@ var ErrDrainIncomplete = errors.New("server drain incomplete")
 // - Unix: Unix socket > TCP
 // - Windows: Named pipe > TCP
 type Server struct {
-	log      *log.Logger
-	pool     *Pool
-	ws       *WebServer
-	handler  map[common.UpdateType]HandlerFunc
-	port     int
-	listener net.Listener
-	mu       sync.Mutex
+	log       *log.Logger
+	pool      *Pool
+	ws        *WebServer
+	handler   map[common.UpdateType]HandlerFunc
+	handlerMu sync.RWMutex
+	port      int
+	listener  net.Listener
+	mu        sync.Mutex
 
 	shutdownMu   sync.Mutex
 	connections  map[net.Conn]struct{}
@@ -72,6 +73,8 @@ func NewServer(l *log.Logger, m *warplib.Manager, port int, client *http.Client,
 // RegisterHandler associates a handler function with a specific update type method.
 // When a request with the given method is received, the corresponding handler is invoked.
 func (s *Server) RegisterHandler(method common.UpdateType, handler HandlerFunc) {
+	s.handlerMu.Lock()
+	defer s.handlerMu.Unlock()
 	s.handler[method] = handler
 }
 
@@ -531,7 +534,9 @@ func (s *Server) handlerWrapper(sconn *SyncConn, b []byte) error {
 	if err != nil {
 		return fmt.Errorf("error parsing request: %s", err.Error())
 	}
+	s.handlerMu.RLock()
 	rHandler, ok := s.handler[req.Method]
+	s.handlerMu.RUnlock()
 	if !ok {
 		err = sconn.Write(CreateError("unknown method: " + string(req.Method)))
 		if err != nil {

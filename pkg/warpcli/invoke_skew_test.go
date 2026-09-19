@@ -279,6 +279,32 @@ func TestInvoke_TooManyInterleavedFrames(t *testing.T) {
 	_ = c.conn.Close() // unblock the writer goroutine
 }
 
+func TestInvoke_ReplyTimeoutPoisonsConnection(t *testing.T) {
+	old := invokeReadTimeout
+	invokeReadTimeout = 50 * time.Millisecond
+	defer func() { invokeReadTimeout = old }()
+	c, daemon := newPipeClient(t)
+	daemonDone := make(chan struct{})
+	go func() {
+		defer close(daemonDone)
+		_, _ = read(daemon)
+		_ = daemon.Close()
+	}()
+	defer func() { <-daemonDone }()
+
+	// Daemon never replies: invoke must time out, not hang on mu.
+	_, err := c.invoke(common.UPDATE_LIST, struct{}{})
+	if err == nil {
+		t.Fatal("expected invoke to fail on reply timeout")
+	}
+
+	// A late reply for the dead request must not be consumable: the
+	// connection is closed, so the next read fails instead of misrouting.
+	if _, err := read(c.conn); err == nil {
+		t.Fatal("poisoned connection still readable after timeout")
+	}
+}
+
 type readSignalConn struct {
 	net.Conn
 	once    sync.Once

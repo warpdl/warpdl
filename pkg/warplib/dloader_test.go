@@ -714,9 +714,9 @@ func TestGetPartSize(t *testing.T) {
 			// Create a Downloader with valid numBaseParts (>= 1)
 			// This simulates a properly initialized state
 			d := &Downloader{
-				numBaseParts:  tt.numBaseParts,
-				contentLength: ContentLength(tt.contentLength),
+				numBaseParts: tt.numBaseParts,
 			}
+			d.contentLength.Store(tt.contentLength)
 
 			partSize, rpartSize := d.getPartSize()
 
@@ -781,9 +781,8 @@ func TestDownloaderMinPartSizeByFileSize(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			d := &Downloader{
-				contentLength: ContentLength(tt.contentLength),
-			}
+			d := &Downloader{}
+			d.contentLength.Store(tt.contentLength)
 			got := d.getMinPartSize()
 			if got != tt.expectedMin {
 				t.Errorf("getMinPartSize() = %d, want %d", got, tt.expectedMin)

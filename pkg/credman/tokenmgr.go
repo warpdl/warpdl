@@ -3,14 +3,39 @@ package credman
 import (
 	"bytes"
 	"encoding/gob"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/warpdl/warpdl/pkg/credman/encryption"
 	"github.com/warpdl/warpdl/pkg/credman/types"
 )
+
+var syncTokenParentDirectory = syncParentDirectory
+
+// tokenStoreCommittedError reports a durability or reopen failure that
+// happened after the replacement file became the live token store. Callers
+// must not roll their in-memory mutation back in this case: disk already
+// contains the new snapshot.
+type tokenStoreCommittedError struct {
+	err error
+}
+
+func (e *tokenStoreCommittedError) Error() string {
+	return e.err.Error()
+}
+
+func (e *tokenStoreCommittedError) Unwrap() error {
+	return e.err
+}
+
+func tokenStoreCommitSucceeded(err error) bool {
+	var committedErr *tokenStoreCommittedError
+	return errors.As(err, &committedErr)
+}
 
 // TokenManager handles encrypted storage and retrieval of OAuth 2.0 tokens.
 // Sibling of CookieManager: identical persistence shape, different payload type.
@@ -63,34 +88,79 @@ func (tm *TokenManager) load() error {
 
 // save writes the map to a sibling temp file, then atomically renames it
 // over filePath. The receiver's file handle (tm.f) is updated to point
-// at the newly-renamed file on success. On any failure the on-disk state
-// and the original handle are untouched — so the caller can roll back
-// the in-memory map safely.
+// at the newly-renamed file on success. Failures before replacement leave
+// the old store intact; post-replacement durability or reopen failures are
+// marked as committed so callers keep memory consistent with the new
+// on-disk snapshot.
 func (tm *TokenManager) save() error {
 	if tm.f == nil {
 		return fmt.Errorf("token manager is closed")
+	}
+	if _, err := tm.f.Stat(); err != nil {
+		return fmt.Errorf("token store is unavailable: %w", err)
 	}
 	var buf bytes.Buffer
 	if err := gob.NewEncoder(&buf).Encode(tm.tokens); err != nil {
 		return err
 	}
-	tmpPath := tm.filePath + ".tmp"
-	if err := os.WriteFile(tmpPath, buf.Bytes(), 0600); err != nil {
-		return err
-	}
-	if err := os.Rename(tmpPath, tm.filePath); err != nil {
-		_ = os.Remove(tmpPath)
-		return err
-	}
-	// Close the old handle and reopen at the renamed path so subsequent
-	// saves/closes see the new inode on Linux.
-	_ = tm.f.Close()
-	f, err := os.OpenFile(tm.filePath, os.O_RDWR, 0600)
+	dir := filepath.Dir(tm.filePath)
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(tm.filePath)+".tmp-*")
 	if err != nil {
-		tm.f = nil
 		return err
 	}
-	tm.f = f
+	tmpPath := tmp.Name()
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(buf.Bytes()); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	// Windows cannot replace a file while our old handle is open.
+	if err := tm.f.Close(); err != nil {
+		return err
+	}
+	tm.f = nil
+	if err := replaceFile(tmpPath, tm.filePath); err != nil {
+		tm.f, _ = os.OpenFile(tm.filePath, os.O_RDWR, 0o600)
+		return err
+	}
+	cleanup = false
+	dirSyncErr := syncTokenParentDirectory(dir)
+	f, reopenErr := os.OpenFile(tm.filePath, os.O_RDWR, 0o600)
+	if reopenErr == nil {
+		tm.f = f
+	}
+	if dirSyncErr != nil || reopenErr != nil {
+		var committedErr error
+		if dirSyncErr != nil {
+			committedErr = errors.Join(
+				committedErr,
+				fmt.Errorf("sync token store directory: %w", dirSyncErr),
+			)
+		}
+		if reopenErr != nil {
+			committedErr = errors.Join(
+				committedErr,
+				fmt.Errorf("reopen token store: %w", reopenErr),
+			)
+		}
+		return &tokenStoreCommittedError{err: committedErr}
+	}
 	return nil
 }
 
@@ -159,8 +229,9 @@ func (tm *TokenManager) Get(key types.TokenKey) (*types.OAuth2Token, error) {
 }
 
 // Set encrypts and stores the token, replacing any existing entry.
-// If save() fails, the in-memory map is rolled back so it stays in
-// sync with the on-disk state.
+// If save() fails before the replacement commits, the in-memory map is
+// rolled back so it stays in sync with the on-disk state. A committed
+// error keeps the new entry: disk already contains the new snapshot.
 func (tm *TokenManager) Set(key types.TokenKey, t *types.OAuth2Token) error {
 	if t == nil {
 		return fmt.Errorf("token is nil")
@@ -175,18 +246,21 @@ func (tm *TokenManager) Set(key types.TokenKey, t *types.OAuth2Token) error {
 	prev, existed := tm.tokens[key]
 	tm.tokens[key] = enc
 	if err := tm.save(); err != nil {
-		if existed {
-			tm.tokens[key] = prev
-		} else {
-			delete(tm.tokens, key)
+		if !tokenStoreCommitSucceeded(err) {
+			if existed {
+				tm.tokens[key] = prev
+			} else {
+				delete(tm.tokens, key)
+			}
 		}
 		return err
 	}
 	return nil
 }
 
-// Delete removes a token entry. If save() fails, the in-memory map is
-// rolled back so it stays in sync with the on-disk state.
+// Delete removes a token entry. If save() fails before the replacement
+// commits, the in-memory entry is restored. A committed error keeps the
+// deletion: disk already contains the new snapshot.
 func (tm *TokenManager) Delete(key types.TokenKey) error {
 	key = key.WithDefaultAccount()
 	tm.mu.Lock()
@@ -197,7 +271,9 @@ func (tm *TokenManager) Delete(key types.TokenKey) error {
 	}
 	delete(tm.tokens, key)
 	if err := tm.save(); err != nil {
-		tm.tokens[key] = prev
+		if !tokenStoreCommitSucceeded(err) {
+			tm.tokens[key] = prev
+		}
 		return err
 	}
 	return nil
@@ -222,10 +298,10 @@ func (tm *TokenManager) Close() error {
 		return nil
 	}
 	saveErr := tm.save()
-	closeErr := tm.f.Close()
-	tm.f = nil
-	if saveErr != nil {
-		return saveErr
+	var closeErr error
+	if tm.f != nil {
+		closeErr = tm.f.Close()
+		tm.f = nil
 	}
-	return closeErr
+	return errors.Join(saveErr, closeErr)
 }

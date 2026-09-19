@@ -72,9 +72,13 @@ const (
 	// UPDATE_QUEUE_MOVE moves a queued item to a new position.
 	UPDATE_QUEUE_MOVE UpdateType = "queue_move"
 
-	// UPDATE_AUTH_REQUIRED is pushed to the CLI when a plugin's getAccessToken
-	// call has no valid token and needs a login flow. Payload: AuthLoginResult
-	// plus PluginID and Account.
+	// UPDATE_AUTH_REQUIRED tags the auth-login RPC and is reused for the
+	// daemon-pushed event of the same name: the reply carries AuthLoginResult
+	// while the push carries AuthLoginResult plus PluginID and Account
+	// (see internal/api/auth_login.go). invoke matches replies by type, so a
+	// push racing an in-flight AuthLogin is consumed as that call's reply.
+	// Safe only because the daemon never pushes it today (see cmd/auth.go);
+	// pushing it while AuthLogin is in flight would misroute both frames.
 	UPDATE_AUTH_REQUIRED UpdateType = "auth_required"
 	// UPDATE_AUTH_COMPLETED is pushed when a flow successfully exchanges a code
 	// for tokens. Payload: AuthCompleteResult plus FlowID.

@@ -235,13 +235,16 @@ func (p *Pool) writeBroadcastedMessage(sconn *SyncConn, head, data []byte) bool 
 	// may already hold that mutex while blocked on the same non-reading client;
 	// updating the connection deadline interrupts that in-flight write so
 	// terminal delivery and Manager shutdown cannot wait forever for the lock.
+	// The deadline is cleared before unlocking: once this write completes it
+	// must not linger and truncate a sibling writer's in-flight RPC reply.
 	if err := sconn.Conn.SetWriteDeadline(time.Now().Add(poolWriteTimeout)); err != nil {
 		return false
 	}
-	defer func() { _ = sconn.Conn.SetWriteDeadline(time.Time{}) }()
-
 	sconn.wmu.Lock()
-	defer sconn.wmu.Unlock()
+	defer func() {
+		_ = sconn.Conn.SetWriteDeadline(time.Time{})
+		sconn.wmu.Unlock()
+	}()
 
 	if err := writeAll(sconn.Conn, head); err != nil {
 		return false

@@ -55,6 +55,12 @@ func TestQueueManagerRemoveIfWaitingPreventsConcurrentPromotion(t *testing.T) {
 	}()
 	<-entered
 
+	// Teardown runs without qm.mu (CloseDownloader drains runs whose exit
+	// re-enters the queue), so removal is already visible while cleanup runs.
+	if qm.IsWaiting("waiting") {
+		t.Fatal("removed item still waiting while cleanup runs")
+	}
+
 	resumed := make(chan struct{})
 	go func() {
 		qm.Resume()
@@ -62,15 +68,14 @@ func TestQueueManagerRemoveIfWaitingPreventsConcurrentPromotion(t *testing.T) {
 	}()
 	select {
 	case <-resumed:
-		t.Fatal("queue resumed while waiting-item cleanup still held its atomic claim")
-	case <-time.After(20 * time.Millisecond):
+	case <-time.After(2 * time.Second):
+		t.Fatal("queue resume blocked behind waiting-item cleanup")
 	}
 
 	close(release)
 	if ok := <-removed; !ok {
 		t.Fatal("waiting item was not removed")
 	}
-	<-resumed
 	if qm.IsWaiting("waiting") || qm.IsActive("waiting") {
 		t.Fatal("removed item retained queue membership")
 	}

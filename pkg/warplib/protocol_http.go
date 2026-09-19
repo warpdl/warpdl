@@ -92,7 +92,7 @@ func (h *httpProtocolDownloader) Probe(ctx context.Context) (ProbeResult, error)
 	h.probed = true
 	return ProbeResult{
 		FileName:      d.fileName,
-		ContentLength: d.contentLength.v(),
+		ContentLength: d.GetContentLength().v(),
 		Resumable:     d.resumable,
 		Checksums:     d.expectedChecksums,
 	}, nil

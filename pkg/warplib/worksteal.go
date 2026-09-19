@@ -253,23 +253,23 @@ func (d *Downloader) attemptWorkSteal(stealerHash string, partSpeed int64) bool 
 		return false
 	}
 
-	// Lock victim to perform atomic steal operation
+	// Lock victim to compute an atomic steal range and serialize the
+	// persistence that follows. Releasing before RespawnPartHandler lets a
+	// concurrent slow split shorten the same parent further and persist its
+	// smaller boundary first; the stale callback then restores the larger
+	// boundary and overlaps the stolen child on restart. The handler only
+	// takes item.mu + manager persist (no run drain), so holding victim.mu
+	// across it cannot deadlock the copy loop: the loop needs the same mutex
+	// per 32KB chunk and simply waits one persist.
 	victim.mu.Lock()
 	defer victim.mu.Unlock()
-
-	// Double-check conditions under lock
 	if victim.stolen.Load() {
 		return false
 	}
-
 	remaining := victim.getRemaining()
 	if remaining <= WORK_STEAL_MIN_REMAINING {
 		return false
 	}
-
-	// Calculate the steal range using the first byte that is neither
-	// completed nor reserved by an in-flight owner read. This guarantees the
-	// new victim boundary never cuts through a read already in progress.
 	safeCurrentPos := victim.getSafeCurrentPos()
 	stealStart, stealEnd, canSteal := calculateStealWork(
 		victim.offset,
@@ -279,24 +279,22 @@ func (d *Downloader) attemptWorkSteal(stealerHash string, partSpeed int64) bool 
 	if !canSteal {
 		return false
 	}
-
-	// Reduce victim's final offset. The victim goroutine reads foff
-	// through the same atomic pointer, so it will observe the new bound
-	// on its next copy loop iteration.
 	newVictimFoff := stealStart - 1
 	victim.foff.Store(newVictimFoff)
 	victim.stolen.Store(true)
-
-	d.Log("%s: stealing work from %s | bytes %d-%d", stealerHash, victim.hash, stealStart, stealEnd)
+	victimHash := victim.hash
+	victimOffset := victim.offset
+	victimPos := victim.getCurrentPos()
+	d.Log("%s: stealing work from %s | bytes %d-%d", stealerHash, victimHash, stealStart, stealEnd)
 	// Persist the victim's shortened boundary before recording the stolen
 	// part. Without this callback, a daemon restart sees overlapping ranges.
 	d.handlers.RespawnPartHandler(
-		victim.hash,
-		victim.offset,
-		victim.getCurrentPos(),
+		victimHash,
+		victimOffset,
+		victimPos,
 		newVictimFoff,
 	)
-	d.handlers.WorkStealHandler(stealerHash, victim.hash, stealStart, stealEnd)
+	d.handlers.WorkStealHandler(stealerHash, victimHash, stealStart, stealEnd)
 
 	// Spawn new part to handle stolen range
 	d.wg.Add(1)

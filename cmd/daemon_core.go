@@ -623,9 +623,15 @@ var initDaemonComponents = func(log logger.Logger, maxConcurrent int, rpcCfg *se
 			}
 			// Persist the next occurrence before starting this one. A crash
 			// during the transfer therefore cannot lose the recurrence, and
-			// stop can still cancel it while the transfer is active.
-			if err := m.ConfigureSchedule(hash, next, info.CronExpr, warplib.ScheduleStateScheduled); err != nil {
+			// stop can still cancel it while the transfer is active. The CAS
+			// keeps a concurrent stop that already reached Cancelled.
+			advanced, err := m.ConfigureScheduleIf(hash, next, info.CronExpr, warplib.ScheduleStateScheduled, warplib.ScheduleStateScheduled, warplib.ScheduleStateMissed)
+			if err != nil {
 				log.Error("Scheduler trigger: persist next occurrence for %s: %v", hash, err)
+				return
+			}
+			if !advanced {
+				log.Info("Scheduler trigger ignored after concurrent cancellation for %s", hash)
 				return
 			}
 		} else {
@@ -646,8 +652,16 @@ var initDaemonComponents = func(log logger.Logger, maxConcurrent int, rpcCfg *se
 		}
 
 		currentItem := m.GetItem(hash)
+		// A stop can win after the CAS above persisted the next occurrence:
+		// it flips Scheduled back to Cancelled while this trigger is still
+		// running. Re-read the winner before renaming, queueing, or starting
+		// anything so a cancelled recurrence is not resurrected. Triggered is
+		// the expected post-CAS state for one-shot items (see above).
+		if live, ok := m.GetScheduleInfo(hash); !ok || (live.State != warplib.ScheduleStateScheduled && live.State != warplib.ScheduleStateTriggered) {
+			log.Info("Scheduler trigger ignored after concurrent cancellation for %s", hash)
+			return
+		}
 		if info.CronExpr != "" && scheduledTransferInFlight(m, currentItem, hash) {
-			// The following recurrence is already persisted above. Do not
 			// rename, reconstruct, or enqueue the same Item while its prior
 			// occurrence is active (or still waiting for a queue slot).
 			log.Info("Scheduler skipped overlapping occurrence for %s", hash)
