@@ -108,7 +108,7 @@ func TestWebServerHandler_WithRPC(t *testing.T) {
 	if err != nil {
 		t.Fatalf("root request failed: %v", err)
 	}
-	defer rootResp.Body.Close()
+	defer func() { _ = rootResp.Body.Close() }()
 	if rootResp.StatusCode != http.StatusNotFound {
 		t.Fatalf("GET / status = %d, want 404", rootResp.StatusCode)
 	}

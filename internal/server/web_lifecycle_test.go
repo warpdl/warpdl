@@ -39,7 +39,7 @@ func TestWebServerShutdownDrainsHijackedWebSockets(t *testing.T) {
 		if err != nil {
 			t.Fatalf("dial JSON-RPC WebSocket %d: %v", i+1, err)
 		}
-		defer conn.CloseNow()
+		defer func() { _ = conn.CloseNow() }()
 		conns = append(conns, conn)
 	}
 
