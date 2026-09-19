@@ -39,6 +39,19 @@ Extensions are stored in:
 ~/.config/warpdl/extstore/
 ```
 
+## Authenticated Extensions
+
+Extensions that declare an `auth` block in their manifest call an OAuth2 API on your behalf. They need a credential before they can run, which you grant once per extension:
+
+```bash
+warpdl auth login <extension-id>        # opens a browser for the OAuth2 flow
+warpdl auth list                        # show stored credentials
+warpdl auth status <extension-id>       # exit 0 if authenticated and valid
+warpdl auth logout <extension-id>
+```
+
+Use `--as <label>` to keep more than one account per extension (for example work and personal), `--device` for the device-code flow, or `--no-browser` to print the URL instead of opening a browser. See the [Extension API](/api/extension-api#authenticated-extensions-oauth2) for the manifest and JavaScript API.
+
 ## Writing Extensions
 
 See [Extension API](/api/extension-api) for details on creating your own extensions.

@@ -31,8 +31,7 @@ warpdl daemon
 |------|---------|-------------|
 | `--max-concurrent` | `3` | Maximum number of concurrent downloads (0 = unlimited) |
 | `--speed-schedule` | - | Throttle window `HH:MM-HH:MM:SPEED` (e.g. `09:00-17:00:512KB`) |
-| `--rpc-secret` | - | Secret token for JSON-RPC API authentication (required to enable RPC) |
-| `--rpc-listen-all` | `false` | Bind RPC to all interfaces instead of localhost only |
+| `--rpc-listen-all` | `false` | Bind the JSON-RPC endpoint to all interfaces instead of localhost only |
 
 Throttle example (full speed overnight, 512 KB/s during work hours):
 
@@ -50,19 +49,21 @@ Examples:
 ```bash
 # Start with max 5 concurrent downloads
 warpdl daemon --max-concurrent 5
+```
 
-# Enable JSON-RPC API with authentication
-warpdl daemon --rpc-secret my-secret-token
+### JSON-RPC Endpoint
 
-# Enable RPC and bind to all interfaces (use with caution)
-warpdl daemon --rpc-secret my-secret-token --rpc-listen-all
+The daemon always serves its JSON-RPC API on `/jsonrpc` (HTTP) and `/jsonrpc/ws` (WebSocket). It binds to `127.0.0.1` by default and is **unauthenticated** — there is no token or secret to configure. Only bind it to all interfaces when something else provides the access control (reverse proxy, SSH tunnel, firewall):
+
+```bash
+warpdl daemon --rpc-listen-all
 ```
 
 Environment variables are also supported:
 
 ```bash
 export WARPDL_MAX_CONCURRENT=5
-export WARPDL_RPC_SECRET=my-secret-token
+export WARPDL_RPC_LISTEN_ALL=1
 warpdl daemon
 ```
 

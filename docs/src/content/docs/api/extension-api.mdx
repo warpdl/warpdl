@@ -52,6 +52,7 @@ The manifest defines extension metadata and URL matching patterns.
 | `description` | No | string | Human-readable description |
 | `entrypoint` | No | string | Main JavaScript file (default: "main.js") |
 | `assets` | No | string[] | Additional files to include (e.g., helper scripts) |
+| `auth` | No | object | OAuth2 configuration for extensions that call an API — see [Authenticated Extensions](#authenticated-extensions-oauth2) |
 
 ### URL Matching
 
@@ -191,6 +192,109 @@ let contentType = response.headers.get("Content-Type");
 - `entries()` - Get [name, value] pairs
 - `forEach(callback)` - Iterate over headers
 - `getSetCookies()` - Get Set-Cookie header values
+
+## Authenticated Extensions (OAuth2)
+
+Extensions that call an API on the user's behalf declare an `auth` block in their manifest. WarpDL then drives the OAuth2 login, stores the credential, and exposes token access to the extension's JavaScript.
+
+### Manifest `auth` Block
+
+```json
+{
+  "name": "my-api-extension",
+  "version": "1.0.0",
+  "description": "Transform api.example.com URLs",
+  "matches": ["^https://api\\.example\\.com/.*"],
+  "entrypoint": "main.js",
+  "auth": {
+    "type": "oauth2",
+    "client_id": "1234.apps.example.com",
+    "scopes": ["files.read"],
+    "authorize_url": "https://api.example.com/oauth/authorize",
+    "token_url": "https://api.example.com/oauth/token",
+    "device_url": "https://api.example.com/oauth/device/code",
+    "revoke_url": "https://api.example.com/oauth/revoke",
+    "pkce": "S256",
+    "extra_auth_params": { "access_type": "offline" }
+  }
+}
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `type` | yes | Must be `"oauth2"` |
+| `client_id` | yes | OAuth2 client ID |
+| `scopes` | yes | At least one scope; also the default requested at login |
+| `authorize_url` | yes | Authorization endpoint (`https://` only) |
+| `token_url` | yes | Token endpoint (`https://` only) |
+| `device_url` | no | Enables the device-code flow |
+| `revoke_url` | no | Used on logout to revoke the token server-side |
+| `client_secret` | no | Only for providers that require it on `/token` for public clients (e.g. Google "Desktop app"); it ships inside the extension and is not secret |
+| `pkce` | no | `"S256"` (default) or `"plain"` |
+| `extra_auth_params` | no | Extra query parameters for the authorization URL |
+
+A `device_url` lets users log in with `--device` (no browser callback). Without it, login uses a loopback PKCE redirect.
+
+### Auth Bindings
+
+These globals are only defined for extensions whose manifest declares `auth`:
+
+#### getAccessToken(options)
+
+Returns a valid access token (string), triggering or refreshing the login flow when needed.
+
+```javascript
+var token = getAccessToken();                       // default account, manifest scopes
+var token = getAccessToken({ scopes: ["files.read"] });
+var token = getAccessToken({ account: "work" });
+```
+
+Requested `scopes` must be a subset of the manifest's scopes. `options.account` selects a named credential; omit it for the `default` account.
+
+#### fetchWithAuth(req, options)
+
+Calls `request(req)` with `Authorization: Bearer <token>` added to the headers, and retries once with a fresh token if the response is `401`.
+
+```javascript
+var response = fetchWithAuth({
+  method: "GET",
+  url: "https://api.example.com/me"
+}, { scopes: ["files.read"] });
+```
+
+#### invalidateToken(options)
+
+Drops the cached access token so the next `getAccessToken` refreshes or re-authenticates. The refresh credential is kept.
+
+```javascript
+invalidateToken({ account: "work" });
+```
+
+#### listAccounts()
+
+Returns the account labels this extension has stored credentials for.
+
+```javascript
+listAccounts(); // e.g. ["default", "work"]
+```
+
+### Logging In
+
+Users authenticate once per plugin (and per account label) with the `auth` command:
+
+```bash
+warpdl auth login my-api-extension                  # loopback PKCE flow, opens a browser
+warpdl auth login my-api-extension --as work        # store under the "work" label
+warpdl auth login my-api-extension --device         # device-code flow (requires device_url)
+warpdl auth login my-api-extension --no-browser     # print the URL instead of opening a browser
+warpdl auth login my-api-extension --scopes files.read
+
+warpdl auth list                                    # stored credentials, expiry included
+warpdl auth status my-api-extension --as work       # exit 0 valid, 1 missing, 2 expired
+warpdl auth logout my-api-extension --as work
+```
+
+Credentials are encrypted in `tokens.gob` in the WarpDL config directory (the encryption key lives in the OS keyring where available) and are separate from the extension code. If a download needs a token that isn't stored yet, the daemon surfaces an authentication error and the CLI hints at `warpdl auth login <plugin-id>`. Login waits up to 5 minutes for the browser step to complete.
 
 ## Complete Example
 

@@ -73,5 +73,4 @@ WarpDL can be configured using environment variables. These take precedence over
 ### Windows
 - `WARPDL_PIPE_NAME` is used for named pipe IPC
 - Falls back to TCP if named pipes fail
-- `WARPDL_RPC_LISTEN_ALL` - Listen on all network interfaces in service mode (set to "1" or "true")
-- `WARPDL_RPC_SECRET` - Secret token for RPC authentication (Windows service mode)
+- `WARPDL_RPC_LISTEN_ALL` - Listen on all interfaces in service mode (set to "1" or "true"); the JSON-RPC endpoint is unauthenticated, so restrict this to a reverse proxy or firewall
