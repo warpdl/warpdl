@@ -65,6 +65,13 @@ type DownloadParams struct {
 	// Schedule specifies a 5-field cron expression for recurring downloads (e.g., "0 2 * * *").
 	// May be combined with StartAt or StartIn to delay the first occurrence.
 	Schedule string `json:"schedule,omitempty"`
+	// Interfaces is the resolved interface policy: off, auto, or a
+	// comma-separated device list. Empty means off on a new download.
+	Interfaces string `json:"interfaces,omitempty"`
+	// SegmentLimitChosen reports that MaxSegments was set by the caller,
+	// even when the number is 200. The daemon does not infer this from its
+	// own environment.
+	SegmentLimitChosen bool `json:"segment_limit_chosen,omitempty"`
 }
 
 // DownloadResponse contains the server response after initiating a download.
@@ -131,6 +138,13 @@ type ResumeParams struct {
 	// SpeedLimit specifies the maximum download speed (e.g., "1MB", "512KB", or raw bytes).
 	// If empty or "0", no limit is applied.
 	SpeedLimit string `json:"speed_limit,omitempty"`
+	// Interfaces replaces the saved policy when set. Empty or omitted keeps
+	// the saved policy. "off" turns it off.
+	Interfaces string `json:"interfaces,omitempty"`
+	// SegmentLimitChosen reports that MaxSegments on this resume was chosen
+	// by the caller. False leaves a stored bonded cap in place when the
+	// numeric value is only a filled-in default.
+	SegmentLimitChosen bool `json:"segment_limit_chosen,omitempty"`
 }
 
 // ResumeResponse contains the server response after resuming a download.
@@ -269,4 +283,3 @@ type QueueMoveParams struct {
 	// Position is the target 0-indexed position in the queue.
 	Position int `json:"position"`
 }
-

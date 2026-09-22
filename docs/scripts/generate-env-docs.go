@@ -46,6 +46,7 @@ WarpDL can be configured using environment variables. These take precedence over
 	"| `WARPDL_SPEED_LIMIT` | Default speed limit (e.g., 1MB, 512KB) | unlimited |\n" +
 	"| `WARPDL_SPEED_SCHEDULE` | Daemon throttle window HH:MM-HH:MM:SPEED (e.g., 09:00-17:00:512KB) | none |\n" +
 	"| `WARPDL_NO_WORK_STEAL` | Disable work stealing (set to \"1\") | `false` |\n" +
+	"| `WARPDL_INTERFACES` | Interface policy for HTTP downloads: off, auto, or comma-separated device names | `off` |\n" +
 	"| `WARPDL_PRIORITY` | Default download priority: high, normal, low | `normal` |\n" +
 	"| `WARP_MAX_PARTS` | Maximum file segments (legacy prefix) | `200` |\n" +
 	"| `WARP_MAX_CONN` | Maximum parallel connections (legacy prefix) | `24` |\n" +

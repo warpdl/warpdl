@@ -166,6 +166,34 @@ type Downloader struct {
 	// mean their work succeeded.
 	workerErrMu sync.Mutex
 	workerErrs  []error
+
+	// interfacePolicy is the resolved policy string stored with the download.
+	// Addresses are not stored; they are resolved again when a transfer starts.
+	interfacePolicy string
+	// segmentLimitChosen is true when the caller set a segment cap on purpose,
+	// including when that cap is the usual default of 200.
+	segmentLimitChosen bool
+	// interfaceDial replaces the production bind-and-pin dial when a test
+	// supplies one. Nil uses the platform dialer.
+	interfaceDial InterfaceDialFunc
+	// interfaceBindingsHint is a resolved device list supplied by a test.
+	// Nil means production resolves interfacePolicy from the host.
+	interfaceBindingsHint []InterfaceBinding
+	// proxyURL is the in-memory proxy used to build per-interface clients.
+	// Persistence stores a credential-free copy separately.
+	proxyURL string
+	// multiActive is true only while this transfer is using two or more
+	// interfaces. Slow-split and work stealing stay off in that case.
+	multiActive bool
+	// ifaceClients are the per-interface HTTP clients for the active set.
+	ifaceClients []ifaceClient
+	// liveWorkers is the number of bonded workers still in the pool. A speed
+	// limit is divided by this count, not by the part count.
+	liveWorkers atomic.Int32
+	// partIface tracks which selected interface a part is using so a failed
+	// part can move to another interface chosen at the start of the transfer.
+	partIfaceMu sync.Mutex
+	partIface   map[string]*partIfaceState
 }
 
 // DownloaderOptsFunc is a functional option for configuring a Downloader.
@@ -188,6 +216,19 @@ func (d *Downloader) currentPartSpeedLimit() int64 {
 	total := d.speedLimit.Load()
 	if total <= 0 {
 		return 0
+	}
+	// While more than one interface is in use, divide the cap across the
+	// workers that are actually running. Dividing by the part count would
+	// throttle each worker to a crawl.
+	if d.multiActive {
+		live := d.liveWorkers.Load()
+		if live < 1 {
+			live = int32(d.bondedWorkerCount())
+		}
+		if live < 1 {
+			live = 1
+		}
+		return total / int64(live)
 	}
 	if d.numBaseParts > 1 {
 		return total / int64(d.numBaseParts)
@@ -419,6 +460,20 @@ type DownloaderOpts struct {
 	// If empty, default paths (~/.ssh/id_ed25519, ~/.ssh/id_rsa) are tried.
 	// Not used for HTTP or FTP protocols.
 	SSHKeyPath string
+
+	// Interfaces is the resolved interface policy: "off", "auto", or a
+	// comma-separated list of device names. Empty means off on a new download.
+	Interfaces string
+	// SegmentLimitChosen reports that the caller set MaxSegments on purpose,
+	// even when the number is the command's usual default of 200. When a
+	// multi-interface schedule is used and this is false, that filled-in
+	// default is not the bonded part cap.
+	SegmentLimitChosen bool
+	// InterfaceBindings is a resolved device list. Production leaves it nil
+	// and fills the list from Interfaces. Tests pass fake interfaces here.
+	InterfaceBindings []InterfaceBinding
+	// InterfaceDial replaces the production dial for tests. See InterfaceDialFunc.
+	InterfaceDial InterfaceDialFunc
 }
 
 func downloaderParentContext(opts *DownloaderOpts) context.Context {
@@ -547,6 +602,11 @@ func NewDownloader(client *http.Client, url string, opts *DownloaderOpts, optFun
 	d.checksumConfig = opts.ChecksumConfig
 	d.setSpeedLimits(opts.SpeedLimit, opts.SpeedLimit)
 	d.enableWorkStealing = !opts.DisableWorkStealing
+	d.interfacePolicy = opts.Interfaces
+	d.segmentLimitChosen = opts.SegmentLimitChosen
+	d.interfaceDial = opts.InterfaceDial
+	d.interfaceBindingsHint = opts.InterfaceBindings
+	d.proxyURL = opts.ProxyURL
 
 	// Apply functional options
 	for _, optFunc := range optFuncs {
@@ -605,6 +665,9 @@ func NewDownloader(client *http.Client, url string, opts *DownloaderOpts, optFun
 	}
 	if d.maxParts != 0 && d.numBaseParts > d.maxParts {
 		d.numBaseParts = d.maxParts
+	}
+	if err = d.applyInterfacePlan(false); err != nil {
+		return
 	}
 	return
 }
@@ -671,33 +734,38 @@ func initDownloader(client *http.Client, hash, url string, cLength ContentLength
 	// request derived from it inherits the strip set.
 	ctx = WithPluginHeaderNames(ctx, pluginHeaderNames)
 	d = &Downloader{
-		ctx:                ctx,
-		cancel:             cancel,
-		wg:                 &sync.WaitGroup{},
-		client:             client,
-		sourceURL:          url,
-		url:                url,
-		maxConn:            opts.MaxConnections,
-		chunk:              int(DEF_CHUNK_SIZE),
-		force:              opts.ForceParts,
-		handlers:           opts.Handlers,
-		fileName:           opts.FileName,
-		dlLoc:              opts.DownloadDirectory,
-		maxParts:           opts.MaxSegments,
-		headers:            opts.Headers,
-		sourceHeaders:      sourceHeaders,
-		pluginHeaderNames:  pluginHeaderNames,
-		resourceETag:       strongETag(opts.ResourceETag),
-		lockFileName:       opts.LockFileName,
-		hash:               hash,
-		dlPath:             filepath.Join(DlDataDir, hash),
-		resumable:          cLength.v() > 0 && strongETag(opts.ResourceETag) != "",
-		retryConfig:        retryConfig,
-		overwrite:          opts.Overwrite,
-		requestTimeout:     opts.RequestTimeout,
-		maxFileSize:        opts.MaxFileSize,
-		checksumConfig:     opts.ChecksumConfig,
-		enableWorkStealing: !opts.DisableWorkStealing,
+		ctx:                   ctx,
+		cancel:                cancel,
+		wg:                    &sync.WaitGroup{},
+		client:                client,
+		sourceURL:             url,
+		url:                   url,
+		maxConn:               opts.MaxConnections,
+		chunk:                 int(DEF_CHUNK_SIZE),
+		force:                 opts.ForceParts,
+		handlers:              opts.Handlers,
+		fileName:              opts.FileName,
+		dlLoc:                 opts.DownloadDirectory,
+		maxParts:              opts.MaxSegments,
+		headers:               opts.Headers,
+		sourceHeaders:         sourceHeaders,
+		pluginHeaderNames:     pluginHeaderNames,
+		resourceETag:          strongETag(opts.ResourceETag),
+		lockFileName:          opts.LockFileName,
+		hash:                  hash,
+		dlPath:                filepath.Join(DlDataDir, hash),
+		resumable:             cLength.v() > 0 && strongETag(opts.ResourceETag) != "",
+		retryConfig:           retryConfig,
+		overwrite:             opts.Overwrite,
+		requestTimeout:        opts.RequestTimeout,
+		maxFileSize:           opts.MaxFileSize,
+		checksumConfig:        opts.ChecksumConfig,
+		enableWorkStealing:    !opts.DisableWorkStealing,
+		interfacePolicy:       opts.Interfaces,
+		segmentLimitChosen:    opts.SegmentLimitChosen,
+		interfaceDial:         opts.InterfaceDial,
+		interfaceBindingsHint: opts.InterfaceBindings,
+		proxyURL:              opts.ProxyURL,
 	}
 	d.setSpeedLimits(opts.SpeedLimit, opts.SpeedLimit)
 	d.contentLength.Store(int64(cLength))
@@ -724,6 +792,10 @@ func initDownloader(client *http.Client, hash, url string, cLength ContentLength
 	if d.numBaseParts <= 0 {
 		d.numBaseParts = 1
 	}
+	// A bonded resume keeps the persisted part count. Clamping it to the
+	// connection limit here would be written back over the saved partition
+	// size even though the workers still drain the original parts.
+	preservedParts := d.numBaseParts
 	if d.maxParts != 0 && d.maxConn > d.maxParts {
 		d.maxConn = d.maxParts
 	}
@@ -732,6 +804,12 @@ func initDownloader(client *http.Client, hash, url string, cLength ContentLength
 	}
 	if d.maxParts != 0 && d.numBaseParts > d.maxParts {
 		d.numBaseParts = d.maxParts
+	}
+	if err = d.applyInterfacePlan(true); err != nil {
+		return
+	}
+	if d.multiActive {
+		d.numBaseParts = preservedParts
 	}
 	return
 }
@@ -860,7 +938,11 @@ func (d *Downloader) Start() (err error) {
 	d.ohmap.Make()
 	d.activeParts.Make() // Initialize work stealing map
 	partSize, rpartSize := d.getPartSize()
-	if partSize == -1 {
+	if d.multiActive {
+		if err = d.startBonded(nil); err != nil {
+			return
+		}
+	} else if partSize == -1 {
 		d.wg.Add(1)
 		d.Log("Unknown content length, downloading in a single connection...")
 		body := d.takeInitialBody()
@@ -982,20 +1064,26 @@ func (d *Downloader) Resume(parts map[int64]*ItemPart) (err error) {
 	d.ohmap.Make()
 	d.activeParts.Make() // Initialize work stealing map
 	espeed := 4 * MB / int64(len(partsSnapshot))
-	for ioff, ip := range partsSnapshot {
-		if ip.Compiled {
-			partLength := ip.FinalOffset - ioff + 1
-			d.handlers.CompileSkippedHandler(ip.Hash, partLength)
-			atomic.AddInt64(&d.nread, partLength)
-			continue
+	if d.multiActive {
+		if err = d.startBonded(partsSnapshot); err != nil {
+			return
 		}
-		d.wg.Add(1)
-		// Capture loop variables
-		hashCapture := ip.Hash
-		ioffCapture := ioff
-		foffCapture := ip.FinalOffset
-		espeedCapture := espeed
-		go d.resumePartDownload(hashCapture, ioffCapture, foffCapture, espeedCapture)
+	} else {
+		for ioff, ip := range partsSnapshot {
+			if ip.Compiled {
+				partLength := ip.FinalOffset - ioff + 1
+				d.handlers.CompileSkippedHandler(ip.Hash, partLength)
+				atomic.AddInt64(&d.nread, partLength)
+				continue
+			}
+			d.wg.Add(1)
+			// Capture loop variables
+			hashCapture := ip.Hash
+			ioffCapture := ioff
+			foffCapture := ip.FinalOffset
+			espeedCapture := espeed
+			go d.resumePartDownload(hashCapture, ioffCapture, foffCapture, espeedCapture)
+		}
 	}
 	d.wg.Wait()
 	if terminal, terminalErr := d.finishWorkers(); terminal {
@@ -1488,7 +1576,10 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 		// A validator-less response must remain a single coherent stream.
 		// Disabling the slow-part split here is essential: splitting would
 		// issue a second full request and combine two representations.
-		force := !d.resumable || d.maxConn < 2
+		// Multi-interface downloads also keep the original part boundaries:
+		// the shared queue balances the links, and a slow-split would treat
+		// the large part count as permanently slow.
+		force := !d.resumable || d.maxConn < 2 || d.multiActive
 
 		curFoff := loadFoff()
 		if body == nil {
@@ -1528,6 +1619,21 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 				d.reportWorkerError(hash, err)
 				return err
 			}
+			if d.multiActive && d.partInterfaceOneShot(hash) {
+				if d.shiftPartInterface(part, err) {
+					part.applySpeedLimit(d.currentPartSpeedLimit())
+					if body != nil {
+						body.Close()
+						body = nil
+					}
+					ioff = part.offset + part.getRead()
+					repeated = false
+					continue
+				}
+				exhaustedErr := fmt.Errorf("%w: %v", ErrMaxRetriesExceeded, err)
+				d.reportWorkerError(hash, exhaustedErr)
+				return exhaustedErr
+			}
 
 			retryState.Attempts++
 			retryState.LastError = err
@@ -1535,6 +1641,17 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 
 			// Check if we should retry
 			if !d.retryConfig.ShouldRetry(retryState, err) {
+				if d.multiActive && d.shiftPartInterface(part, err) {
+					retryState = &RetryState{}
+					part.applySpeedLimit(d.currentPartSpeedLimit())
+					if body != nil {
+						body.Close()
+						body = nil
+					}
+					ioff = part.offset + part.getRead()
+					repeated = false
+					continue
+				}
 				d.handlers.RetryExhaustedHandler(hash, retryState.Attempts, err)
 				exhaustedErr := fmt.Errorf("%w: %v", ErrMaxRetriesExceeded, err)
 				d.reportWorkerError(hash, exhaustedErr)
@@ -1592,8 +1709,9 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 				return err
 			}
 
-			// Attempt work stealing after fast completion
-			if d.resumable && d.enableWorkStealing {
+			// Attempt work stealing after fast completion. The multi-interface
+			// queue is what balances links; stealing would rewrite boundaries.
+			if d.resumable && d.enableWorkStealing && !d.multiActive {
 				downloadDuration := time.Since(partStartTime)
 				if downloadDuration > 0 {
 					partSpeed := (part.getRead() * int64(time.Second)) / int64(downloadDuration)
@@ -1756,6 +1874,7 @@ func (d *Downloader) Close() error {
 	if err := d.closeInitialBody(); err != nil {
 		errs = append(errs, err)
 	}
+	d.closeInterfaceClients()
 	if len(errs) > 0 {
 		return errors.Join(errs...)
 	}

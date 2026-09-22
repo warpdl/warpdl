@@ -106,16 +106,18 @@ func (s *Api) resumeHandler(sconn *server.SyncConn, pool *server.Pool, body json
 		transferCtx,
 	)
 	item, parentLease, err = s.manager.ResumeDownloadWithLease(rsClient, m.DownloadId, &warplib.ResumeDownloadOpts{
-		Headers:          m.Headers,
-		TransientHeaders: transientHeaders,
-		ForceParts:       m.ForceParts,
-		MaxConnections:   m.MaxConnections,
-		MaxSegments:      m.MaxSegments,
-		Handlers:         parentHandlers,
-		RetryConfig:      retryConfig,
-		RequestTimeout:   requestTimeout,
-		SpeedLimit:       speedLimit,
-		ProxyURL:         m.Proxy,
+		Headers:            m.Headers,
+		TransientHeaders:   transientHeaders,
+		ForceParts:         m.ForceParts,
+		MaxConnections:     m.MaxConnections,
+		MaxSegments:        m.MaxSegments,
+		Handlers:           parentHandlers,
+		RetryConfig:        retryConfig,
+		RequestTimeout:     requestTimeout,
+		SpeedLimit:         speedLimit,
+		ProxyURL:           m.Proxy,
+		Interfaces:         m.Interfaces,
+		SegmentLimitChosen: m.SegmentLimitChosen,
 	})
 	if err != nil {
 		return common.UPDATE_RESUME, nil, errors.Join(
@@ -144,16 +146,18 @@ func (s *Api) resumeHandler(sconn *server.SyncConn, pool *server.Pool, body json
 			transferCtx,
 		)
 		cItem, childLease, err = s.manager.ResumeDownloadWithLease(rsClient, childHash, &warplib.ResumeDownloadOpts{
-			Headers:          m.Headers,
-			TransientHeaders: childTransientHeaders,
-			ForceParts:       m.ForceParts,
-			MaxConnections:   m.MaxConnections,
-			MaxSegments:      m.MaxSegments,
-			Handlers:         childHandlers,
-			RetryConfig:      retryConfig,
-			RequestTimeout:   requestTimeout,
-			SpeedLimit:       speedLimit,
-			ProxyURL:         m.Proxy,
+			Headers:            m.Headers,
+			TransientHeaders:   childTransientHeaders,
+			ForceParts:         m.ForceParts,
+			MaxConnections:     m.MaxConnections,
+			MaxSegments:        m.MaxSegments,
+			Handlers:           childHandlers,
+			RetryConfig:        retryConfig,
+			RequestTimeout:     requestTimeout,
+			SpeedLimit:         speedLimit,
+			ProxyURL:           m.Proxy,
+			Interfaces:         m.Interfaces,
+			SegmentLimitChosen: m.SegmentLimitChosen,
 		})
 		if err != nil {
 			return common.UPDATE_RESUME, nil, errors.Join(

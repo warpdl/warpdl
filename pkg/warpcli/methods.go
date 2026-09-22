@@ -67,6 +67,10 @@ type DownloadOpts struct {
 	// (e.g., "0 2 * * *" = daily at 2 AM). May be combined with StartAt or
 	// StartIn to delay the first occurrence. Empty means no recurring schedule.
 	Schedule string `json:"schedule,omitempty"`
+	// Interfaces is the resolved interface policy forwarded to the daemon.
+	Interfaces string `json:"interfaces,omitempty"`
+	// SegmentLimitChosen reports that MaxSegments was chosen by the caller.
+	SegmentLimitChosen bool `json:"segment_limit_chosen,omitempty"`
 }
 
 // Download initiates a new download from the specified URL.
@@ -99,6 +103,8 @@ func (c *Client) Download(url, fileName, downloadDirectory string, opts *Downloa
 		SSHKeyPath:          opts.SSHKeyPath,
 		StartAt:             opts.StartAt,
 		Schedule:            opts.Schedule,
+		Interfaces:          opts.Interfaces,
+		SegmentLimitChosen:  opts.SegmentLimitChosen,
 	})
 }
 
@@ -126,6 +132,10 @@ type ResumeOpts struct {
 	// SpeedLimit specifies the maximum download speed (e.g., "1MB", "512KB", or raw bytes).
 	// If empty or "0", no limit is applied.
 	SpeedLimit string `json:"speed_limit,omitempty"`
+	// Interfaces replaces the saved policy when non-empty. Empty keeps it.
+	Interfaces string `json:"interfaces,omitempty"`
+	// SegmentLimitChosen reports that MaxSegments was chosen by the caller.
+	SegmentLimitChosen bool `json:"segment_limit_chosen,omitempty"`
 }
 
 // Resume resumes a previously paused or interrupted download.
@@ -137,16 +147,18 @@ func (c *Client) Resume(downloadId string, opts *ResumeOpts) (*common.ResumeResp
 		opts = &ResumeOpts{}
 	}
 	return invoke[common.ResumeResponse](c, common.UPDATE_RESUME, &common.ResumeParams{
-		DownloadId:     downloadId,
-		Headers:        opts.Headers,
-		ForceParts:     opts.ForceParts,
-		MaxConnections: opts.MaxConnections,
-		MaxSegments:    opts.MaxSegments,
-		Proxy:          opts.Proxy,
-		Timeout:        opts.Timeout,
-		MaxRetries:     opts.MaxRetries,
-		RetryDelay:     opts.RetryDelay,
-		SpeedLimit:     opts.SpeedLimit,
+		DownloadId:         downloadId,
+		Headers:            opts.Headers,
+		ForceParts:         opts.ForceParts,
+		MaxConnections:     opts.MaxConnections,
+		MaxSegments:        opts.MaxSegments,
+		Proxy:              opts.Proxy,
+		Timeout:            opts.Timeout,
+		MaxRetries:         opts.MaxRetries,
+		RetryDelay:         opts.RetryDelay,
+		SpeedLimit:         opts.SpeedLimit,
+		Interfaces:         opts.Interfaces,
+		SegmentLimitChosen: opts.SegmentLimitChosen,
 	})
 }
 

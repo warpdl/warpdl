@@ -155,6 +155,8 @@ func buildDownloadOpts(
 		SSHKeyPath:          ctx.String("ssh-key"),
 		StartAt:             startAtValue,
 		Schedule:            scheduleValue,
+		Interfaces:          resolveInterfacePolicy(ctx, true),
+		SegmentLimitChosen:  segmentLimitChosen(ctx),
 	}
 }
 
