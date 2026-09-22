@@ -28,4 +28,9 @@ const (
 	// DaemonURIEnv is the environment variable for daemon URI.
 	// Format: unix:///path/to/socket, tcp://host:port, or pipe://name
 	DaemonURIEnv = "WARPDL_DAEMON_URI"
+
+	// InterfacesEnv is the shell environment variable for the HTTP interface
+	// policy. Only the command reads it. The daemon uses the string the
+	// command resolved and put on the request.
+	InterfacesEnv = "WARPDL_INTERFACES"
 )

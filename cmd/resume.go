@@ -77,6 +77,10 @@ var (
 			Name:  "background, b",
 			Usage: "run download in background (exit immediately without progress display)",
 		},
+		cli.StringFlag{
+			Name:  "interfaces",
+			Usage: "network interfaces for an HTTP download: off, auto, or comma-separated device names (default off)",
+		},
 		speedLimitFlag,
 	}
 )
@@ -145,16 +149,22 @@ func resume(ctx *cli.Context) (err error) {
 			return common.PrintRuntimeErr(ctx, "resume", "invalid_proxy", err)
 		}
 	}
+	maxSegments := int32(0)
+	if segmentLimitChosen(ctx) {
+		maxSegments = int32(maxParts)
+	}
 	r, err := client.Resume(hash, &warpcli.ResumeOpts{
-		ForceParts:     forceParts,
-		MaxConnections: int32(maxConns),
-		MaxSegments:    int32(maxParts),
-		Headers:        headers,
-		Proxy:          proxyURL,
-		Timeout:        timeout,
-		MaxRetries:     maxRetries,
-		RetryDelay:     retryDelay,
-		SpeedLimit:     ctx.String("speed-limit"),
+		ForceParts:         forceParts,
+		MaxConnections:     int32(maxConns),
+		MaxSegments:        maxSegments,
+		Headers:            headers,
+		Proxy:              proxyURL,
+		Timeout:            timeout,
+		MaxRetries:         maxRetries,
+		RetryDelay:         retryDelay,
+		SpeedLimit:         ctx.String("speed-limit"),
+		Interfaces:         resolveInterfacePolicy(ctx, false),
+		SegmentLimitChosen: segmentLimitChosen(ctx),
 	})
 	if err != nil {
 		return common.PrintRuntimeErr(ctx, "resume", "client-resume", err)

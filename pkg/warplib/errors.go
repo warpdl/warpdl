@@ -111,4 +111,27 @@ var (
 
 	// ErrCannotMoveActive is returned when attempting to move an active download in the queue.
 	ErrCannotMoveActive = errors.New("cannot move active download, only waiting downloads can be moved")
+
+	// ErrInvalidInterfacePolicy is returned when an interface policy is not
+	// "off", "auto", or a comma-separated list of device names.
+	ErrInvalidInterfacePolicy = errors.New("invalid interface policy")
+
+	// ErrInterfaceNotFound is returned when an explicit device name is not
+	// present on the machine. The error text includes the device name.
+	ErrInterfaceNotFound = errors.New("interface not found")
+
+	// ErrInterfaceDown is returned when an explicit device is present but not up.
+	ErrInterfaceDown = errors.New("interface is down")
+
+	// ErrInterfaceNoIPv4 is returned when an explicit device has no IPv4 address.
+	ErrInterfaceNoIPv4 = errors.New("interface has no IPv4 address")
+
+	// ErrInterfacePinRefused is returned when the process cannot pin a socket
+	// to a named device. On Linux that is SO_BINDTODEVICE. The error text
+	// includes the device name.
+	ErrInterfacePinRefused = errors.New("interface pin refused")
+
+	// ErrMultiInterfaceHTTPOnly is returned when an explicit device list is
+	// requested for a protocol that cannot bind per-interface HTTP clients.
+	ErrMultiInterfaceHTTPOnly = errors.New("multi-interface applies to HTTP only")
 )

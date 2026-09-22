@@ -160,6 +160,12 @@ func GetApp(bArgs BuildArgs) *cli.App {
 		},
 		queueCmd,
 		{
+			Name:   "interfaces",
+			Usage:  "list network interfaces and whether auto would use them",
+			Action: interfaces,
+			Flags:  globalFlags,
+		},
+		{
 			Name:    "help",
 			Aliases: []string{"h"},
 			Usage:   "prints the help message",

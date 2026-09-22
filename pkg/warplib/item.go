@@ -54,6 +54,14 @@ type TransferConfig struct {
 	ChecksumConfig              *ChecksumConfig
 	SpeedLimit                  int64
 	DisableWorkStealing         bool
+	// Interfaces is the resolved interface policy ("off", "auto", or a
+	// comma-separated device list). Empty is off, including downloads created
+	// before this field existed. Addresses are not stored.
+	Interfaces string
+	// SegmentLimitChosen records that the stored segment cap was chosen by
+	// the caller rather than filled in as a default. Resume uses it so a
+	// bonded part count is not clamped back to 200.
+	SegmentLimitChosen bool
 }
 
 func cloneTransferConfig(config TransferConfig) TransferConfig {

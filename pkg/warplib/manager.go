@@ -473,6 +473,8 @@ func transferConfigFromDownloader(d *Downloader) TransferConfig {
 		MaxFileSize:         d.maxFileSize,
 		SpeedLimit:          d.GetBaseSpeedLimit(),
 		DisableWorkStealing: !d.enableWorkStealing,
+		Interfaces:          d.interfacePolicy,
+		SegmentLimitChosen:  d.segmentLimitChosen,
 	}
 	if d.retryConfig != nil {
 		retryConfig := *d.retryConfig
@@ -651,6 +653,9 @@ func (m *Manager) AddProtocolDownload(pd ProtocolDownloader, probe ProbeResult, 
 	defer done()
 	if opts == nil {
 		opts = &AddDownloadOpts{}
+	}
+	if err := MultiInterfaceHTTPOnly(opts.TransferConfig.Interfaces); err != nil {
+		return err
 	}
 	transferConfig := cloneTransferConfig(opts.TransferConfig)
 	safeProxyURL, proxyCredentialsRequired, err := SanitizeProxyURLForPersistence(transferConfig.ProxyURL)
@@ -1245,6 +1250,19 @@ type ResumeDownloadOpts struct {
 	// CommitGuard is evaluated at the reconstruction commit point. Queue
 	// callers use it to ensure their exact activation is still current.
 	CommitGuard func() bool
+	// Interfaces replaces the saved policy when non-empty. Empty keeps the
+	// saved policy, including the off used by downloads created before this
+	// field existed. "off" is non-empty and turns the policy off.
+	Interfaces string
+	// SegmentLimitChosen reports that MaxSegments was set on purpose. A
+	// filled-in default must leave this false so it does not clamp a bonded
+	// part count.
+	SegmentLimitChosen bool
+	// InterfaceBindings and InterfaceDial are the test hook the manager
+	// passes through to the reconstructed downloader. Production leaves them
+	// nil; the library resolves Interfaces itself.
+	InterfaceBindings []InterfaceBinding
+	InterfaceDial     InterfaceDialFunc
 }
 
 // ResumeDownload resumes a download item.
@@ -1320,6 +1338,14 @@ func (m *Manager) resumeDownload(
 	// Dispatch based on protocol
 	switch snapshot.Protocol {
 	case ProtoFTP, ProtoFTPS, ProtoSFTP:
+		effectiveInterfaces := snapshot.TransferConfig.Interfaces
+		if opts.Interfaces != "" {
+			effectiveInterfaces = opts.Interfaces
+		}
+		if policyErr := MultiInterfaceHTTPOnly(effectiveInterfaces); policyErr != nil {
+			err = policyErr
+			return
+		}
 		if snapshot.TransferConfig.ProtocolCredentialsRequired {
 			err = ErrProtocolCredentialsRequired
 			return
@@ -1470,9 +1496,6 @@ func (m *Manager) resumeDownload(
 		if opts.MaxConnections != 0 {
 			config.MaxConnections = opts.MaxConnections
 		}
-		if opts.MaxSegments != 0 {
-			config.MaxSegments = opts.MaxSegments
-		}
 		if opts.RetryConfig != nil {
 			retryConfig := *opts.RetryConfig
 			config.RetryConfig = &retryConfig
@@ -1483,8 +1506,24 @@ func (m *Manager) resumeDownload(
 		if opts.SpeedLimit != 0 {
 			config.SpeedLimit = opts.SpeedLimit
 		}
+		if opts.Interfaces != "" {
+			config.Interfaces = opts.Interfaces
+		}
+		// A non-zero segment count replaces the stored cap, except when the
+		// caller did not choose it and this download uses a bonded budget.
+		// That keeps a filled-in default of 200 from clamping a bonded resume.
+		if opts.MaxSegments != 0 && (opts.SegmentLimitChosen || !interfacePolicyUsesBondedBudget(config.Interfaces)) {
+			config.MaxSegments = opts.MaxSegments
+		}
+		if opts.SegmentLimitChosen {
+			config.SegmentLimitChosen = true
+		}
 		if config.NumBaseParts <= 0 {
 			config.NumBaseParts = 1
+		}
+		proxyForInterfaces := opts.ProxyURL
+		if proxyForInterfaces == "" {
+			proxyForInterfaces = config.ProxyURL
 		}
 		downloaderOpts := &DownloaderOpts{
 			Context:             transferCtx,
@@ -1506,6 +1545,11 @@ func (m *Manager) resumeDownload(
 			ChecksumConfig:      config.ChecksumConfig,
 			SpeedLimit:          config.SpeedLimit,
 			DisableWorkStealing: config.DisableWorkStealing,
+			Interfaces:          config.Interfaces,
+			SegmentLimitChosen:  config.SegmentLimitChosen,
+			InterfaceBindings:   opts.InterfaceBindings,
+			InterfaceDial:       opts.InterfaceDial,
+			ProxyURL:            proxyForInterfaces,
 		}
 		if fresh {
 			// A fresh occurrence is a new representation, not a resume. Probe
@@ -1604,7 +1648,7 @@ func finishFreshHTTPDownloader(d *Downloader, hash string, opts *DownloaderOpts)
 	if d.maxParts != 0 && d.numBaseParts > d.maxParts {
 		d.numBaseParts = d.maxParts
 	}
-	return nil
+	return d.applyInterfacePlan(false)
 }
 
 // itemHasPendingSchedule reports whether deleting item would discard work

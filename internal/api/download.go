@@ -307,6 +307,9 @@ func (s *Api) downloadHTTPHandler(sconn *server.SyncConn, pool *server.Pool, dlU
 		SpeedLimit:          speedLimit,
 		DisableWorkStealing: m.DisableWorkStealing,
 		Handlers:            handlers,
+		Interfaces:          m.Interfaces,
+		SegmentLimitChosen:  m.SegmentLimitChosen,
+		ProxyURL:            m.Proxy,
 	})
 	if err != nil {
 		return common.UPDATE_DOWNLOAD, nil, err
@@ -425,6 +428,9 @@ func (s *Api) downloadHTTPHandler(sconn *server.SyncConn, pool *server.Pool, dlU
 
 // downloadProtocolHandler handles FTP, FTPS, and SFTP downloads via SchemeRouter.
 func (s *Api) downloadProtocolHandler(sconn *server.SyncConn, pool *server.Pool, rawURL, scheme string, m *common.DownloadParams) (common.UpdateType, any, error) {
+	if err := warplib.MultiInterfaceHTTPOnly(m.Interfaces); err != nil {
+		return common.UPDATE_DOWNLOAD, nil, err
+	}
 	if s.schemeRouter == nil {
 		return common.UPDATE_DOWNLOAD, nil, fmt.Errorf("%s downloads not available: scheme router not initialized", scheme)
 	}
@@ -511,6 +517,7 @@ func (s *Api) downloadProtocolHandler(sconn *server.SyncConn, pool *server.Pool,
 			ProtocolUsername:            protocolUsername,
 			Overwrite:                   m.Overwrite,
 			ProtocolCredentialsRequired: protocolCredentialsRequired,
+			Interfaces:                  m.Interfaces,
 		},
 	})
 	if err != nil {
