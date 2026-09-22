@@ -85,9 +85,6 @@ func defaultInterfaceDial(ctx context.Context, network, address string, local ne
 			return pinErr
 		},
 	}
-	if network == "" {
-		network = "tcp4"
-	}
 	return dialer.DialContext(ctx, "tcp4", address)
 }
 

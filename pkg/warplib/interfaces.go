@@ -253,7 +253,7 @@ func explicitBindings(names []string, ifaces []hostInterface) ([]InterfaceBindin
 // planBondedPartCount chooses the bonded part count. It returns ok false when
 // the file cannot meet the 1 MB floor and four parts per interface; the caller
 // then keeps today's single-route schedule.
-func planBondedPartCount(size int64, nIfaces int, chosen bool, chosenCap int32) (count int32, oversized bool, ok bool) {
+func planBondedPartCount(size int64, nIfaces int, chosen bool, chosenCap int32) (count int32, oversized, ok bool) {
 	if size <= 0 || nIfaces < 2 {
 		return 0, false, false
 	}
@@ -376,6 +376,14 @@ func (d *Downloader) applyInterfacePlan(resume bool) error {
 		d.Log("%s fewer than 2 usable interfaces", logSingleRoute)
 		return nil
 	}
+	clients, err := d.buildInterfaceClients(pinned)
+	if err != nil {
+		return err
+	}
+	return d.activateBondedPlan(resume, pinned, clients)
+}
+
+func (d *Downloader) activateBondedPlan(resume bool, pinned []InterfaceBinding, clients []ifaceClient) error {
 	chosenCap := int32(0)
 	if d.segmentLimitChosen {
 		chosenCap = d.maxParts
@@ -394,21 +402,8 @@ func (d *Downloader) applyInterfacePlan(resume bool) error {
 		d.Log("%s file is too small to split across interfaces", logPolicyNotApplied)
 		return nil
 	}
-	clients, err := d.buildInterfaceClients(pinned)
-	if err != nil {
-		return err
-	}
 	if !resume {
-		d.numBaseParts = count
-		// An unchosen limit, including the command's filled-in 200, is not
-		// the bonded cap. The stored cap is the one this transfer applied.
-		if !(d.segmentLimitChosen && d.maxParts > 0 && count <= d.maxParts) {
-			d.maxParts = count
-		}
-		if oversized {
-			nominal := d.GetContentLength().v() / int64(count)
-			d.Log("%s: %d bytes", logPartsTooLarge, nominal)
-		}
+		d.applyFreshBondedSchedule(count, oversized)
 	}
 	d.ifaceClients = clients
 	d.multiActive = true
@@ -417,6 +412,20 @@ func (d *Downloader) applyInterfacePlan(resume bool) error {
 	}
 	d.Log("%s %s", logChosenInterfaces, formatInterfaceBindings(pinned))
 	return nil
+}
+
+func (d *Downloader) applyFreshBondedSchedule(count int32, oversized bool) {
+	d.numBaseParts = count
+	// An unchosen limit, including the command's filled-in 200, is not
+	// the bonded cap. The stored cap is the one this transfer applied.
+	if !d.segmentLimitChosen || d.maxParts <= 0 || count > d.maxParts {
+		d.maxParts = count
+	}
+	if !oversized {
+		return
+	}
+	nominal := d.GetContentLength().v() / int64(count)
+	d.Log("%s: %d bytes", logPartsTooLarge, nominal)
 }
 
 func (d *Downloader) resolveInterfaceBindings(kind policyKind, names []string) ([]InterfaceBinding, error) {

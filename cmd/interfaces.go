@@ -45,7 +45,9 @@ func interfaces(ctx *cli.Context) error {
 	if err != nil {
 		return fmt.Errorf("list network interfaces: %w", err)
 	}
-	fmt.Fprintf(ctx.App.Writer, "%-16s %-16s %-24s %s\n", "NAME", "IPV4", "PORT", "AUTO")
+	if _, err = fmt.Fprintf(ctx.App.Writer, "%-16s %-16s %-24s %s\n", "NAME", "IPV4", "PORT", "AUTO"); err != nil {
+		return err
+	}
 	for _, iface := range list {
 		ip := "-"
 		if iface.IPv4 != nil {
@@ -59,7 +61,9 @@ func interfaces(ctx *cli.Context) error {
 		if iface.Auto {
 			auto = "yes"
 		}
-		fmt.Fprintf(ctx.App.Writer, "%-16s %-16s %-24s %s\n", iface.Name, ip, port, auto)
+		if _, err = fmt.Fprintf(ctx.App.Writer, "%-16s %-16s %-24s %s\n", iface.Name, ip, port, auto); err != nil {
+			return err
+		}
 	}
 	return nil
 }

@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -31,8 +32,7 @@ type formulaServer struct {
 
 func newFormulaServer(t *testing.T, opts formulaServer) *httptest.Server {
 	t.Helper()
-	var srv *httptest.Server
-	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("X-Test") != "keep" {
 			http.Error(w, "missing header", http.StatusBadRequest)
 			return
@@ -125,7 +125,7 @@ func verifyFormulaFile(t *testing.T, path string, size int64) {
 	if err != nil {
 		t.Fatalf("open %s: %v", path, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	buf := make([]byte, 32*KB)
 	var off int64
 	for {
@@ -171,28 +171,23 @@ type dialScript struct {
 
 func (s *dialScript) dial(ctx context.Context, network, address string, local net.IP, device string) (net.Conn, error) {
 	if address == "" {
-		if s.refuse[device] || (local != nil && s.refuse[local.String()]) {
-			return nil, ErrInterfacePinRefused
-		}
-		return nil, nil
+		return s.refuseProbe(local, device)
 	}
-	if network != "" && network != "tcp4" {
-		s.mu.Lock()
-		s.networks = append(s.networks, network)
-		s.mu.Unlock()
+	return s.connect(ctx, network, address, local)
+}
+
+func (s *dialScript) refuseProbe(local net.IP, device string) (net.Conn, error) {
+	if s.refuse[device] || (local != nil && s.refuse[local.String()]) {
+		return nil, ErrInterfacePinRefused
 	}
-	ip := ""
-	if local != nil {
-		ip = local.String()
-	}
-	s.mu.Lock()
-	if s.byIP == nil {
-		s.byIP = make(map[string]int)
-	}
-	s.byIP[ip]++
-	n := s.byIP[ip]
-	s.mu.Unlock()
-	if s.failIP != "" && ip == s.failIP && n > s.failAfter {
+	return nil, nil
+}
+
+func (s *dialScript) connect(ctx context.Context, network, address string, local net.IP) (net.Conn, error) {
+	s.noteNetwork(network)
+	ip := interfaceIP(local)
+	n := s.nextDial(ip)
+	if s.shouldFailDial(ip, n) {
 		return nil, errors.New("connection refused")
 	}
 	var dialer net.Dialer
@@ -200,14 +195,52 @@ func (s *dialScript) dial(ctx context.Context, network, address string, local ne
 	if err != nil {
 		return nil, err
 	}
+	return s.wrapConn(conn, ip, n), nil
+}
+
+func (s *dialScript) noteNetwork(network string) {
+	if network == "" || network == "tcp4" {
+		return
+	}
+	s.mu.Lock()
+	s.networks = append(s.networks, network)
+	s.mu.Unlock()
+}
+
+func interfaceIP(local net.IP) string {
+	if local == nil {
+		return ""
+	}
+	return local.String()
+}
+
+func (s *dialScript) nextDial(ip string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.byIP == nil {
+		s.byIP = make(map[string]int)
+	}
+	s.byIP[ip]++
+	return s.byIP[ip]
+}
+
+func (s *dialScript) shouldFailDial(ip string, n int) bool {
+	return s.failIP != "" && ip == s.failIP && n > s.failAfter
+}
+
+func (s *dialScript) wrapConn(conn net.Conn, ip string, n int) net.Conn {
 	wrapped := &recordingConn{Conn: conn, ip: ip, script: s}
-	if s.failIP != "" && ip == s.failIP && n <= s.failAfter && s.cutBytes > 0 {
+	if s.shouldCut(ip, n) {
 		wrapped.remain = s.cutBytes
 	}
 	if ip == s.slowIP && s.slowEvery > 0 {
 		wrapped.delay = s.slowEvery
 	}
-	return wrapped, nil
+	return wrapped
+}
+
+func (s *dialScript) shouldCut(ip string, n int) bool {
+	return s.failIP != "" && ip == s.failIP && n <= s.failAfter && s.cutBytes > 0
 }
 
 func (s *dialScript) count(ip string) int {
@@ -307,13 +340,14 @@ func useHostInterfaces(t *testing.T, ifaces []hostInterface) {
 	t.Cleanup(func() { discoverInterfaces = previous })
 }
 
-func newIfaceManager(t *testing.T) (*Manager, string) {
+func newIfaceManager(t *testing.T) (manager *Manager, base string) {
 	t.Helper()
-	base := t.TempDir()
+	base = t.TempDir()
 	if err := SetConfigDir(base); err != nil {
 		t.Fatalf("SetConfigDir: %v", err)
 	}
-	manager, err := InitManager()
+	var err error
+	manager, err = InitManager()
 	if err != nil {
 		t.Fatalf("InitManager: %v", err)
 	}
@@ -548,7 +582,7 @@ func TestManagerDownloadBondedPartSizes(t *testing.T) {
 		t.Fatalf("unchosen plan logged oversized parts:\n%s", downloadLog(t, got.hash))
 	}
 
-	manager.Close()
+	_ = manager.Close()
 	manager, base = newIfaceManager(t)
 	script = &dialScript{}
 	opts = bondedOpts(base, script, testBindings(), "eth-a,eth-b")
@@ -569,24 +603,26 @@ func assertPartPlan(t *testing.T, spans [][2]int64, size int64, minCount, maxCou
 		t.Fatalf("part count %d, want %d..%d", len(spans), minCount, maxCount)
 	}
 	ordered := append([][2]int64(nil), spans...)
-	for i := 0; i < len(ordered); i++ {
-		for j := i + 1; j < len(ordered); j++ {
-			if ordered[j][0] < ordered[i][0] {
-				ordered[i], ordered[j] = ordered[j], ordered[i]
-			}
-		}
-	}
+	sort.Slice(ordered, func(i, j int) bool { return ordered[i][0] < ordered[j][0] })
 	if ordered[0][0] != 0 {
 		t.Fatalf("first part starts at %d", ordered[0][0])
 	}
-	var sawLarge bool
+	sawLarge := spansIncludeOversized(t, ordered, size, allowLarge)
+	if allowLarge && !sawLarge {
+		t.Fatal("chosen cap did not force a part larger than 8MB")
+	}
+}
+
+func spansIncludeOversized(t *testing.T, ordered [][2]int64, size int64, allowLarge bool) bool {
+	t.Helper()
+	sawLarge := false
 	for i, span := range ordered {
 		if i > 0 && span[0] != ordered[i-1][1]+1 {
 			t.Fatalf("gap before %d-%d", span[0], span[1])
 		}
 		length := span[1] - span[0] + 1
 		last := i == len(ordered)-1
-		if !allowLarge && !last && length > 8*MB {
+		if spanExceedsBudget(length, last, allowLarge) {
 			t.Fatalf("non-final part %d-%d is %d bytes", span[0], span[1], length)
 		}
 		if length > 8*MB {
@@ -596,9 +632,47 @@ func assertPartPlan(t *testing.T, spans [][2]int64, size int64, minCount, maxCou
 	if ordered[len(ordered)-1][1] != size-1 {
 		t.Fatalf("partition ends at %d, want %d", ordered[len(ordered)-1][1], size-1)
 	}
-	if allowLarge && !sawLarge {
-		t.Fatal("chosen cap did not force a part larger than 8MB")
+	return sawLarge
+}
+
+func spanExceedsBudget(length int64, last, allowLarge bool) bool {
+	return !allowLarge && !last && length > 8*MB
+}
+
+func startPausedInterfaceDownload(t *testing.T, base, policy string, script *dialScript, stopWhen func() bool) (hash, savePath string) {
+	t.Helper()
+	const size = 8 * MB
+	srv := newFormulaServer(t, formulaServer{size: size, etag: true, ranges: true})
+	manager, err := InitManager()
+	if err != nil {
+		t.Fatalf("InitManager: %v", err)
 	}
+	opts := bondedOpts(base, script, nil, policy)
+	opts.MaxConnections = 2
+	var item *Item
+	var stopOnce sync.Once
+	opts.Handlers = &Handlers{
+		DownloadProgressHandler: func(string, int) {
+			if item != nil && stopWhen() {
+				stopOnce.Do(func() { _ = item.StopDownload() })
+			}
+		},
+	}
+	downloader, err := NewDownloader(&http.Client{}, srv.URL+"/file.bin", opts)
+	if err != nil {
+		t.Fatalf("NewDownloader: %v", err)
+	}
+	if err := manager.AddDownload(downloader, &AddDownloadOpts{AbsoluteLocation: base, SkipQueue: true}); err != nil {
+		t.Fatalf("AddDownload: %v", err)
+	}
+	item = manager.GetItem(downloader.GetHash())
+	if err := item.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if err := manager.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	return downloader.GetHash(), downloader.GetSavePath()
 }
 
 func TestManagerResumeKeepsInterfacePolicyAndReresolves(t *testing.T) {
@@ -615,40 +689,10 @@ func TestManagerResumeKeepsInterfacePolicyAndReresolves(t *testing.T) {
 		{Name: "eth-b", Flags: net.FlagUp, IPv4: []net.IP{net.IPv4(10, 8, 0, 4)}},
 	}
 	useHostInterfaces(t, first)
-	const size = 8 * MB
-	srv := newFormulaServer(t, formulaServer{size: size, etag: true, ranges: true})
 	script := &dialScript{}
-	manager, err := InitManager()
-	if err != nil {
-		t.Fatalf("InitManager: %v", err)
-	}
-	opts := bondedOpts(base, script, nil, "eth-a,eth-b")
-	opts.MaxConnections = 2
-	var item *Item
-	var stopOnce sync.Once
-	opts.Handlers = &Handlers{
-		DownloadProgressHandler: func(string, int) {
-			if script.count("10.1.0.1") > 0 && script.count("10.2.0.2") > 0 && item != nil {
-				stopOnce.Do(func() { _ = item.StopDownload() })
-			}
-		},
-	}
-	downloader, err := NewDownloader(&http.Client{}, srv.URL+"/file.bin", opts)
-	if err != nil {
-		t.Fatalf("NewDownloader: %v", err)
-	}
-	if err := manager.AddDownload(downloader, &AddDownloadOpts{AbsoluteLocation: base, SkipQueue: true}); err != nil {
-		t.Fatalf("AddDownload: %v", err)
-	}
-	item = manager.GetItem(downloader.GetHash())
-	if err := item.Start(); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	hash := downloader.GetHash()
-	if err := manager.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
+	hash, savePath := startPausedInterfaceDownload(t, base, "eth-a,eth-b", script, func() bool {
+		return script.count("10.1.0.1") > 0 && script.count("10.2.0.2") > 0
+	})
 	discoverInterfaces = func() ([]hostInterface, error) {
 		return second, nil
 	}
@@ -656,7 +700,7 @@ func TestManagerResumeKeepsInterfacePolicyAndReresolves(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reopen: %v", err)
 	}
-	defer reopened.Close()
+	defer func() { _ = reopened.Close() }()
 	resumeScript := &dialScript{}
 	resumed, err := reopened.ResumeDownload(&http.Client{}, hash, &ResumeDownloadOpts{
 		InterfaceDial: resumeScript.dial,
@@ -675,7 +719,7 @@ func TestManagerResumeKeepsInterfacePolicyAndReresolves(t *testing.T) {
 	if err := resumed.Resume(); err != nil {
 		t.Fatalf("Resume: %v", err)
 	}
-	verifyFormulaFile(t, downloader.GetSavePath(), size)
+	verifyFormulaFile(t, savePath, 8*MB)
 	if resumeScript.count("10.8.0.3") == 0 || resumeScript.count("10.8.0.4") == 0 {
 		t.Fatalf("resume dials = %#v, want re-resolved addresses", resumeScript.byIP)
 	}
@@ -695,44 +739,15 @@ func TestManagerResumeReplacesInterfacePolicy(t *testing.T) {
 		{Name: "eth-c", Flags: net.FlagUp, IPv4: []net.IP{net.IPv4(10, 3, 0, 3)}},
 		{Name: "eth-d", Flags: net.FlagUp, IPv4: []net.IP{net.IPv4(10, 4, 0, 4)}},
 	})
-	const size = 8 * MB
-	srv := newFormulaServer(t, formulaServer{size: size, etag: true, ranges: true})
 	script := &dialScript{}
-	manager, err := InitManager()
-	if err != nil {
-		t.Fatalf("InitManager: %v", err)
-	}
-	opts := bondedOpts(base, script, nil, "eth-a,eth-b")
-	opts.MaxConnections = 2
-	var item *Item
-	var stopOnce sync.Once
-	opts.Handlers = &Handlers{
-		DownloadProgressHandler: func(string, int) {
-			if script.count("10.1.0.1") > 0 && item != nil {
-				stopOnce.Do(func() { _ = item.StopDownload() })
-			}
-		},
-	}
-	downloader, err := NewDownloader(&http.Client{}, srv.URL+"/file.bin", opts)
-	if err != nil {
-		t.Fatalf("NewDownloader: %v", err)
-	}
-	if err := manager.AddDownload(downloader, &AddDownloadOpts{AbsoluteLocation: base, SkipQueue: true}); err != nil {
-		t.Fatalf("AddDownload: %v", err)
-	}
-	item = manager.GetItem(downloader.GetHash())
-	if err := item.Start(); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	hash := downloader.GetHash()
-	if err := manager.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
+	hash, savePath := startPausedInterfaceDownload(t, base, "eth-a,eth-b", script, func() bool {
+		return script.count("10.1.0.1") > 0
+	})
 	reopened, err := InitManager()
 	if err != nil {
 		t.Fatalf("reopen: %v", err)
 	}
-	defer reopened.Close()
+	defer func() { _ = reopened.Close() }()
 	resumeScript := &dialScript{}
 	resumed, err := reopened.ResumeDownload(&http.Client{}, hash, &ResumeDownloadOpts{
 		Interfaces:    "eth-c,eth-d",
@@ -745,7 +760,7 @@ func TestManagerResumeReplacesInterfacePolicy(t *testing.T) {
 	if err := resumed.Resume(); err != nil {
 		t.Fatalf("Resume: %v", err)
 	}
-	verifyFormulaFile(t, downloader.GetSavePath(), size)
+	verifyFormulaFile(t, savePath, 8*MB)
 	if resumeScript.count("10.3.0.3") == 0 || resumeScript.count("10.4.0.4") == 0 {
 		t.Fatalf("replacement dials = %#v", resumeScript.byIP)
 	}
@@ -792,7 +807,7 @@ func TestManagerPreFeatureDownloadStaysSingleRoute(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reopen: %v", err)
 	}
-	defer reopened.Close()
+	defer func() { _ = reopened.Close() }()
 	resumeScript := &dialScript{}
 	resumed, err := reopened.ResumeDownload(&http.Client{}, hash, &ResumeDownloadOpts{
 		InterfaceDial: resumeScript.dial,
@@ -953,7 +968,7 @@ func TestManagerAutoSkipsVirtualAndUsesExplicitVPN(t *testing.T) {
 		t.Fatalf("auto used a filtered address: %#v", script.byIP)
 	}
 
-	manager.Close()
+	_ = manager.Close()
 	manager, base = newIfaceManager(t)
 	script = &dialScript{}
 	opts = bondedOpts(base, script, nil, "utun3,eth-a")

@@ -27,6 +27,6 @@ func probeDevicePin(device string) error {
 	if err != nil {
 		return fmt.Errorf("%w: %s: %v", ErrInterfacePinRefused, device, err)
 	}
-	defer unix.Close(fd)
+	defer func() { _ = unix.Close(fd) }()
 	return pinSocket(uintptr(fd), device)
 }

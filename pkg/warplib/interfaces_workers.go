@@ -24,9 +24,7 @@ func (d *Downloader) startBonded(resumeParts map[int64]*ItemPart) error {
 	}
 	workers := d.bondedWorkerCount()
 	if workers < 1 {
-		for _, job := range jobs {
-			job.part.close()
-		}
+		closeBondedJobs(jobs)
 		return fmt.Errorf("%w: no interface workers", ErrInvalidMaxConnections)
 	}
 	d.liveWorkers.Store(int32(workers))
@@ -65,9 +63,7 @@ func (d *Downloader) spawnBondedJobs() ([]bondedJob, error) {
 		}
 		part, err := d.spawnPart(ioff, foff)
 		if err != nil {
-			for _, job := range jobs {
-				job.part.close()
-			}
+			closeBondedJobs(jobs)
 			return nil, err
 		}
 		jobs = append(jobs, bondedJob{part: part, foff: foff})
@@ -76,65 +72,73 @@ func (d *Downloader) spawnBondedJobs() ([]bondedJob, error) {
 }
 
 func (d *Downloader) resumeBondedJobs(resumeParts map[int64]*ItemPart) ([]bondedJob, error) {
-	starts := make([]int64, 0, len(resumeParts))
-	for start := range resumeParts {
+	starts := sortedPartStarts(resumeParts)
+	jobs := make([]bondedJob, 0, len(starts))
+	for _, ioff := range starts {
+		job, skip, err := d.resumeOneBondedPart(ioff, resumeParts[ioff])
+		if err != nil {
+			closeBondedJobs(jobs)
+			return nil, err
+		}
+		if !skip {
+			jobs = append(jobs, job)
+		}
+	}
+	return jobs, nil
+}
+
+func sortedPartStarts(parts map[int64]*ItemPart) []int64 {
+	starts := make([]int64, 0, len(parts))
+	for start := range parts {
 		starts = append(starts, start)
 	}
 	sort.Slice(starts, func(i, j int) bool { return starts[i] < starts[j] })
-	jobs := make([]bondedJob, 0, len(starts))
-	for _, ioff := range starts {
-		ip := resumeParts[ioff]
-		if ip == nil {
-			for _, job := range jobs {
-				job.part.close()
-			}
-			return nil, fmt.Errorf("%w: nil part at offset %d", ErrItemPartNil, ioff)
-		}
-		if ip.Compiled {
-			partLength := ip.FinalOffset - ioff + 1
-			d.handlers.CompileSkippedHandler(ip.Hash, partLength)
-			atomic.AddInt64(&d.nread, partLength)
-			continue
-		}
-		part, err := d.initPart(ip.Hash, ioff, ip.FinalOffset)
-		if err != nil {
-			for _, job := range jobs {
-				job.part.close()
-			}
-			return nil, err
-		}
-		expected := ip.FinalOffset - ioff + 1
-		persisted := part.getRead()
-		if persisted > expected {
-			part.close()
-			for _, job := range jobs {
-				job.part.close()
-			}
-			return nil, fmt.Errorf("%w: persisted part %s contains %d bytes, declared range requires %d",
-				ErrDownloadSizeMismatch, ip.Hash, persisted, expected)
-		}
-		if persisted < expected && d.resourceETag == "" {
-			part.close()
-			for _, job := range jobs {
-				job.part.close()
-			}
-			return nil, fmt.Errorf("%w: cannot append to persisted part %s without a strong ETag",
-				ErrResourceChanged, ip.Hash)
-		}
-		if persisted == expected {
-			if err := d.compileBondedPart(part); err != nil {
-				part.close()
-				for _, job := range jobs {
-					job.part.close()
-				}
-				return nil, err
-			}
-			part.close()
-			continue
-		}
-		jobs = append(jobs, bondedJob{part: part, foff: ip.FinalOffset})
+	return starts
+}
+
+func (d *Downloader) resumeOneBondedPart(ioff int64, ip *ItemPart) (job bondedJob, skip bool, err error) {
+	if ip == nil {
+		return bondedJob{}, false, fmt.Errorf("%w: nil part at offset %d", ErrItemPartNil, ioff)
 	}
-	return jobs, nil
+	if ip.Compiled {
+		partLength := ip.FinalOffset - ioff + 1
+		d.handlers.CompileSkippedHandler(ip.Hash, partLength)
+		atomic.AddInt64(&d.nread, partLength)
+		return bondedJob{}, true, nil
+	}
+	part, err := d.initPart(ip.Hash, ioff, ip.FinalOffset)
+	if err != nil {
+		return bondedJob{}, false, err
+	}
+	expected := ip.FinalOffset - ioff + 1
+	persisted := part.getRead()
+	if persisted > expected {
+		_ = part.close()
+		return bondedJob{}, false, fmt.Errorf("%w: persisted part %s contains %d bytes, declared range requires %d",
+			ErrDownloadSizeMismatch, ip.Hash, persisted, expected)
+	}
+	if persisted < expected && d.resourceETag == "" {
+		_ = part.close()
+		return bondedJob{}, false, fmt.Errorf("%w: cannot append to persisted part %s without a strong ETag",
+			ErrResourceChanged, ip.Hash)
+	}
+	if persisted != expected {
+		return bondedJob{part: part, foff: ip.FinalOffset}, false, nil
+	}
+	err = d.compileBondedPart(part)
+	_ = part.close()
+	if err != nil {
+		return bondedJob{}, false, err
+	}
+	return bondedJob{}, true, nil
+}
+
+func closeBondedJobs(jobs []bondedJob) {
+	for _, job := range jobs {
+		if job.part != nil {
+			_ = job.part.close()
+		}
+	}
 }
 
 func (d *Downloader) bondedWorker(slot ifaceClient, index int, jobs <-chan bondedJob) {
@@ -160,7 +164,7 @@ func (d *Downloader) bondedWorker(slot ifaceClient, index int, jobs <-chan bonde
 
 func (d *Downloader) runBondedJob(slot ifaceClient, index int, job bondedJob) {
 	part := job.part
-	defer part.close()
+	defer func() { _ = part.close() }()
 	if atomic.LoadInt32(&d.stopped) == 1 || (d.ctx != nil && d.ctx.Err() != nil) {
 		return
 	}
