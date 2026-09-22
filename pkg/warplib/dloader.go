@@ -938,16 +938,17 @@ func (d *Downloader) Start() (err error) {
 	d.ohmap.Make()
 	d.activeParts.Make() // Initialize work stealing map
 	partSize, rpartSize := d.getPartSize()
-	if d.multiActive {
+	switch {
+	case d.multiActive:
 		if err = d.startBonded(nil); err != nil {
 			return
 		}
-	} else if partSize == -1 {
+	case partSize == -1:
 		d.wg.Add(1)
 		d.Log("Unknown content length, downloading in a single connection...")
 		body := d.takeInitialBody()
 		go d.downloadUnknownSizeWorker(body)
-	} else {
+	default:
 		for i := int32(0); i < d.numBaseParts; i++ {
 			ioff := int64(i) * partSize
 			foff := ioff + partSize - 1
@@ -1623,7 +1624,7 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 				if d.shiftPartInterface(part, err) {
 					part.applySpeedLimit(d.currentPartSpeedLimit())
 					if body != nil {
-						body.Close()
+						_ = body.Close()
 						body = nil
 					}
 					ioff = part.offset + part.getRead()
@@ -1645,7 +1646,7 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 					retryState = &RetryState{}
 					part.applySpeedLimit(d.currentPartSpeedLimit())
 					if body != nil {
-						body.Close()
+						_ = body.Close()
 						body = nil
 					}
 					ioff = part.offset + part.getRead()
