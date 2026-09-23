@@ -442,3 +442,44 @@ func TestScheduler_RecurringReSchedule(t *testing.T) {
 		t.Fatal("expected recurring event to fire at least once")
 	}
 }
+
+func TestScheduler_TriggerDoesNotBlockRemove(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	s := New(ctx, func(hash string) {
+		if hash == "blocker" {
+			close(started)
+			<-release
+		}
+	})
+	s.Add(ScheduleEvent{ItemHash: "blocker", TriggerAt: time.Now()})
+	s.Add(ScheduleEvent{ItemHash: "other", TriggerAt: time.Now().Add(time.Hour)})
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("trigger did not start")
+	}
+
+	removed := make(chan struct{})
+	go func() {
+		s.Remove("other")
+		close(removed)
+	}()
+	select {
+	case <-removed:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("Remove blocked behind the in-flight trigger")
+	}
+
+	close(release)
+	cancel()
+	select {
+	case <-s.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("scheduler did not finish the in-flight trigger")
+	}
+}

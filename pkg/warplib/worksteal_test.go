@@ -1,6 +1,9 @@
 package warplib
 
 import (
+	"io"
+	"log"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -612,5 +615,52 @@ func TestFindBestVictimForStealing(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestBytesPerSecondLargePart(t *testing.T) {
+	const bytesRead = int64(10) << 30 // 10 GiB
+	got := bytesPerSecond(bytesRead, 10*time.Second)
+	if got != bytesRead/10 {
+		t.Fatalf("bytesPerSecond = %d, want %d", got, bytesRead/10)
+	}
+	if !isMergeCandidate(bytesRead, 10*time.Second) {
+		t.Fatal("a 10 GiB part downloaded in 10s must qualify for work stealing")
+	}
+}
+
+func TestAttemptWorkStealKeepsParentWhenChildCreateFails(t *testing.T) {
+	logger := log.New(io.Discard, "", 0)
+	d := &Downloader{
+		enableWorkStealing: true,
+		handlers:           &Handlers{},
+		l:                  logger,
+		wg:                 &sync.WaitGroup{},
+		dlPath:             filepath.Join(t.TempDir(), "missing-dir"),
+		chunk:              32 * 1024,
+	}
+	d.handlers.setDefault(logger)
+	d.activeParts.Make()
+
+	foff := new(atomic.Int64)
+	original := int64(100 * MB)
+	foff.Store(original)
+	var read int64
+	info := &activePartInfo{
+		hash:   "victim",
+		offset: 0,
+		foff:   foff,
+		read:   &read,
+	}
+	d.activeParts.Set("victim", info)
+
+	if d.attemptWorkSteal("stealer", WORK_STEAL_SPEED_THRESHOLD*2) {
+		t.Fatal("steal succeeded even though the child part could not be created")
+	}
+	if foff.Load() != original {
+		t.Fatalf("parent boundary = %d, want %d", foff.Load(), original)
+	}
+	if info.stolen.Load() {
+		t.Fatal("victim marked stolen after a failed child create")
 	}
 }

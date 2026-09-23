@@ -37,6 +37,12 @@ func NewRateLimitedReader(r io.Reader, limit int64) *RateLimitedReader {
 
 // Read implements io.Reader with rate limiting using a token bucket algorithm.
 func (r *RateLimitedReader) Read(b []byte) (n int, err error) {
+	// io.Reader requires a zero-length buffer to return (0, nil). The token
+	// floor below reads at least one byte, which panics on an empty slice.
+	if len(b) == 0 {
+		return 0, nil
+	}
+
 	// No limit - pass through directly
 	if r.limit.Load() <= 0 {
 		return r.r.Read(b)
