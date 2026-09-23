@@ -583,6 +583,17 @@ func (m *Manager) patchHandlers(d *Downloader, item *Item) {
 		m.UpdateItem(item)
 		oRPH(hash, partIoff, ioffNew, foffNew)
 	}
+	oPSH := d.handlers.PartSplitHandler
+	d.handlers.PartSplitHandler = func(parentHash string, parentIoff, parentPos, parentFoff int64, childHash string, childIoff, childFoff int64) {
+		item.addPart(parentHash, parentIoff, parentFoff)
+		item.addPart(childHash, childIoff, childFoff)
+		m.UpdateItem(item)
+		if oPSH != nil {
+			oPSH(parentHash, parentIoff, parentPos, parentFoff, childHash, childIoff, childFoff)
+		}
+		oRPH(parentHash, parentIoff, parentPos, parentFoff)
+		oSPH(childHash, childIoff, childFoff)
+	}
 	oPH := d.handlers.DownloadProgressHandler
 	d.handlers.DownloadProgressHandler = func(hash string, nread int) {
 		item.mu.Lock()
@@ -732,6 +743,21 @@ func (m *Manager) patchProtocolHandlers(h *Handlers, item *Item) {
 		m.UpdateItem(item)
 		if oRPH != nil {
 			oRPH(hash, partIoff, ioffNew, foffNew)
+		}
+	}
+	oPSH := h.PartSplitHandler
+	h.PartSplitHandler = func(parentHash string, parentIoff, parentPos, parentFoff int64, childHash string, childIoff, childFoff int64) {
+		item.addPart(parentHash, parentIoff, parentFoff)
+		item.addPart(childHash, childIoff, childFoff)
+		m.UpdateItem(item)
+		if oPSH != nil {
+			oPSH(parentHash, parentIoff, parentPos, parentFoff, childHash, childIoff, childFoff)
+		}
+		if oRPH != nil {
+			oRPH(parentHash, parentIoff, parentPos, parentFoff)
+		}
+		if oSPH != nil {
+			oSPH(childHash, childIoff, childFoff)
 		}
 	}
 	oPH := h.DownloadProgressHandler

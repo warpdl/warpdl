@@ -61,6 +61,12 @@ type (
 	// bytesHashed is the total number of bytes hashed so far.
 	ChecksumProgressHandlerFunc func(bytesHashed int64)
 
+	// PartSplitHandlerFunc persists a shortened parent and its new child together.
+	// parentPos is the parent's downloaded position at the split. Offsets are
+	// inclusive. A single callback lets the manager write both ranges in one
+	// snapshot, so a crash cannot leave a hole or an overlap.
+	PartSplitHandlerFunc func(parentHash string, parentIoff, parentPos, parentFoff int64, childHash string, childIoff, childFoff int64)
+
 	// WorkStealHandlerFunc is called when a fast part steals work from a slower part.
 	// Parameters:
 	//   - stealerHash: the hash of the part that finished fast and is stealing work
@@ -94,6 +100,10 @@ type Handlers struct {
 
 	// WorkStealHandler is called when work stealing occurs between parts.
 	WorkStealHandler WorkStealHandlerFunc
+
+	// PartSplitHandler, when set, publishes a parent/child boundary change
+	// as one persist. Nil falls back to SpawnPartHandler then RespawnPartHandler.
+	PartSplitHandler PartSplitHandlerFunc
 }
 
 func (h *Handlers) setDefault(l *log.Logger) {

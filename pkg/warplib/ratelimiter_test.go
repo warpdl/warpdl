@@ -502,3 +502,11 @@ func BenchmarkParseSpeedLimit(b *testing.B) {
 
 // Ensure strings package is used (for linter)
 var _ = strings.TrimSpace
+
+func TestRateLimitedReaderEmptyBuffer(t *testing.T) {
+	reader := NewRateLimitedReader(bytes.NewReader([]byte{1, 2, 3, 4}), 1024)
+	n, err := reader.Read([]byte{})
+	if n != 0 || err != nil {
+		t.Fatalf("empty Read = %d, %v; want 0, nil", n, err)
+	}
+}

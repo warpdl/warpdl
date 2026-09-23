@@ -3,6 +3,7 @@ package scheduler
 import (
 	"container/heap"
 	"context"
+	"sync"
 	"time"
 
 	"github.com/adhocore/gronx"
@@ -51,7 +52,7 @@ func (s *Scheduler) Add(event ScheduleEvent) {
 
 // Remove cancels every pending event for itemHash. The scheduler goroutine
 // owns the heap, so cancellation is delivered as a request it applies
-// between triggers.
+// without waiting for an in-flight trigger callback.
 func (s *Scheduler) Remove(itemHash string) {
 	select {
 	case s.removeChan <- itemHash:
@@ -64,7 +65,11 @@ func (s *Scheduler) Remove(itemHash string) {
 // For recurring events (CronExpr != ""), after firing it computes the next
 // occurrence and re-adds it to the heap automatically.
 func (s *Scheduler) run(onTrigger func(string)) {
-	defer close(s.done)
+	var triggerWg sync.WaitGroup
+	defer func() {
+		triggerWg.Wait()
+		close(s.done)
+	}()
 	h := &scheduleHeap{}
 	heap.Init(h)
 
@@ -115,7 +120,15 @@ func (s *Scheduler) run(onTrigger func(string)) {
 			now := time.Now()
 			for h.Len() > 0 && !(*h)[0].TriggerAt.After(now) {
 				event := heapPop(h)
-				onTrigger(event.ItemHash)
+				// The daemon trigger probes the network before it returns.
+				// Running it here would freeze every other schedule and every
+				// Remove until that probe finished.
+				triggerWg.Add(1)
+				go func(itemHash string) {
+					defer triggerWg.Done()
+					defer func() { _ = recover() }()
+					onTrigger(itemHash)
+				}(event.ItemHash)
 				// T069: For recurring events, compute next cron occurrence and re-add.
 				if event.CronExpr != "" {
 					next, err := nextCronOccurrence(event.CronExpr, time.Now())

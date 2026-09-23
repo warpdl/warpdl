@@ -1,7 +1,7 @@
 package warplib
 
 import (
-	"fmt"
+	"math"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -34,13 +34,27 @@ func isMergeCandidate(bytesRead int64, duration time.Duration) bool {
 		return false
 	}
 
-	// Calculate speed in bytes per second
-	// speed = bytesRead / duration.Seconds()
-	// To avoid floating point, use: speed = bytesRead * Second / duration
-	speed := (bytesRead * int64(time.Second)) / int64(duration)
-
 	// Must be strictly greater than threshold
-	return speed > WORK_STEAL_SPEED_THRESHOLD
+	return bytesPerSecond(bytesRead, duration) > WORK_STEAL_SPEED_THRESHOLD
+}
+
+// bytesPerSecond is bytesRead / duration in bytes per second.
+// The integer form bytes*Second/duration overflows past about 8.6 GiB and
+// wraps negative, which makes a fast multi-gigabyte part look too slow to
+// steal. float64 is exact for byte counts up to 2^53 (about 9 PiB).
+func bytesPerSecond(bytesRead int64, duration time.Duration) int64 {
+	if bytesRead <= 0 || duration <= 0 {
+		return 0
+	}
+	secs := duration.Seconds()
+	if secs <= 0 {
+		return math.MaxInt64
+	}
+	speed := float64(bytesRead) / secs
+	if speed >= float64(math.MaxInt64) {
+		return math.MaxInt64
+	}
+	return int64(speed)
 }
 
 // calculateStealWork computes the byte range to steal from an adjacent part.
@@ -279,6 +293,11 @@ func (d *Downloader) attemptWorkSteal(stealerHash string, partSpeed int64) bool 
 	if !canSteal {
 		return false
 	}
+	child, err := d.openChildPart(stealStart, stealEnd)
+	if err != nil {
+		d.Log("%s: work steal skipped - child part was not created: %v", stealerHash, err)
+		return false
+	}
 	newVictimFoff := stealStart - 1
 	victim.foff.Store(newVictimFoff)
 	victim.stolen.Store(true)
@@ -286,28 +305,12 @@ func (d *Downloader) attemptWorkSteal(stealerHash string, partSpeed int64) bool 
 	victimOffset := victim.offset
 	victimPos := victim.getCurrentPos()
 	d.Log("%s: stealing work from %s | bytes %d-%d", stealerHash, victimHash, stealStart, stealEnd)
-	// Persist the victim's shortened boundary before recording the stolen
-	// part. Without this callback, a daemon restart sees overlapping ranges.
-	d.handlers.RespawnPartHandler(
-		victimHash,
-		victimOffset,
-		victimPos,
-		newVictimFoff,
-	)
+	// Publish the shortened parent and the child together. Doing this only
+	// after the child file exists means a failed create cannot drop the tail.
+	d.publishPartSplit(victimHash, victimOffset, victimPos, newVictimFoff, child.hash, stealStart, stealEnd)
 	d.handlers.WorkStealHandler(stealerHash, victimHash, stealStart, stealEnd)
 
-	// Spawn new part to handle stolen range
 	d.wg.Add(1)
-	go func(ioff, foff int64) {
-		defer func() {
-			if r := recover(); r != nil {
-				d.Log("PANIC in work steal newPartDownload: %v", r)
-				d.failWorker("work-steal-part", fmt.Errorf("panic: %v", r))
-			}
-		}()
-		// Use half the speed threshold as expected speed for stolen part
-		d.newPartDownload(ioff, foff, WORK_STEAL_SPEED_THRESHOLD/2)
-	}(stealStart, stealEnd)
-
+	go d.runNewPart(child, stealStart, stealEnd, WORK_STEAL_SPEED_THRESHOLD/2, nil)
 	return true
 }

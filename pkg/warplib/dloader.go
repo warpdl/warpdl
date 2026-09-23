@@ -1319,6 +1319,18 @@ func (d *Downloader) closeLogWriter() error {
 }
 
 func (d *Downloader) spawnPart(ioff, foff int64) (part *Part, err error) {
+	part, err = d.openChildPart(ioff, foff)
+	if err != nil {
+		return nil, err
+	}
+	d.handlers.SpawnPartHandler(part.hash, ioff, foff)
+	return part, nil
+}
+
+// openChildPart creates a part file and registers it in memory without
+// persisting it. The caller publishes it together with the parent's new
+// boundary, or spawnPart publishes it on its own.
+func (d *Downloader) openChildPart(ioff, foff int64) (part *Part, err error) {
 	// Calculate per-part speed limit: total limit / number of parts
 	partSpeedLimit := d.currentPartSpeedLimit()
 	part, err = newPart(
@@ -1348,8 +1360,16 @@ func (d *Downloader) spawnPart(ioff, foff int64) (part *Part, err error) {
 	// d.numParts++
 	atomic.AddInt32(&d.numParts, 1)
 	d.Log("%s: created new part | %d => %d", part.hash, ioff, foff)
-	d.handlers.SpawnPartHandler(part.hash, ioff, foff)
-	return
+	return part, nil
+}
+
+func (d *Downloader) publishPartSplit(parentHash string, parentIoff, parentPos, parentFoff int64, childHash string, childIoff, childFoff int64) {
+	if d.handlers.PartSplitHandler != nil {
+		d.handlers.PartSplitHandler(parentHash, parentIoff, parentPos, parentFoff, childHash, childIoff, childFoff)
+		return
+	}
+	d.handlers.SpawnPartHandler(childHash, childIoff, childFoff)
+	d.handlers.RespawnPartHandler(parentHash, parentIoff, parentPos, parentFoff)
 }
 func (d *Downloader) initPart(hash string, ioff, foff int64) (part *Part, err error) {
 	// Calculate per-part speed limit: total limit / number of parts
@@ -1469,6 +1489,10 @@ func (d *Downloader) newPartDownload(ioff, foff, espeed int64) {
 }
 
 func (d *Downloader) newPartDownloadWithBody(ioff, foff, espeed int64, body io.ReadCloser) {
+	d.runNewPart(nil, ioff, foff, espeed, body)
+}
+
+func (d *Downloader) runNewPart(part *Part, ioff, foff, espeed int64, body io.ReadCloser) {
 	// d.numConn++
 	atomic.AddInt32(&d.numConn, 1)
 	defer func() {
@@ -1478,15 +1502,20 @@ func (d *Downloader) newPartDownloadWithBody(ioff, foff, espeed int64, body io.R
 	workerHash := "new-part"
 	defer func() {
 		if r := recover(); r != nil {
-			d.l.Printf("PANIC in newPartDownload: %v\n%s", r, debug.Stack())
+			if d.l != nil {
+				d.l.Printf("PANIC in newPartDownload: %v\n%s", r, debug.Stack())
+			}
 			d.failWorker(workerHash, fmt.Errorf("panic: %v", r))
 		}
 	}()
-	part, err := d.spawnPart(ioff, foff)
-	if err != nil {
-		d.Log("failed to spawn new part: %v", err)
-		d.failWorker("new-part", err)
-		return
+	if part == nil {
+		var err error
+		part, err = d.spawnPart(ioff, foff)
+		if err != nil {
+			d.Log("failed to spawn new part: %v", err)
+			d.failWorker("new-part", err)
+			return
+		}
 	}
 	hash := part.hash
 	workerHash = hash
@@ -1499,7 +1528,7 @@ func (d *Downloader) newPartDownloadWithBody(ioff, foff, espeed int64, body io.R
 		d.registerSpeedPart(part)
 	}
 	// CHANGE IMPL
-	err = d.runPart(part, ioff, foff, espeed, false, body)
+	err := d.runPart(part, ioff, foff, espeed, false, body)
 	if err != nil {
 		d.storeWorkerError(hash, err)
 		return
@@ -1715,7 +1744,7 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 			if d.resumable && d.enableWorkStealing && !d.multiActive {
 				downloadDuration := time.Since(partStartTime)
 				if downloadDuration > 0 {
-					partSpeed := (part.getRead() * int64(time.Second)) / int64(downloadDuration)
+					partSpeed := bytesPerSecond(part.getRead(), downloadDuration)
 					if d.attemptWorkSteal(hash, partSpeed) {
 						d.Log("%s: initiated work steal after fast completion at %s/s", hash, ContentLength(partSpeed))
 					}
@@ -1775,13 +1804,14 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 		}
 		d.Log("%s: Detected part as running slow", hash)
 
-		// Atomically reserve the parent and child ranges before starting the
-		// child. A work steal uses the same mutex, so whichever operation wins
-		// re-reads the other's reduced boundary and cannot create overlap.
-		childIoff, childFoff, split := d.reserveSlowPartSplit(part, foffAtomic)
+		// Open the child before the parent boundary is stored. A work steal
+		// uses the same mutex, so whichever operation wins re-reads the other's
+		// reduced boundary and cannot create overlap.
+		child, childIoff, childFoff, split := d.claimPartSplit(part, foffAtomic, true)
 		if !split {
 			// A concurrent steal may have made the range too small to split
-			// after the earlier unlocked threshold check.
+			// after the earlier unlocked threshold check, or the child part
+			// could not be created. The parent range is unchanged in that case.
 			_, err = part.copyBufferTo(body, foffAtomic, true)
 			if err != nil {
 				d.reportWorkerError(hash, err)
@@ -1793,7 +1823,7 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 		childIoffCapture := childIoff
 		childFoffCapture := childFoff
 		espeedCapture := espeed
-		go d.newPartDownload(childIoffCapture, childFoffCapture, espeedCapture/2)
+		go d.runNewPart(child, childIoffCapture, childFoffCapture, espeedCapture/2, nil)
 
 		d.Log("%s: part respawned", hash)
 		d.Log("%s: slow | %d | %d => %d", part.hash, part.getRead(), part.offset, loadFoff())
@@ -1804,14 +1834,23 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 	// return d.runPart(part, poff, foff, espeed/2, false, body)
 }
 
-// reserveSlowPartSplit divides the currently unreserved tail of part while
-// serializing with work stealing. The parent boundary is stored and persisted
-// before the child range is returned to the caller for spawning. Persistence
-// stays under boundaryMu: releasing first lets a concurrent steal persist a
-// smaller boundary that this stale callback then overwrites, overlapping the
-// stolen child on restart. The handler only takes item.mu + manager persist
-// (no run drain), so the copy loop simply waits one persist per 32KB chunk.
+// reserveSlowPartSplit updates the parent boundary without creating a child.
+// Concurrency tests use it to race the reservation itself. Downloads use
+// claimPartSplit so the child exists before the boundary is stored.
 func (d *Downloader) reserveSlowPartSplit(part *Part, foff *atomic.Int64) (childIoff, childFoff int64, ok bool) {
+	_, childIoff, childFoff, ok = d.claimPartSplit(part, foff, false)
+	return
+}
+
+// claimPartSplit divides the currently unreserved tail of part while
+// serializing with work stealing. When createChild is set, the child part is
+// opened before the parent boundary is stored or persisted. A failed open
+// leaves the parent range intact. Persistence stays under boundaryMu:
+// releasing first lets a concurrent steal persist a smaller boundary that
+// this stale callback then overwrites. The handler only takes item.mu and
+// the manager persist (no run drain), so the copy loop waits one persist
+// per chunk.
+func (d *Downloader) claimPartSplit(part *Part, foff *atomic.Int64, createChild bool) (child *Part, childIoff, childFoff int64, ok bool) {
 	if part.boundaryMu != nil {
 		part.boundaryMu.Lock()
 		defer part.boundaryMu.Unlock()
@@ -1824,21 +1863,31 @@ func (d *Downloader) reserveSlowPartSplit(part *Part, foff *atomic.Int64) (child
 	}
 	currentEnd := foff.Load()
 	if currentEnd-currentPos <= 2*d.getMinPartSize() {
-		return 0, 0, false
+		return nil, 0, 0, false
 	}
 	div := (currentEnd - currentPos) / 2
 	childIoff = currentPos + div
 	if childIoff <= currentPos || childIoff > currentEnd {
-		return 0, 0, false
+		return nil, 0, 0, false
 	}
 	childFoff = currentEnd
 	parentFoff := childIoff - 1
+	if createChild {
+		var err error
+		child, err = d.openChildPart(childIoff, childFoff)
+		if err != nil {
+			d.Log("%s: slow split skipped: %v", part.hash, err)
+			return nil, 0, 0, false
+		}
+	}
 	foff.Store(parentFoff)
-
-	// Keep persisted part state ordered with boundary updates by invoking the
-	// handler while holding the same short-lived reservation mutex.
-	d.handlers.RespawnPartHandler(part.hash, part.offset, part.offset+part.getRead(), parentFoff)
-	return childIoff, childFoff, true
+	parentPos := part.offset + part.getRead()
+	if createChild {
+		d.publishPartSplit(part.hash, part.offset, parentPos, parentFoff, child.hash, childIoff, childFoff)
+	} else {
+		d.handlers.RespawnPartHandler(part.hash, part.offset, parentPos, parentFoff)
+	}
+	return child, childIoff, childFoff, true
 }
 
 // Stop stops the download process.
