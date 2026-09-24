@@ -2471,28 +2471,24 @@ func (d *Downloader) prepareDownloader() (err error) {
 		err = es
 		return
 	}
-	switch {
-	case te > getDownloadTime(100*KB, int64(size)):
-		// chunk is downloaded at a speed less than 100KB/s
-		// very slow download - use fewer parts to avoid server overload and timeouts
-		d.numBaseParts = 4
-	case te > getDownloadTime(MB, int64(size)):
-		// chunk is downloaded at a speed less than 1MB/s
-		// slow download - use fewer parts to maintain stability
-		d.numBaseParts = 6
-	case te < getDownloadTime(10*MB, int64(size)):
-		// chunk is downloaded at a speed more than 10MB/s
-		// super fast download - can handle more parallel connections
-		d.numBaseParts = 12
-	case te < getDownloadTime(5*MB, int64(size)):
-		// chunk is downloaded at a speed more than 5MB/s
-		// fast download
-		d.numBaseParts = 10
-	default:
-		// moderate download speed (1-5 MB/s) - use balanced part count
-		d.numBaseParts = 8
-	}
+	d.numBaseParts = partsForProbe(te, int64(size))
 	return
+}
+
+// partsForProbe selects the initial parallelism from the measured probe.
+func partsForProbe(elapsed time.Duration, bytesRead int64) int32 {
+	switch {
+	case elapsed > getDownloadTime(100*KB, bytesRead):
+		return 4
+	case elapsed > getDownloadTime(MB, bytesRead):
+		return 6
+	case elapsed < getDownloadTime(10*MB, bytesRead):
+		return 12
+	case elapsed < getDownloadTime(5*MB, bytesRead):
+		return 10
+	default:
+		return 8
+	}
 }
 
 // downloadUnknownSizeFile is a fallback download handler in case the file
