@@ -64,3 +64,5 @@ GOOS=darwin GOARCH=arm64 go build -o warpdl-darwin .
 # Using goreleaser
 make goreleaser
 ```
+
+To publish a release, create and push an annotated `vX.Y.Z` tag on the commit to release. Pushing the tag starts the Release workflow. Its manual `tag` input can rerun an **existing** tag; it does not create one.
