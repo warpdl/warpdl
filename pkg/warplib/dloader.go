@@ -95,9 +95,11 @@ type Downloader struct {
 	// plugin did not anticipate. Set only when opts.PluginHeaders was
 	// populated; nil means no plugin headers.
 	pluginHeaderNames map[string]struct{}
-	// resourceETag is the strong HTTP entity tag captured from the metadata
-	// response. Every ranged request binds itself to this representation with
-	// If-Range so bytes from different resource versions cannot be combined.
+	// resourceETag is the representation validator captured from the metadata
+	// response: a strong entity tag or, when the server sends none, a strong
+	// Last-Modified date. Every ranged request binds itself to this
+	// representation with If-Range so bytes from different resource versions
+	// cannot be combined.
 	resourceETag string
 	// initialBody is retained only for non-resumable downloads. Reusing the
 	// metadata response as the transfer stream guarantees validator-less
@@ -592,7 +594,7 @@ func NewDownloader(client *http.Client, url string, opts *DownloaderOpts, optFun
 	d.headers = opts.Headers
 	d.sourceHeaders = sourceHeaders
 	d.pluginHeaderNames = pluginHeaderNames
-	d.resourceETag = strongETag(opts.ResourceETag)
+	d.resourceETag = resourceValidator(opts.ResourceETag)
 	d.lockFileName = opts.LockFileName
 	d.resumable = true
 	d.retryConfig = retryConfig
@@ -750,11 +752,11 @@ func initDownloader(client *http.Client, hash, url string, cLength ContentLength
 		headers:               opts.Headers,
 		sourceHeaders:         sourceHeaders,
 		pluginHeaderNames:     pluginHeaderNames,
-		resourceETag:          strongETag(opts.ResourceETag),
+		resourceETag:          resourceValidator(opts.ResourceETag),
 		lockFileName:          opts.LockFileName,
 		hash:                  hash,
 		dlPath:                filepath.Join(DlDataDir, hash),
-		resumable:             cLength.v() > 0 && strongETag(opts.ResourceETag) != "",
+		resumable:             cLength.v() > 0 && resourceValidator(opts.ResourceETag) != "",
 		retryConfig:           retryConfig,
 		overwrite:             opts.Overwrite,
 		requestTimeout:        opts.RequestTimeout,
@@ -2249,12 +2251,12 @@ func (d *Downloader) fetchInfo() (err error) {
 	}
 
 	h := resp.Header
-	if etag := strongETag(h.Get("ETag")); etag != "" {
-		if d.resourceETag != "" && d.resourceETag != etag {
-			return fmt.Errorf("%w: expected ETag %s, got %s",
-				ErrResourceChanged, d.resourceETag, etag)
+	if validator := responseValidator(h, d.resourceETag); validator != "" {
+		if d.resourceETag != "" && d.resourceETag != validator {
+			return fmt.Errorf("%w: expected validator %s, got %s",
+				ErrResourceChanged, d.resourceETag, validator)
 		}
-		d.resourceETag = etag
+		d.resourceETag = validator
 	}
 	err = d.checkContentType(&h)
 	if err != nil {
