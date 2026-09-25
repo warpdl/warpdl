@@ -26,7 +26,7 @@ func TestNewTransportUsesHTTP1OverTLS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
 	if resp.ProtoMajor != 1 || string(body) != "HTTP/1.1" {
 		t.Fatalf("negotiated %s (server saw %s), want HTTP/1.1", resp.Proto, body)

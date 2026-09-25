@@ -11,7 +11,7 @@ import (
 
 // newCompileTestPart returns a part whose part file holds content and whose
 // main file is opened with mainFlag, ready to compile at offset.
-func newCompileTestPart(t *testing.T, content []byte, offset int64, mainFlag int) (*Part, *int64) {
+func newCompileTestPart(t *testing.T, content []byte, offset int64, mainFlag int) (part *Part, compiled *int64) {
 	t.Helper()
 	dir := t.TempDir()
 	pf, err := os.Create(filepath.Join(dir, "part.warp"))

@@ -168,7 +168,7 @@ func TestDownloaderUsesLastModifiedForSegmentsWithoutETag(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewDownloader: %v", err)
 	}
-	defer d.Close()
+	defer func() { _ = d.Close() }()
 	if !d.resumable {
 		t.Fatal("download with a strong Last-Modified validator was not resumable")
 	}
@@ -211,7 +211,7 @@ func TestDownloaderRejectsChangedLastModified(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewDownloader: %v", err)
 	}
-	defer d.Close()
+	defer func() { _ = d.Close() }()
 	lastModified.Store(time.Now().Add(-time.Minute).UTC().Format(http.TimeFormat))
 	if err := d.Start(); !errors.Is(err, ErrResourceChanged) {
 		t.Fatalf("Start error = %v, want ErrResourceChanged", err)
