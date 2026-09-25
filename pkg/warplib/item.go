@@ -94,7 +94,8 @@ type Item struct {
 	// while provenance preserves cross-origin stripping and log redaction.
 	PluginHeaderNames []string `json:"-"`
 	// ResourceETag is the strong HTTP representation validator captured when
-	// the download was created. It binds resumed segments to the same bytes.
+	// the download was created: an entity tag or a Last-Modified date. It
+	// binds resumed segments to the same bytes.
 	ResourceETag string `json:"-"`
 	// DateAdded is the time when the download item was added.
 	DateAdded time.Time `json:"date_added"`

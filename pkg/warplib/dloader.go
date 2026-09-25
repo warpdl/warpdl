@@ -95,9 +95,11 @@ type Downloader struct {
 	// plugin did not anticipate. Set only when opts.PluginHeaders was
 	// populated; nil means no plugin headers.
 	pluginHeaderNames map[string]struct{}
-	// resourceETag is the strong HTTP entity tag captured from the metadata
-	// response. Every ranged request binds itself to this representation with
-	// If-Range so bytes from different resource versions cannot be combined.
+	// resourceETag is the representation validator captured from the metadata
+	// response: a strong entity tag or, when the server sends none, a strong
+	// Last-Modified date. Every ranged request binds itself to this
+	// representation with If-Range so bytes from different resource versions
+	// cannot be combined.
 	resourceETag string
 	// initialBody is retained only for non-resumable downloads. Reusing the
 	// metadata response as the transfer stream guarantees validator-less
@@ -592,7 +594,7 @@ func NewDownloader(client *http.Client, url string, opts *DownloaderOpts, optFun
 	d.headers = opts.Headers
 	d.sourceHeaders = sourceHeaders
 	d.pluginHeaderNames = pluginHeaderNames
-	d.resourceETag = strongETag(opts.ResourceETag)
+	d.resourceETag = resourceValidator(opts.ResourceETag)
 	d.lockFileName = opts.LockFileName
 	d.resumable = true
 	d.retryConfig = retryConfig
@@ -750,11 +752,11 @@ func initDownloader(client *http.Client, hash, url string, cLength ContentLength
 		headers:               opts.Headers,
 		sourceHeaders:         sourceHeaders,
 		pluginHeaderNames:     pluginHeaderNames,
-		resourceETag:          strongETag(opts.ResourceETag),
+		resourceETag:          resourceValidator(opts.ResourceETag),
 		lockFileName:          opts.LockFileName,
 		hash:                  hash,
 		dlPath:                filepath.Join(DlDataDir, hash),
-		resumable:             cLength.v() > 0 && strongETag(opts.ResourceETag) != "",
+		resumable:             cLength.v() > 0 && resourceValidator(opts.ResourceETag) != "",
 		retryConfig:           retryConfig,
 		overwrite:             opts.Overwrite,
 		requestTimeout:        opts.RequestTimeout,
@@ -1739,15 +1741,14 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 				return err
 			}
 
-			// Attempt work stealing after fast completion. The multi-interface
-			// queue is what balances links; stealing would rewrite boundaries.
+			// Hand this part's connection to the largest remaining range. The
+			// multi-interface queue is what balances links; stealing would
+			// rewrite boundaries.
 			if d.resumable && d.enableWorkStealing && !d.multiActive {
-				downloadDuration := time.Since(partStartTime)
-				if downloadDuration > 0 {
-					partSpeed := bytesPerSecond(part.getRead(), downloadDuration)
-					if d.attemptWorkSteal(hash, partSpeed) {
-						d.Log("%s: initiated work steal after fast completion at %s/s", hash, ContentLength(partSpeed))
-					}
+				if d.attemptWorkSteal(hash) {
+					downloadDuration := time.Since(partStartTime)
+					d.Log("%s: initiated work steal after completing at %s/s",
+						hash, ContentLength(bytesPerSecond(part.getRead(), downloadDuration)))
 				}
 			}
 
@@ -2249,12 +2250,12 @@ func (d *Downloader) fetchInfo() (err error) {
 	}
 
 	h := resp.Header
-	if etag := strongETag(h.Get("ETag")); etag != "" {
-		if d.resourceETag != "" && d.resourceETag != etag {
-			return fmt.Errorf("%w: expected ETag %s, got %s",
-				ErrResourceChanged, d.resourceETag, etag)
+	if validator := responseValidator(h, d.resourceETag); validator != "" {
+		if d.resourceETag != "" && d.resourceETag != validator {
+			return fmt.Errorf("%w: expected validator %s, got %s",
+				ErrResourceChanged, d.resourceETag, validator)
 		}
-		d.resourceETag = etag
+		d.resourceETag = validator
 	}
 	err = d.checkContentType(&h)
 	if err != nil {
@@ -2471,7 +2472,12 @@ func (d *Downloader) prepareDownloader() (err error) {
 		err = es
 		return
 	}
-	d.numBaseParts = partsForProbe(te, int64(size))
+	d.numBaseParts = initialBaseParts(
+		partsForProbe(te, int64(size)),
+		d.maxConn,
+		d.maxParts,
+		d.GetContentLength().v(),
+	)
 	return
 }
 
@@ -2489,6 +2495,28 @@ func partsForProbe(elapsed time.Duration, bytesRead int64) int32 {
 	default:
 		return 8
 	}
+}
+
+// initialBaseParts opens every allowed connection up front when the file is
+// large enough to give each one at least two minimum-size parts. A single
+// 32KB probe says little about the path's capacity, and starting below the
+// connection limit leaves throughput idle until parts finish and split.
+// An unlimited connection count (0) keeps the probe's estimate.
+func initialBaseParts(probed, maxConn, maxParts int32, contentLength int64) int32 {
+	limit := maxConn
+	if maxParts != 0 && (limit == 0 || maxParts < limit) {
+		limit = maxParts
+	}
+	if limit <= probed {
+		return probed
+	}
+	if bySize := contentLength / (2 * getMinPartSize(contentLength)); bySize < int64(limit) {
+		limit = int32(bySize)
+	}
+	if limit <= probed {
+		return probed
+	}
+	return limit
 }
 
 // downloadUnknownSizeFile is a fallback download handler in case the file

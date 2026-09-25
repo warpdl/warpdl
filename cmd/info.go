@@ -48,6 +48,7 @@ func info(ctx *cli.Context) error {
 		}
 	} else {
 		httpClient = &http.Client{
+			Transport:     warplib.NewTransport(),
 			CheckRedirect: warplib.RedirectPolicy(warplib.DefaultMaxRedirects),
 		}
 	}

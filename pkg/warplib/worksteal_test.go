@@ -1,130 +1,16 @@
 package warplib
 
 import (
+	"bytes"
 	"io"
 	"log"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 )
-
-// =============================================================================
-// TDD Cycle 1: isMergeCandidate Tests (RED)
-// =============================================================================
-
-func TestIsMergeCandidate_SpeedAboveThreshold(t *testing.T) {
-	tests := []struct {
-		name            string
-		bytesRead       int64
-		duration        time.Duration
-		expectCandidate bool
-	}{
-		{
-			name:            "exactly at threshold (10MB/s) - not a candidate",
-			bytesRead:       10 * MB,
-			duration:        time.Second,
-			expectCandidate: false, // must be >10MB/s, not >=
-		},
-		{
-			name:            "above threshold (15MB/s)",
-			bytesRead:       15 * MB,
-			duration:        time.Second,
-			expectCandidate: true,
-		},
-		{
-			name:            "well above threshold (100MB/s)",
-			bytesRead:       100 * MB,
-			duration:        time.Second,
-			expectCandidate: true,
-		},
-		{
-			name:            "below threshold (5MB/s)",
-			bytesRead:       5 * MB,
-			duration:        time.Second,
-			expectCandidate: false,
-		},
-		{
-			name:            "very fast (1GB/s)",
-			bytesRead:       1 * GB,
-			duration:        time.Second,
-			expectCandidate: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := isMergeCandidate(tt.bytesRead, tt.duration)
-			if got != tt.expectCandidate {
-				t.Errorf("isMergeCandidate(%d, %v) = %v, want %v",
-					tt.bytesRead, tt.duration, got, tt.expectCandidate)
-			}
-		})
-	}
-}
-
-func TestIsMergeCandidate_EdgeCases(t *testing.T) {
-	tests := []struct {
-		name            string
-		bytesRead       int64
-		duration        time.Duration
-		expectCandidate bool
-	}{
-		{
-			name:            "zero duration - should not panic, not candidate",
-			bytesRead:       10 * MB,
-			duration:        0,
-			expectCandidate: false,
-		},
-		{
-			name:            "zero bytes - not candidate",
-			bytesRead:       0,
-			duration:        time.Second,
-			expectCandidate: false,
-		},
-		{
-			name:            "negative bytes - not candidate",
-			bytesRead:       -1,
-			duration:        time.Second,
-			expectCandidate: false,
-		},
-		{
-			name:            "negative duration - not candidate",
-			bytesRead:       10 * MB,
-			duration:        -time.Second,
-			expectCandidate: false,
-		},
-		{
-			name:            "very small duration (1ms) with proportional bytes - exactly 10MB/s",
-			bytesRead:       10 * KB, // 10KB in 1ms = 10MB/s
-			duration:        time.Millisecond,
-			expectCandidate: false, // exactly at threshold
-		},
-		{
-			name:            "very small duration (1ms) above threshold - 11MB/s",
-			bytesRead:       11 * KB, // 11KB in 1ms = 11MB/s
-			duration:        time.Millisecond,
-			expectCandidate: true,
-		},
-		{
-			name:            "both zero - not candidate",
-			bytesRead:       0,
-			duration:        0,
-			expectCandidate: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := isMergeCandidate(tt.bytesRead, tt.duration)
-			if got != tt.expectCandidate {
-				t.Errorf("isMergeCandidate(%d, %v) = %v, want %v",
-					tt.bytesRead, tt.duration, got, tt.expectCandidate)
-			}
-		})
-	}
-}
 
 // =============================================================================
 // TDD Cycle 2: calculateStealWork Tests (RED)
@@ -150,21 +36,21 @@ func TestCalculateStealWork_Basic(t *testing.T) {
 			expectCanSteal:    true,
 		},
 		{
-			name:              "steal from part with exactly 5MB remaining - not eligible",
+			name:              "steal from part with exactly minimum remaining - not eligible",
 			adjacentStartOff:  0,
-			adjacentEndOff:    10*MB - 1,
-			adjacentBytesRead: 5 * MB, // exactly 5MB remaining
+			adjacentEndOff:    5*MB + WORK_STEAL_MIN_REMAINING - 1,
+			adjacentBytesRead: 5 * MB, // exactly WORK_STEAL_MIN_REMAINING remaining
 			expectStealStart:  0,
 			expectStealEnd:    0,
-			expectCanSteal:    false, // must be >5MB, not >=
+			expectCanSteal:    false, // must be >minimum, not >=
 		},
 		{
-			name:              "steal from part with 5MB+1 remaining - eligible",
+			name:              "steal from part with minimum+1 remaining - eligible",
 			adjacentStartOff:  0,
-			adjacentEndOff:    10*MB + 1 - 1,          // total: 10MB+1 bytes
-			adjacentBytesRead: 5 * MB,                 // remaining: 5MB+1 bytes
-			expectStealStart:  (5*MB + 10*MB + 1) / 2, // midpoint of remaining
-			expectStealEnd:    10*MB + 1 - 1,
+			adjacentEndOff:    5*MB + WORK_STEAL_MIN_REMAINING,       // remaining: minimum+1 bytes
+			adjacentBytesRead: 5 * MB,                                // current position
+			expectStealStart:  5*MB + (WORK_STEAL_MIN_REMAINING+1)/2, // midpoint of remaining
+			expectStealEnd:    5*MB + WORK_STEAL_MIN_REMAINING,
 			expectCanSteal:    true,
 		},
 		{
@@ -254,96 +140,6 @@ func TestCalculateStealWork_EdgeCases(t *testing.T) {
 			if gotCanSteal != tt.expectCanSteal {
 				t.Errorf("calculateStealWork() canSteal = %v, want %v",
 					gotCanSteal, tt.expectCanSteal)
-			}
-		})
-	}
-}
-
-// =============================================================================
-// TDD Cycle 3: shouldAttemptWorkSteal Tests (RED)
-// =============================================================================
-
-func TestShouldAttemptWorkSteal_CombinedChecks(t *testing.T) {
-	tests := []struct {
-		name              string
-		completionSpeed   int64 // bytes/sec
-		adjacentRemaining int64 // bytes remaining in adjacent
-		expectAttempt     bool
-	}{
-		{
-			name:              "fast with large remaining - should steal",
-			completionSpeed:   15 * MB, // 15MB/s
-			adjacentRemaining: 10 * MB,
-			expectAttempt:     true,
-		},
-		{
-			name:              "fast but small remaining - should not steal",
-			completionSpeed:   15 * MB,
-			adjacentRemaining: 4 * MB,
-			expectAttempt:     false,
-		},
-		{
-			name:              "slow with large remaining - should not steal",
-			completionSpeed:   5 * MB,
-			adjacentRemaining: 10 * MB,
-			expectAttempt:     false,
-		},
-		{
-			name:              "slow with small remaining - should not steal",
-			completionSpeed:   5 * MB,
-			adjacentRemaining: 4 * MB,
-			expectAttempt:     false,
-		},
-		{
-			name:              "exactly at speed threshold with large remaining - should not steal",
-			completionSpeed:   10 * MB,
-			adjacentRemaining: 10 * MB,
-			expectAttempt:     false, // >10MB/s required
-		},
-		{
-			name:              "above speed threshold with exactly minimum remaining - should not steal",
-			completionSpeed:   15 * MB,
-			adjacentRemaining: 5 * MB,
-			expectAttempt:     false, // >5MB required
-		},
-		{
-			name:              "just above both thresholds - should steal",
-			completionSpeed:   10*MB + 1,
-			adjacentRemaining: 5*MB + 1,
-			expectAttempt:     true,
-		},
-		{
-			name:              "zero speed - should not steal",
-			completionSpeed:   0,
-			adjacentRemaining: 10 * MB,
-			expectAttempt:     false,
-		},
-		{
-			name:              "zero remaining - should not steal",
-			completionSpeed:   15 * MB,
-			adjacentRemaining: 0,
-			expectAttempt:     false,
-		},
-		{
-			name:              "negative speed - should not steal",
-			completionSpeed:   -1,
-			adjacentRemaining: 10 * MB,
-			expectAttempt:     false,
-		},
-		{
-			name:              "negative remaining - should not steal",
-			completionSpeed:   15 * MB,
-			adjacentRemaining: -1,
-			expectAttempt:     false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := shouldAttemptWorkSteal(tt.completionSpeed, tt.adjacentRemaining)
-			if got != tt.expectAttempt {
-				t.Errorf("shouldAttemptWorkSteal(%d, %d) = %v, want %v",
-					tt.completionSpeed, tt.adjacentRemaining, got, tt.expectAttempt)
 			}
 		})
 	}
@@ -544,7 +340,7 @@ func TestFindBestVictimForStealing(t *testing.T) {
 			parts: func() map[string]*activePartInfo {
 				parts := make(map[string]*activePartInfo)
 				foffA := new(atomic.Int64)
-				foffA.Store(int64(5*MB - 1))
+				foffA.Store(int64(WORK_STEAL_MIN_REMAINING - 1))
 				readA := int64(0)
 				parts["partA"] = &activePartInfo{
 					hash:   "partA",
@@ -624,9 +420,6 @@ func TestBytesPerSecondLargePart(t *testing.T) {
 	if got != bytesRead/10 {
 		t.Fatalf("bytesPerSecond = %d, want %d", got, bytesRead/10)
 	}
-	if !isMergeCandidate(bytesRead, 10*time.Second) {
-		t.Fatal("a 10 GiB part downloaded in 10s must qualify for work stealing")
-	}
 }
 
 func TestAttemptWorkStealKeepsParentWhenChildCreateFails(t *testing.T) {
@@ -654,7 +447,7 @@ func TestAttemptWorkStealKeepsParentWhenChildCreateFails(t *testing.T) {
 	}
 	d.activeParts.Set("victim", info)
 
-	if d.attemptWorkSteal("stealer", WORK_STEAL_SPEED_THRESHOLD*2) {
+	if d.attemptWorkSteal("stealer") {
 		t.Fatal("steal succeeded even though the child part could not be created")
 	}
 	if foff.Load() != original {
@@ -662,5 +455,54 @@ func TestAttemptWorkStealKeepsParentWhenChildCreateFails(t *testing.T) {
 	}
 	if info.stolen.Load() {
 		t.Fatal("victim marked stolen after a failed child create")
+	}
+}
+
+// TestAttemptWorkStealCountsStealerConnectionAsFree guards against treating
+// the completing part's own connection as busy: at exactly maxConn the
+// stealer's slot is the one handed to the child, so the steal must proceed.
+func TestAttemptWorkStealCountsStealerConnectionAsFree(t *testing.T) {
+	tests := []struct {
+		name        string
+		numConn     int32
+		wantLimited bool
+	}{
+		{name: "stealer holds the last slot", numConn: 4, wantLimited: false},
+		{name: "over the limit", numConn: 5, wantLimited: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var logs bytes.Buffer
+			logger := log.New(&logs, "", 0)
+			d := &Downloader{
+				enableWorkStealing: true,
+				maxConn:            4,
+				handlers:           &Handlers{},
+				l:                  logger,
+				wg:                 &sync.WaitGroup{},
+				// A missing directory makes the child create fail after the
+				// limit checks, so no download goroutine is started.
+				dlPath: filepath.Join(t.TempDir(), "missing-dir"),
+				chunk:  32 * 1024,
+			}
+			d.handlers.setDefault(logger)
+			d.activeParts.Make()
+			atomic.StoreInt32(&d.numConn, tt.numConn)
+			foff := new(atomic.Int64)
+			foff.Store(int64(100 * MB))
+			var read int64
+			d.activeParts.Set("victim", &activePartInfo{hash: "victim", foff: foff, read: &read})
+
+			if d.attemptWorkSteal("stealer") {
+				t.Fatal("steal unexpectedly succeeded")
+			}
+			limited := strings.Contains(logs.String(), "connection limit reached")
+			if limited != tt.wantLimited {
+				t.Fatalf("connection limit hit = %v, want %v; log:\n%s", limited, tt.wantLimited, logs.String())
+			}
+			if !tt.wantLimited && !strings.Contains(logs.String(), "child part was not created") {
+				t.Fatalf("steal did not reach child creation; log:\n%s", logs.String())
+			}
+		})
 	}
 }

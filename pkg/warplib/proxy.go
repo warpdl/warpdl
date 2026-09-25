@@ -104,6 +104,7 @@ func SanitizeProxyURLForPersistence(proxyURL string) (safeURL string, credential
 func NewHTTPClientWithProxy(proxyURL string) (*http.Client, error) {
 	if proxyURL == "" {
 		return &http.Client{
+			Transport:     NewTransport(),
 			CheckRedirect: RedirectPolicy(DefaultMaxRedirects),
 		}, nil
 	}
@@ -121,7 +122,10 @@ func NewHTTPClientWithProxy(proxyURL string) (*http.Client, error) {
 		return nil, ErrUnsupportedScheme
 	}
 
-	transport := &http.Transport{}
+	transport := NewTransport()
+	// The explicit proxy replaces any environment proxy the base transport
+	// would otherwise consult.
+	transport.Proxy = nil
 
 	if parsed.Scheme == "socks5" {
 		var auth *proxy.Auth
@@ -136,6 +140,9 @@ func NewHTTPClientWithProxy(proxyURL string) (*http.Client, error) {
 		if err != nil {
 			return nil, err
 		}
+		// DialContext takes priority over Dial, so drop the base transport's
+		// direct dialer or the SOCKS5 proxy would be bypassed.
+		transport.DialContext = nil
 		//nolint:staticcheck // proxy.SOCKS5 returns a non-context dialer; this preserves existing SOCKS5 behavior
 		transport.Dial = dialer.Dial
 	} else {
@@ -152,9 +159,8 @@ func NewHTTPClientWithProxy(proxyURL string) (*http.Client, error) {
 // It checks HTTP_PROXY, http_proxy, HTTPS_PROXY, https_proxy, and ALL_PROXY.
 func NewHTTPClientFromEnvironment() (*http.Client, error) {
 	// Use ProxyFromEnvironment which handles NO_PROXY automatically
-	transport := &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
-	}
+	transport := NewTransport()
+	transport.Proxy = http.ProxyFromEnvironment
 
 	return &http.Client{
 		Transport:     transport,
