@@ -50,6 +50,12 @@ CLI → pkg/warpcli → Socket → internal/server → internal/api → pkg/warp
 - **Manager Pattern**: Centralized state in Manager (warplib)
 - **Daemon Architecture**: Single daemon serves multiple CLI clients
 
+Download callbacks persist the manager’s current item map without registering their own item again.
+Registration uses `UpdateItem`/`UpdateItemAsync`; a late callback after `FlushOne`, `Flush`,
+or `PurgeFailedDownload` cannot restore a removed item or overwrite a replacement.
+Destination claims and queue completion/stop events apply only while the callback’s item is current,
+so stale callbacks cannot release a replacement’s queue slot.
+
 ## Storage
 
 | Path | Contents |

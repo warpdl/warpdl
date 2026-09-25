@@ -51,11 +51,11 @@ export default defineConfig({
 				},
 				{
 					label: "Troubleshooting",
-					autogenerate: { directory: "troubleshooting" },
+					items: [{ autogenerate: { directory: "troubleshooting" } }],
 				},
 				{
 					label: "Development",
-					autogenerate: { directory: "development" },
+					items: [{ autogenerate: { directory: "development" } }],
 				},
 				{
 					label: "API",

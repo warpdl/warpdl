@@ -392,30 +392,32 @@ func (qm *QueueManager) OnStopped(hash string) {
 }
 
 func (qm *QueueManager) finish(hash string, preserveWhenQuiesced bool) {
-	var startCallback func()
-	qm.mu.Lock()
+	startCallback, changed := qm.finishDeferred(hash, preserveWhenQuiesced)
+	qm.afterFinish(startCallback, changed)
+}
 
-	// Ignore duplicate or unknown completions. Without this guard, a second
-	// completion notification could consume another waiting item despite not
-	// releasing an active slot.
+// finishDeferred leaves notifications until the caller has released any manager lock.
+func (qm *QueueManager) finishDeferred(hash string, preserveWhenQuiesced bool) (func(), bool) {
+	qm.mu.Lock()
+	defer qm.mu.Unlock()
+
+	// Ignore duplicate or unknown completions and claimed activations.
 	activation, exists := qm.active[hash]
-	if !exists || activation.claimed {
-		qm.mu.Unlock()
-		return
-	}
-	if preserveWhenQuiesced && qm.quiesced {
-		qm.mu.Unlock()
-		return
+	if !exists || activation.claimed || (preserveWhenQuiesced && qm.quiesced) {
+		return nil, false
 	}
 	delete(qm.active, hash)
 	delete(qm.activePriorities, hash)
 	delete(qm.pendingStarts, hash)
-	startCallback = qm.reserveStartLocked(qm.promoteOneLocked())
+	return qm.reserveStartLocked(qm.promoteOneLocked()), true
+}
 
-	qm.mu.Unlock()
+func (qm *QueueManager) afterFinish(startCallback func(), changed bool) {
+	if !changed {
+		return
+	}
 	qm.notifyChange()
-
-	// Call onStart callback outside the lock to avoid deadlock
+	// Call onStart outside the manager and queue locks.
 	if startCallback != nil {
 		startCallback()
 	}

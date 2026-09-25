@@ -163,6 +163,78 @@ func TestFlushOneCompletedDownload(t *testing.T) {
 	}
 }
 
+func TestRemovedItemIgnoresLateCallbacks(t *testing.T) {
+	tests := []struct {
+		name       string
+		protocol   bool
+		downloaded int
+		remove     func(*Manager, string) error
+	}{
+		{"one-http", false, 100, (*Manager).FlushOne},
+		{"all-protocol", true, 100, func(m *Manager, _ string) error { return m.Flush() }},
+		{"failed-http", false, 0, (*Manager).PurgeFailedDownload},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := newTestManager(t)
+			t.Cleanup(func() {
+				if err := m.Close(); err != nil {
+					t.Errorf("close manager: %v", err)
+				}
+			})
+			d := newTestDownloader()
+			d.dlLoc = t.TempDir()
+			if err := m.AddDownload(d, &AddDownloadOpts{AbsoluteLocation: d.dlLoc}); err != nil {
+				t.Fatalf("add download: %v", err)
+			}
+			item := m.GetItem(d.hash)
+			handlers := d.handlers
+			if tt.protocol {
+				handlers = &Handlers{}
+				m.patchProtocolHandlers(handlers, item)
+			}
+			if tt.downloaded > 0 {
+				handlers.DownloadProgressHandler(MAIN_HASH, tt.downloaded)
+			}
+			if err := tt.remove(m, item.Hash); err != nil {
+				t.Fatalf("remove: %v", err)
+			}
+			queue := NewQueueManager(1, nil)
+			m.queue.Store(queue)
+			handlers.DownloadProgressHandler(MAIN_HASH, 0)
+			if got := m.GetItem(item.Hash); got != nil {
+				t.Fatal("late progress resurrected a removed download")
+			}
+			handlers.DownloadCompleteHandler(MAIN_HASH, 100)
+			if got := m.GetItem(item.Hash); got != nil {
+				t.Fatal("late completion resurrected a removed download")
+			}
+
+			replacement := &Item{Hash: item.Hash, TotalSize: 200}
+			m.UpdateItem(replacement)
+			if !tt.protocol {
+				_ = handlers.DestinationClaimedHandler()
+				if replacement.DestinationClaimed {
+					t.Fatal("late destination claim modified the replacement download")
+				}
+			}
+			queue.Add(item.Hash, PriorityNormal)
+			handlers.DownloadProgressHandler(MAIN_HASH, 0)
+			handlers.DownloadCompleteHandler(MAIN_HASH, 100)
+			if !queue.IsActive(item.Hash) {
+				t.Fatal("late completion released the replacement download’s queue slot")
+			}
+			handlers.DownloadStoppedHandler()
+			if !queue.IsActive(item.Hash) {
+				t.Fatal("late stop released the replacement download’s queue slot")
+			}
+			if got := m.GetItem(item.Hash); got != replacement {
+				t.Fatal("late callback replaced a newer download")
+			}
+		})
+	}
+}
+
 // TestFlushOneConcurrentMultipleItems tests FlushOne with multiple items being flushed concurrently
 func TestFlushOneConcurrentMultipleItems(t *testing.T) {
 	numItems := 10

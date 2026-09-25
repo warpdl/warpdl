@@ -1,6 +1,6 @@
 module github.com/warpdl/warpdl
 
-go 1.26
+go 1.26.0
 
 require (
 	github.com/Microsoft/go-winio v0.6.2
@@ -16,9 +16,9 @@ require (
 	github.com/spf13/afero v1.15.0
 	github.com/urfave/cli v1.22.17
 	github.com/vbauerster/mpb/v8 v8.11.3 // pinned: v8.12+ queued bars (BarQueueAfter) block SetTotal/Completed/IncrBy until dequeued, deadlocking CLI progress handlers (cmd/client.go)
-	golang.org/x/crypto v0.52.0
-	golang.org/x/net v0.54.0
-	golang.org/x/sys v0.45.0
+	golang.org/x/crypto v0.56.0
+	golang.org/x/net v0.57.0
+	golang.org/x/sys v0.47.0
 )
 
 require (
@@ -31,7 +31,7 @@ require (
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/kr/fs v0.1.0 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
-	golang.org/x/sync v0.20.0 // indirect
+	golang.org/x/sync v0.22.0 // indirect
 )
 
 require (
@@ -44,5 +44,5 @@ require (
 	github.com/mattn/go-runewidth v0.0.23 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/zalando/go-keyring v0.2.8
-	golang.org/x/text v0.37.0 // indirect
+	golang.org/x/text v0.41.0 // indirect
 )
