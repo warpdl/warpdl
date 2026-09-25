@@ -72,6 +72,34 @@ func TestPrepareDownloaderSpeedAllocation(t *testing.T) {
 	}
 }
 
+func TestInitialBaseParts(t *testing.T) {
+	tests := []struct {
+		name     string
+		probed   int32
+		maxConn  int32
+		maxParts int32
+		size     int64
+		want     int32
+	}{
+		{"opens every connection for a large file", 6, 24, 200, GB, 24},
+		{"part limit caps connections", 6, 24, 16, GB, 16},
+		{"unlimited connections keep the probe", 6, 0, 0, GB, 6},
+		{"unlimited connections honor part limit", 6, 0, 16, GB, 16},
+		{"small file limited by minimum part size", 4, 24, 200, 10 * MB, 10},
+		{"tiny file keeps the probe", 12, 24, 200, MB, 12},
+		{"limit below probe keeps the probe", 12, 8, 200, GB, 12},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := initialBaseParts(tt.probed, tt.maxConn, tt.maxParts, tt.size)
+			if got != tt.want {
+				t.Fatalf("initialBaseParts(%d, %d, %d, %d) = %d, want %d",
+					tt.probed, tt.maxConn, tt.maxParts, tt.size, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestNewDownloaderSkipSetup(t *testing.T) {
 	base := t.TempDir()
 	if err := SetConfigDir(base); err != nil {

@@ -2472,7 +2472,12 @@ func (d *Downloader) prepareDownloader() (err error) {
 		err = es
 		return
 	}
-	d.numBaseParts = partsForProbe(te, int64(size))
+	d.numBaseParts = initialBaseParts(
+		partsForProbe(te, int64(size)),
+		d.maxConn,
+		d.maxParts,
+		d.GetContentLength().v(),
+	)
 	return
 }
 
@@ -2490,6 +2495,28 @@ func partsForProbe(elapsed time.Duration, bytesRead int64) int32 {
 	default:
 		return 8
 	}
+}
+
+// initialBaseParts opens every allowed connection up front when the file is
+// large enough to give each one at least two minimum-size parts. A single
+// 32KB probe says little about the path's capacity, and starting below the
+// connection limit leaves throughput idle until parts finish and split.
+// An unlimited connection count (0) keeps the probe's estimate.
+func initialBaseParts(probed, maxConn, maxParts int32, contentLength int64) int32 {
+	limit := maxConn
+	if maxParts != 0 && (limit == 0 || maxParts < limit) {
+		limit = maxParts
+	}
+	if limit <= probed {
+		return probed
+	}
+	if bySize := contentLength / (2 * getMinPartSize(contentLength)); bySize < int64(limit) {
+		limit = int32(bySize)
+	}
+	if limit <= probed {
+		return probed
+	}
+	return limit
 }
 
 // downloadUnknownSizeFile is a fallback download handler in case the file
