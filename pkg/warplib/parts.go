@@ -66,6 +66,37 @@ type Part struct {
 	// protects register/replace of the reader across wrap sites.
 	limiterMu sync.Mutex
 	limiter   *RateLimitedReadCloser
+	// progress batches per-read progress callbacks. It is touched only by
+	// the goroutine that owns the part's copy loop.
+	progress progressBatcher
+}
+
+// progressFlushInterval bounds how often a part reports download progress.
+// A callback per network read costs a manager lock, a JSON encode and a
+// broadcast to every attached client for as little as a few KB of data.
+const progressFlushInterval = 100 * time.Millisecond
+
+// progressBatcher coalesces progress deltas. The first delta is reported
+// immediately so progress appears at once; later ones at most every
+// progressFlushInterval. Callers must flush before reporting completion or
+// returning so the reported total matches the bytes written.
+type progressBatcher struct {
+	pending   int
+	lastFlush time.Time
+}
+
+// add records n bytes and reports whether the batch is due to be flushed.
+func (b *progressBatcher) add(n int) bool {
+	b.pending += n
+	return time.Since(b.lastFlush) >= progressFlushInterval
+}
+
+// take returns the pending delta and restarts the batch window.
+func (b *progressBatcher) take() int {
+	n := b.pending
+	b.pending = 0
+	b.lastFlush = time.Now()
+	return n
 }
 
 type partArgs struct {
@@ -328,6 +359,7 @@ func (p *Part) copyBufferTo(src io.ReadCloser, foff *atomic.Int64, force bool) (
 	// is reused across chunks and resliced on the tail - no realloc.
 	bp := getBuf(int(chunk))
 	defer putBuf(bp)
+	defer p.flushProgress()
 
 	var n int
 	for {
@@ -355,6 +387,7 @@ func (p *Part) copyBufferTo(src io.ReadCloser, foff *atomic.Int64, force bool) (
 				p.boundaryMu.Unlock()
 			}
 			_ = src.Close()
+			p.flushProgress()
 			p.log("%s: part download complete", p.hash)
 			p.ofunc(p.hash, p.getRead())
 			return false, nil
@@ -397,6 +430,7 @@ func (p *Part) copyBufferTo(src io.ReadCloser, foff *atomic.Int64, force bool) (
 		}
 		// Real EOF - we got all expected bytes
 		err = nil
+		p.flushProgress()
 		p.log("%s: part download complete", p.hash)
 		// fmt.Print("[", p.hash, "]: ", "lchunk: ", tread-p.read, " p.read: ", p.read, " ioff: ", p.offset, " foff: ", foff, " p.chunk: ", p.chunk, " n: ", n, "\n")
 		p.ofunc(p.hash, p.getRead())
@@ -524,12 +558,10 @@ func (p *Part) copyBufferChunk(src io.Reader, dst io.Writer, buf []byte) (err er
 			}
 		}
 		atomic.AddInt64(&p.read, int64(nw))
-		// Fire the progress callback synchronously. Spawning a goroutine
-		// per chunk previously produced hundreds of thousands of goroutines
-		// per GB downloaded; the callback itself is cheap (counter bump)
-		// and the caller takes its own lock, so running inline is correct.
-		if p.pfunc != nil {
-			p.callProgress(nw)
+		// Progress is reported synchronously but batched; copyBufferTo
+		// flushes the remainder before it completes or returns.
+		if p.pfunc != nil && p.progress.add(nw) {
+			p.flushProgress()
 		}
 		if ew != nil {
 			err = ew
@@ -542,6 +574,14 @@ func (p *Part) copyBufferChunk(src io.Reader, dst io.Writer, buf []byte) (err er
 	}
 	err = er
 	return
+}
+
+// flushProgress reports progress batched by copyBufferChunk.
+func (p *Part) flushProgress() {
+	if p.pfunc == nil || p.progress.pending == 0 {
+		return
+	}
+	p.callProgress(p.progress.take())
 }
 
 // callProgress invokes the progress callback with panic protection so a
@@ -557,14 +597,23 @@ func (p *Part) callProgress(nw int) {
 	p.pfunc(p.hash, nw)
 }
 
+// compileBufferSize is the transfer size for compiling a part into the main
+// file. Compile is a local file-to-file copy, so it uses far larger
+// transfers than the network copy loop.
+const compileBufferSize = 1 * MB
+
 func (p *Part) compile() (read, written int64, err error) {
 	// take the reader to origin from end
 	if _, seekErr := p.pf.Seek(0, 0); seekErr != nil {
 		err = seekErr
 		return
 	}
+	var handled bool
+	if read, written, handled, err = p.compileInKernel(); handled {
+		return
+	}
 
-	bp := getBuf(int(p.chunk))
+	bp := getBuf(int(compileBufferSize))
 	defer putBuf(bp)
 	buf := *bp
 
@@ -673,17 +722,40 @@ func (p *Part) openPartFile() (err error) {
 	return
 }
 
+// seek positions the part file for appending and restores the byte count
+// from its size. The count used to come from reading the whole file back,
+// which made resuming a multi-gigabyte download re-read every byte already
+// on disk.
 func (p *Part) seek(rpFunc ResumeProgressHandlerFunc) (err error) {
-	pReader := NewAsyncCallbackProxyReader(p.pf, func(n int) {
-		rpFunc(p.hash, n)
-	}, p.l)
-	n, err := io.Copy(io.Discard, pReader)
+	n, err := p.pf.Seek(0, io.SeekEnd)
 	if err != nil {
 		return
 	}
-	pReader.Wait()
-	p.read = n
-	return
+	atomic.StoreInt64(&p.read, n)
+	if rpFunc == nil {
+		return nil
+	}
+	maxInt := int64(^uint(0) >> 1)
+	for n > 0 {
+		step := n
+		if step > maxInt {
+			step = maxInt
+		}
+		p.callResumeProgress(rpFunc, int(step))
+		n -= step
+	}
+	return nil
+}
+
+// callResumeProgress invokes the resume progress callback with panic
+// protection so a misbehaving handler cannot abort the resume.
+func (p *Part) callResumeProgress(rpFunc ResumeProgressHandlerFunc, n int) {
+	defer func() {
+		if r := recover(); r != nil && p.l != nil {
+			p.log("resume progress callback panic: %v", r)
+		}
+	}()
+	rpFunc(p.hash, n)
 }
 
 func (p *Part) getFileName() string {
