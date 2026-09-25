@@ -9,34 +9,17 @@ import (
 
 // Work stealing constants define thresholds for dynamic part merging.
 const (
-	// WORK_STEAL_SPEED_THRESHOLD is the minimum download speed (bytes/sec)
-	// a part must achieve to be considered "fast" enough to steal work.
-	// Parts completing faster than this may steal work from slower adjacent parts.
-	WORK_STEAL_SPEED_THRESHOLD = 10 * MB // >10MB/s
+	// WORK_STEAL_SPEED_THRESHOLD seeds the expected speed of a part created
+	// by work stealing; a child slower than half of it becomes a candidate
+	// for a slow-part split.
+	WORK_STEAL_SPEED_THRESHOLD = 10 * MB
 
-	// WORK_STEAL_MIN_REMAINING is the minimum remaining bytes in an adjacent
-	// part to be eligible for work stealing. This prevents excessive overhead
-	// from stealing very small work amounts.
-	WORK_STEAL_MIN_REMAINING = 5 * MB // >5MB
+	// WORK_STEAL_MIN_REMAINING is the minimum remaining bytes in a part for
+	// it to be eligible for work stealing. This prevents excessive overhead
+	// from stealing very small work amounts while keeping the tail short on
+	// slow per-connection links, where 2MB is still seconds of transfer.
+	WORK_STEAL_MIN_REMAINING = 2 * MB // >2MB
 )
-
-// isMergeCandidate checks if a part's download speed qualifies for work stealing.
-// Returns true if the part downloaded faster than WORK_STEAL_SPEED_THRESHOLD.
-//
-// Parameters:
-//   - bytesRead: total bytes downloaded by the part
-//   - duration: time taken to download those bytes
-//
-// Returns true only if speed > 10MB/s (strictly greater than).
-func isMergeCandidate(bytesRead int64, duration time.Duration) bool {
-	// Guard against invalid inputs
-	if bytesRead <= 0 || duration <= 0 {
-		return false
-	}
-
-	// Must be strictly greater than threshold
-	return bytesPerSecond(bytesRead, duration) > WORK_STEAL_SPEED_THRESHOLD
-}
 
 // bytesPerSecond is bytesRead / duration in bytes per second.
 // The integer form bytes*Second/duration overflows past about 8.6 GiB and
@@ -99,25 +82,6 @@ func calculateStealWork(adjStart, adjEnd, adjBytesRead int64) (stealStart, steal
 	stealEnd = adjEnd
 
 	return stealStart, stealEnd, true
-}
-
-// shouldAttemptWorkSteal validates both speed and remaining bytes thresholds.
-// Returns true only if both conditions are met:
-//   - completionSpeed > WORK_STEAL_SPEED_THRESHOLD (10MB/s)
-//   - adjacentRemaining > WORK_STEAL_MIN_REMAINING (5MB)
-//
-// Parameters:
-//   - completionSpeed: the completing part's download speed in bytes/sec
-//   - adjacentRemaining: bytes remaining in the adjacent part
-func shouldAttemptWorkSteal(completionSpeed, adjacentRemaining int64) bool {
-	// Both must be positive
-	if completionSpeed <= 0 || adjacentRemaining <= 0 {
-		return false
-	}
-
-	// Both thresholds must be exceeded (strictly greater than)
-	return completionSpeed > WORK_STEAL_SPEED_THRESHOLD &&
-		adjacentRemaining > WORK_STEAL_MIN_REMAINING
 }
 
 // activePartInfo tracks runtime state of an active downloading part for work stealing.
@@ -233,24 +197,22 @@ func (d *Downloader) unregisterActivePart(hash string) {
 	d.activeParts.Delete(hash)
 }
 
-// attemptWorkSteal tries to steal work from a slow part after fast completion.
-// Returns true if work stealing was initiated.
+// attemptWorkSteal hands half of the largest remaining range to a new part
+// when stealerHash completes. Returns true if work stealing was initiated.
 //
-// Parameters:
-//   - stealerHash: the hash of the part that just completed
-//   - partSpeed: the download speed achieved by the completed part (bytes/sec)
-func (d *Downloader) attemptWorkSteal(stealerHash string, partSpeed int64) bool {
+// The completed part's speed is deliberately not consulted: the stolen range
+// is fetched over a fresh connection whose throughput is unrelated to the
+// finished one, and leaving the freed connection idle only lengthens the tail
+// of the download.
+func (d *Downloader) attemptWorkSteal(stealerHash string) bool {
 	if !d.enableWorkStealing {
 		return false
 	}
 
-	// Check if part was fast enough to warrant work stealing
-	if partSpeed <= WORK_STEAL_SPEED_THRESHOLD {
-		return false
-	}
-
-	// Check connection limit (use atomic load for thread safety)
-	if d.maxConn != 0 && atomic.LoadInt32(&d.numConn) >= d.maxConn {
+	// The stealer is still counted in numConn until its worker returns, and
+	// its connection is exactly the one being handed to the child. Only a
+	// count above the limit means no connection is actually free.
+	if d.maxConn != 0 && atomic.LoadInt32(&d.numConn) > d.maxConn {
 		d.Log("%s: work steal skipped - connection limit reached", stealerHash)
 		return false
 	}

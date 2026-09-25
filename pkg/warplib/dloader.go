@@ -1741,15 +1741,14 @@ func (d *Downloader) runPart(part *Part, ioff, foff, espeed int64, repeated bool
 				return err
 			}
 
-			// Attempt work stealing after fast completion. The multi-interface
-			// queue is what balances links; stealing would rewrite boundaries.
+			// Hand this part's connection to the largest remaining range. The
+			// multi-interface queue is what balances links; stealing would
+			// rewrite boundaries.
 			if d.resumable && d.enableWorkStealing && !d.multiActive {
-				downloadDuration := time.Since(partStartTime)
-				if downloadDuration > 0 {
-					partSpeed := bytesPerSecond(part.getRead(), downloadDuration)
-					if d.attemptWorkSteal(hash, partSpeed) {
-						d.Log("%s: initiated work steal after fast completion at %s/s", hash, ContentLength(partSpeed))
-					}
+				if d.attemptWorkSteal(hash) {
+					downloadDuration := time.Since(partStartTime)
+					d.Log("%s: initiated work steal after completing at %s/s",
+						hash, ContentLength(bytesPerSecond(part.getRead(), downloadDuration)))
 				}
 			}
 

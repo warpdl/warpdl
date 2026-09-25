@@ -241,7 +241,7 @@ func TestAttemptWorkStealRespectsPartLimit(t *testing.T) {
 		read:   &read,
 	})
 
-	if d.attemptWorkSteal("stealer", WORK_STEAL_SPEED_THRESHOLD*2) {
+	if d.attemptWorkSteal("stealer") {
 		t.Fatal("expected steal to be rejected when numParts == maxParts")
 	}
 
