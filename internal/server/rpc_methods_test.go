@@ -647,9 +647,11 @@ func TestRPCDownloadRemove_Success(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	// Stop the download and clear dAlloc so FlushOne accepts removal
+	// Drain download callbacks before removing the item from the manager.
 	item := m.GetItem(gid)
-	_ = item.StopDownload()
+	if err := item.CloseDownloader(); err != nil {
+		t.Fatalf("close downloader: %v", err)
+	}
 
 	// Remove it via RPC
 	code, resp := rpcCall(t, handler, "download.remove", map[string]any{
