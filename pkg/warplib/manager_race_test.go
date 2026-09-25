@@ -177,7 +177,11 @@ func TestRemovedItemIgnoresLateCallbacks(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			m := newTestManager(t)
-			defer m.Close()
+			t.Cleanup(func() {
+				if err := m.Close(); err != nil {
+					t.Errorf("close manager: %v", err)
+				}
+			})
 			d := newTestDownloader()
 			d.dlLoc = t.TempDir()
 			if err := m.AddDownload(d, &AddDownloadOpts{AbsoluteLocation: d.dlLoc}); err != nil {
