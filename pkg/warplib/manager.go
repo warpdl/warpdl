@@ -561,7 +561,7 @@ func (m *Manager) AddDownload(d *Downloader, opts *AddDownloadOpts) (err error) 
 func (m *Manager) patchHandlers(d *Downloader, item *Item) {
 	oDClaimH := d.handlers.DestinationClaimedHandler
 	d.handlers.DestinationClaimedHandler = func() error {
-		if err := m.mutateItem(item.Hash, func(managedItem *Item) {
+		if err := m.mutateItem(item.Hash, item, func(managedItem *Item) {
 			managedItem.DestinationClaimed = true
 		}); err != nil {
 			return err
@@ -574,20 +574,20 @@ func (m *Manager) patchHandlers(d *Downloader, item *Item) {
 	oSPH := d.handlers.SpawnPartHandler
 	d.handlers.SpawnPartHandler = func(hash string, ioff, foff int64) {
 		item.addPart(hash, ioff, foff)
-		m.UpdateItem(item)
+		m.persistCurrentItems()
 		oSPH(hash, ioff, foff)
 	}
 	oRPH := d.handlers.RespawnPartHandler
 	d.handlers.RespawnPartHandler = func(hash string, partIoff, ioffNew, foffNew int64) {
 		item.addPart(hash, partIoff, foffNew)
-		m.UpdateItem(item)
+		m.persistCurrentItems()
 		oRPH(hash, partIoff, ioffNew, foffNew)
 	}
 	oPSH := d.handlers.PartSplitHandler
 	d.handlers.PartSplitHandler = func(parentHash string, parentIoff, parentPos, parentFoff int64, childHash string, childIoff, childFoff int64) {
 		item.addPart(parentHash, parentIoff, parentFoff)
 		item.addPart(childHash, childIoff, childFoff)
-		m.UpdateItem(item)
+		m.persistCurrentItems()
 		if oPSH != nil {
 			oPSH(parentHash, parentIoff, parentPos, parentFoff, childHash, childIoff, childFoff)
 		}
@@ -600,7 +600,7 @@ func (m *Manager) patchHandlers(d *Downloader, item *Item) {
 		item.Downloaded += ContentLength(nread)
 		item.mu.Unlock()
 		// Hot path: coalesce writes via the background persister.
-		m.UpdateItemAsync(item)
+		m.persistCurrentItemsAsync()
 		oPH(hash, nread)
 	}
 	oCCH := d.handlers.CompileCompleteHandler
@@ -635,11 +635,11 @@ func (m *Manager) patchHandlers(d *Downloader, item *Item) {
 		item.Downloaded = item.TotalSize
 		item.DestinationClaimed = false
 		item.mu.Unlock()
-		m.UpdateItem(item)
+		m.persistCurrentItems()
 
 		// Notify queue that download is complete (use item.Hash, not part hash)
 		if queue := m.queue.Load(); queue != nil {
-			queue.OnComplete(item.Hash)
+			m.finishItemQueue(queue, item, false)
 		}
 
 		oDCH(hash, tread)
@@ -647,7 +647,7 @@ func (m *Manager) patchHandlers(d *Downloader, item *Item) {
 	oDSH := d.handlers.DownloadStoppedHandler
 	d.handlers.DownloadStoppedHandler = func() {
 		if queue := m.queue.Load(); queue != nil {
-			queue.OnStopped(item.Hash)
+			m.finishItemQueue(queue, item, true)
 		}
 		oDSH()
 	}
@@ -732,7 +732,7 @@ func (m *Manager) patchProtocolHandlers(h *Handlers, item *Item) {
 	oSPH := h.SpawnPartHandler
 	h.SpawnPartHandler = func(hash string, ioff, foff int64) {
 		item.addPart(hash, ioff, foff)
-		m.UpdateItem(item)
+		m.persistCurrentItems()
 		if oSPH != nil {
 			oSPH(hash, ioff, foff)
 		}
@@ -740,7 +740,7 @@ func (m *Manager) patchProtocolHandlers(h *Handlers, item *Item) {
 	oRPH := h.RespawnPartHandler
 	h.RespawnPartHandler = func(hash string, partIoff, ioffNew, foffNew int64) {
 		item.addPart(hash, partIoff, foffNew)
-		m.UpdateItem(item)
+		m.persistCurrentItems()
 		if oRPH != nil {
 			oRPH(hash, partIoff, ioffNew, foffNew)
 		}
@@ -749,7 +749,7 @@ func (m *Manager) patchProtocolHandlers(h *Handlers, item *Item) {
 	h.PartSplitHandler = func(parentHash string, parentIoff, parentPos, parentFoff int64, childHash string, childIoff, childFoff int64) {
 		item.addPart(parentHash, parentIoff, parentFoff)
 		item.addPart(childHash, childIoff, childFoff)
-		m.UpdateItem(item)
+		m.persistCurrentItems()
 		if oPSH != nil {
 			oPSH(parentHash, parentIoff, parentPos, parentFoff, childHash, childIoff, childFoff)
 		}
@@ -766,7 +766,7 @@ func (m *Manager) patchProtocolHandlers(h *Handlers, item *Item) {
 		item.Downloaded += ContentLength(nread)
 		item.mu.Unlock()
 		// Hot path: coalesce writes via the background persister.
-		m.UpdateItemAsync(item)
+		m.persistCurrentItemsAsync()
 		if oPH != nil {
 			oPH(hash, nread)
 		}
@@ -805,9 +805,9 @@ func (m *Manager) patchProtocolHandlers(h *Handlers, item *Item) {
 		item.Parts = nil
 		item.Downloaded = item.TotalSize
 		item.mu.Unlock()
-		m.UpdateItem(item)
+		m.persistCurrentItems()
 		if queue := m.queue.Load(); queue != nil {
-			queue.OnComplete(item.Hash)
+			m.finishItemQueue(queue, item, false)
 		}
 		if oDCH != nil {
 			oDCH(hash, tread)
@@ -816,7 +816,7 @@ func (m *Manager) patchProtocolHandlers(h *Handlers, item *Item) {
 	oDSH := h.DownloadStoppedHandler
 	h.DownloadStoppedHandler = func() {
 		if queue := m.queue.Load(); queue != nil {
-			queue.OnStopped(item.Hash)
+			m.finishItemQueue(queue, item, true)
 		}
 		if oDSH != nil {
 			oDSH()
@@ -1003,6 +1003,11 @@ func (m *Manager) persistCurrentItems() {
 // becomes a no-op. No panic.
 func (m *Manager) UpdateItemAsync(item *Item) {
 	m.mapItem(item)
+	m.persistCurrentItemsAsync()
+}
+
+// persistCurrentItemsAsync records callback state without re-publishing an item.
+func (m *Manager) persistCurrentItemsAsync() {
 	if p := m.persister.Load(); p != nil {
 		p.markDirty()
 		return
@@ -1012,6 +1017,18 @@ func (m *Manager) UpdateItemAsync(item *Item) {
 	// m.f here without the lock would race Close (which nils it under
 	// m.mu).
 	_ = m.encodeLocked()
+}
+
+// finishItemQueue prevents a removed item from releasing a newer item’s queue slot.
+func (m *Manager) finishItemQueue(queue *QueueManager, item *Item, stopped bool) {
+	m.mu.RLock()
+	if m.items[item.Hash] != item {
+		m.mu.RUnlock()
+		return
+	}
+	startCallback, changed := queue.finishDeferred(item.Hash, stopped)
+	m.mu.RUnlock()
+	queue.afterFinish(startCallback, changed)
 }
 
 // GetScheduledItems returns all items with ScheduleState == "scheduled".
@@ -1124,10 +1141,10 @@ func (m *Manager) GetScheduleInfo(hash string) (ScheduleInfo, bool) {
 	}, true
 }
 
-func (m *Manager) mutateItem(hash string, mutate func(*Item)) error {
+func (m *Manager) mutateItem(hash string, expected *Item, mutate func(*Item)) error {
 	m.mu.Lock()
 	item := m.items[hash]
-	if item == nil {
+	if item == nil || (expected != nil && item != expected) {
 		m.mu.Unlock()
 		return ErrDownloadNotFound
 	}
@@ -1190,7 +1207,7 @@ func (m *Manager) ConfigureSchedule(hash string, scheduledAt time.Time, cronExpr
 // SetScheduleState atomically transitions a schedule without changing its
 // expression or next occurrence.
 func (m *Manager) SetScheduleState(hash string, state ScheduleState) error {
-	return m.mutateItem(hash, func(item *Item) {
+	return m.mutateItem(hash, nil, func(item *Item) {
 		item.ScheduleState = state
 	})
 }
@@ -1232,7 +1249,7 @@ func (m *Manager) SetScheduleStateIf(hash string, state ScheduleState, expected 
 
 // RenameItem updates the persisted output name under the Item lock.
 func (m *Manager) RenameItem(hash, name string) error {
-	return m.mutateItem(hash, func(item *Item) {
+	return m.mutateItem(hash, nil, func(item *Item) {
 		item.Name = name
 	})
 }
