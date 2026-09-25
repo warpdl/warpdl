@@ -341,6 +341,7 @@ var initDaemonComponents = func(log logger.Logger, maxConcurrent int, rpcCfg *se
 		return nil, err
 	}
 	client := &http.Client{
+		Transport:     warplib.NewTransport(),
 		Jar:           jar,
 		CheckRedirect: warplib.RedirectPolicy(warplib.DefaultMaxRedirects),
 	}
