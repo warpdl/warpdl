@@ -39,9 +39,9 @@ go test ./pkg/warplib/...
 
 ## Coding Style & Naming Conventions
 
-- Go 1.25+ required
+- Go version is pinned by the `go` directive in `go.mod`
 - Standard `gofmt` formatting
-- Test files use `*_test.go` suffix with `_test` package for integration tests
+- Test files use the `*_test.go` suffix and live in the same package as the code under test; E2E tests in `tests/e2e/` use the `e2e` build tag
 - Platform-specific code uses `_unix.go`, `_windows.go`, `_darwin.go` suffixes
 
 ### Naming Rules
@@ -81,7 +81,7 @@ go test ./pkg/warplib/...
 - Test functions: `Test<Name>` (e.g., `TestDownload`, `TestQueueOperations`)
 - Benchmark functions: `Benchmark<Name>` (e.g., `BenchmarkDownload`)
 - Example functions: `Example<Name>` (e.g., `ExampleManager_Download`)
-- Table-driven tests: use `tests := struct{...}` pattern
+- Table-driven tests: use the `tests := []struct{...}` pattern
 
 **File Naming:**
 - Platform-specific: `filename_unix.go`, `filename_windows.go`, `filename_darwin.go`
@@ -115,7 +115,7 @@ Examples:
 - `cli: refactor: simplified command parsing`
 
 PR requirements:
-- Branch from `dev` (development branch)
+- Branch from `main`
 - Ensure all tests pass locally
 - Follow commit message conventions
 - Link related issues
