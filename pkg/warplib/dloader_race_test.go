@@ -51,10 +51,10 @@ func newGatedRangeServer(t *testing.T, content []byte, started, release chan str
 // seedHalfDownloadedItem registers an item whose first half is already
 // compiled on disk and whose second half is a pending, empty part file.
 // It returns the item and the destination path.
-func seedHalfDownloadedItem(t *testing.T, m *Manager, base, url string, content []byte) (*Item, string) {
+func seedHalfDownloadedItem(t *testing.T, m *Manager, base, url string, content []byte) (item *Item, savePath string) {
 	t.Helper()
 	half := int64(len(content) / 2)
-	item := &Item{
+	item = &Item{
 		Hash:             "concurrent-resume",
 		Name:             "file.bin",
 		Url:              url + "/file.bin",
@@ -78,7 +78,7 @@ func seedHalfDownloadedItem(t *testing.T, m *Manager, base, url string, content 
 	if err := WarpMkdirAll(dlPath, PrivateDirMode); err != nil {
 		t.Fatalf("MkdirAll download state directory: %v", err)
 	}
-	savePath := GetPath(base, item.Name)
+	savePath = GetPath(base, item.Name)
 	if err := os.WriteFile(savePath, content[:half], DefaultFileMode); err != nil {
 		t.Fatalf("WriteFile compiled prefix: %v", err)
 	}
