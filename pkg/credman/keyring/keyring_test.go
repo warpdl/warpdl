@@ -192,16 +192,6 @@ func (m *mockLogger) Warning(format string, args ...interface{}) {
 	m.warnings = append(m.warnings, format)
 }
 
-func TestNewKeyringWithFallback(t *testing.T) {
-	tmpDir := t.TempDir()
-	logger := &mockLogger{}
-
-	ks := NewKeyringWithFallback(tmpDir, logger)
-	if ks == nil {
-		t.Fatal("expected non-nil KeyStore")
-	}
-}
-
 func TestFallbackKeyStore_GetKey_KeyringSuccess(t *testing.T) {
 	origGet := keyringGet
 	defer func() { keyringGet = origGet }()

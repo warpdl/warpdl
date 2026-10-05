@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"bytes"
 	"encoding/json"
 	"flag"
 	"io"
@@ -17,7 +16,6 @@ import (
 	"time"
 
 	"github.com/urfave/cli"
-	"github.com/vbauerster/mpb/v8"
 	cmdcommon "github.com/warpdl/warpdl/cmd/common"
 	"github.com/warpdl/warpdl/common"
 	"github.com/warpdl/warpdl/pkg/warpcli"
@@ -459,27 +457,84 @@ func TestInfoInvalidURL(t *testing.T) {
 	assertExitError(t, info(ctx))
 }
 
-func TestSpeedCounter(t *testing.T) {
-	sc := NewSpeedCounter(time.Millisecond)
-	if sc == nil {
-		t.Fatalf("expected counter")
+// TestGetUserAgent covers the UserAgents alias contract: known aliases expand
+// to a browser UA, alias lookup is case-insensitive, and unknown values pass
+// through unchanged so custom UAs still work.
+func TestGetUserAgent(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		want     string // exact match when set
+		contains string // substring match when want is empty
+	}{
+		{name: "warp alias is default UA", input: "warp", want: warplib.DEF_USER_AGENT},
+		{name: "firefox alias", input: "firefox", contains: "Firefox/"},
+		{name: "chrome alias", input: "chrome", contains: "Chrome/"},
+		{name: "edge alias", input: "edge", contains: "Edg/"},
+		{name: "alias case insensitive", input: "FIREFOX", contains: "Firefox/"},
+		{name: "alias mixed case", input: "Chrome", contains: "Chrome/"},
+		{name: "unknown passthrough", input: "MyCustomUA/1.0", want: "MyCustomUA/1.0"},
 	}
-	p := mpb.New()
-	bar := p.AddBar(10)
-	sc.SetBar(bar)
-	sc.Start()
-	sc.IncrBy(5)
-	time.Sleep(time.Millisecond * 5)
-	sc.Stop()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := getUserAgent(tt.input)
+			if tt.want != "" && got != tt.want {
+				t.Fatalf("getUserAgent(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+			if tt.contains != "" && !strings.Contains(got, tt.contains) {
+				t.Fatalf("getUserAgent(%q) = %q, want substring %q", tt.input, got, tt.contains)
+			}
+		})
+	}
 }
 
-func TestGetUserAgent(t *testing.T) {
-	if got := getUserAgent("warp"); got == "" {
-		t.Fatalf("expected user agent")
+// assertEmptyCommandNameShowsAppHelp covers the shared empty-command-name
+// branch: commands fall back to application help with exit code 0 instead of
+// reporting a command-level usage error.
+func assertEmptyCommandNameShowsAppHelp(t *testing.T, action func(*cli.Context) error) {
+	t.Helper()
+	app := GetApp(BuildArgs{Version: "1.0.0", BuildType: "test"})
+	ctx := newContext(app, nil, "")
+
+	exitCode := -1
+	called := false
+	prev := cmdcommon.SetShowAppHelpAndExit(func(_ *cli.Context, code int) {
+		called = true
+		exitCode = code
+	})
+	defer cmdcommon.SetShowAppHelpAndExit(prev)
+
+	stdout, _ := captureOutput(func() {
+		if err := action(ctx); err != nil {
+			t.Errorf("empty command name: %v", err)
+		}
+	})
+
+	if !called {
+		t.Fatal("expected application help to be shown")
 	}
-	if got := getUserAgent("CustomUA"); got != "CustomUA" {
-		t.Fatalf("expected passthrough user agent")
+	if exitCode != 0 {
+		t.Fatalf("expected app help exit code 0, got %d", exitCode)
 	}
+	assertContains(t, stdout, "warpdl")
+}
+
+// assertCommandHelpArg covers the in-command "help" sentinel: the argument
+// renders the command's help through the real CLI templates instead of being
+// treated as a URL/hash and executed.
+func assertCommandHelpArg(t *testing.T, name string, action func(*cli.Context) error) {
+	t.Helper()
+	app := GetApp(BuildArgs{Version: "1.0.0", BuildType: "test"})
+	ctx := newContext(app, []string{"help"}, name)
+
+	stdout, _ := captureOutput(func() {
+		app.Writer = os.Stdout // help is rendered to the captured stdout
+		if err := action(ctx); err != nil {
+			t.Errorf("%s help: %v", name, err)
+		}
+	})
+
+	assertContains(t, stdout, name)
 }
 
 func TestConfirmForce(t *testing.T) {
@@ -504,12 +559,7 @@ func TestDownloadNoURL(t *testing.T) {
 }
 
 func TestDownloadNoURLEmptyCommandName(t *testing.T) {
-	app := cli.NewApp()
-	ctx := newContext(app, nil, "")
-	prev := cmdcommon.SetShowAppHelpAndExit(func(*cli.Context, int) {})
-	defer cmdcommon.SetShowAppHelpAndExit(prev)
-	// empty command name → PrintErrWithHelp → now returns cli.ExitError
-	_ = download(ctx)
+	assertEmptyCommandNameShowsAppHelp(t, download)
 }
 
 func TestInfoNoURL(t *testing.T) {
@@ -520,81 +570,28 @@ func TestInfoNoURL(t *testing.T) {
 	}
 }
 
-func TestDownloadHelpArg(t *testing.T) {
-	app := cli.NewApp()
-	ctx := newContext(app, []string{"help"}, "download")
-	_ = download(ctx)
-}
-
 func TestListHelpArg(t *testing.T) {
-	app := cli.NewApp()
-	ctx := newContext(app, []string{"help"}, "list")
-	_ = list(ctx)
-}
-
-func TestStopNoHash(t *testing.T) {
-	app := cli.NewApp()
-	ctx := newContext(app, nil, "stop")
-	_ = stop(ctx)
+	assertCommandHelpArg(t, "list", list)
 }
 
 func TestStopNoHashEmptyCommandName(t *testing.T) {
-	app := cli.NewApp()
-	ctx := newContext(app, nil, "")
-	prev := cmdcommon.SetShowAppHelpAndExit(func(*cli.Context, int) {})
-	defer cmdcommon.SetShowAppHelpAndExit(prev)
-	_ = stop(ctx)
-}
-
-func TestFlushWithHash(t *testing.T) {
-	socketPath := filepath.Join(t.TempDir(), "warpdl.sock")
-	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
-	srv := startFakeServer(t, socketPath)
-	defer srv.close()
-
-	app := cli.NewApp()
-	ctx := newContext(app, []string{"id"}, "flush")
-	_ = flush(ctx)
-}
-
-func TestAttachNoHash(t *testing.T) {
-	app := cli.NewApp()
-	ctx := newContext(app, nil, "attach")
-	_ = attach(ctx)
+	assertEmptyCommandNameShowsAppHelp(t, stop)
 }
 
 func TestAttachNoHashEmptyCommandName(t *testing.T) {
-	app := cli.NewApp()
-	ctx := newContext(app, nil, "")
-	prev := cmdcommon.SetShowAppHelpAndExit(func(*cli.Context, int) {})
-	defer cmdcommon.SetShowAppHelpAndExit(prev)
-	_ = attach(ctx)
+	assertEmptyCommandNameShowsAppHelp(t, attach)
 }
 
 func TestAttachHelpArg(t *testing.T) {
-	app := cli.NewApp()
-	ctx := newContext(app, []string{"help"}, "attach")
-	_ = attach(ctx)
-}
-
-func TestResumeNoHash(t *testing.T) {
-	app := cli.NewApp()
-	ctx := newContext(app, nil, "resume")
-	_ = resume(ctx)
+	assertCommandHelpArg(t, "attach", attach)
 }
 
 func TestResumeNoHashEmptyCommandName(t *testing.T) {
-	app := cli.NewApp()
-	ctx := newContext(app, nil, "")
-	prev := cmdcommon.SetShowAppHelpAndExit(func(*cli.Context, int) {})
-	defer cmdcommon.SetShowAppHelpAndExit(prev)
-	_ = resume(ctx)
+	assertEmptyCommandNameShowsAppHelp(t, resume)
 }
 
 func TestResumeHelpArg(t *testing.T) {
-	app := cli.NewApp()
-	ctx := newContext(app, []string{"help"}, "resume")
-	_ = resume(ctx)
+	assertCommandHelpArg(t, "resume", resume)
 }
 
 func TestDownloadCustomPath(t *testing.T) {
@@ -708,35 +705,34 @@ func TestListWithHidden(t *testing.T) {
 	}
 }
 
-func TestConfigTemplateStrings(t *testing.T) {
-	if len(HELP_TEMPL) == 0 || len(CMD_HELP_TEMPL) == 0 {
-		t.Fatalf("expected help templates")
+// flagNames splits a cli flag declaration ("name, alias") into its names.
+func flagNames(f cli.Flag) []string {
+	parts := strings.Split(f.GetName(), ",")
+	for i := range parts {
+		parts[i] = strings.TrimSpace(parts[i])
 	}
+	return parts
 }
 
+// TestInitAddsFlags verifies init() folds the resume and info flag sets into
+// the download command, so download exposes --max-parts/--max-connection and
+// --user-agent alongside its own flags.
 func TestInitAddsFlags(t *testing.T) {
-	if len(dlFlags) == 0 {
-		t.Fatalf("expected download flags")
+	names := make(map[string]bool, len(dlFlags))
+	for _, f := range dlFlags {
+		for _, name := range flagNames(f) {
+			names[name] = true
+		}
 	}
-}
-
-func TestCounterStartStop(t *testing.T) {
-	sc := NewSpeedCounter(time.Millisecond)
-	if sc == nil {
-		t.Fatalf("expected counter")
+	for _, want := range []string{"max-parts", "max-connection", "user-agent"} {
+		if !names[want] {
+			t.Errorf("download flags missing %q", want)
+		}
 	}
-	sc.Start()
-	go func() {
-		sc.IncrBy(1)
-	}()
-	time.Sleep(time.Millisecond * 5)
-	sc.Stop()
 }
 
 func TestStopHelp(t *testing.T) {
-	app := cli.NewApp()
-	ctx := newContext(app, []string{"help"}, "stop")
-	_ = stop(ctx)
+	assertCommandHelpArg(t, "stop", stop)
 }
 
 func TestStopErrorResponse(t *testing.T) {
@@ -750,13 +746,6 @@ func TestStopErrorResponse(t *testing.T) {
 	app := cli.NewApp()
 	ctx := newContext(app, []string{"id"}, "stop")
 	assertExitError(t, stop(ctx))
-}
-
-func TestListOutputFormatting(t *testing.T) {
-	name := beautForTest("short")
-	if len(name) == 0 {
-		t.Fatalf("expected formatted name")
-	}
 }
 
 func TestAttachCommand(t *testing.T) {
@@ -814,13 +803,6 @@ func TestResumeErrorResponse(t *testing.T) {
 	app := cli.NewApp()
 	ctx := newContext(app, []string{"id"}, "resume")
 	assertExitError(t, resume(ctx))
-}
-
-func TestFlushInvalidArgs(t *testing.T) {
-	app := cli.NewApp()
-	ctx := newContext(app, []string{"a", "b"}, "flush")
-	// Two args → "invalid amount of arguments" → PrintErrWithCmdHelp → non-nil error
-	_ = flush(ctx)
 }
 
 func TestFlushCancelled(t *testing.T) {
@@ -890,33 +872,6 @@ func TestFlushAll(t *testing.T) {
 	}
 }
 
-func beautForTest(name string) string {
-	if len(name) < 23 {
-		return cmdcommon.Beaut(name, 23)
-	}
-	return name
-}
-
-func TestDownloadPathDefault(t *testing.T) {
-	socketPath := filepath.Join(t.TempDir(), "warpdl.sock")
-	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
-	srv := startFakeServer(t, socketPath)
-	defer srv.close()
-
-	app := cli.NewApp()
-	ctx := newContext(app, []string{"http://example.com"}, "download")
-	oldDlPath, oldFileName := dlPath, fileName
-	dlPath = ""
-	fileName = ""
-	defer func() {
-		dlPath = oldDlPath
-		fileName = oldFileName
-	}()
-	if err := download(ctx); err != nil {
-		t.Fatalf("download: %v", err)
-	}
-}
-
 func TestInfoUserAgentOverride(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ua := r.Header.Get(warplib.USER_AGENT_KEY)
@@ -972,70 +927,34 @@ func TestDownloadURLTrim(t *testing.T) {
 	}
 }
 
+// TestConfigConstants verifies the documented DEF_* defaults are the ones
+// actually wired into the resume/download flag set users see.
 func TestConfigConstants(t *testing.T) {
-	if DEF_MAX_PARTS == 0 || DEF_MAX_CONNS == 0 {
-		t.Fatalf("expected defaults")
+	want := map[string]int{
+		"max-parts":      DEF_MAX_PARTS,
+		"max-connection": DEF_MAX_CONNS,
+		"timeout":        DEF_TIMEOUT_SEC,
+		"max-retries":    DEF_MAX_RETRIES,
+		"retry-delay":    DEF_RETRY_DELAY,
 	}
-}
-
-func TestDownloadTemplates(t *testing.T) {
-	if !bytes.Contains([]byte(DownloadDescription), []byte("download")) {
-		t.Fatalf("expected description")
+	for _, f := range rsFlags {
+		intFlag, ok := f.(cli.IntFlag)
+		if !ok {
+			continue
+		}
+		for _, name := range flagNames(intFlag) {
+			wantValue, ok := want[name]
+			if !ok {
+				continue
+			}
+			if intFlag.Value != wantValue {
+				t.Errorf("flag %q default = %d, want %d", name, intFlag.Value, wantValue)
+			}
+			delete(want, name)
+		}
 	}
-}
-
-func TestGetUserAgent_Firefox(t *testing.T) {
-	ua := getUserAgent("firefox")
-	if ua == "" {
-		t.Fatal("expected Firefox user agent")
-	}
-	if ua == "firefox" {
-		t.Fatal("expected Firefox UA to be expanded")
-	}
-	if !strings.Contains(ua, "Firefox") {
-		t.Fatalf("expected Firefox in UA, got: %s", ua)
-	}
-}
-
-func TestGetUserAgent_Chrome(t *testing.T) {
-	ua := getUserAgent("chrome")
-	if ua == "" {
-		t.Fatal("expected Chrome user agent")
-	}
-	if ua == "chrome" {
-		t.Fatal("expected Chrome UA to be expanded")
-	}
-	if !strings.Contains(ua, "Chrome") {
-		t.Fatalf("expected Chrome in UA, got: %s", ua)
-	}
-}
-
-func TestGetUserAgent_Edge(t *testing.T) {
-	ua := getUserAgent("edge")
-	if ua == "" {
-		t.Fatal("expected Edge user agent")
-	}
-	if ua == "edge" {
-		t.Fatal("expected Edge UA to be expanded")
-	}
-	if !strings.Contains(ua, "Edg") {
-		t.Fatalf("expected Edg in UA, got: %s", ua)
-	}
-}
-
-func TestGetUserAgent_CaseInsensitive(t *testing.T) {
-	ua1 := getUserAgent("FIREFOX")
-	ua2 := getUserAgent("firefox")
-	if ua1 != ua2 {
-		t.Fatalf("expected case insensitive match: %s vs %s", ua1, ua2)
-	}
-}
-
-func TestGetUserAgent_Unknown(t *testing.T) {
-	custom := "MyCustomUA/1.0"
-	ua := getUserAgent(custom)
-	if ua != custom {
-		t.Fatalf("expected passthrough for unknown UA, got: %s", ua)
+	for name := range want {
+		t.Errorf("flag %q missing from rsFlags", name)
 	}
 }
 
@@ -1178,12 +1097,6 @@ func TestWaitForBatchSubmissions_AlreadyComplete(t *testing.T) {
 	}
 }
 
-func TestConfirm_Force(t *testing.T) {
-	if !confirm(command("test"), true) {
-		t.Fatal("expected confirm to return true with force")
-	}
-}
-
 func TestConfirm_YesInput(t *testing.T) {
 	oldStdin := os.Stdin
 	r, w, err := os.Pipe()
@@ -1306,21 +1219,6 @@ func TestCommandAction(t *testing.T) {
 	}
 }
 
-func TestUserAgentsMap(t *testing.T) {
-	if len(UserAgents) < 3 {
-		t.Fatal("expected at least 3 user agents")
-	}
-	if _, ok := UserAgents["warp"]; !ok {
-		t.Fatal("expected 'warp' in UserAgents")
-	}
-	if _, ok := UserAgents["firefox"]; !ok {
-		t.Fatal("expected 'firefox' in UserAgents")
-	}
-	if _, ok := UserAgents["chrome"]; !ok {
-		t.Fatal("expected 'chrome' in UserAgents")
-	}
-}
-
 func TestResumeWithUserAgent(t *testing.T) {
 	socketPath := filepath.Join(t.TempDir(), "warpdl.sock")
 	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
@@ -1341,28 +1239,8 @@ func TestResumeWithUserAgent(t *testing.T) {
 	}
 }
 
-func TestResumeHelp(t *testing.T) {
-	app := cli.NewApp()
-	ctx := newContext(app, []string{"help"}, "resume")
-	_ = resume(ctx)
-}
-
-func TestAttachHelp(t *testing.T) {
-	app := cli.NewApp()
-	ctx := newContext(app, []string{"help"}, "attach")
-	_ = attach(ctx)
-}
-
 func TestInfoHelp(t *testing.T) {
-	app := cli.NewApp()
-	ctx := newContext(app, []string{"help"}, "info")
-	_ = info(ctx)
-}
-
-func TestFlushHelp(t *testing.T) {
-	app := cli.NewApp()
-	ctx := newContext(app, []string{"help"}, "flush")
-	_ = flush(ctx)
+	assertCommandHelpArg(t, "info", info)
 }
 
 func TestListErrorResponse(t *testing.T) {

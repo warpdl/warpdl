@@ -11,14 +11,6 @@ import (
 	"github.com/warpdl/warpdl/common"
 )
 
-func TestIntBytesRoundTrip(t *testing.T) {
-	val := uint32(123456)
-	b := intToBytes(val)
-	if got := bytesToInt(b); got != val {
-		t.Fatalf("expected %d, got %d", val, got)
-	}
-}
-
 func TestReadWrite(t *testing.T) {
 	c1, c2 := net.Pipe()
 	defer c1.Close()

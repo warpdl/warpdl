@@ -42,28 +42,6 @@ func TestGetBufCustomSize(t *testing.T) {
 	}
 }
 
-// TestPutBufRestoresCapacity ensures that put resets the slice length to
-// cap so the next getter always has full capacity.
-//
-// We observe length/cap *before* calling putBuf because once the buffer is
-// returned to the pool another goroutine may grab it - reading the slice
-// header after putBuf is a race.
-func TestPutBufRestoresCapacity(t *testing.T) {
-	t.Parallel()
-
-	bp := getBuf(int(DEF_CHUNK_SIZE))
-	origCap := cap(*bp)
-	*bp = (*bp)[:10] // simulate caller leaving slice small
-
-	// putBuf must set length back to origCap. Observe the header state
-	// immediately before returning to pool.
-	*bp = (*bp)[:cap(*bp)]
-	if len(*bp) != origCap {
-		t.Errorf("putBuf precondition: len=%d want %d", len(*bp), origCap)
-	}
-	putBuf(bp)
-}
-
 // TestPutBufNilIsNoOp verifies put tolerates nil.
 func TestPutBufNilIsNoOp(t *testing.T) {
 	t.Parallel()

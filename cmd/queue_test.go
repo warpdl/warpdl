@@ -78,10 +78,49 @@ func TestQueueStatusPaused(t *testing.T) {
 	}
 }
 
-func TestQueueStatusHelpArg(t *testing.T) {
-	app := cli.NewApp()
-	ctx := newContext(app, []string{"help"}, "queue")
-	_ = queueStatusAction(ctx)
+// runProductionCLI dispatches args through the production CLI tree (GetApp) and
+// returns the captured stdout/stderr plus the run error. The app is built inside
+// the capture window because cli.App adopts os.Stdout as its writer at Setup.
+// Shared by the queue and background CLI tests in this package.
+func runProductionCLI(t *testing.T, args ...string) (stdout, stderr string, err error) {
+	t.Helper()
+	stdout, stderr = captureOutput(func() {
+		app := GetApp(BuildArgs{})
+		err = app.Run(append([]string{"warpdl"}, args...))
+	})
+	return stdout, stderr, err
+}
+
+// TestQueueHelpArgShowsSubcommandHelp pins the queue subcommand "help" argument
+// contract: each action must resolve its own help topic and exit successfully.
+// Dispatch runs through the real CLI tree, where urfave/cli resolves the topic
+// against the queue sub-app's command set. Hand-building a bare app context
+// instead turns every case into cli's "No help topic" exit 3, which asserts
+// nothing about the action.
+func TestQueueHelpArgShowsSubcommandHelp(t *testing.T) {
+	tests := []struct {
+		subcommand string
+		usage      string
+		argsUsage  string
+	}{
+		{subcommand: "status", usage: "show queue status"},
+		{subcommand: "pause", usage: "pause the queue (no new downloads start)"},
+		{subcommand: "resume", usage: "resume the queue"},
+		{subcommand: "move", usage: "move a queued download to a new position", argsUsage: "<hash> <position>"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.subcommand, func(t *testing.T) {
+			stdout, _, err := runProductionCLI(t, "queue", tt.subcommand, "help")
+			if err != nil {
+				t.Fatalf("queue %s help: %v", tt.subcommand, err)
+			}
+			assertContains(t, stdout, tt.usage)
+			if tt.argsUsage != "" {
+				assertContains(t, stdout, tt.argsUsage)
+			}
+		})
+	}
 }
 
 func TestQueueStatusClientError(t *testing.T) {
@@ -121,12 +160,6 @@ func TestQueuePauseCommand(t *testing.T) {
 	}
 }
 
-func TestQueuePauseHelpArg(t *testing.T) {
-	app := cli.NewApp()
-	ctx := newContext(app, []string{"help"}, "pause")
-	_ = queuePauseAction(ctx)
-}
-
 func TestQueuePauseClientError(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping slow test in short mode")
@@ -161,12 +194,6 @@ func TestQueueResumeCommand(t *testing.T) {
 	if err := queueResumeAction(ctx); err != nil {
 		t.Fatalf("queueResumeAction: %v", err)
 	}
-}
-
-func TestQueueResumeHelpArg(t *testing.T) {
-	app := cli.NewApp()
-	ctx := newContext(app, []string{"help"}, "resume")
-	_ = queueResumeAction(ctx)
 }
 
 func TestQueueResumeClientError(t *testing.T) {
@@ -205,31 +232,51 @@ func TestQueueMoveCommand(t *testing.T) {
 	}
 }
 
-func TestQueueMoveHelpArg(t *testing.T) {
-	app := cli.NewApp()
-	ctx := newContext(app, []string{"help"}, "move")
-	_ = queueMoveAction(ctx)
-}
+// TestQueueMoveArgErrorsReportUsage pins move's argument validation: every
+// malformed invocation prints its specific diagnostic plus the move help text,
+// exits non-zero, and never reaches the daemon. Each row is a distinct guard in
+// queueMoveAction (arg count, non-numeric position, position below one).
+func TestQueueMoveArgErrorsReportUsage(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		wantMsg string
+	}{
+		{
+			name:    "no_args",
+			wantMsg: "usage: warpdl queue move <hash> <position>",
+		},
+		{
+			name:    "missing_position",
+			args:    []string{"hash123"},
+			wantMsg: "usage: warpdl queue move <hash> <position>",
+		},
+		{
+			name:    "non_numeric_position",
+			args:    []string{"hash123", "notanumber"},
+			wantMsg: "invalid position 'notanumber': must be a number",
+		},
+		{
+			name:    "position_below_one",
+			args:    []string{"hash123", "0"},
+			wantMsg: "invalid position '0': positions start at 1",
+		},
+	}
 
-func TestQueueMoveNoArgs(t *testing.T) {
-	app := cli.NewApp()
-	ctx := newContext(app, nil, "move")
-	// Should return error about missing args
-	_ = queueMoveAction(ctx)
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// An absent socket keeps the "never reached the daemon" check
+			// deterministic if one of the guards regresses.
+			t.Setenv("WARPDL_SOCKET_PATH", filepath.Join(t.TempDir(), "absent.sock"))
 
-func TestQueueMoveOneArg(t *testing.T) {
-	app := cli.NewApp()
-	ctx := newContext(app, []string{"hash123"}, "move")
-	// Should return error about missing position
-	_ = queueMoveAction(ctx)
-}
+			stdout, stderr, err := runProductionCLI(t, append([]string{"queue", "move"}, tt.args...)...)
 
-func TestQueueMoveInvalidPosition(t *testing.T) {
-	app := cli.NewApp()
-	ctx := newContext(app, []string{"hash123", "notanumber"}, "move")
-	// Should return error about invalid position
-	_ = queueMoveAction(ctx)
+			assertExitError(t, err)
+			assertContains(t, stdout, tt.wantMsg)
+			assertContains(t, stdout, "move a queued download to a new position")
+			assertNotContains(t, stderr, "queue move[")
+		})
+	}
 }
 
 func TestQueueMoveClientError(t *testing.T) {

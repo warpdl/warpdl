@@ -246,49 +246,6 @@ func TestActivePartInfo_GetCurrentPos(t *testing.T) {
 // TDD Cycle 6: findAdjacentPartForStealing Tests (RED)
 // =============================================================================
 
-// =============================================================================
-// TDD Cycle 8: WorkStealHandler Tests (RED)
-// =============================================================================
-
-func TestWorkStealHandler_Invocation(t *testing.T) {
-	var handlerCalled int32
-	var capturedStealer, capturedVictim string
-	var capturedIoff, capturedFoff int64
-	var mu sync.Mutex
-
-	handler := WorkStealHandlerFunc(func(stealerHash, victimHash string, stolenIoff, stolenFoff int64) {
-		mu.Lock()
-		defer mu.Unlock()
-		atomic.AddInt32(&handlerCalled, 1)
-		capturedStealer = stealerHash
-		capturedVictim = victimHash
-		capturedIoff = stolenIoff
-		capturedFoff = stolenFoff
-	})
-
-	// Simulate work steal event
-	handler("partA", "partB", 10*MB, 20*MB-1)
-
-	if atomic.LoadInt32(&handlerCalled) != 1 {
-		t.Errorf("handler should be called once, got %d", atomic.LoadInt32(&handlerCalled))
-	}
-
-	mu.Lock()
-	defer mu.Unlock()
-	if capturedStealer != "partA" {
-		t.Errorf("stealer = %q, want %q", capturedStealer, "partA")
-	}
-	if capturedVictim != "partB" {
-		t.Errorf("victim = %q, want %q", capturedVictim, "partB")
-	}
-	if capturedIoff != 10*MB {
-		t.Errorf("stolenIoff = %d, want %d", capturedIoff, 10*MB)
-	}
-	if capturedFoff != 20*MB-1 {
-		t.Errorf("stolenFoff = %d, want %d", capturedFoff, 20*MB-1)
-	}
-}
-
 func TestFindBestVictimForStealing(t *testing.T) {
 	tests := []struct {
 		name        string

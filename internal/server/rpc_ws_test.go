@@ -390,12 +390,3 @@ func TestWebSocketEndpoint_MultipleClients(t *testing.T) {
 		}
 	}
 }
-
-func TestWsChannel_Interface(t *testing.T) {
-	// Verify wsChannel satisfies the channel.Channel interface by creating one
-	// (we can't actually test send/recv without a real WebSocket connection,
-	// but we can verify it compiles as the correct type).
-	ctx := context.Background()
-	ch := &wsChannel{conn: nil, ctx: ctx}
-	_ = ch // just verify it compiles; actual I/O tested through integration
-}

@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -1315,46 +1316,58 @@ func TestDownloadSFTPHandlerSSHKeyPath(t *testing.T) {
 	// The fact that it gets past the nil-router check and tries to connect proves SSHKeyPath was forwarded
 }
 
-func TestDownloadSFTPHandlerCredentialStripping(t *testing.T) {
-	// NON-NEGOTIABLE: sftp:// URLs with embedded credentials must have them
-	// stripped before persistence. This test verifies that StripURLCredentials
-	// is applied to SFTP URLs the same as FTP URLs.
-	//
-	// We cannot do a full end-to-end test (no live SFTP server), but we verify
-	// the credential-stripping logic is correct for sftp:// scheme URLs.
-	tests := []struct {
-		name     string
-		inputURL string
-		wantURL  string
-	}{
-		{
-			name:     "sftp with user:pass",
-			inputURL: "sftp://admin:secret@sftp.example.com/path/file.bin",
-			wantURL:  "sftp://sftp.example.com/path/file.bin",
-		},
-		{
-			name:     "sftp with user only",
-			inputURL: "sftp://admin@sftp.example.com/path/file.bin",
-			wantURL:  "sftp://sftp.example.com/path/file.bin",
-		},
-		{
-			name:     "sftp without credentials",
-			inputURL: "sftp://sftp.example.com/path/file.bin",
-			wantURL:  "sftp://sftp.example.com/path/file.bin",
-		},
-		{
-			name:     "sftp with special chars in password",
-			inputURL: "sftp://user:p%40ss%3Aword@sftp.example.com/path/file.bin",
-			wantURL:  "sftp://sftp.example.com/path/file.bin",
-		},
+func TestDownloadSFTPHandlerPersistsCredentialFreeURL(t *testing.T) {
+	api, pool, cleanup := newTestApi(t)
+	defer cleanup()
+
+	// The URL persisted for an SFTP download is what a restart reconstructs
+	// from, so the handler must store the credential-stripped form while the
+	// live transfer keeps the username needed for authentication.
+	var downloader *lifecycleProtocolDownloader
+	router := warplib.NewSchemeRouter(&http.Client{})
+	router.Register("sftp", func(_ string, _ *warplib.DownloaderOpts) (warplib.ProtocolDownloader, error) {
+		downloader = &lifecycleProtocolDownloader{
+			hash:        "sftp-credential-stripping",
+			fileName:    "file.bin",
+			downloadDir: warplib.ConfigDir,
+			probeResult: warplib.ProbeResult{
+				FileName:      "file.bin",
+				ContentLength: 8,
+				Resumable:     true,
+			},
+			downloadFn: func(ctx context.Context, _ *warplib.Handlers) error {
+				<-ctx.Done()
+				return ctx.Err()
+			},
+		}
+		return downloader, nil
+	})
+	api.schemeRouter = router
+
+	body, _ := json.Marshal(common.DownloadParams{
+		Url:               "sftp://admin:secret@sftp.example.com/path/file.bin",
+		DownloadDirectory: warplib.ConfigDir,
+	})
+	if _, _, err := api.downloadHandler(nil, pool, body); err != nil {
+		t.Fatalf("downloadHandler: %v", err)
 	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := warplib.StripURLCredentials(tc.inputURL)
-			if got != tc.wantURL {
-				t.Errorf("StripURLCredentials(%q) = %q, want %q", tc.inputURL, got, tc.wantURL)
-			}
-		})
+	if downloader == nil {
+		t.Fatal("sftp factory was not called")
+	}
+
+	item := api.manager.GetItem(downloader.hash)
+	if item == nil {
+		t.Fatal("sftp download was not persisted")
+	}
+	if item.Url != "sftp://sftp.example.com/path/file.bin" {
+		t.Fatalf("persisted URL = %q, want credential-free sftp URL", item.Url)
+	}
+	if item.Protocol != warplib.ProtoSFTP {
+		t.Fatalf("persisted protocol = %v, want ProtoSFTP", item.Protocol)
+	}
+	if item.TransferConfig.ProtocolUsername != "admin" ||
+		!item.TransferConfig.ProtocolCredentialsRequired {
+		t.Fatalf("live credential metadata = %+v", item.TransferConfig)
 	}
 }
 
@@ -1620,20 +1633,6 @@ func TestStopHandlerCancelsTriggeredOneShotAcrossRestart(t *testing.T) {
 }
 
 // T070: stopHandler returns recurring-specific cancel message when CronExpr is set
-
-func TestReportAsyncDownloadError_NilError(t *testing.T) {
-	pool := server.NewPool(log.New(io.Discard, "", 0))
-	// Must not panic and must be a no-op for nil error
-	ReportAsyncDownloadError(pool, "uid-1", nil, nil)
-}
-
-func TestReportAsyncDownloadError_WithError(t *testing.T) {
-	pool := server.NewPool(log.New(io.Discard, "", 0))
-	// With a real error the function broadcasts and stops the download.
-	// The pool has no active download registered so StopDownload is a no-op,
-	// but calling through the full path covers the three statements.
-	ReportAsyncDownloadError(pool, "uid-2", errors.New("async failure"), nil)
-}
 
 func TestStopHandlerCancelsRecurringItem(t *testing.T) {
 	api, pool, cleanup := newTestApi(t)

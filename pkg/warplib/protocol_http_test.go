@@ -6,7 +6,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 )
 
@@ -47,14 +46,6 @@ func TestHTTPAdapter_Capabilities_AfterProbe(t *testing.T) {
 	if !caps.SupportsResume {
 		t.Errorf("Capabilities after Probe: SupportsResume should be true when Accept-Ranges present")
 	}
-}
-
-// Test: httpProtocolDownloader satisfies ProtocolDownloader at compile time
-func TestHTTPAdapter_CompileTimeCheck(t *testing.T) {
-	// This test passes if it compiles — the compile-time check in protocol_http.go
-	// var _ ProtocolDownloader = (*httpProtocolDownloader)(nil)
-	// ensures the adapter satisfies the interface.
-	t.Log("compile-time interface check passed")
 }
 
 // Test: httpProtocolDownloader.Download() without Probe() returns ErrProbeRequired
@@ -136,14 +127,4 @@ func TestHTTPAdapter_IsStoppedWhenNilInner(t *testing.T) {
 	if !pd.IsStopped() {
 		t.Errorf("IsStopped: should return true when inner is nil")
 	}
-}
-
-// Test: httpProtocolDownloader cleanup
-func TestHTTPAdapter_CleanupTempDirs(t *testing.T) {
-	// Ensure temp dirs are cleaned up
-	tmpDir, err := os.MkdirTemp("", "warplib-test-*")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
 }

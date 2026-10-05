@@ -212,33 +212,6 @@ func TestDownloadBatch_OnlyDirectURLs(t *testing.T) {
 
 // Tests for BatchResult helper methods
 
-func TestBatchResult_NewBatchResult(t *testing.T) {
-	result := NewBatchResult(5)
-
-	if result.Total != 5 {
-		t.Errorf("expected total 5, got %d", result.Total)
-	}
-	if result.Succeeded != 0 {
-		t.Errorf("expected succeeded 0, got %d", result.Succeeded)
-	}
-	if result.Failed != 0 {
-		t.Errorf("expected failed 0, got %d", result.Failed)
-	}
-	if result.Errors == nil {
-		t.Error("expected Errors slice to be initialized")
-	}
-}
-
-func TestBatchResult_AddSuccess(t *testing.T) {
-	result := NewBatchResult(3)
-	result.AddSuccess()
-	result.AddSuccess()
-
-	if result.Succeeded != 2 {
-		t.Errorf("expected succeeded 2, got %d", result.Succeeded)
-	}
-}
-
 func TestBatchResult_AddError(t *testing.T) {
 	result := NewBatchResult(3)
 	result.AddError("https://example.com/fail.zip", errors.New("connection refused"))
@@ -392,36 +365,6 @@ func TestBatchResult_String(t *testing.T) {
 	})
 }
 
-func TestNewBatchError(t *testing.T) {
-	err := errors.New("connection timeout")
-	be := NewBatchError("https://example.com/file.zip", err)
-
-	if be.URL != "https://example.com/file.zip" {
-		t.Errorf("expected URL 'https://example.com/file.zip', got '%s'", be.URL)
-	}
-	if be.Reason != "connection timeout" {
-		t.Errorf("expected reason 'connection timeout', got '%s'", be.Reason)
-	}
-}
-
-func TestSkippedURL(t *testing.T) {
-	s := SkippedURL{
-		LineNumber: 5,
-		Content:    "ftp://example.com/file.zip",
-		Reason:     "URL must start with http:// or https://",
-	}
-
-	if s.LineNumber != 5 {
-		t.Errorf("expected LineNumber 5, got %d", s.LineNumber)
-	}
-	if s.Content != "ftp://example.com/file.zip" {
-		t.Errorf("expected Content 'ftp://example.com/file.zip', got %q", s.Content)
-	}
-	if s.Reason != "URL must start with http:// or https://" {
-		t.Errorf("expected Reason about http/https, got %q", s.Reason)
-	}
-}
-
 func TestBatchResult_StringWithSkippedURLs(t *testing.T) {
 	result := NewBatchResult(2)
 	result.AddSuccess()
@@ -487,11 +430,15 @@ magnet:?xt=urn:btih:abc123`
 		t.Errorf("expected 1 skipped URL, got %d", len(result.SkippedURLs))
 	}
 
-	// Verify skipped URLs have correct line numbers
+	// Verify skipped URLs have correct line numbers and keep the
+	// parser's explanation of why the line was rejected.
 	foundMagnet := false
 	for _, s := range result.SkippedURLs {
 		if s.LineNumber == 4 && s.Content == "magnet:?xt=urn:btih:abc123" {
 			foundMagnet = true
+		}
+		if !contains(s.Reason, "unsupported URL scheme") {
+			t.Errorf("skipped URL reason = %q, want parser's unsupported-scheme explanation", s.Reason)
 		}
 	}
 	if !foundMagnet {

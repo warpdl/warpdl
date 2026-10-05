@@ -180,22 +180,6 @@ func TestEnsureDaemon_SpawnHelper(t *testing.T) {
 	}
 }
 
-func TestSpawnDaemon_InvalidExecutable(t *testing.T) {
-	// This test verifies spawnDaemon works with the current executable
-	// We can't easily test failure case without modifying os.Executable
-	// Skip if we can't get the executable path
-	exe, err := os.Executable()
-	if err != nil {
-		t.Skip("cannot get executable path")
-	}
-	if exe == "" {
-		t.Skip("empty executable path")
-	}
-	// Just verify the function doesn't panic
-	// Note: We don't actually test spawnDaemon here since it would
-	// spawn a real daemon process
-}
-
 func TestGetDaemonStartTimeout_Default(t *testing.T) {
 	t.Setenv("WARPDL_DAEMON_TIMEOUT", "")
 	timeout := getDaemonStartTimeout()

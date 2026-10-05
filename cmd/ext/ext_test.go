@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -269,34 +270,85 @@ func TestExtCommandsResolveName(t *testing.T) {
 	}
 }
 
-func TestExtHelpPaths(t *testing.T) {
-	app := cli.NewApp()
-	ctx := newContext(app, []string{"help"}, "install")
-	_ = install(ctx)
-	ctx = newContext(app, []string{"help"}, "list")
-	_ = list(ctx)
-	ctx = newContext(app, []string{"help"}, "activate")
-	_ = activate(ctx)
-	ctx = newContext(app, []string{"help"}, "deactivate")
-	_ = deactivate(ctx)
-	ctx = newContext(app, []string{"help"}, "uninstall")
-	_ = uninstall(ctx)
-	ctx = newContext(app, []string{"help"}, "info")
-	_ = info(ctx)
+// runExtCLI dispatches args through urfave/cli with the production extension
+// command tree installed and returns the captured stdout/stderr plus the run
+// error. The app is built inside the capture window because cli.App adopts
+// os.Stdout as its writer during Setup. The parent cmd package cannot be
+// imported here (it imports this one), so the test app registers the same
+// Commands slice that production nests under "ext" — the exact command set
+// urfave/cli resolves help topics against once "ext" becomes the sub-app.
+func runExtCLI(t *testing.T, args ...string) (stdout, stderr string, err error) {
+	t.Helper()
+	stdout, stderr = captureOutput(func() {
+		app := cli.NewApp()
+		app.Name = "warpdl"
+		app.HelpName = "warpdl"
+		app.Commands = append([]cli.Command(nil), Commands...)
+		app.ExitErrHandler = func(*cli.Context, error) {}
+		err = app.Run(append([]string{"warpdl"}, args...))
+	})
+	return stdout, stderr, err
 }
 
+// TestExtHelpPaths pins each extension command's "help" argument through real
+// CLI dispatch: the action must render that command's own help and exit
+// successfully, so a mistyped help topic or a dropped help branch fails here.
+func TestExtHelpPaths(t *testing.T) {
+	tests := []struct {
+		command string
+		usage   string
+	}{
+		{command: "install", usage: "install a warpdl extension"},
+		{command: "uninstall", usage: "uninstall a warpdl extension"},
+		{command: "info", usage: "show info about a warpdl extension"},
+		{command: "list", usage: "list installed warpdl extensions"},
+		{command: "activate", usage: "activate an unactivated warpdl extension"},
+		{command: "deactivate", usage: "deactivate a warpdl extension"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.command, func(t *testing.T) {
+			stdout, _, err := runExtCLI(t, tt.command, "help")
+			if err != nil {
+				t.Fatalf("%s help: %v", tt.command, err)
+			}
+			assertContains(t, stdout, tt.usage)
+		})
+	}
+}
+
+// TestExtMissingArgs pins the missing-argument contract of every extension
+// command: the guard must report its specific diagnostic, print that command's
+// help, and exit non-zero without ever dialing the daemon.
 func TestExtMissingArgs(t *testing.T) {
-	app := cli.NewApp()
-	ctx := newContext(app, nil, "install")
-	_ = install(ctx)
-	ctx = newContext(app, nil, "uninstall")
-	_ = uninstall(ctx)
-	ctx = newContext(app, nil, "activate")
-	_ = activate(ctx)
-	ctx = newContext(app, nil, "deactivate")
-	_ = deactivate(ctx)
-	ctx = newContext(app, nil, "info")
-	_ = info(ctx)
+	tests := []struct {
+		command string
+		wantMsg string
+		usage   string
+	}{
+		{command: "install", wantMsg: "no path provided", usage: "install a warpdl extension"},
+		{command: "uninstall", wantMsg: "no extension id provided", usage: "uninstall a warpdl extension"},
+		{command: "info", wantMsg: "no extension id provided", usage: "show info about a warpdl extension"},
+		{command: "activate", wantMsg: "no extension id provided", usage: "activate an unactivated warpdl extension"},
+		{command: "deactivate", wantMsg: "no extension id provided", usage: "deactivate a warpdl extension"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.command, func(t *testing.T) {
+			// An absent socket keeps the no-daemon-contact check deterministic
+			// if one of the guards regresses.
+			t.Setenv("WARPDL_SOCKET_PATH", filepath.Join(t.TempDir(), "absent.sock"))
+
+			stdout, stderr, err := runExtCLI(t, tt.command)
+
+			assertExitError(t, err)
+			assertContains(t, stdout, tt.wantMsg)
+			assertContains(t, stdout, tt.usage)
+			if strings.Contains(stderr, "ext-"+tt.command+"[") {
+				t.Errorf("missing-argument guard must not dial the daemon, got stderr:\n%s", stderr)
+			}
+		})
+	}
 }
 
 func TestExtCommandsErrorResponse(t *testing.T) {

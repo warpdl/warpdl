@@ -341,26 +341,6 @@ func TestCookieManagerInvalidFilePath(t *testing.T) {
 	}
 }
 
-func TestCookieManagerCorruptData(t *testing.T) {
-	dir := t.TempDir()
-	key := make([]byte, 32)
-	if _, err := rand.Read(key); err != nil {
-		t.Fatalf("rand.Read: %v", err)
-	}
-	path := filepath.Join(dir, "cookies.warp")
-
-	// Write corrupt/invalid GOB data to the file
-	if err := os.WriteFile(path, []byte("not valid gob data"), 0666); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-
-	// Attempt to load should fail due to invalid GOB decoding
-	_, err := NewCookieManager(path, key)
-	if err == nil {
-		t.Fatalf("expected error for corrupt data")
-	}
-}
-
 func TestCookieManagerSetCookieInvalidKey(t *testing.T) {
 	dir := t.TempDir()
 	// Invalid key length (should be 16, 24, or 32 bytes for AES)

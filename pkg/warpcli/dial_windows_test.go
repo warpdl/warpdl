@@ -14,68 +14,6 @@ import (
 	"github.com/warpdl/warpdl/common"
 )
 
-// TestDialPipe_Success verifies that the client can successfully dial an existing named pipe.
-func TestDialPipe_Success(t *testing.T) {
-	pipeName := fmt.Sprintf(`\\.\pipe\warpdl-test-dial-%d`, time.Now().UnixNano())
-
-	// Create a test pipe listener
-	listener, err := winio.ListenPipe(pipeName, nil)
-	if err != nil {
-		t.Fatalf("failed to create test pipe listener: %v", err)
-	}
-	defer listener.Close()
-
-	// Accept connection in background
-	errChan := make(chan error, 1)
-	go func() {
-		conn, err := listener.Accept()
-		if err != nil {
-			errChan <- err
-			return
-		}
-		conn.Close()
-	}()
-
-	// Give listener time to start
-	time.Sleep(50 * time.Millisecond)
-
-	// Dial the pipe
-	conn, err := winio.DialPipe(pipeName, nil)
-	if err != nil {
-		t.Fatalf("DialPipe() failed: %v", err)
-	}
-	defer conn.Close()
-
-	// Verify no server errors
-	select {
-	case err := <-errChan:
-		if err != nil {
-			t.Errorf("listener.Accept() error: %v", err)
-		}
-	case <-time.After(1 * time.Second):
-		// Timeout is ok, connection was successful
-	}
-}
-
-// TestDialPipe_Timeout verifies that dialing a nonexistent pipe returns an error quickly.
-// On Windows, DialPipe to a nonexistent pipe returns immediately (no timeout wait).
-func TestDialPipe_Timeout(t *testing.T) {
-	nonexistentPipe := `\\.\pipe\warpdl-nonexistent-pipe-12345`
-
-	// Set a short timeout
-	timeout := 500 * time.Millisecond
-
-	conn, err := winio.DialPipe(nonexistentPipe, &timeout)
-
-	if err == nil {
-		conn.Close()
-		t.Fatal("DialPipe() succeeded on nonexistent pipe; want error")
-	}
-
-	// On Windows, DialPipe fails immediately for nonexistent pipes (no wait for timeout)
-	// Just verify we got an error - don't check timing as it's platform-dependent
-}
-
 // TestNewClient_DialsPipeFirst verifies that NewClient attempts to dial a named pipe
 // before falling back to TCP on Windows.
 func TestNewClient_DialsPipeFirst(t *testing.T) {
@@ -418,24 +356,6 @@ func TestClientServer_PipeRoundtrip(t *testing.T) {
 	}
 }
 
-// TestDialPipe_ConnectionRefused verifies error handling when pipe doesn't exist.
-func TestDialPipe_ConnectionRefused(t *testing.T) {
-	nonexistentPipe := `\\.\pipe\warpdl-does-not-exist`
-
-	timeout := 200 * time.Millisecond
-	conn, err := winio.DialPipe(nonexistentPipe, &timeout)
-
-	if err == nil {
-		conn.Close()
-		t.Fatal("DialPipe() succeeded on nonexistent pipe; want error")
-	}
-
-	// Error should indicate connection failure
-	if err.Error() == "" {
-		t.Error("DialPipe() returned empty error message")
-	}
-}
-
 // TestNewClient_PipeDialTimeout verifies that pipe dial timeout is handled correctly.
 func TestNewClient_PipeDialTimeout(t *testing.T) {
 	t.Setenv(common.ForceTCPEnv, "")
@@ -478,63 +398,4 @@ func TestNewClient_PipeDialTimeout(t *testing.T) {
 		t.Fatalf("NewClient() failed to fallback to TCP: %v", err)
 	}
 	defer client.Close()
-}
-
-// TestPipeConnection_WriteRead verifies basic write/read operations on pipe connection.
-func TestPipeConnection_WriteRead(t *testing.T) {
-	pipeName := fmt.Sprintf(`\\.\pipe\warpdl-test-rw-%d`, time.Now().UnixNano())
-
-	// Create listener
-	listener, err := winio.ListenPipe(pipeName, nil)
-	if err != nil {
-		t.Fatalf("failed to create listener: %v", err)
-	}
-	defer listener.Close()
-
-	// Server echo handler
-	go func() {
-		conn, err := listener.Accept()
-		if err != nil {
-			return
-		}
-		defer conn.Close()
-
-		buf := make([]byte, 1024)
-		n, err := conn.Read(buf)
-		if err != nil {
-			return
-		}
-
-		_, _ = conn.Write(buf[:n])
-	}()
-
-	time.Sleep(50 * time.Millisecond)
-
-	// Client connection
-	conn, err := winio.DialPipe(pipeName, nil)
-	if err != nil {
-		t.Fatalf("DialPipe() failed: %v", err)
-	}
-	defer conn.Close()
-
-	// Write test message
-	testMsg := []byte("hello pipe")
-	n, err := conn.Write(testMsg)
-	if err != nil {
-		t.Fatalf("Write() failed: %v", err)
-	}
-	if n != len(testMsg) {
-		t.Errorf("Write() wrote %d bytes; want %d", n, len(testMsg))
-	}
-
-	// Read echo
-	buf := make([]byte, 1024)
-	n, err = conn.Read(buf)
-	if err != nil {
-		t.Fatalf("Read() failed: %v", err)
-	}
-
-	if string(buf[:n]) != string(testMsg) {
-		t.Errorf("Read() = %q; want %q", string(buf[:n]), string(testMsg))
-	}
 }

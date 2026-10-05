@@ -6,34 +6,6 @@ import (
 	"testing"
 )
 
-// TestLongPathConstants verifies the long path constants are defined correctly.
-// These tests WILL FAIL until the constants are implemented.
-func TestLongPathConstants(t *testing.T) {
-	t.Run("LongPathThreshold should be 240", func(t *testing.T) {
-		// This will fail with: undefined: LongPathThreshold
-		const expectedThreshold = 240
-		if LongPathThreshold != expectedThreshold {
-			t.Errorf("LongPathThreshold = %d, want %d", LongPathThreshold, expectedThreshold)
-		}
-	})
-
-	t.Run("LongPathPrefix should be \\\\?\\", func(t *testing.T) {
-		// This will fail with: undefined: LongPathPrefix
-		const expectedPrefix = `\\?\`
-		if LongPathPrefix != expectedPrefix {
-			t.Errorf("LongPathPrefix = %q, want %q", LongPathPrefix, expectedPrefix)
-		}
-	})
-
-	t.Run("UNCPrefix should be \\\\", func(t *testing.T) {
-		// This will fail with: undefined: UNCPrefix
-		const expectedUNCPrefix = `\\`
-		if UNCPrefix != expectedUNCPrefix {
-			t.Errorf("UNCPrefix = %q, want %q", UNCPrefix, expectedUNCPrefix)
-		}
-	})
-}
-
 // TestIsLongPath tests the helper function that determines if a path exceeds the threshold.
 // These tests WILL FAIL until IsLongPath() is implemented.
 func TestIsLongPath(t *testing.T) {

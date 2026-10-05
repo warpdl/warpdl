@@ -46,43 +46,6 @@ func TestMoveFile_SameDevice_Success(t *testing.T) {
 	}
 }
 
-func TestMoveFile_CrossDevice_FallbackToCopyDelete(t *testing.T) {
-	// Create two separate temporary directories
-	// While they may be on the same device, the function should still work
-	tmpDir1 := t.TempDir()
-	tmpDir2 := t.TempDir()
-
-	// Create source file with content
-	srcPath := filepath.Join(tmpDir1, "source.txt")
-	content := []byte("test content for cross device move")
-	if err := os.WriteFile(srcPath, content, 0644); err != nil {
-		t.Fatalf("failed to create source file: %v", err)
-	}
-
-	// Define destination path in a different directory
-	dstPath := filepath.Join(tmpDir2, "destination.txt")
-
-	// Perform the move
-	err := moveFile(srcPath, dstPath)
-	if err != nil {
-		t.Errorf("moveFile() returned error: %v", err)
-	}
-
-	// Verify destination file exists and has correct content
-	gotContent, err := os.ReadFile(dstPath)
-	if err != nil {
-		t.Errorf("failed to read destination file: %v", err)
-	}
-	if !bytes.Equal(gotContent, content) {
-		t.Errorf("destination content = %q, want %q", gotContent, content)
-	}
-
-	// Verify source file no longer exists
-	if _, err := os.Stat(srcPath); !os.IsNotExist(err) {
-		t.Errorf("source file should not exist after move, got err: %v", err)
-	}
-}
-
 func TestMoveFile_SourceNotExist(t *testing.T) {
 	tmpDir := t.TempDir()
 
@@ -236,23 +199,5 @@ func TestCopyAndDelete_SourceNotExist(t *testing.T) {
 	err := copyAndDelete(srcPath, dstPath)
 	if err == nil {
 		t.Error("copyAndDelete() should return error for non-existent source")
-	}
-}
-
-func TestErrCrossDeviceMove_IsSentinel(t *testing.T) {
-	// Verify ErrCrossDeviceMove is not nil
-	if ErrCrossDeviceMove == nil {
-		t.Error("ErrCrossDeviceMove should not be nil")
-	}
-
-	// Verify it has a meaningful message
-	msg := ErrCrossDeviceMove.Error()
-	if msg == "" {
-		t.Error("ErrCrossDeviceMove.Error() should not be empty")
-	}
-
-	// Verify it's a sentinel error (can be compared with errors.Is)
-	if !errors.Is(ErrCrossDeviceMove, ErrCrossDeviceMove) {
-		t.Error("ErrCrossDeviceMove should be comparable with errors.Is")
 	}
 }

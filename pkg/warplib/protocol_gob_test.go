@@ -397,12 +397,3 @@ func TestGOBPersistenceIntegration(t *testing.T) {
 		}
 	})
 }
-
-// TestProtocolItemField verifies that Item struct has a Protocol field with correct zero value.
-func TestProtocolItemField(t *testing.T) {
-	item := &Item{}
-	// Zero value must be ProtoHTTP
-	if item.Protocol != ProtoHTTP {
-		t.Errorf("Item{}.Protocol = %v (%d), want ProtoHTTP (0)", item.Protocol, uint8(item.Protocol))
-	}
-}

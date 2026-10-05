@@ -3,6 +3,9 @@ package common
 import (
 	"errors"
 	"flag"
+	"io"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/urfave/cli"
@@ -17,6 +20,49 @@ func newTestContext() *cli.Context {
 	ctx := cli.NewContext(app, set, nil)
 	ctx.Command = cli.Command{Name: "cmd"}
 	return ctx
+}
+
+// captureStdout redirects os.Stdout for the duration of f and returns what was
+// written. printErrWithCallback renders diagnostics through os.Stdout, so the
+// tests need the real stream instead of a stubbed writer.
+func captureStdout(t *testing.T, f func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	old := os.Stdout
+	os.Stdout = w
+	f()
+	_ = w.Close()
+	os.Stdout = old
+
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("read captured stdout: %v", err)
+	}
+	_ = r.Close()
+	return string(out)
+}
+
+// assertOutputContains fails when output does not carry the expected text.
+func assertOutputContains(t *testing.T, output, expected string) {
+	t.Helper()
+	if !strings.Contains(output, expected) {
+		t.Errorf("expected output to contain %q, got:\n%s", expected, output)
+	}
+}
+
+// assertExitCoder fails unless err carries the wanted process exit status.
+func assertExitCoder(t *testing.T, err error, wantCode int) {
+	t.Helper()
+	var exitCoder cli.ExitCoder
+	if !errors.As(err, &exitCoder) {
+		t.Fatalf("expected cli.ExitCoder, got %T: %v", err, err)
+	}
+	if exitCoder.ExitCode() != wantCode {
+		t.Fatalf("exit code = %d, want %d", exitCoder.ExitCode(), wantCode)
+	}
 }
 
 func TestInitBars(t *testing.T) {
@@ -144,24 +190,60 @@ func TestPrintErrWithCmdHelp(t *testing.T) {
 	}
 }
 
+// TestPrintErrWithCmdHelp_ShowCommandHelpError pins the failure path of
+// PrintErrWithCmdHelp: when the help renderer itself fails, its message is
+// printed after the original error and the command still reports a non-zero
+// exit status instead of silently succeeding.
 func TestPrintErrWithCmdHelp_ShowCommandHelpError(t *testing.T) {
 	ctx := newTestContext()
 	orig := showCommandHelp
 	showCommandHelp = func(*cli.Context, string) error {
-		return errors.New("boom")
+		return errors.New("help render failed")
 	}
 	defer func() { showCommandHelp = orig }()
 
-	_ = PrintErrWithCmdHelp(ctx, errors.New("oops"))
+	var err error
+	out := captureStdout(t, func() {
+		err = PrintErrWithCmdHelp(ctx, errors.New("oops"))
+	})
+
+	assertOutputContains(t, out, "oops")
+	assertOutputContains(t, out, "help render failed")
+	assertExitCoder(t, err, 1)
 }
 
+// TestUsageErrorCallback pins command-level routing: with a command in scope the
+// usage error must print the error, request help for that command (not the app
+// help), and return a non-zero exit status.
 func TestUsageErrorCallback(t *testing.T) {
-	ctx := newTestContext()
-	orig := showCommandHelp
-	showCommandHelp = func(*cli.Context, string) error { return nil }
-	defer func() { showCommandHelp = orig }()
+	ctx := newTestContext() // ctx.Command.Name == "cmd"
 
-	_ = UsageErrorCallback(ctx, errors.New("oops"), false)
+	var helpedCommand string
+	origCmdHelp := showCommandHelp
+	showCommandHelp = func(_ *cli.Context, name string) error {
+		helpedCommand = name
+		return nil
+	}
+	defer func() { showCommandHelp = origCmdHelp }()
+
+	appHelpCalls := 0
+	origAppHelp := showAppHelpAndExit
+	showAppHelpAndExit = func(*cli.Context, int) { appHelpCalls++ }
+	defer func() { showAppHelpAndExit = origAppHelp }()
+
+	var err error
+	out := captureStdout(t, func() {
+		err = UsageErrorCallback(ctx, errors.New("bad flag"), false)
+	})
+
+	if helpedCommand != "cmd" {
+		t.Fatalf("expected command help for %q, got %q", "cmd", helpedCommand)
+	}
+	if appHelpCalls != 0 {
+		t.Fatalf("command-scoped usage error must not show app help (%d calls)", appHelpCalls)
+	}
+	assertOutputContains(t, out, "bad flag")
+	assertExitCoder(t, err, 1)
 }
 
 func TestHelp(t *testing.T) {
@@ -253,16 +335,39 @@ func TestPrintErrWithHelpDoesNotTreatSubstringAsVersion(t *testing.T) {
 	}
 }
 
+// TestUsageErrorCallbackNoCommand pins app-level routing: without a command in
+// scope the usage error must print the diagnostic, fall through to application
+// help with exit status 1, and never ask for command help.
 func TestUsageErrorCallbackNoCommand(t *testing.T) {
-	app := cli.NewApp()
-	set := flag.NewFlagSet("test", flag.ContinueOnError)
-	ctx := cli.NewContext(app, set, nil)
+	ctx := newTestContext()
 	ctx.Command = cli.Command{Name: ""}
-	orig := showAppHelpAndExit
-	showAppHelpAndExit = func(*cli.Context, int) {}
-	defer func() { showAppHelpAndExit = orig }()
 
-	_ = UsageErrorCallback(ctx, errors.New("oops"), false)
+	commandHelpCalls := 0
+	origCmdHelp := showCommandHelp
+	showCommandHelp = func(*cli.Context, string) error {
+		commandHelpCalls++
+		return nil
+	}
+	defer func() { showCommandHelp = origCmdHelp }()
+
+	appHelpExit := -1
+	origAppHelp := showAppHelpAndExit
+	showAppHelpAndExit = func(_ *cli.Context, exitCode int) { appHelpExit = exitCode }
+	defer func() { showAppHelpAndExit = origAppHelp }()
+
+	var err error
+	out := captureStdout(t, func() {
+		err = UsageErrorCallback(ctx, errors.New("oops"), false)
+	})
+
+	if commandHelpCalls != 0 {
+		t.Fatalf("app-level usage error must not show command help (%d calls)", commandHelpCalls)
+	}
+	if appHelpExit != 1 {
+		t.Fatalf("app help exit code = %d, want 1", appHelpExit)
+	}
+	assertOutputContains(t, out, "oops")
+	assertExitCoder(t, err, 1)
 }
 
 func TestSetShowAppHelpAndExit(t *testing.T) {

@@ -790,23 +790,6 @@ func TestDownloadMultiPartThroughProxy(t *testing.T) {
 	}
 }
 
-// TestDownloaderOptsWithProxy tests that DownloaderOpts can include proxy configuration.
-func TestDownloaderOptsWithProxy(t *testing.T) {
-	opts := &DownloaderOpts{
-		DownloadDirectory: "/tmp/test",
-		MaxConnections:    4,
-		ProxyURL:          "http://proxy.example.com:8080",
-	}
-
-	if opts.ProxyURL == "" {
-		t.Error("ProxyURL field not accessible on DownloaderOpts")
-	}
-
-	if opts.ProxyURL != "http://proxy.example.com:8080" {
-		t.Errorf("ProxyURL = %q, want %q", opts.ProxyURL, "http://proxy.example.com:8080")
-	}
-}
-
 // TestInvalidProxyScheme tests that invalid proxy schemes are rejected.
 func TestInvalidProxyScheme(t *testing.T) {
 	invalidSchemes := []string{

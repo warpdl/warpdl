@@ -202,10 +202,15 @@ func TestGetCookieManagerEnvCredmanError(t *testing.T) {
 	}
 }
 
-// TestCliKeyringLoggerWarning tests that Warning writes to stderr without panic.
+// TestCliKeyringLoggerWarning pins the warning line the CLI keyring logger
+// writes to stderr, including argument formatting.
 func TestCliKeyringLoggerWarning(t *testing.T) {
-	l := &cliKeyringLogger{}
-	l.Warning("test warning: %s %d", "arg", 42) // must not panic
+	_, stderr := captureOutput(func() {
+		(&cliKeyringLogger{}).Warning("test warning: %s %d", "arg", 42)
+	})
+	// Contains rather than equality: stderr is process-wide, so unrelated
+	// goroutines may append their own output during the capture window.
+	assertContains(t, stderr, "[WARNING] test warning: arg 42\n")
 }
 
 // TestGetCookieManagerKeyringCredmanError tests credman initialization failure

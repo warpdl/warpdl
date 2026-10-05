@@ -238,14 +238,14 @@ func rpcError(t *testing.T, resp map[string]any) map[string]any {
 
 // --- logf tests ---
 
-func TestRPCServerLogf_NilLoggerIsSafe(t *testing.T) {
+func TestRPCServerLogf(t *testing.T) {
+	// A zero-value RPCServer has no logger; logf must be a safe no-op.
 	rs := &RPCServer{}
-	rs.logf("should not panic: %v", 42) // zero-value RPCServer has no logger
-}
+	rs.logf("should not panic: %v", 42)
 
-func TestRPCServerLogf_WritesToLogger(t *testing.T) {
+	// With a logger configured, logf writes the formatted message.
 	var buf bytes.Buffer
-	rs := &RPCServer{log: log.New(&buf, "", 0)}
+	rs.log = log.New(&buf, "", 0)
 	rs.logf("cleanup failed: %s", "/tmp/x")
 	if got := buf.String(); got != "cleanup failed: /tmp/x\n" {
 		t.Errorf("unexpected log output: %q", got)
@@ -574,34 +574,47 @@ func TestRPCDownloadList_FilterWaiting(t *testing.T) {
 }
 
 func TestRPCDownloadList_DefaultStatus(t *testing.T) {
-	handler, secret, cleanup, _, _ := newTestRPCHandlerWithManager(t)
+	handler, secret, cleanup, m, dlDir := newTestRPCHandlerWithManager(t)
 	defer cleanup()
 
-	// Omit status -- should default to "all"
-	code, resp := rpcCall(t, handler, "download.list", map[string]any{}, secret)
-	if code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", code)
-	}
-	result := rpcResult(t, resp)
-	if result["downloads"] == nil {
-		t.Fatal("expected downloads key in response")
-	}
-}
+	// Seed one completed item directly so the listed result is deterministic.
+	m.UpdateItem(&warplib.Item{
+		Hash:             "default-status-gid",
+		Name:             "default-status.bin",
+		TotalSize:        512,
+		Downloaded:       512,
+		DownloadLocation: dlDir,
+		AbsoluteLocation: dlDir,
+		Parts:            make(map[int64]*warplib.ItemPart),
+	})
 
-func TestRPCDownloadList_UnknownStatusDefaultsToAll(t *testing.T) {
-	handler, secret, cleanup, _, _ := newTestRPCHandlerWithManager(t)
-	defer cleanup()
-
-	// Unknown status should fall through to default (all)
-	code, resp := rpcCall(t, handler, "download.list", map[string]any{
-		"status": "unknown-status",
-	}, secret)
-	if code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", code)
+	// Both an omitted status and an unrecognized status fall back to "all".
+	tests := []struct {
+		name   string
+		params map[string]any
+	}{
+		{"omitted", map[string]any{}},
+		{"unknown", map[string]any{"status": "unknown-status"}},
 	}
-	result := rpcResult(t, resp)
-	if result["downloads"] == nil {
-		t.Fatal("expected downloads key in response")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			code, resp := rpcCall(t, handler, "download.list", tt.params, secret)
+			if code != http.StatusOK {
+				t.Fatalf("expected 200, got %d", code)
+			}
+			result := rpcResult(t, resp)
+			downloads, ok := result["downloads"].([]any)
+			if !ok {
+				t.Fatalf("expected downloads array, got %v", result["downloads"])
+			}
+			if len(downloads) != 1 {
+				t.Fatalf("expected 1 download, got %d", len(downloads))
+			}
+			dl := downloads[0].(map[string]any)
+			if dl["gid"] != "default-status-gid" || dl["status"] != "complete" {
+				t.Fatalf("unexpected download entry: %v", dl)
+			}
+		})
 	}
 }
 
