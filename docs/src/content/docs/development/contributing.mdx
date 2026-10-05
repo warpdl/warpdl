@@ -28,6 +28,54 @@ make build
 go test ./...
 ```
 
+## Testing
+
+WarpDL follows a testing trophy: most confidence comes from **local real-component
+integration tests**, backed by focused unit tests, with a selective layer of
+binary-level CLI/daemon E2E.
+
+| Layer | Where | What it covers |
+|-------|-------|----------------|
+| Unit | `*_test.go` beside each package | Focused logic and validation, security boundaries (paths, credentials, auth flows), concurrency and race behaviour, fuzz seeds. |
+| Local integration (the bulk) | package tests in `pkg/`, `internal/`, `cmd/` | Real components in-process: daemon sockets and pipes, download manager and segment engine, real HTTP test servers serving range requests. No internet access needed. |
+| CLI/daemon E2E (selective) | `tests/e2e/` behind the `e2e` build tag | Builds the actual binary, runs a real daemon, drives CLI commands against a local HTTP server, and asserts the downloaded artifact, including byte-level content checks. |
+| External mirrors (advisory) | `tests/e2e/` `TestCLIDownload_*` | Availability probes against public download mirrors. They confirm the engine still works against real-world hosts; they are not a correctness gate. |
+
+Run the default suite — unit tests plus local real-component integration:
+
+```bash
+go test ./...                # everything without build tags
+go test ./... -count=1       # CI form: bypass the test cache
+go test -race -short ./...   # race detector; -short trims the long stress cases
+```
+
+Coverage must stay at or above 80% for both the total and every package
+(`scripts/check_coverage.sh`, configured by `COVERAGE_MIN` and
+`COVERAGE_MIN_PER_PKG`). A package with no test files fails the same check.
+Do not lower these thresholds.
+
+Run the local CLI/daemon E2E suite (no external network required):
+
+```bash
+go test -v -tags=e2e -skip '^TestCLIDownload_' -count=1 -timeout=10m ./tests/e2e/
+go test -v -tags=e2e -run TestScheduledDownload_StartAt ./tests/e2e/  # single scenario
+```
+
+`-skip` is the supported `go test` flag for exclusion (RE2 has no negative
+lookahead), and `^TestCLIDownload_` names the external-mirror group.
+
+External mirror checks are advisory and need internet access; CI runs them as a
+non-blocking matrix, so a mirror outage or regional block says nothing about a
+change:
+
+```bash
+go test -v -tags=e2e -run TestCLIDownload_ASH -timeout=10m ./tests/e2e/
+```
+
+Cover new behaviour at the layer that actually exercises it: focused unit tests
+for isolated logic, local integration when the behaviour spans components, and
+E2E only for CLI/daemon flows that no local test can reproduce.
+
 ## Commit Message Format
 
 Follow conventional commits:

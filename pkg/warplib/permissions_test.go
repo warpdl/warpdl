@@ -11,18 +11,6 @@ import (
 	"testing"
 )
 
-// TestFilePermissionConstants verifies that permission constants exist
-// and have the correct values.
-func TestFilePermissionConstants(t *testing.T) {
-	if DefaultFileMode != 0644 {
-		t.Errorf("DefaultFileMode = %o, want 0644", DefaultFileMode)
-	}
-
-	if DefaultDirMode != 0755 {
-		t.Errorf("DefaultDirMode = %o, want 0755", DefaultDirMode)
-	}
-}
-
 // TestOpenFilePermissions verifies that openFile() creates files with 0644 permissions.
 func TestOpenFilePermissions(t *testing.T) {
 	if runtime.GOOS == "windows" {

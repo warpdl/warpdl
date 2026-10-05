@@ -28,16 +28,46 @@ go build -ldflags="-w -s" .
 
 ## Run Tests
 
+WarpDL follows a testing trophy: the bulk of coverage is local integration tests
+that drive real components (sockets, daemon, download engine, HTTP range
+servers) in-process, backed by focused unit tests for logic, security, and
+concurrency. Binary-level CLI/daemon E2E runs are selective. See
+[Contributing](/development/contributing/) for the layer-by-layer breakdown.
+
 ```bash
-# All tests
+# Default suite: unit + local real-component integration
 go test ./...
 
-# With coverage
+# CI form: bypass the test cache
+go test ./... -count=1
+
+# Race detector; -short trims the long stress cases
+go test -race -short ./...
+
+# Coverage report
 go test -cover ./...
 
 # Specific package
 go test ./pkg/warplib/...
 ```
+
+Total and per-package coverage must stay at or above 80%. Run the same gate CI
+uses:
+
+```bash
+scripts/check_coverage.sh
+```
+
+The CLI/daemon E2E suite needs the `e2e` build tag and builds the real binary.
+The default local run skips the external mirror probes:
+
+```bash
+go test -v -tags=e2e -skip '^TestCLIDownload_' -count=1 -timeout=10m ./tests/e2e/
+```
+
+`TestCLIDownload_*` tests download from public mirrors and need internet access.
+They are advisory availability checks, not a correctness gate, so CI keeps them
+in a non-blocking matrix.
 
 ## Build with Version Info
 

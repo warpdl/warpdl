@@ -258,20 +258,3 @@ func TestAttemptWorkStealRespectsPartLimit(t *testing.T) {
 		t.Fatal("victim incorrectly marked stolen after rejected steal")
 	}
 }
-
-// TestFoffAtomicSharedAcrossGoroutines sanity-checks that the atomic.Int64
-// the stealer modifies is indeed the same cell the owner reads from.
-func TestFoffAtomicSharedAcrossGoroutines(t *testing.T) {
-	foff := new(atomic.Int64)
-	foff.Store(1000)
-
-	// Simulate registerActivePart storing the pointer, then a stealer
-	// modifying it via that pointer.
-	info := &activePartInfo{foff: foff}
-	info.foff.Store(500)
-
-	if foff.Load() != 500 {
-		t.Fatalf("shared atomic divergence: original=%d via-info=%d",
-			foff.Load(), info.foff.Load())
-	}
-}

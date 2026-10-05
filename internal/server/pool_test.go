@@ -48,18 +48,6 @@ func TestPoolErrors(t *testing.T) {
 	}
 }
 
-func TestPoolAddConnection(t *testing.T) {
-	p := NewPool(nil)
-	p.AddDownload("id", nil)
-	c1, c2 := net.Pipe()
-	defer c1.Close()
-	defer c2.Close()
-	p.AddConnection("id", NewSyncConn(c1))
-	if len(p.m["id"]) != 1 {
-		t.Fatalf("expected connection to be added")
-	}
-}
-
 func TestPoolHasDownloadAndRemove(t *testing.T) {
 	p := NewPool(nil)
 	p.AddDownload("id", nil)

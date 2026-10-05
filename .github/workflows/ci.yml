@@ -142,7 +142,8 @@ jobs:
       - name: Build
         run: go build -ldflags="-w -s" .
 
-  # E2E tests using local HTTP server (no external network dependency)
+  # Binary-level E2E against a local HTTP server and daemon.
+  # External-mirror probes (TestCLIDownload_*) run in the "e2e" job below.
   e2e-local:
     name: E2E Local (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -163,7 +164,9 @@ jobs:
           cache: true
 
       - name: Run local E2E tests
-        run: go test -v -tags=e2e -run "^(TestDownload_|TestResume_|TestList_|TestFlush_|TestStop_|TestInfo_|TestQueue_|TestVersion_|TestHelp_|TestLifecycle_|TestDaemon_|TestError_|TestExt_|TestDownloadAlias|TestListAlias)" -timeout=10m ./tests/e2e/
+        # -skip excludes the external-mirror probes; RE2 has no negative
+        # lookahead, so exclusion is expressed with the supported -skip flag.
+        run: go test -v -tags=e2e -skip '^TestCLIDownload_' -count=1 -timeout=10m ./tests/e2e/
 
   # E2E download tests - matrix with any-pass logic (external network)
   e2e:

@@ -8,47 +8,56 @@ import (
 	"github.com/urfave/cli"
 )
 
-// Background Flag Tests - TDD Phase 1 (RED)
+// Background flag tests: the flag contract is exercised through the real CLI
+// tree, the output tests below drive the actions against a fake daemon.
 
-// TestDownload_BackgroundFlag_Parsed verifies that --background flag is parsed
-// correctly for the download command.
+// TestDownload_BackgroundFlag_Parsed pins the download command's background
+// flag contract through real CLI dispatch: both --background and its -b alias
+// must reach download() and take the background branch, which prints the
+// download id and the attach hint instead of streaming progress. A private
+// FlagSet built in the test (what this test used to do) cannot fail when the
+// production flag list loses or renames the flag.
 func TestDownload_BackgroundFlag_Parsed(t *testing.T) {
-	app := cli.NewApp()
-	app.Name = "warpdl"
-	app.HelpName = "warpdl"
+	for _, flagArg := range []string{"--background", "-b"} {
+		t.Run(flagArg, func(t *testing.T) {
+			socketPath := getShortSocketPath(t)
+			t.Setenv("WARPDL_SOCKET_PATH", socketPath)
+			srv := startFakeServer(t, socketPath)
+			defer srv.close()
 
-	// Create flag set with background flag
-	set := flag.NewFlagSet("download", flag.ContinueOnError)
-	set.Bool("background", false, "")
-	_ = set.Parse([]string{"--background", "http://example.com/file.bin"})
+			restore := withDownloadDefaults(t)
+			defer restore()
 
-	ctx := cli.NewContext(app, set, nil)
-	ctx.Command = cli.Command{Name: "download", Flags: dlFlags}
-
-	if !ctx.Bool("background") {
-		t.Error("expected --background flag to be true")
+			stdout, _, err := runProductionCLI(t, "download", flagArg, "-l", dlPath, "http://example.com/file.bin")
+			if err != nil {
+				t.Fatalf("download %s: %v", flagArg, err)
+			}
+			assertContains(t, stdout, "Started download id in background.")
+			assertContains(t, stdout, "warpdl attach id")
+		})
 	}
 }
 
-// TestResume_BackgroundFlag_ShortAlias verifies that -b short alias works
-// for the resume command.
+// TestResume_BackgroundFlag_ShortAlias pins resume's background flag contract
+// through real CLI dispatch: the -b short alias and the long --background
+// spelling must both reach resume() and take the background branch, which
+// prints the hash plus the attach and list hints.
 func TestResume_BackgroundFlag_ShortAlias(t *testing.T) {
-	app := cli.NewApp()
-	app.Name = "warpdl"
-	app.HelpName = "warpdl"
+	for _, flagArg := range []string{"-b", "--background"} {
+		t.Run(flagArg, func(t *testing.T) {
+			socketPath := getShortSocketPath(t)
+			t.Setenv("WARPDL_SOCKET_PATH", socketPath)
+			srv := startFakeServer(t, socketPath)
+			defer srv.close()
 
-	// Create flag set with background flag using short alias
-	set := flag.NewFlagSet("resume", flag.ContinueOnError)
-	set.Bool("background", false, "")
-	set.Bool("b", false, "")
-	_ = set.Parse([]string{"-b", "testhash"})
-
-	ctx := cli.NewContext(app, set, nil)
-	ctx.Command = cli.Command{Name: "resume", Flags: rsFlags}
-
-	// Note: urfave/cli handles aliases, but for flag.FlagSet we need to check "b"
-	if !ctx.Bool("b") && !ctx.Bool("background") {
-		t.Error("expected -b flag to be true")
+			stdout, _, err := runProductionCLI(t, "resume", flagArg, "testhash")
+			if err != nil {
+				t.Fatalf("resume %s: %v", flagArg, err)
+			}
+			assertContains(t, stdout, "Resumed download testhash in background.")
+			assertContains(t, stdout, "warpdl attach testhash")
+			assertContains(t, stdout, "warpdl list")
+		})
 	}
 }
 

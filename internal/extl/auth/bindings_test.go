@@ -1,9 +1,9 @@
 package auth
 
 import (
-	"context"
 	"crypto/rand"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -90,15 +90,42 @@ func TestBindingInvalidateTokenDropsAccess(t *testing.T) {
 	}
 }
 
-func TestBindingFetchWithAuthExists(t *testing.T) {
-	rt, _, _ := setupRuntime(t)
-	v, err := rt.RunString(`typeof fetchWithAuth`)
+func TestBindingFetchWithAuthAddsBearerAndKeepsHeaders(t *testing.T) {
+	rt, _, tm := setupRuntime(t)
+	k := types.TokenKey{PluginID: "pid", Account: "default"}
+	_ = tm.Set(k, &types.OAuth2Token{
+		AccessToken: "ABC", ExpiresAt: time.Now().Add(time.Hour), Scopes: []string{"a"},
+	})
+
+	// The documented wrapper contract: request(req) is called with the stored
+	// token as a Bearer header merged into the caller's headers, and the
+	// response is returned unchanged for non-401 results.
+	if _, err := rt.RunString(`
+		var seen = [];
+		function request(req) {
+			seen.push(req.headers["Authorization"] + ";" + req.headers["X-Trace"]);
+			return {status_code: 200, body: "ok"};
+		}
+		var response = fetchWithAuth(
+			{url: "https://api.example.com/me", headers: {"X-Trace": "t"}},
+			{scopes: ["a"]}
+		);
+	`); err != nil {
+		t.Fatal(err)
+	}
+	result, err := rt.RunString(`seen.join(",") + "|" + response.status_code + "|" + response.body`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v.String() != "function" {
-		t.Fatalf("fetchWithAuth type=%s", v.String())
+	if got, want := result.String(), "Bearer ABC;t|200|ok"; got != want {
+		t.Fatalf("fetchWithAuth result = %q, want %q", got, want)
 	}
 }
 
-var _ = context.Background
+func TestBindingFetchWithAuthRequiresRequestGlobal(t *testing.T) {
+	rt, _, _ := setupRuntime(t)
+	_, err := rt.RunString(`fetchWithAuth({url: "https://api.example.com/me"}, {scopes: ["a"]})`)
+	if err == nil || !strings.Contains(err.Error(), "request() not available") {
+		t.Fatalf("fetchWithAuth without request() = %v, want 'request() not available'", err)
+	}
+}

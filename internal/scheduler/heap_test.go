@@ -34,7 +34,17 @@ func TestHeapPushPopOrdering(t *testing.T) {
 func TestHeapEmpty(t *testing.T) {
 	h := &scheduleHeap{}
 	if h.Len() != 0 {
-		t.Errorf("expected empty heap, got len %d", h.Len())
+		t.Fatalf("expected empty heap, got len %d", h.Len())
+	}
+
+	// Every scheduler Remove request reaches heapRemoveByHash, including ones
+	// issued before the first Add, so an empty heap must report "not found"
+	// instead of panicking or changing length.
+	if heapRemoveByHash(h, "nonexistent") {
+		t.Fatal("empty heap reported a removal")
+	}
+	if h.Len() != 0 {
+		t.Fatalf("empty heap changed length: %d", h.Len())
 	}
 }
 

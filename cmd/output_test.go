@@ -150,15 +150,6 @@ func TestOutput_Download_HelpArg(t *testing.T) {
 	// Help text is displayed via cli framework to console (not captured)
 }
 
-// TestOutput_Download_InvalidProxy verifies that an invalid proxy URL
-// produces an error with "invalid_proxy" in the message.
-// Note: This test is skipped because it requires a real daemon since the
-// fake server hangs waiting for a request that never comes (client fails
-// before sending the download request due to proxy validation).
-func TestOutput_Download_InvalidProxy(t *testing.T) {
-	t.Skip("Requires real daemon - fake server doesn't handle early client exit")
-}
-
 // Resume Command Output Tests
 
 // TestOutput_Resume_NoHash verifies that running resume without a hash
@@ -871,12 +862,6 @@ func TestOutput_ErrorFormat_RuntimeErr(t *testing.T) {
 	assertContains(t, stdout+stderr, "test error message")
 }
 
-// TestOutput_ErrorFormat_DownloadInvalidProxy verifies proxy validation error format
-// Note: Skipped because fake server hangs when client fails before sending request.
-func TestOutput_ErrorFormat_DownloadInvalidProxy(t *testing.T) {
-	t.Skip("Requires real daemon - fake server doesn't handle early client exit")
-}
-
 // TestOutput_Version verifies that version output contains expected components
 func TestOutput_Version(t *testing.T) {
 	buildArgs := BuildArgs{
@@ -1048,12 +1033,6 @@ func TestOutput_HelpCommand(t *testing.T) {
 		assertContains(t, stdout, "flush")
 		assertContains(t, stdout, "Usage:")
 	})
-}
-
-// TestOutput_HelpUnknown verifies unknown command is handled gracefully
-// Note: Skipped because cli.ShowCommandHelp calls os.Exit(1) for unknown commands
-func TestOutput_HelpUnknown(t *testing.T) {
-	t.Skip("cli.ShowCommandHelp calls os.Exit(1) for unknown commands")
 }
 
 // TestOutput_HelpAlias verifies 'h' alias works same as 'help'
@@ -1278,11 +1257,4 @@ func TestOutput_List_MultipleItems(t *testing.T) {
 		assertContains(t, stdout, "25%")
 		assertContains(t, stdout, "100%")
 	})
-}
-
-// TestOutput_Resume_InvalidProxy verifies that an invalid proxy URL
-// produces an error in resume command.
-// Note: Skipped because fake server hangs when client fails before sending request.
-func TestOutput_Resume_InvalidProxy(t *testing.T) {
-	t.Skip("Requires real daemon - fake server doesn't handle early client exit")
 }

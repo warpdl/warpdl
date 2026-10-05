@@ -251,50 +251,6 @@ func TestInputFileError_Unwrap(t *testing.T) {
 	}
 }
 
-func TestNewInputFileError(t *testing.T) {
-	tests := []struct {
-		name     string
-		path     string
-		err      error
-		wantPath string
-		wantErr  error
-	}{
-		{
-			name:     "file not found",
-			path:     "/tmp/missing.txt",
-			err:      ErrInputFileNotFound,
-			wantPath: "/tmp/missing.txt",
-			wantErr:  ErrInputFileNotFound,
-		},
-		{
-			name:     "permission denied",
-			path:     "/etc/shadow",
-			err:      ErrInputFilePermission,
-			wantPath: "/etc/shadow",
-			wantErr:  ErrInputFilePermission,
-		},
-		{
-			name:     "empty file",
-			path:     "/tmp/empty.txt",
-			err:      ErrInputFileEmpty,
-			wantPath: "/tmp/empty.txt",
-			wantErr:  ErrInputFileEmpty,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := NewInputFileError(tt.path, tt.err)
-			if err.Path != tt.wantPath {
-				t.Errorf("Path = %q, want %q", err.Path, tt.wantPath)
-			}
-			if err.Err != tt.wantErr {
-				t.Errorf("Err = %v, want %v", err.Err, tt.wantErr)
-			}
-		})
-	}
-}
-
 func TestParseInputFile_ValidateURLScheme(t *testing.T) {
 	content := `https://example.com/file1.zip
 http://example.com/file2.zip
@@ -341,6 +297,9 @@ https://example.com/file6.zip`
 		}
 		if inv.Content != expected.content {
 			t.Errorf("invalid line %d: expected content %q, got %q", i, expected.content, inv.Content)
+		}
+		if !strings.Contains(inv.Reason, "unsupported URL scheme") {
+			t.Errorf("invalid line %d: reason = %q, want parser's unsupported-scheme explanation", i, inv.Reason)
 		}
 	}
 }
@@ -418,24 +377,6 @@ no-scheme.com/file.zip`
 	}
 	if !foundNoScheme {
 		t.Error("did not find expected invalid line for no-scheme.com/file.zip at line 7")
-	}
-}
-
-func TestInvalidLine(t *testing.T) {
-	inv := InvalidLine{
-		LineNumber: 5,
-		Content:    "ftp://example.com/file.zip",
-		Reason:     "URL must start with http:// or https://",
-	}
-
-	if inv.LineNumber != 5 {
-		t.Errorf("expected LineNumber 5, got %d", inv.LineNumber)
-	}
-	if inv.Content != "ftp://example.com/file.zip" {
-		t.Errorf("expected Content 'ftp://example.com/file.zip', got %q", inv.Content)
-	}
-	if inv.Reason != "URL must start with http:// or https://" {
-		t.Errorf("expected Reason about http/https, got %q", inv.Reason)
 	}
 }
 

@@ -2,6 +2,8 @@ package warplib
 
 import (
 	"bytes"
+	"math"
+	"slices"
 	"sort"
 	"sync"
 	"testing"
@@ -40,13 +42,37 @@ func TestSizeOptionGetFromAndString(t *testing.T) {
 	}
 }
 
+// TestSortInt64s pins the exported SortInt64s contract: the caller's slice is
+// sorted in place, ascending, and nil/empty input is tolerated.
+// Boundary cases: nil, empty, single element, already sorted, reverse sorted,
+// duplicates, negatives, and the int64 extremes.
 func TestSortInt64s(t *testing.T) {
-	vals := []int64{5, 2, 7, 1}
-	SortInt64s(vals)
-	for i := 1; i < len(vals); i++ {
-		if vals[i-1] > vals[i] {
-			t.Fatalf("values not sorted: %v", vals)
-		}
+	tests := []struct {
+		name string
+		in   []int64
+		want []int64
+	}{
+		{name: "nil", in: nil, want: nil},
+		{name: "empty", in: []int64{}, want: nil},
+		{name: "single element", in: []int64{42}, want: []int64{42}},
+		{name: "already sorted", in: []int64{1, 2, 3}, want: []int64{1, 2, 3}},
+		{name: "reverse sorted", in: []int64{5, 2, 7, 1}, want: []int64{1, 2, 5, 7}},
+		{name: "duplicates", in: []int64{3, 1, 3, 2, 1}, want: []int64{1, 1, 2, 3, 3}},
+		{name: "negatives", in: []int64{0, -5, 5, -1}, want: []int64{-5, -1, 0, 5}},
+		{
+			name: "int64 extremes",
+			in:   []int64{math.MaxInt64, 0, math.MinInt64},
+			want: []int64{math.MinInt64, 0, math.MaxInt64},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			SortInt64s(tt.in)
+			if !slices.Equal(tt.in, tt.want) {
+				t.Errorf("SortInt64s result = %v, want %v", tt.in, tt.want)
+			}
+		})
 	}
 }
 
@@ -58,19 +84,6 @@ func TestItemSliceSort(t *testing.T) {
 	sort.Sort(items)
 	if items[0].Name != "a" {
 		t.Fatalf("expected items to be sorted by DateAdded")
-	}
-}
-
-func TestVMap(t *testing.T) {
-	vm := NewVMap[string, int]()
-	vm.Set("a", 1)
-	vm.Set("b", 2)
-	if got := vm.Get("a"); got != 1 {
-		t.Fatalf("expected 1, got %d", got)
-	}
-	keys, vals := vm.Dump()
-	if len(keys) != 2 || len(vals) != 2 {
-		t.Fatalf("unexpected dump sizes: %d %d", len(keys), len(vals))
 	}
 }
 

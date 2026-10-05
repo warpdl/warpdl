@@ -47,23 +47,23 @@ func Test_parseFileName(t *testing.T) {
 }
 
 func TestGetPath(t *testing.T) {
-	type args struct {
+	sep := string(os.PathSeparator)
+	tests := []struct {
+		name      string
 		directory string
 		file      string
-	}
-	tests := []struct {
-		name     string
-		args     args
-		wantPath string
+		wantPath  string
 	}{
-		{"current dir", args{".", "hello.bin"}, filepath.Join(".", "hello.bin")},
-		{"nested path", args{"home/bin/dir", "hello.bin"}, filepath.Join("home/bin/dir", "hello.bin")},
-		{"absolute path", args{"/home/user", "file.txt"}, filepath.Join("/home/user", "file.txt")},
+		// Literal wants pin argument order: joining file before directory, or
+		// concatenating without a separator, must fail these cases.
+		{"current dir", ".", "hello.bin", "hello.bin"},
+		{"nested path", "home/bin/dir", "hello.bin", "home" + sep + "bin" + sep + "dir" + sep + "hello.bin"},
+		{"trailing separator is cleaned", "home/bin/dir/", "hello.bin", "home" + sep + "bin" + sep + "dir" + sep + "hello.bin"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if gotPath := GetPath(tt.args.directory, tt.args.file); gotPath != tt.wantPath {
-				t.Errorf("GetPath() = %v, want %v", gotPath, tt.wantPath)
+			if gotPath := GetPath(tt.directory, tt.file); gotPath != tt.wantPath {
+				t.Errorf("GetPath(%q, %q) = %q, want %q", tt.directory, tt.file, gotPath, tt.wantPath)
 			}
 		})
 	}

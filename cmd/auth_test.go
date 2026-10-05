@@ -687,159 +687,28 @@ func TestAuthStatusMissingPluginArg(t *testing.T) {
 	}
 }
 
-// runAuthStatusAgainstFake invokes the core status logic against a
-// fakeAuthRPC, bypassing getClient(). This mirrors what authStatus
-// does after it has a client, but stubs the RPC path.
-//
-// We replicate the handler's logic here rather than reaching into
-// authStatus because authStatus is glued to getClient() (a real-daemon
-// dial). This is deliberate: the status behaviour is thin enough that
-// replicating it keeps the test focused on the status contract (what
-// is printed, what exit code is used) without fighting production glue.
-func runAuthStatusAgainstFake(out io.Writer, client authRPC, pluginID, account string) error {
-	res, err := client.AuthList()
-	if err != nil {
-		return fmt.Errorf("auth.list: %w", err)
-	}
-	for _, a := range res.Accounts {
-		if a.PluginID == pluginID && a.Account == account {
-			now := time.Now().Unix()
-			if a.ExpiresAt > 0 && a.ExpiresAt <= now {
-				fmt.Fprintf(out, "%s (%s): expired\n", pluginID, account)
-				return cli.NewExitError("", 2)
-			}
-			fmt.Fprintf(out, "%s (%s): authenticated\n", pluginID, account)
-			return nil
-		}
-	}
-	fmt.Fprintf(out, "%s (%s): not authenticated\n", pluginID, account)
-	return cli.NewExitError("", 1)
-}
-
-// TestAuthStatusAuthenticated covers exit code 0: a valid unexpired
-// credential is present.
-func TestAuthStatusAuthenticated(t *testing.T) {
-	t.Parallel()
-
-	fake := &fakeAuthRPC{
-		listRes: &common.AuthListResult{Accounts: []common.AuthAccount{
-			{PluginID: "gdrive", Account: "default", ExpiresAt: time.Now().Add(time.Hour).Unix()},
-		}},
-	}
-	var buf bytes.Buffer
-	err := runAuthStatusAgainstFake(&buf, fake, "gdrive", "default")
-	if err != nil {
-		t.Fatalf("err = %v, want nil (exit 0)", err)
-	}
-	if !strings.Contains(buf.String(), "authenticated") || strings.Contains(buf.String(), "not authenticated") {
-		t.Fatalf("output = %q", buf.String())
-	}
-}
-
-// TestAuthStatusExpired covers exit code 2: credential present but
-// past ExpiresAt.
-func TestAuthStatusExpired(t *testing.T) {
-	t.Parallel()
-
-	fake := &fakeAuthRPC{
-		listRes: &common.AuthListResult{Accounts: []common.AuthAccount{
-			{PluginID: "gdrive", Account: "default", ExpiresAt: time.Now().Add(-time.Hour).Unix()},
-		}},
-	}
-	var buf bytes.Buffer
-	err := runAuthStatusAgainstFake(&buf, fake, "gdrive", "default")
-	ee, ok := err.(*cli.ExitError)
-	if !ok {
-		t.Fatalf("err = %v (%T), want *cli.ExitError", err, err)
-	}
-	if ee.ExitCode() != 2 {
-		t.Fatalf("exit code = %d, want 2", ee.ExitCode())
-	}
-	if !strings.Contains(buf.String(), "expired") {
-		t.Fatalf("output = %q", buf.String())
-	}
-}
-
-// TestAuthStatusNotAuthenticated covers exit code 1: no matching
-// (plugin, account) row.
-func TestAuthStatusNotAuthenticated(t *testing.T) {
-	t.Parallel()
-
-	fake := &fakeAuthRPC{
-		listRes: &common.AuthListResult{Accounts: []common.AuthAccount{
-			{PluginID: "other", Account: "default", ExpiresAt: time.Now().Add(time.Hour).Unix()},
-		}},
-	}
-	var buf bytes.Buffer
-	err := runAuthStatusAgainstFake(&buf, fake, "gdrive", "default")
-	ee, ok := err.(*cli.ExitError)
-	if !ok {
-		t.Fatalf("err = %v (%T), want *cli.ExitError", err, err)
-	}
-	if ee.ExitCode() != 1 {
-		t.Fatalf("exit code = %d, want 1", ee.ExitCode())
-	}
-	if !strings.Contains(buf.String(), "not authenticated") {
-		t.Fatalf("output = %q", buf.String())
-	}
-}
-
-// TestAuthStatusListError ensures an underlying auth.list failure is
-// wrapped and propagated as a normal (non-ExitError) error.
-func TestAuthStatusListError(t *testing.T) {
-	t.Parallel()
-
-	fake := &fakeAuthRPC{listErr: errors.New("daemon offline")}
-	var buf bytes.Buffer
-	err := runAuthStatusAgainstFake(&buf, fake, "gdrive", "default")
-	if err == nil || !strings.Contains(err.Error(), "daemon offline") {
-		t.Fatalf("err = %v", err)
-	}
-	if _, ok := err.(*cli.ExitError); ok {
-		t.Fatalf("list error should not be a *cli.ExitError")
-	}
-}
-
-// TestAuthStatusAccountMismatch verifies the account label is
-// load-bearing: a matching plugin-id but different account must fall
-// through to "not authenticated".
-func TestAuthStatusAccountMismatch(t *testing.T) {
-	t.Parallel()
-
-	fake := &fakeAuthRPC{
-		listRes: &common.AuthListResult{Accounts: []common.AuthAccount{
-			{PluginID: "gdrive", Account: "work", ExpiresAt: time.Now().Add(time.Hour).Unix()},
-		}},
-	}
-	var buf bytes.Buffer
-	err := runAuthStatusAgainstFake(&buf, fake, "gdrive", "default")
-	ee, ok := err.(*cli.ExitError)
-	if !ok {
-		t.Fatalf("err = %v (%T), want *cli.ExitError", err, err)
-	}
-	if ee.ExitCode() != 1 {
-		t.Fatalf("exit code = %d, want 1", ee.ExitCode())
-	}
-}
-
 // TestAuthStatusZeroExpiryIsValid confirms a stored credential with
 // ExpiresAt == 0 (meaning "no known expiry", typical for refresh-only
-// grants) is treated as authenticated, not expired.
+// grants) is treated as authenticated, not expired. The real authStatus
+// action is driven against the fake daemon so the exit-0 branch — the
+// one expiry comparison that must not treat 0 as the epoch — is
+// exercised in production, not in a replica.
 func TestAuthStatusZeroExpiryIsValid(t *testing.T) {
-	t.Parallel()
+	socketPath := getShortSocketPath(t)
+	t.Setenv("WARPDL_SOCKET_PATH", socketPath)
+	authListOverride = &common.AuthListResult{Accounts: []common.AuthAccount{
+		{PluginID: "gdrive", Account: "default", ExpiresAt: 0},
+	}}
+	defer func() { authListOverride = nil }()
+	srv := startFakeServer(t, socketPath)
+	defer srv.close()
 
-	fake := &fakeAuthRPC{
-		listRes: &common.AuthListResult{Accounts: []common.AuthAccount{
-			{PluginID: "gdrive", Account: "default", ExpiresAt: 0},
-		}},
+	ctx, out := newAuthCtxOnServer(authStatusCmd, []string{"gdrive"}, nil)
+	if err := authStatus(ctx); err != nil {
+		t.Fatalf("authStatus: %v, want nil for zero expiry", err)
 	}
-	var buf bytes.Buffer
-	err := runAuthStatusAgainstFake(&buf, fake, "gdrive", "default")
-	if err != nil {
-		t.Fatalf("err = %v, want nil", err)
-	}
-	if !strings.Contains(buf.String(), "authenticated") || strings.Contains(buf.String(), "not authenticated") {
-		t.Fatalf("output = %q", buf.String())
+	if !strings.Contains(out.String(), "authenticated") || strings.Contains(out.String(), "not authenticated") {
+		t.Fatalf("output = %q", out.String())
 	}
 }
 

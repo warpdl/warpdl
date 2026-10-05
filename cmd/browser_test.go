@@ -18,11 +18,17 @@ func TestOpenBrowserPrintsURLWhenDisabled(t *testing.T) {
 	}
 }
 
+// TestOpenBrowserNoEmptyURL pins the exact fallback written when the browser
+// guard is set, including the printed URL line, without opening a browser.
 func TestOpenBrowserNoEmptyURL(t *testing.T) {
 	t.Setenv("WARP_NO_BROWSER", "1")
 	var buf bytes.Buffer
-	_ = openBrowser(&buf, "https://a.b/c")
-	// Just smoke — must not panic.
+	if err := openBrowser(&buf, "https://a.b/c"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got, want := buf.String(), "Please open this URL in your browser:\n  https://a.b/c\n"; got != want {
+		t.Fatalf("fallback output = %q, want %q", got, want)
+	}
 }
 
 // TestOpenBrowserOpenFails covers the browser.OpenURL failure branch

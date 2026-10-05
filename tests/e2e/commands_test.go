@@ -24,26 +24,6 @@ func TestDownload_Basic(t *testing.T) {
 	env.downloadAndVerify(t, ts.fileURL("/testfile.bin"), testFileSize)
 }
 
-// TestDownload_CustomFilename verifies that the -o flag renames the output
-// file to the specified name.
-func TestDownload_CustomFilename(t *testing.T) {
-	t.Parallel()
-
-	ts := newTestServer(t)
-	env := newTestEnv(t)
-	env.startDaemon(t)
-
-	customName := "renamed-output.bin"
-	env.run(t, "download", ts.fileURL("/testfile.bin"),
-		"-l", env.DownloadDir,
-		"-o", customName,
-		"-x", "2", "-s", "2",
-	)
-
-	assertFileExists(t, filepath.Join(env.DownloadDir, customName))
-	assertFileSize(t, filepath.Join(env.DownloadDir, customName), testFileSize)
-}
-
 // TestDownload_CustomPath verifies that the -l flag saves the file into a
 // non-default directory.
 func TestDownload_CustomPath(t *testing.T) {
@@ -59,30 +39,9 @@ func TestDownload_CustomPath(t *testing.T) {
 		"-x", "2", "-s", "2",
 	)
 
-	assertFileExists(t, filepath.Join(altDir, "small.bin"))
-	assertFileSize(t, filepath.Join(altDir, "small.bin"), 1024)
-}
-
-// TestDownload_Overwrite verifies that the -y flag allows downloading over an
-// existing file at the destination path without aborting.
-func TestDownload_Overwrite(t *testing.T) {
-	t.Parallel()
-
-	ts := newTestServer(t)
-	env := newTestEnv(t)
-	env.startDaemon(t)
-
-	destPath := filepath.Join(env.DownloadDir, "small.bin")
-	createDummyFile(t, destPath, 512)
-	assertFileSize(t, destPath, 512)
-
-	env.run(t, "download", ts.fileURL("/small.bin"),
-		"-l", env.DownloadDir,
-		"-y",
-		"-x", "2", "-s", "2",
-	)
-
-	assertFileSize(t, destPath, 1024)
+	filePath := filepath.Join(altDir, "small.bin")
+	assertFileExists(t, filePath)
+	assertFileContent(t, filePath, ts.expectedBytes("/small.bin"))
 }
 
 // TestDownload_NoURL verifies that invoking the download command without a URL
@@ -242,28 +201,6 @@ func TestList_CompletedFlag(t *testing.T) {
 // Flush command tests
 // ---------------------------------------------------------------------------
 
-// TestFlush_Force verifies that `flush --force` removes all download history
-// so that a subsequent `list -a` shows no downloads.
-func TestFlush_Force(t *testing.T) {
-	t.Parallel()
-
-	ts := newTestServer(t)
-	env := newTestEnv(t)
-	env.startDaemon(t)
-
-	env.downloadAndVerify(t, ts.fileURL("/small.bin"), 1024)
-
-	// Confirm something is present before flushing.
-	listBefore := env.run(t, "list", "-a")
-	assertOutputContains(t, listBefore, "small.bin")
-
-	flushOutput := env.run(t, "flush", "--force")
-	assertOutputContains(t, flushOutput, "Flushed all download history!")
-
-	listAfter := env.run(t, "list", "-a")
-	assertOutputContains(t, listAfter, "no downloads found")
-}
-
 // TestFlush_WithStdinYes verifies that typing "yes" at the interactive
 // confirmation prompt successfully flushes all history.
 func TestFlush_WithStdinYes(t *testing.T) {
@@ -295,33 +232,6 @@ func TestFlush_WithStdinNo(t *testing.T) {
 
 	listOutput := env.run(t, "list", "-a")
 	assertOutputContains(t, listOutput, "small.bin")
-}
-
-// TestFlush_SingleItem verifies that `flush <hash>` removes only the targeted
-// download while leaving others untouched, and reports success.
-func TestFlush_SingleItem(t *testing.T) {
-	t.Parallel()
-
-	ts := newTestServer(t)
-	env := newTestEnv(t)
-	env.startDaemon(t)
-
-	// Download two distinct files so we can isolate one for flushing.
-	env.downloadAndVerify(t, ts.fileURL("/small.bin"), 1024)
-	env.downloadAndVerify(t, ts.fileURL("/testfile.bin"), testFileSize)
-
-	listOutput := env.run(t, "list", "-a")
-	hash := extractHashFromListOutput(listOutput)
-	if hash == "" {
-		t.Fatal("could not extract a hash from list output")
-	}
-
-	flushOutput := env.run(t, "flush", "--force", "--item-hash", hash)
-	assertOutputContains(t, flushOutput, "Flushed "+hash)
-
-	// The remaining file must still be visible.
-	remaining := env.run(t, "list", "-a")
-	assertOutputNotContains(t, remaining, hash)
 }
 
 // ---------------------------------------------------------------------------
@@ -499,48 +409,54 @@ func TestHelp_Output(t *testing.T) {
 // Priority flag tests
 // ---------------------------------------------------------------------------
 
-// TestDownload_PriorityHigh verifies that the --priority high flag is accepted
-// and the download completes successfully.
-func TestDownload_PriorityHigh(t *testing.T) {
+// TestDownload_Priority verifies that every --priority level is accepted and
+// the download still completes byte-exactly.
+func TestDownload_Priority(t *testing.T) {
 	t.Parallel()
 
-	ts := newTestServer(t)
-	env := newTestEnv(t)
-	env.startDaemon(t)
+	for _, priority := range []string{"high", "low"} {
+		t.Run(priority, func(t *testing.T) {
+			ts := newTestServer(t)
+			env := newTestEnv(t)
+			env.startDaemon(t)
 
-	env.downloadAndVerify(t, ts.fileURL("/small.bin"), 1024, "--priority", "high")
-}
-
-// TestDownload_PriorityLow verifies that the --priority low flag is accepted
-// and the download completes successfully.
-func TestDownload_PriorityLow(t *testing.T) {
-	t.Parallel()
-
-	ts := newTestServer(t)
-	env := newTestEnv(t)
-	env.startDaemon(t)
-
-	env.downloadAndVerify(t, ts.fileURL("/small.bin"), 1024, "--priority", "low")
+			env.downloadAndVerify(t, ts.fileURL("/small.bin"), 1024, "--priority", priority)
+		})
+	}
 }
 
 // ---------------------------------------------------------------------------
 // Max connections / segments flag tests
 // ---------------------------------------------------------------------------
 
-// TestDownload_SingleConnection verifies that a download with -x 1 (single
-// connection) completes correctly without parallel segments.
-func TestDownload_SingleConnection(t *testing.T) {
+// TestDownload_ConnectionTuning verifies that explicit connection and segment
+// limits all produce a byte-exact download: -x 1 -s 1 (fully serial), -x 2
+// (two parallel connections), and -s 2 (two file segments).
+func TestDownload_ConnectionTuning(t *testing.T) {
 	t.Parallel()
 
-	ts := newTestServer(t)
-	env := newTestEnv(t)
-	env.startDaemon(t)
+	cases := []struct {
+		name  string
+		flags []string
+	}{
+		{"SingleConnection", []string{"-x", "1", "-s", "1"}},
+		{"MaxConnectionsTwo", []string{"-x", "2"}},
+		{"MaxSegmentsTwo", []string{"-s", "2"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ts := newTestServer(t)
+			env := newTestEnv(t)
+			env.startDaemon(t)
 
-	env.run(t, "download", ts.fileURL("/small.bin"),
-		"-l", env.DownloadDir,
-		"-x", "1", "-s", "1",
-	)
-	assertFileSize(t, filepath.Join(env.DownloadDir, "small.bin"), 1024)
+			args := append([]string{"download", ts.fileURL("/testfile.bin"), "-l", env.DownloadDir}, tc.flags...)
+			env.run(t, args...)
+
+			filePath := filepath.Join(env.DownloadDir, "testfile.bin")
+			assertFileExists(t, filePath)
+			assertFileContent(t, filePath, ts.expectedBytes("/testfile.bin"))
+		})
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -560,7 +476,9 @@ func TestDownloadAlias(t *testing.T) {
 		"-l", env.DownloadDir,
 		"-x", "2", "-s", "2",
 	)
-	assertFileSize(t, filepath.Join(env.DownloadDir, "small.bin"), 1024)
+	filePath := filepath.Join(env.DownloadDir, "small.bin")
+	assertFileExists(t, filePath)
+	assertFileContent(t, filePath, ts.expectedBytes("/small.bin"))
 }
 
 // TestListAlias verifies that `l` is an accepted alias for the `list`

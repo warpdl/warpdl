@@ -1,8 +1,10 @@
 package server
 
 import (
+	"bytes"
 	"io"
 	"log"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -40,14 +42,6 @@ func TestNewRPCNotifier(t *testing.T) {
 	}
 	if n.Count() != 0 {
 		t.Fatalf("expected 0 servers, got %d", n.Count())
-	}
-}
-
-func TestNewRPCNotifier_WithLogger(t *testing.T) {
-	l := log.New(io.Discard, "", 0)
-	n := NewRPCNotifier(l)
-	if n == nil {
-		t.Fatal("expected non-nil notifier")
 	}
 }
 
@@ -95,8 +89,13 @@ func TestRPCNotifier_Unregister_NotRegistered(t *testing.T) {
 
 func TestRPCNotifier_Broadcast_NoServers(t *testing.T) {
 	n := NewRPCNotifier(nil)
-	// Broadcast with no servers should not panic
+
+	// Broadcast with no registered servers must be a no-op.
 	n.Broadcast("test.method", map[string]string{"key": "value"})
+
+	if n.Count() != 0 {
+		t.Fatalf("expected 0 servers after broadcast with no subscribers, got %d", n.Count())
+	}
 }
 
 func TestRPCNotifier_Broadcast_Success(t *testing.T) {
@@ -130,8 +129,8 @@ func TestRPCNotifier_Broadcast_Success(t *testing.T) {
 }
 
 func TestRPCNotifier_Broadcast_DisconnectedServer(t *testing.T) {
-	l := log.New(io.Discard, "", 0)
-	n := NewRPCNotifier(l)
+	var logBuf bytes.Buffer
+	n := NewRPCNotifier(log.New(&logBuf, "", 0))
 
 	cli, srv, _ := newTestServer(t)
 
@@ -150,6 +149,10 @@ func TestRPCNotifier_Broadcast_DisconnectedServer(t *testing.T) {
 	waitForCondition(t, time.Second, func() bool { return n.Count() == 0 })
 	if n.Count() != 0 {
 		t.Fatalf("expected 0 servers after disconnect, got %d", n.Count())
+	}
+	// The injected logger must record the push failure that removed the server.
+	if !strings.Contains(logBuf.String(), "RPC push failed") {
+		t.Fatalf("expected push failure logged, got %q", logBuf.String())
 	}
 }
 

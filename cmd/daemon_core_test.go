@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -22,9 +23,15 @@ import (
 	"github.com/warpdl/warpdl/pkg/warplib"
 )
 
+// TestLoggerKeyringAdapterWarning pins the warning line the daemon's keyring
+// adapter forwards to the underlying logger, including argument formatting.
 func TestLoggerKeyringAdapterWarning(t *testing.T) {
-	l := &loggerKeyringAdapter{log: logger.NewNopLogger()}
-	l.Warning("test warning: %s %d", "arg", 42) // must not panic
+	var buf bytes.Buffer
+	l := &loggerKeyringAdapter{log: logger.NewStandardLogger(log.New(&buf, "", 0))}
+	l.Warning("test warning: %s %d", "arg", 42)
+	if got, want := buf.String(), "[WARNING] test warning: arg 42\n"; got != want {
+		t.Fatalf("logger output = %q, want %q", got, want)
+	}
 }
 
 func TestGetCookieManagerWithLogger_KeyringGetSuccess(t *testing.T) {

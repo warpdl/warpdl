@@ -3,7 +3,6 @@
 package e2e
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -41,10 +40,10 @@ func TestDownload_InputFile(t *testing.T) {
 	assertOutputContains(t, output, "Failed:     0")
 
 	assertFileExists(t, filepath.Join(env.DownloadDir, "testfile.bin"))
-	assertFileSize(t, filepath.Join(env.DownloadDir, "testfile.bin"), testFileSize)
+	assertFileContent(t, filepath.Join(env.DownloadDir, "testfile.bin"), ts.expectedBytes("/testfile.bin"))
 
 	assertFileExists(t, filepath.Join(env.DownloadDir, "small.bin"))
-	assertFileSize(t, filepath.Join(env.DownloadDir, "small.bin"), 1024)
+	assertFileContent(t, filepath.Join(env.DownloadDir, "small.bin"), ts.expectedBytes("/small.bin"))
 }
 
 // TestDownload_InputFile_Comments verifies that # comment lines and blank
@@ -77,7 +76,9 @@ func TestDownload_InputFile_Comments(t *testing.T) {
 	assertOutputContains(t, output, "Succeeded:  2")
 
 	assertFileExists(t, filepath.Join(env.DownloadDir, "testfile.bin"))
+	assertFileContent(t, filepath.Join(env.DownloadDir, "testfile.bin"), ts.expectedBytes("/testfile.bin"))
 	assertFileExists(t, filepath.Join(env.DownloadDir, "small.bin"))
+	assertFileContent(t, filepath.Join(env.DownloadDir, "small.bin"), ts.expectedBytes("/small.bin"))
 }
 
 // TestDownload_InputFile_NotFound verifies that a nonexistent file path passed
@@ -154,6 +155,7 @@ func TestDownload_InputFile_MixedURLs(t *testing.T) {
 	assertOutputContains(t, output, "Skipped")
 
 	assertFileExists(t, filepath.Join(env.DownloadDir, "small.bin"))
+	assertFileContent(t, filepath.Join(env.DownloadDir, "small.bin"), ts.expectedBytes("/small.bin"))
 }
 
 // ---------------------------------------------------------------------------
@@ -161,7 +163,8 @@ func TestDownload_InputFile_MixedURLs(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // TestDownload_StartIn schedules a download 2 hours in the future using
-// --start-in and verifies the item appears in the list as a pending entry.
+// --start-in and verifies the CLI reports the registration, the item is listed
+// as pending, and the transfer does not start early.
 func TestDownload_StartIn(t *testing.T) {
 	t.Parallel()
 
@@ -176,15 +179,11 @@ func TestDownload_StartIn(t *testing.T) {
 		"-l", env.DownloadDir,
 		"--background",
 	)
-
-	if !strings.Contains(output, "background") && !strings.Contains(output, "small.bin") {
-		t.Logf("download output: %s", output)
-	}
-
-	time.Sleep(500 * time.Millisecond)
+	assertOutputContains(t, output, "Scheduled download")
 
 	listOutput := env.run(t, "list")
 	assertOutputContains(t, listOutput, "small.bin")
+	assertFileNotComplete(t, filepath.Join(env.DownloadDir, "small.bin"), ts.expectedBytes("/small.bin"))
 }
 
 // TestDownload_StartIn_InvalidDuration verifies that a garbage string passed
@@ -230,7 +229,8 @@ func TestDownload_StartAtAndStartIn(t *testing.T) {
 }
 
 // TestDownload_StartAt_FutureTime schedules a download 3 minutes ahead via
-// --start-at and confirms the item is visible in list as a pending entry.
+// --start-at and verifies the CLI reports the registration, the item is listed
+// as pending, and the transfer does not start early.
 func TestDownload_StartAt_FutureTime(t *testing.T) {
 	t.Parallel()
 
@@ -246,15 +246,11 @@ func TestDownload_StartAt_FutureTime(t *testing.T) {
 		"-l", env.DownloadDir,
 		"--background",
 	)
-
-	if !strings.Contains(output, "background") && !strings.Contains(output, "small.bin") {
-		t.Logf("download output: %s", output)
-	}
-
-	time.Sleep(500 * time.Millisecond)
+	assertOutputContains(t, output, "Scheduled download")
 
 	listOutput := env.run(t, "list")
 	assertOutputContains(t, listOutput, "small.bin")
+	assertFileNotComplete(t, filepath.Join(env.DownloadDir, "small.bin"), ts.expectedBytes("/small.bin"))
 }
 
 // TestDownload_Schedule_InvalidCron verifies that an invalid cron expression
@@ -278,7 +274,9 @@ func TestDownload_Schedule_InvalidCron(t *testing.T) {
 }
 
 // TestDownload_Schedule_ValidCron verifies that a well-formed 5-field cron
-// expression is accepted; the download must not produce a cron validation error.
+// expression is accepted and registered as a recurring schedule: the item is
+// listed with its cron expression and nothing is downloaded before the first
+// occurrence.
 func TestDownload_Schedule_ValidCron(t *testing.T) {
 	t.Parallel()
 
@@ -288,18 +286,20 @@ func TestDownload_Schedule_ValidCron(t *testing.T) {
 	ts := newTestServer(t)
 
 	// "0 3 * * *" = daily at 03:00 — canonical 5-field expression.
-	output, err := env.runMayFail(
-		"download",
+	output := env.run(t, "download",
 		ts.fileURL("/small.bin"),
 		"--schedule", "0 3 * * *",
 		"-l", env.DownloadDir,
 		"--background",
 	)
-
+	assertOutputContains(t, output, "Scheduled download")
 	assertOutputNotContains(t, output, "invalid cron expression")
-	if err != nil {
-		t.Logf("runMayFail returned error (may be unrelated): %v — output: %s", err, output)
-	}
+
+	// The pending item carries its recurrence, and no bytes have been fetched.
+	listOutput := env.run(t, "list")
+	assertOutputContains(t, listOutput, "small.bin")
+	assertOutputContains(t, listOutput, "recurring")
+	assertFileNotComplete(t, filepath.Join(env.DownloadDir, "small.bin"), ts.expectedBytes("/small.bin"))
 }
 
 // ---------------------------------------------------------------------------
@@ -330,112 +330,78 @@ func TestDownload_CookieFlag(t *testing.T) {
 	assertOutputNotContains(t, output, "parse_cookies")
 
 	assertFileExists(t, filepath.Join(env.DownloadDir, "small.bin"))
-	assertFileSize(t, filepath.Join(env.DownloadDir, "small.bin"), 1024)
-}
-
-// ---------------------------------------------------------------------------
-// Connection tuning tests
-// ---------------------------------------------------------------------------
-
-// TestDownload_MaxConnections_Two verifies that -x 2 (two parallel connections)
-// is accepted and the download completes with the expected file size.
-func TestDownload_MaxConnections_Two(t *testing.T) {
-	t.Parallel()
-
-	env := newTestEnv(t)
-	env.startDaemon(t)
-
-	ts := newTestServer(t)
-
-	output := env.run(t, "download",
-		ts.fileURL("/testfile.bin"),
-		"-l", env.DownloadDir,
-		"-x", "2",
-	)
-
-	assertOutputNotContains(t, output, "error")
-
-	assertFileExists(t, filepath.Join(env.DownloadDir, "testfile.bin"))
-	assertFileSize(t, filepath.Join(env.DownloadDir, "testfile.bin"), testFileSize)
-}
-
-// TestDownload_MaxSegments_Two verifies that -s 2 (two file segments) is
-// accepted and the download completes with the expected file size.
-func TestDownload_MaxSegments_Two(t *testing.T) {
-	t.Parallel()
-
-	env := newTestEnv(t)
-	env.startDaemon(t)
-
-	ts := newTestServer(t)
-
-	output := env.run(t, "download",
-		ts.fileURL("/testfile.bin"),
-		"-l", env.DownloadDir,
-		"-s", "2",
-	)
-
-	assertOutputNotContains(t, output, "error")
-
-	assertFileExists(t, filepath.Join(env.DownloadDir, "testfile.bin"))
-	assertFileSize(t, filepath.Join(env.DownloadDir, "testfile.bin"), testFileSize)
+	assertFileContent(t, filepath.Join(env.DownloadDir, "small.bin"), ts.expectedBytes("/small.bin"))
 }
 
 // ---------------------------------------------------------------------------
 // Edge case: overwrite an existing file with --overwrite / -y
 // ---------------------------------------------------------------------------
 
-// TestDownload_OverwriteWithFlag verifies that re-downloading a file using the
-// --overwrite long-form flag replaces a pre-existing file with the correct content.
-func TestDownload_OverwriteWithFlag(t *testing.T) {
+// TestDownload_Overwrite verifies that both the short -y and long --overwrite
+// flags replace a pre-existing file with the full, byte-exact download.
+func TestDownload_Overwrite(t *testing.T) {
 	t.Parallel()
 
-	env := newTestEnv(t)
-	env.startDaemon(t)
+	for _, flag := range []string{"-y", "--overwrite"} {
+		t.Run(flag, func(t *testing.T) {
+			env := newTestEnv(t)
+			env.startDaemon(t)
 
-	ts := newTestServer(t)
-	filePath := filepath.Join(env.DownloadDir, "small.bin")
+			ts := newTestServer(t)
+			filePath := filepath.Join(env.DownloadDir, "small.bin")
 
-	// Write a 4-byte stub so we can confirm it is replaced.
-	if err := os.WriteFile(filePath, []byte("stub"), 0644); err != nil {
-		t.Fatalf("failed to create stub file: %v", err)
+			// A stub of a different size and content must be fully replaced.
+			createDummyFile(t, filePath, 512)
+			assertFileSize(t, filePath, 512)
+
+			env.run(t, "download",
+				ts.fileURL("/small.bin"),
+				"-l", env.DownloadDir,
+				flag,
+				"-x", "2",
+				"-s", "2",
+			)
+
+			assertFileContent(t, filePath, ts.expectedBytes("/small.bin"))
+		})
 	}
-
-	env.run(t, "download",
-		ts.fileURL("/small.bin"),
-		"-l", env.DownloadDir,
-		"--overwrite",
-		"-x", "2",
-		"-s", "2",
-	)
-
-	// After overwrite the file must be the full 1 KB, not the 4-byte stub.
-	assertFileSize(t, filePath, 1024)
 }
 
 // ---------------------------------------------------------------------------
 // Edge case: custom output filename with --file-name / -o
 // ---------------------------------------------------------------------------
 
-// TestDownload_CustomFileNameLongFlag verifies that --file-name (long form)
-// saves the downloaded content under the specified name.
-func TestDownload_CustomFileNameLongFlag(t *testing.T) {
+// TestDownload_CustomFileName verifies that both the short -o and long
+// --file-name flags save the download under the requested name with the served
+// bytes intact.
+func TestDownload_CustomFileName(t *testing.T) {
 	t.Parallel()
 
-	env := newTestEnv(t)
-	env.startDaemon(t)
+	cases := []struct {
+		flag string
+		out  string
+	}{
+		{"-o", "renamed-output.bin"},
+		{"--file-name", "my_custom_output.bin"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.out, func(t *testing.T) {
+			env := newTestEnv(t)
+			env.startDaemon(t)
 
-	ts := newTestServer(t)
-	customName := "my_custom_output.bin"
+			ts := newTestServer(t)
 
-	env.run(t, "download",
-		ts.fileURL("/testfile.bin"),
-		"-l", env.DownloadDir,
-		"--file-name", customName,
-		"-x", "4",
-		"-s", "4",
-	)
+			env.run(t, "download",
+				ts.fileURL("/testfile.bin"),
+				"-l", env.DownloadDir,
+				tc.flag, tc.out,
+				"-x", "4",
+				"-s", "4",
+			)
 
-	assertFileExists(t, filepath.Join(env.DownloadDir, customName))
-	assertFileSize(t, filepath.Join(env.DownloadDir, customName), testFileSize)
+			filePath := filepath.Join(env.DownloadDir, tc.out)
+			assertFileExists(t, filePath)
+			assertFileContent(t, filePath, ts.expectedBytes("/testfile.bin"))
+		})
+	}
 }

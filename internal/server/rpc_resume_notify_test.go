@@ -54,8 +54,9 @@ func TestRPCDownloadResume_BroadcastsStarted(t *testing.T) {
 	// exercised includes the handler wiring logic. The NOT-FOUND case is
 	// already tested in TestRPCDownloadResume_NotFound.
 	//
-	// For a more integration-level test of actual notification delivery,
-	// see TestIntegration_DownloadPauseResume in rpc_integration_test.go.
+	// For integration-level coverage of resume handler wiring and the
+	// notifications it drives, see TestRPCDownloadResume_FTP_HandlersFired
+	// and TestRPCDownloadResume_SFTP_HandlersFired.
 
 	// Verify the item exists
 	item := m.GetItem(gid)
@@ -125,60 +126,3 @@ func TestRPCDownloadResume_NilNotifier(t *testing.T) {
 		t.Fatalf("expected code %d, got %v", codeDownloadNotFound, errCode)
 	}
 }
-
-// TestRPCDownloadResume_HandlerWiring verifies that the downloadResume method
-// constructs ResumeDownloadOpts with non-nil Handlers when the notifier exists.
-// This is a structural test -- it exercises the code path and verifies no panics.
-func TestRPCDownloadResume_HandlerWiring(t *testing.T) {
-	handler, secret, cleanup, m, dlDir := newTestRPCHandlerWithManager(t)
-	defer cleanup()
-
-	// Create a small download
-	content := bytes.Repeat([]byte("h"), 1024)
-	srv := newRangeServer(content)
-	defer srv.Close()
-
-	// Add download
-	_, addResp := rpcCall(t, handler, "download.add", map[string]any{
-		"url": srv.URL + "/handler-wire.bin",
-		"dir": dlDir,
-	}, secret)
-	addResult := rpcResult(t, addResp)
-	gid := addResult["gid"].(string)
-
-	// Wait for item to register
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		if item := m.GetItem(gid); item != nil {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-
-	// Wait for download to complete
-	deadline = time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		item := m.GetItem(gid)
-		if item != nil && item.GetDownloaded() >= item.GetTotalSize() && item.GetTotalSize() > 0 {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-
-	// Pause it
-	rpcCall(t, handler, "download.pause", map[string]any{"gid": gid}, secret)
-
-	// Resume it -- this is where the handler wiring happens.
-	// The RPCServer has a notifier, so it should wire handlers.
-	code, resp := rpcCall(t, handler, "download.resume", map[string]any{
-		"gid": gid,
-	}, secret)
-	t.Logf("handler wiring test: resume code=%d resp=%v", code, resp)
-
-	// Success or error is acceptable -- the key is no panics from nil notifier/handler access.
-	// If we get here without panic, the handler wiring is correct.
-}
-
-// newRangeServer is available from rpc_integration_test.go (package-level).
-// If this test file is compiled separately and it's not found, define it here.
-// The function creates an httptest server that supports Range requests.

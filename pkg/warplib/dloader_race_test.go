@@ -1,200 +1,174 @@
 package warplib
 
 import (
+	"bytes"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 )
 
-// TestResumeMapIterationRegression ensures the snapshot copy fix at dloader.go:411-415
-// prevents concurrent map read/write panic during Resume.
-func TestResumeMapIterationRegression(t *testing.T) {
-	// This test verifies that the snapshot pattern works correctly
-	// The actual Resume() creates a snapshot before iterating
-	parts := make(map[int64]*ItemPart)
-	var mu sync.Mutex
+const concurrentResumeETag = `"concurrent-resume-v1"`
 
-	for i := int64(0); i < 100; i++ {
-		parts[i*100] = &ItemPart{Hash: fmt.Sprintf("p%d", i), FinalOffset: i*100 + 99}
-	}
-
-	var wg sync.WaitGroup
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			// Simulate what Resume does - snapshot copy under lock
-			mu.Lock()
-			snapshot := make(map[int64]*ItemPart, len(parts))
-			for k, v := range parts {
-				snapshot[k] = v
-			}
-			mu.Unlock()
-			// Iterate snapshot safely without lock
-			for _, p := range snapshot {
-				_ = p.Hash
-			}
-		}()
-		wg.Add(1)
-		go func(id int) {
-			defer wg.Done()
-			// Concurrent modification under lock
-			mu.Lock()
-			parts[int64(id*1000)] = &ItemPart{Hash: fmt.Sprintf("new%d", id), FinalOffset: int64(id*1000 + 99)}
-			mu.Unlock()
-		}(i)
-	}
-	wg.Wait()
-	// No panic = success
+// newGatedRangeServer serves content with 206 range responses, closes started
+// on the first request, and holds every response until release is closed.
+func newGatedRangeServer(t *testing.T, content []byte, started, release chan struct{}) *httptest.Server {
+	t.Helper()
+	var startedOnce sync.Once
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		startedOnce.Do(func() { close(started) })
+		<-release
+		w.Header().Set("Accept-Ranges", "bytes")
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("ETag", concurrentResumeETag)
+		rangeSpec := strings.TrimPrefix(r.Header.Get("Range"), "bytes=")
+		startValue, endValue, ok := strings.Cut(rangeSpec, "-")
+		if !ok {
+			http.Error(w, "missing range", http.StatusRequestedRangeNotSatisfiable)
+			return
+		}
+		start, startErr := strconv.ParseInt(startValue, 10, 64)
+		end, endErr := strconv.ParseInt(endValue, 10, 64)
+		if startErr != nil || endErr != nil || start < 0 || end < start || end >= int64(len(content)) {
+			http.Error(w, "bad range", http.StatusRequestedRangeNotSatisfiable)
+			return
+		}
+		chunk := content[start : end+1]
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, len(content)))
+		w.Header().Set("Content-Length", strconv.Itoa(len(chunk)))
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = w.Write(chunk)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
 }
 
-// TestDownloaderResumeSnapshotPattern verifies the actual Resume implementation
-// creates proper snapshots before iterating over parts.
-func TestDownloaderResumeSnapshotPattern(t *testing.T) {
-	// Verify the snapshot copy logic matches what's in dloader.go:411-415
-	originalParts := map[int64]*ItemPart{
-		0:   {Hash: "p1", FinalOffset: 99, Compiled: false},
-		100: {Hash: "p2", FinalOffset: 199, Compiled: true},
+// seedHalfDownloadedItem registers an item whose first half is already
+// compiled on disk and whose second half is a pending, empty part file.
+// It returns the item and the destination path.
+func seedHalfDownloadedItem(t *testing.T, m *Manager, base, url string, content []byte) (item *Item, savePath string) {
+	t.Helper()
+	half := int64(len(content) / 2)
+	item = &Item{
+		Hash:             "concurrent-resume",
+		Name:             "file.bin",
+		Url:              url + "/file.bin",
+		TotalSize:        ContentLength(len(content)),
+		Downloaded:       ContentLength(half),
+		DownloadLocation: base,
+		AbsoluteLocation: base,
+		Resumable:        true,
+		Protocol:         ProtoHTTP,
+		ResourceETag:     concurrentResumeETag,
+		Parts: map[int64]*ItemPart{
+			0:    {Hash: "part0", FinalOffset: half - 1, Compiled: true},
+			half: {Hash: "part1", FinalOffset: int64(len(content)) - 1},
+		},
+		memPart: map[string]int64{"part0": 0, "part1": half},
+		mu:      m.mu,
 	}
+	m.UpdateItem(item)
 
-	// Create snapshot (mimics dloader.go:411-415)
-	partsSnapshot := make(map[int64]*ItemPart, len(originalParts))
-	for k, v := range originalParts {
-		partsSnapshot[k] = v
+	dlPath := filepath.Join(DlDataDir, item.Hash)
+	if err := WarpMkdirAll(dlPath, PrivateDirMode); err != nil {
+		t.Fatalf("MkdirAll download state directory: %v", err)
 	}
-
-	// Modify original - should not affect snapshot
-	originalParts[200] = &ItemPart{Hash: "p3", FinalOffset: 299}
-	originalParts[0].Hash = "modified"
-
-	// Verify snapshot isolation (shallow copy means pointer still points to same ItemPart)
-	if len(partsSnapshot) != 2 {
-		t.Fatalf("snapshot should have 2 parts, got %d", len(partsSnapshot))
+	savePath = GetPath(base, item.Name)
+	if err := os.WriteFile(savePath, content[:half], DefaultFileMode); err != nil {
+		t.Fatalf("WriteFile compiled prefix: %v", err)
 	}
-	if _, exists := partsSnapshot[200]; exists {
-		t.Fatal("snapshot should not contain new part added after copy")
+	if err := os.WriteFile(getFileName(dlPath, "part1"), nil, DefaultFileMode); err != nil {
+		t.Fatalf("WriteFile pending part: %v", err)
 	}
+	return item, savePath
 }
 
-// TestMapIterationUnderConcurrentModification stress tests the snapshot pattern
-// with heavy concurrent modification to ensure no panics occur.
-func TestMapIterationUnderConcurrentModification(t *testing.T) {
-	parts := make(map[int64]*ItemPart)
-	var mu sync.RWMutex
-
-	// Initialize with some data
-	for i := int64(0); i < 50; i++ {
-		parts[i] = &ItemPart{Hash: fmt.Sprintf("init%d", i), FinalOffset: i}
+// TestResumeUnderConcurrentPartMutation drives a real Item.Resume() over a
+// local HTTP server while another goroutine mutates the same item's persisted
+// parts through the production addPart path used by download callbacks.
+// Resume must iterate the Parts snapshot taken under the item lock; iterating
+// the live map would race with these writes and with the download's own part
+// callbacks. The server holds its response until the mutation loop stops, so
+// completion (which clears Parts) cannot interleave with a parts write, and
+// the resumed destination must be byte-identical to the served content.
+func TestResumeUnderConcurrentPartMutation(t *testing.T) {
+	base := t.TempDir()
+	if err := SetConfigDir(base); err != nil {
+		t.Fatalf("SetConfigDir: %v", err)
 	}
-
-	var wg sync.WaitGroup
-	iterations := 100
-
-	// Reader goroutines - create snapshots and iterate
-	for i := 0; i < 5; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < iterations; j++ {
-				mu.Lock()
-				snapshot := make(map[int64]*ItemPart, len(parts))
-				for k, v := range parts {
-					snapshot[k] = v
-				}
-				mu.Unlock()
-
-				// Iterate snapshot without lock (safe)
-				count := 0
-				for _, p := range snapshot {
-					count++
-					_ = p.Hash
-					_ = p.FinalOffset
-				}
-			}
-		}()
+	m, err := InitManager()
+	if err != nil {
+		t.Fatalf("InitManager: %v", err)
 	}
+	defer func() { _ = m.Close() }()
 
-	// Writer goroutines - add/modify entries
-	for i := 0; i < 5; i++ {
-		wg.Add(1)
-		go func(id int) {
-			defer wg.Done()
-			for j := 0; j < iterations; j++ {
-				mu.Lock()
-				key := int64(id*1000 + j)
-				parts[key] = &ItemPart{Hash: fmt.Sprintf("w%d_%d", id, j), FinalOffset: key}
-				mu.Unlock()
-			}
-		}(i)
+	content := bytes.Repeat([]byte("warpdl-concurrent-resume"), 4096)
+	half := int64(len(content) / 2)
+	started := make(chan struct{})
+	release := make(chan struct{})
+	srv := newGatedRangeServer(t, content, started, release)
+	item, savePath := seedHalfDownloadedItem(t, m, base, srv.URL, content)
+
+	resumed, err := m.ResumeDownload(&http.Client{}, item.Hash, nil)
+	if err != nil {
+		t.Fatalf("ResumeDownload: %v", err)
 	}
+	defer func() { _ = resumed.dAlloc.Close() }()
 
-	// Delete goroutines
-	for i := 0; i < 3; i++ {
-		wg.Add(1)
-		go func(id int) {
-			defer wg.Done()
-			for j := 0; j < iterations; j++ {
-				mu.Lock()
-				// Delete some entries
-				delete(parts, int64(id+j))
-				mu.Unlock()
-			}
-		}(i)
-	}
-
-	wg.Wait()
-	// No panic means the snapshot pattern works correctly
-}
-
-// TestResumeSnapshotIsolation ensures modifications during iteration don't affect the snapshot
-func TestResumeSnapshotIsolation(t *testing.T) {
-	parts := make(map[int64]*ItemPart)
-	var mu sync.Mutex
-
-	// Initialize parts
-	for i := int64(0); i < 20; i++ {
-		parts[i] = &ItemPart{Hash: fmt.Sprintf("part%d", i), FinalOffset: i * 100}
-	}
-
-	var wg sync.WaitGroup
-
-	// Goroutine 1: Create snapshot and iterate slowly
-	wg.Add(1)
+	// Rewrite the pending part with identical values: a real Parts map write
+	// that leaves the download plan valid.
+	partEnd := int64(len(content)) - 1
+	mutateStop := make(chan struct{})
+	mutateDone := make(chan struct{})
+	mutateReady := make(chan struct{})
 	go func() {
-		defer wg.Done()
-
-		mu.Lock()
-		snapshot := make(map[int64]*ItemPart, len(parts))
-		for k, v := range parts {
-			snapshot[k] = v
-		}
-		originalLen := len(snapshot)
-		mu.Unlock()
-
-		// Iterate snapshot (takes time while other goroutines modify original)
-		count := 0
-		for offset, p := range snapshot {
-			count++
-			if p == nil {
-				t.Errorf("snapshot contains nil part at offset %d", offset)
+		defer close(mutateDone)
+		resumed.addPart("part1", half, partEnd)
+		close(mutateReady)
+		for {
+			select {
+			case <-mutateStop:
+				return
+			default:
 			}
-		}
-
-		if count != originalLen {
-			t.Errorf("iteration count mismatch: expected %d, got %d", originalLen, count)
+			resumed.addPart("part1", half, partEnd)
 		}
 	}()
+	<-mutateReady
 
-	// Goroutine 2: Aggressively modify original map
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; i < 100; i++ {
-			mu.Lock()
-			parts[int64(100+i)] = &ItemPart{Hash: fmt.Sprintf("new%d", i), FinalOffset: int64(100 + i)}
-			mu.Unlock()
-		}
-	}()
+	resumeDone := make(chan error, 1)
+	go func() { resumeDone <- resumed.Resume() }()
 
-	wg.Wait()
+	var earlyErr error
+	select {
+	case <-started:
+	case earlyErr = <-resumeDone:
+	}
+	close(mutateStop)
+	<-mutateDone
+	close(release)
+	if earlyErr != nil {
+		t.Fatalf("Resume ended before any server request: %v", earlyErr)
+	}
+	if err := <-resumeDone; err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+
+	got, err := os.ReadFile(savePath)
+	if err != nil {
+		t.Fatalf("ReadFile resumed destination: %v", err)
+	}
+	if !bytes.Equal(got, content) {
+		t.Fatalf("resumed destination mismatch: got %d bytes, want %d", len(got), len(content))
+	}
+	downloaded, total := resumed.GetDownloaded(), resumed.GetTotalSize()
+	want := ContentLength(len(content))
+	if downloaded != want || total != want {
+		t.Fatalf("item state after resume = %d/%d, want %d/%d", downloaded, total, want, want)
+	}
 }

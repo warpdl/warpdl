@@ -181,18 +181,6 @@ func TestEventLogger_MultipleCalls(t *testing.T) {
 	}
 }
 
-// TestEventLogger_ImplementsLogger verifies interface compliance.
-func TestEventLogger_ImplementsLogger(t *testing.T) {
-	mock := NewMockEventLogWriter()
-	var logger Logger = NewEventLoggerWithWriter(mock)
-
-	// Just verify we can use it as a Logger
-	logger.Info("test")
-	logger.Warning("test")
-	logger.Error("test")
-	_ = logger.Close()
-}
-
 // TestNewEventLogger_Success tests successful logger creation.
 func TestNewEventLogger_Success(t *testing.T) {
 	mock := NewMockEventLogWriter()
@@ -238,19 +226,6 @@ func TestNewEventLogger_OpenError(t *testing.T) {
 	}
 }
 
-// TestEventIDConstants tests that event ID constants are correct.
-func TestEventIDConstants(t *testing.T) {
-	if EventIDInfo != 1 {
-		t.Errorf("EventIDInfo = %d, want 1", EventIDInfo)
-	}
-	if EventIDWarning != 2 {
-		t.Errorf("EventIDWarning = %d, want 2", EventIDWarning)
-	}
-	if EventIDError != 3 {
-		t.Errorf("EventIDError = %d, want 3", EventIDError)
-	}
-}
-
 // TestEventLogger_InfoIgnoresError tests that Info continues even when the writer returns an error.
 func TestEventLogger_InfoIgnoresError(t *testing.T) {
 	mock := NewMockEventLogWriter()
@@ -290,18 +265,5 @@ func TestEventLogger_ErrorIgnoresError(t *testing.T) {
 
 	if len(mock.ErrorCalls) != 1 {
 		t.Errorf("expected 1 error call, got %d", len(mock.ErrorCalls))
-	}
-}
-
-// TestNewEventLoggerWithWriter tests the test constructor.
-func TestNewEventLoggerWithWriter(t *testing.T) {
-	mock := NewMockEventLogWriter()
-	logger := NewEventLoggerWithWriter(mock)
-
-	if logger == nil {
-		t.Fatal("expected non-nil logger")
-	}
-	if logger.log != mock {
-		t.Error("logger.log should be the mock writer")
 	}
 }

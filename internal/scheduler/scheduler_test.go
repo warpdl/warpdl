@@ -200,10 +200,26 @@ func TestScheduler_RemoveNonexistent(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	s := New(ctx, func(hash string) {})
+	fired := make(chan string, 1)
+	s := New(ctx, func(hash string) { fired <- hash })
 
-	// Removing a nonexistent hash should not panic
+	// The run loop applies every Remove request to the heap. Removing a hash
+	// that was never scheduled must be a no-op: the pending event has to keep
+	// its trigger and fire.
+	s.Add(ScheduleEvent{
+		ItemHash:  "pending",
+		TriggerAt: time.Now().Add(50 * time.Millisecond),
+	})
 	s.Remove("nonexistent")
+
+	select {
+	case hash := <-fired:
+		if hash != "pending" {
+			t.Fatalf("fired %q, want pending", hash)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("pending event did not fire after removing a nonexistent hash")
+	}
 }
 
 // T047: Missed-schedule detection tests

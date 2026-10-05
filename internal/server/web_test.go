@@ -44,15 +44,6 @@ func newRangeServer(content []byte) *httptest.Server {
 	}))
 }
 
-func TestWebServerHandler(t *testing.T) {
-	pool := NewPool(log.New(io.Discard, "", 0))
-	ws := NewWebServer(log.New(io.Discard, "", 0), nil, pool, 8080, nil, nil, nil)
-	h := ws.handler()
-	if h == nil {
-		t.Fatalf("expected non-nil handler")
-	}
-}
-
 func TestWebServerAddr(t *testing.T) {
 	pool := NewPool(log.New(io.Discard, "", 0))
 	ws := NewWebServer(log.New(io.Discard, "", 0), nil, pool, 9999, nil, nil, nil)
@@ -202,15 +193,4 @@ func TestWebServerShutdown_MultipleShutdowns(t *testing.T) {
 	defer cancel2()
 	// Note: This may or may not return error depending on timing, but shouldn't panic
 	_ = ws.Shutdown(ctx2)
-}
-
-func TestNewWebServer(t *testing.T) {
-	pool := NewPool(log.New(io.Discard, "", 0))
-	ws := NewWebServer(log.New(io.Discard, "", 0), nil, pool, 8080, nil, nil, nil)
-	if ws == nil {
-		t.Fatal("expected non-nil WebServer")
-	}
-	if ws.port != 8080 {
-		t.Fatalf("expected port 8080, got %d", ws.port)
-	}
 }
