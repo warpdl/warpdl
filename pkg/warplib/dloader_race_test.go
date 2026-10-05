@@ -13,38 +13,19 @@ import (
 	"testing"
 )
 
-// TestResumeUnderConcurrentPartMutation drives a real Item.Resume() over a
-// local HTTP server while another goroutine mutates the same item's persisted
-// parts through the production addPart path used by download callbacks.
-// Resume must iterate the Parts snapshot taken under the item lock; iterating
-// the live map would race with these writes and with the download's own part
-// callbacks. The server holds its response until the mutation loop stops, so
-// completion (which clears Parts) cannot interleave with a parts write, and
-// the resumed destination must be byte-identical to the served content.
-func TestResumeUnderConcurrentPartMutation(t *testing.T) {
-	base := t.TempDir()
-	if err := SetConfigDir(base); err != nil {
-		t.Fatalf("SetConfigDir: %v", err)
-	}
-	m, err := InitManager()
-	if err != nil {
-		t.Fatalf("InitManager: %v", err)
-	}
-	defer m.Close()
+const concurrentResumeETag = `"concurrent-resume-v1"`
 
-	const etag = `"concurrent-resume-v1"`
-	content := bytes.Repeat([]byte("warpdl-concurrent-resume"), 4096)
-	half := int64(len(content) / 2)
-
-	started := make(chan struct{})
-	release := make(chan struct{})
+// newGatedRangeServer serves content with 206 range responses, closes started
+// on the first request, and holds every response until release is closed.
+func newGatedRangeServer(t *testing.T, content []byte, started, release chan struct{}) *httptest.Server {
+	t.Helper()
 	var startedOnce sync.Once
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		startedOnce.Do(func() { close(started) })
 		<-release
 		w.Header().Set("Accept-Ranges", "bytes")
 		w.Header().Set("Content-Type", "application/octet-stream")
-		w.Header().Set("ETag", etag)
+		w.Header().Set("ETag", concurrentResumeETag)
 		rangeSpec := strings.TrimPrefix(r.Header.Get("Range"), "bytes=")
 		startValue, endValue, ok := strings.Cut(rangeSpec, "-")
 		if !ok {
@@ -63,19 +44,27 @@ func TestResumeUnderConcurrentPartMutation(t *testing.T) {
 		w.WriteHeader(http.StatusPartialContent)
 		_, _ = w.Write(chunk)
 	}))
-	defer srv.Close()
+	t.Cleanup(srv.Close)
+	return srv
+}
 
+// seedHalfDownloadedItem registers an item whose first half is already
+// compiled on disk and whose second half is a pending, empty part file.
+// It returns the item and the destination path.
+func seedHalfDownloadedItem(t *testing.T, m *Manager, base, url string, content []byte) (*Item, string) {
+	t.Helper()
+	half := int64(len(content) / 2)
 	item := &Item{
 		Hash:             "concurrent-resume",
 		Name:             "file.bin",
-		Url:              srv.URL + "/file.bin",
+		Url:              url + "/file.bin",
 		TotalSize:        ContentLength(len(content)),
 		Downloaded:       ContentLength(half),
 		DownloadLocation: base,
 		AbsoluteLocation: base,
 		Resumable:        true,
 		Protocol:         ProtoHTTP,
-		ResourceETag:     etag,
+		ResourceETag:     concurrentResumeETag,
 		Parts: map[int64]*ItemPart{
 			0:    {Hash: "part0", FinalOffset: half - 1, Compiled: true},
 			half: {Hash: "part1", FinalOffset: int64(len(content)) - 1},
@@ -96,12 +85,40 @@ func TestResumeUnderConcurrentPartMutation(t *testing.T) {
 	if err := os.WriteFile(getFileName(dlPath, "part1"), nil, DefaultFileMode); err != nil {
 		t.Fatalf("WriteFile pending part: %v", err)
 	}
+	return item, savePath
+}
+
+// TestResumeUnderConcurrentPartMutation drives a real Item.Resume() over a
+// local HTTP server while another goroutine mutates the same item's persisted
+// parts through the production addPart path used by download callbacks.
+// Resume must iterate the Parts snapshot taken under the item lock; iterating
+// the live map would race with these writes and with the download's own part
+// callbacks. The server holds its response until the mutation loop stops, so
+// completion (which clears Parts) cannot interleave with a parts write, and
+// the resumed destination must be byte-identical to the served content.
+func TestResumeUnderConcurrentPartMutation(t *testing.T) {
+	base := t.TempDir()
+	if err := SetConfigDir(base); err != nil {
+		t.Fatalf("SetConfigDir: %v", err)
+	}
+	m, err := InitManager()
+	if err != nil {
+		t.Fatalf("InitManager: %v", err)
+	}
+	defer func() { _ = m.Close() }()
+
+	content := bytes.Repeat([]byte("warpdl-concurrent-resume"), 4096)
+	half := int64(len(content) / 2)
+	started := make(chan struct{})
+	release := make(chan struct{})
+	srv := newGatedRangeServer(t, content, started, release)
+	item, savePath := seedHalfDownloadedItem(t, m, base, srv.URL, content)
 
 	resumed, err := m.ResumeDownload(&http.Client{}, item.Hash, nil)
 	if err != nil {
 		t.Fatalf("ResumeDownload: %v", err)
 	}
-	defer resumed.dAlloc.Close()
+	defer func() { _ = resumed.dAlloc.Close() }()
 
 	// Rewrite the pending part with identical values: a real Parts map write
 	// that leaves the download plan valid.
@@ -127,18 +144,17 @@ func TestResumeUnderConcurrentPartMutation(t *testing.T) {
 	resumeDone := make(chan error, 1)
 	go func() { resumeDone <- resumed.Resume() }()
 
+	var earlyErr error
 	select {
 	case <-started:
-	case err := <-resumeDone:
-		close(mutateStop)
-		<-mutateDone
-		close(release)
-		t.Fatalf("Resume ended before any server request: %v", err)
+	case earlyErr = <-resumeDone:
 	}
 	close(mutateStop)
 	<-mutateDone
 	close(release)
-
+	if earlyErr != nil {
+		t.Fatalf("Resume ended before any server request: %v", earlyErr)
+	}
 	if err := <-resumeDone; err != nil {
 		t.Fatalf("Resume: %v", err)
 	}
@@ -151,8 +167,8 @@ func TestResumeUnderConcurrentPartMutation(t *testing.T) {
 		t.Fatalf("resumed destination mismatch: got %d bytes, want %d", len(got), len(content))
 	}
 	downloaded, total := resumed.GetDownloaded(), resumed.GetTotalSize()
-	if downloaded != ContentLength(len(content)) || total != ContentLength(len(content)) {
-		t.Fatalf("item state after resume = %d/%d, want %d/%d",
-			downloaded, total, len(content), len(content))
+	want := ContentLength(len(content))
+	if downloaded != want || total != want {
+		t.Fatalf("item state after resume = %d/%d, want %d/%d", downloaded, total, want, want)
 	}
 }

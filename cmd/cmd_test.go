@@ -502,7 +502,7 @@ func assertEmptyCommandNameShowsAppHelp(t *testing.T, action func(*cli.Context) 
 		called = true
 		exitCode = code
 	})
-	defer cmdcommon.SetShowAppHelpAndExit(prev)
+	defer func() { cmdcommon.SetShowAppHelpAndExit(prev) }()
 
 	stdout, _ := captureOutput(func() {
 		if err := action(ctx); err != nil {

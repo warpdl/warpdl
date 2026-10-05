@@ -63,7 +63,7 @@ type ewmaUpdate struct {
 	iter  time.Duration
 }
 
-func (r *ewmaRecorder) Decor(decor.Statistics) (string, int) { return "", 0 }
+func (r *ewmaRecorder) Decor(decor.Statistics) (text string, width int) { return "", 0 }
 
 func (r *ewmaRecorder) EwmaUpdate(n int64, iterDur time.Duration) {
 	r.mu.Lock()
