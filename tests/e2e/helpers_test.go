@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -226,8 +227,9 @@ func runCmdWithTimeout(cmd *exec.Cmd, timeout time.Duration) (string, error) {
 // ---------------------------------------------------------------------------
 
 // testServer wraps a local HTTP server that serves files with configurable
-// sizes, supports HTTP range requests for segmented downloading, and can
-// simulate error conditions (404, slow responses, mid-download failure).
+// sizes and deterministic, offset-derived content, supports HTTP range requests
+// for segmented downloading, and can simulate error conditions (404, slow
+// responses, mid-download failure).
 type testServer struct {
 	*http.Server
 	URL string
@@ -369,7 +371,7 @@ func (ts *testServer) handleRequest(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Accept-Ranges", "bytes")
 		w.WriteHeader(http.StatusPartialContent)
 
-		ts.writeBytes(w, r, length, slow, latency)
+		ts.writeBytes(w, r, start, length, slow, latency)
 		return
 	}
 
@@ -382,19 +384,39 @@ func (ts *testServer) handleRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ts.writeBytes(w, r, fileSize, slow, latency)
+	ts.writeBytes(w, r, 0, fileSize, slow, latency)
 }
 
-// writeBytes writes `length` zero bytes to w, optionally with per-chunk latency.
-func (ts *testServer) writeBytes(w http.ResponseWriter, r *http.Request, length int64, slow bool, latency time.Duration) {
+// testByteAt returns the deterministic content byte at absolute file offset i.
+// Content depends on the offset, so a mis-ordered segment, a stale stub still in
+// place, or a truncated part surfaces as a content mismatch instead of hiding
+// behind zero-filled payloads.
+func testByteAt(i int64) byte {
+	return byte(i*31 + 17)
+}
+
+// testContent returns the exact bytes a served file of the given size contains.
+func testContent(size int64) []byte {
+	b := make([]byte, size)
+	for i := range b {
+		b[i] = testByteAt(int64(i))
+	}
+	return b
+}
+
+// writeBytes writes `length` pattern bytes starting at absolute file offset
+// `start`, optionally with per-chunk latency.
+func (ts *testServer) writeBytes(w http.ResponseWriter, r *http.Request, start, length int64, slow bool, latency time.Duration) {
 	const chunkSize = 32 * 1024 // 32KB chunks
 	buf := make([]byte, chunkSize)
 
-	remaining := length
-	for remaining > 0 {
+	for written := int64(0); written < length; {
 		n := int64(chunkSize)
-		if n > remaining {
-			n = remaining
+		if n > length-written {
+			n = length - written
+		}
+		for j := int64(0); j < n; j++ {
+			buf[j] = testByteAt(start + written + j)
 		}
 
 		if slow && latency > 0 {
@@ -405,11 +427,11 @@ func (ts *testServer) writeBytes(w http.ResponseWriter, r *http.Request, length 
 			}
 		}
 
-		written, err := w.Write(buf[:n])
+		sent, err := w.Write(buf[:n])
 		if err != nil {
 			return
 		}
-		remaining -= int64(written)
+		written += int64(sent)
 
 		// Flush if possible to ensure data is sent.
 		if f, ok := w.(http.Flusher); ok {
@@ -431,6 +453,20 @@ func (ts *testServer) slowFileURL(path string) string {
 // errorURL returns a URL that responds with the given HTTP status code.
 func (ts *testServer) errorURL(code int) string {
 	return fmt.Sprintf("%s/error/%d", ts.URL, code)
+}
+
+// expectedBytes returns the exact bytes this server serves for a registered
+// file path, so tests can compare the bytes of an assembled, renamed,
+// overwritten, or resumed file rather than only its size. Returns nil for an
+// unregistered path.
+func (ts *testServer) expectedBytes(filePath string) []byte {
+	ts.mu.Lock()
+	f, ok := ts.files[filePath]
+	ts.mu.Unlock()
+	if !ok {
+		return nil
+	}
+	return testContent(f.Size)
 }
 
 // ---------------------------------------------------------------------------
@@ -480,6 +516,56 @@ func assertFileSize(t *testing.T, path string, expectedSize int64) {
 	}
 }
 
+// assertFileContent checks that a file at the given path byte-equals the
+// expected content, polling briefly so a still-assembling file is not misread
+// as a mismatch.
+func assertFileContent(t *testing.T, path string, expected []byte) {
+	t.Helper()
+	assertFileContentWithin(t, path, expected, fileAssertTimeout)
+}
+
+// assertFileContentWithin is assertFileContent with an explicit deadline, for
+// flows whose file legitimately lands later than a plain download (a scheduled
+// transfer, for example).
+func assertFileContentWithin(t *testing.T, path string, expected []byte, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		got, err := os.ReadFile(path)
+		if err == nil && bytes.Equal(got, expected) {
+			return
+		}
+		if time.Now().After(deadline) {
+			if err != nil {
+				t.Fatalf("failed to read file %s after %s: %v", path, timeout, err)
+			}
+			t.Fatalf("file content mismatch at %s: %s (waited %s)", path, firstByteDiff(got, expected), timeout)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// firstByteDiff describes the first difference between got and want.
+func firstByteDiff(got, want []byte) string {
+	for i := 0; i < len(got) && i < len(want); i++ {
+		if got[i] != want[i] {
+			return fmt.Sprintf("first difference at byte %d: got 0x%02x, want 0x%02x", i, got[i], want[i])
+		}
+	}
+	return fmt.Sprintf("length mismatch: got %d bytes, want %d bytes", len(got), len(want))
+}
+
+// assertFileNotComplete fails if path already holds the complete expected
+// content. Registration may legitimately leave an empty stub behind, so only a
+// byte-exact copy proves a scheduled transfer ran before its trigger.
+func assertFileNotComplete(t *testing.T, path string, expected []byte) {
+	t.Helper()
+	got, err := os.ReadFile(path)
+	if err == nil && bytes.Equal(got, expected) {
+		t.Errorf("file %s already matches the served content; the scheduled transfer started before its trigger", path)
+	}
+}
+
 // assertOutputContains checks that output contains the expected substring.
 func assertOutputContains(t *testing.T, output, expected string) {
 	t.Helper()
@@ -501,8 +587,8 @@ func assertOutputNotContains(t *testing.T, output, unexpected string) {
 // ---------------------------------------------------------------------------
 
 // downloadAndVerify downloads a file from the given URL using the test
-// environment's daemon, verifies the file exists with the expected size,
-// and returns the output from the download command.
+// environment's daemon, verifies the file exists with the expected size and
+// byte-exact server content, and returns the output from the download command.
 func (e *testEnv) downloadAndVerify(t *testing.T, rawURL string, expectedSize int64, extraFlags ...string) string {
 	t.Helper()
 
@@ -526,6 +612,7 @@ func (e *testEnv) downloadAndVerify(t *testing.T, rawURL string, expectedSize in
 		filePath := filepath.Join(e.DownloadDir, fileName)
 		assertFileExists(t, filePath)
 		assertFileSize(t, filePath, expectedSize)
+		assertFileContent(t, filePath, testContent(expectedSize))
 	}
 
 	return output

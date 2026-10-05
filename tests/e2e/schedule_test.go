@@ -3,90 +3,46 @@
 package e2e
 
 import (
-	"context"
-	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 )
 
-// TestScheduledDownload_StartAt verifies that a download scheduled with
-// --start-at near-future actually starts and completes (T074 scheduling path).
+// TestScheduledDownload_StartAt verifies the one-shot --start-at path end to
+// end against the local test server: the CLI registers the item as scheduled
+// without starting it, the daemon's scheduler fires it at the trigger minute,
+// and the assembled file matches the served bytes exactly.
+//
+// --start-at only carries minute precision, so the trigger is the first whole
+// minute at least a few seconds away: enough slack for the CLI to reach the
+// daemon on a loaded runner, while keeping the wait under roughly a minute.
 func TestScheduledDownload_StartAt(t *testing.T) {
-	configDir := t.TempDir()
-	downloadDir := t.TempDir()
-	socketPath := filepath.Join(configDir, "warpdl.sock")
+	t.Parallel()
 
-	env := append(os.Environ(),
-		"WARPDL_CONFIG_DIR="+configDir,
-		"WARPDL_SOCKET_PATH="+socketPath,
-	)
+	ts := newTestServer(t)
+	env := newTestEnv(t)
+	env.startDaemon(t)
 
-	ctx, cancel := newDaemonContext(t)
-	defer cancel()
-
-	daemonCmd := exec.CommandContext(ctx, binaryPath, "daemon")
-	daemonCmd.Env = env
-	daemonCmd.Stdout = os.Stdout
-	daemonCmd.Stderr = os.Stderr
-	if err := daemonCmd.Start(); err != nil {
-		t.Fatalf("start daemon: %v", err)
-	}
-	defer stopDaemon(t, binaryPath, env, daemonCmd, cancel)
-
-	time.Sleep(daemonStartWait)
-
-	// Schedule download 2 minutes from now — far enough ahead that the
-	// minute-precision format "2006-01-02 15:04" never falls in the past,
-	// regardless of what second within the current minute we are.
-	startAt := time.Now().Add(2 * time.Minute).Format("2006-01-02 15:04")
-	dlURL := "https://ash-speed.hetzner.com/100MB.bin"
-
-	dlCmd := exec.Command(binaryPath, "download", dlURL,
-		"--start-at", startAt,
-		"-l", downloadDir,
+	startAt := time.Now().Add(65 * time.Second).Truncate(time.Minute)
+	output := env.run(t, "download",
+		ts.fileURL("/testfile.bin"),
+		"--start-at", startAt.Format("2006-01-02 15:04"),
+		"-l", env.DownloadDir,
 		"-x", "4",
+		"-s", "4",
 	)
-	dlCmd.Env = env
+	assertOutputContains(t, output, "Scheduled download")
 
-	output, err := runWithTimeout(dlCmd, 30*time.Second)
-	if err != nil && !isNetworkError(err, output) {
-		t.Fatalf("schedule download: %v\nOutput: %s", err, output)
-	}
-	if isNetworkError(err, output) {
-		t.Skipf("Network unavailable: %v", err)
-	}
+	// Registration must list the pending item without starting the transfer.
+	listOutput := env.run(t, "list")
+	assertOutputContains(t, listOutput, "testfile.bin")
 
-	// List downloads immediately — the item must appear as scheduled (not yet triggered).
-	listCmd := exec.Command(binaryPath, "list")
-	listCmd.Env = env
-	listOutput, _ := listCmd.CombinedOutput()
-	t.Logf("List output: %s", listOutput)
-	if !strings.Contains(string(listOutput), "100MB.bin") {
-		t.Errorf("expected scheduled download to appear in list output, got: %s", listOutput)
-	}
-}
+	filePath := filepath.Join(env.DownloadDir, "testfile.bin")
+	expected := ts.expectedBytes("/testfile.bin")
+	assertFileNotComplete(t, filePath, expected)
 
-// newDaemonContext creates a context for daemon lifecycle management.
-func newDaemonContext(t *testing.T) (context.Context, context.CancelFunc) {
-	t.Helper()
-	return context.WithCancel(context.Background())
-}
-
-// stopDaemon gracefully stops the daemon process.
-func stopDaemon(t *testing.T, binary string, env []string, cmd *exec.Cmd, cancel context.CancelFunc) {
-	t.Helper()
-	stopCmd := exec.Command(binary, "stop-daemon")
-	stopCmd.Env = env
-	_ = stopCmd.Run()
-	cancel()
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		_ = cmd.Process.Kill()
-	}
+	// The scheduler must fire at the trigger minute and download every byte:
+	// the deadline covers the remaining wait plus a margin for the transfer.
+	assertFileContentWithin(t, filePath, expected, time.Until(startAt)+time.Minute)
+	assertOutputContains(t, env.run(t, "list", "-a"), "testfile.bin")
 }

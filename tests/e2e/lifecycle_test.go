@@ -35,7 +35,7 @@ func TestLifecycle_DownloadListFlush(t *testing.T) {
 
 	// Flush all completed history without interactive confirmation.
 	flushOutput := env.run(t, "flush", "--force")
-	assertOutputContains(t, flushOutput, "Flushed")
+	assertOutputContains(t, flushOutput, "Flushed all download history!")
 
 	// After flush the list must be empty.
 	emptyOutput := env.run(t, "list", "-a")
@@ -46,39 +46,44 @@ func TestLifecycle_DownloadListFlush(t *testing.T) {
 // ---------------------------------------------------------------------------
 // TestLifecycle_DownloadListFlush_SingleItem
 //
-// Like the above but uses `flush --force -i <hash>` to flush a specific item,
-// leaving any other history untouched.  We download two files, flush only the
-// first, and confirm the second still appears.
+// Downloads two files and flushes only the first by hash, leaving any other
+// history untouched. Both the -i short flag and the --item-hash long flag are
+// exercised so the aliases cannot drift apart.
 // ---------------------------------------------------------------------------
 
 func TestLifecycle_DownloadListFlush_SingleItem(t *testing.T) {
 	t.Parallel()
-	ts := newTestServer(t)
-	env := newTestEnv(t)
-	env.startDaemon(t)
 
-	// Download two distinct files.
-	_ = env.downloadAndVerify(t, ts.fileURL("/testfile.bin"), testFileSize)
-	_ = env.downloadAndVerify(t, ts.fileURL("/small.bin"), 1024)
+	for _, flag := range []string{"-i", "--item-hash"} {
+		t.Run(flag, func(t *testing.T) {
+			ts := newTestServer(t)
+			env := newTestEnv(t)
+			env.startDaemon(t)
 
-	listOutput := env.run(t, "list", "-a")
-	assertOutputContains(t, listOutput, "testfile.bin")
-	assertOutputContains(t, listOutput, "small.bin")
+			// Download two distinct files.
+			_ = env.downloadAndVerify(t, ts.fileURL("/testfile.bin"), testFileSize)
+			_ = env.downloadAndVerify(t, ts.fileURL("/small.bin"), 1024)
 
-	// Extract the hash belonging to testfile.bin.
-	hash := extractHashFromLineContaining(listOutput, "testfile.bin")
-	if hash == "" {
-		t.Fatal("could not extract hash for testfile.bin from list output")
+			listOutput := env.run(t, "list", "-a")
+			assertOutputContains(t, listOutput, "testfile.bin")
+			assertOutputContains(t, listOutput, "small.bin")
+
+			// Extract the hash belonging to testfile.bin.
+			hash := extractHashFromLineContaining(listOutput, "testfile.bin")
+			if hash == "" {
+				t.Fatal("could not extract hash for testfile.bin from list output")
+			}
+
+			// Flush only that item.
+			flushOutput := env.run(t, "flush", "--force", flag, hash)
+			assertOutputContains(t, flushOutput, hash)
+
+			// small.bin must still be present; testfile.bin must be gone.
+			afterOutput := env.run(t, "list", "-a")
+			assertOutputContains(t, afterOutput, "small.bin")
+			assertOutputNotContains(t, afterOutput, "testfile.bin")
+		})
 	}
-
-	// Flush only that item.
-	flushOutput := env.run(t, "flush", "--force", "-i", hash)
-	assertOutputContains(t, flushOutput, hash)
-
-	// small.bin must still be present; testfile.bin must be gone.
-	afterOutput := env.run(t, "list", "-a")
-	assertOutputContains(t, afterOutput, "small.bin")
-	assertOutputNotContains(t, afterOutput, "testfile.bin")
 }
 
 // ---------------------------------------------------------------------------
@@ -140,10 +145,11 @@ func TestLifecycle_DownloadStopResume(t *testing.T) {
 	)
 	assertOutputContains(t, resumeOutput, "WARP download")
 
-	// Verify the completed file has the expected size.
+	// Verify the resumed file matches the served bytes exactly: the stopped
+	// prefix and the resumed remainder must join without a gap or overlap.
 	expectedPath := filepath.Join(env.DownloadDir, "medium.bin")
 	assertFileExists(t, expectedPath)
-	assertFileSize(t, expectedPath, 10*1024*1024)
+	assertFileContent(t, expectedPath, ts.expectedBytes("/medium.bin"))
 }
 
 // ---------------------------------------------------------------------------
@@ -255,43 +261,10 @@ func TestError_DaemonNotRunning(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// TestError_ServerDown
-//
-// Verifies that a download attempt against an unreachable server (closed port)
-// is reported as an error rather than silently succeeding.
-// ---------------------------------------------------------------------------
-
-func TestError_ServerDown(t *testing.T) {
-	t.Parallel()
-	ts := newTestServer(t)
-	env := newTestEnv(t)
-	env.startDaemon(t)
-
-	// Point at an HTTP error path that returns 404.
-	badURL := ts.errorURL(404)
-
-	output, err := env.runMayFail(
-		"download", badURL,
-		"-l", env.DownloadDir,
-		"-x", "4",
-		"-s", "4",
-	)
-
-	lower := strings.ToLower(output)
-	isErr := err != nil ||
-		strings.Contains(lower, "error") ||
-		strings.Contains(lower, "404") ||
-		strings.Contains(lower, "not found") ||
-		strings.Contains(lower, "failed")
-	if !isErr {
-		t.Fatalf("expected error for server-down download, got exit=nil output:\n%s", output)
-	}
-}
-
-// ---------------------------------------------------------------------------
 // TestError_ServerDown_NoPort
 //
 // Verifies behaviour when the TCP port itself is not listening (ECONNREFUSED).
+// The equivalent HTTP-error-response case is covered by TestDownload_404.
 // ---------------------------------------------------------------------------
 
 func TestError_ServerDown_NoPort(t *testing.T) {
